@@ -1,0 +1,126 @@
+unit<uint32> NWB  
+:	StorageName     = "='%SourceDataDir%/NetworkModel/Infrastructuur/NWB/'+ModelParameters/NWB_file_date+'/Wegvakken/wegvakken.shp'"
+,	StorageType     = "gdal.vect"
+,	StorageReadOnly = "True"
+,	SyncMode = "none"
+{
+	attribute<geometries/rdc>  geometry (arc);
+	attribute<string>          wegtype;
+	
+	unit<uint32> RoadPointSet := sequence2points(geometry)
+	, DialogData = "point"
+	, DialogType = "map"
+	{
+		container Mean_Speed :=
+			for_each_nedv(
+				NDW/Meetmomenten/DaysPeriods/name
+				, 'rjoin(SequenceNr, id(NWB), NWB/PerDayGroupPeriod/'+NDW/Meetmomenten/DaysPeriods/name+'/CongestionSpeed/mean)'
+				, RoadPointSet
+				, float32
+			);
+		container Mean_Flow :=
+			for_each_nedv(
+				NDW/Meetmomenten/DaysPeriods/name
+				, 'rjoin(SequenceNr, id(NWB), NWB/PerDayGroupPeriod/'+NDW/Meetmomenten/DaysPeriods/name+'/CongestionFlow/mean)'
+				, RoadPointSet
+				, float32
+			);
+	}
+	
+	container PerDayGroupPeriod :=
+		for_each_ne(
+			NDW/Meetmomenten/DaysPeriods/name
+			, 'PerDayGroup_T('+quote(NDW/Meetmomenten/DaysPeriods/name)+')'
+		);
+	
+	Template PerDayGroup_T
+	{
+		parameter<string> DayGroupPeriodName;
+		parameter<string> DayGroupName        := rjoin(DayGroupPeriodName, NDW/Meetmomenten/DaysPeriods/name, NDW/Meetmomenten/DaysPeriods/DayGroupName);
+		parameter<string> TimeGroupName       := rjoin(DayGroupPeriodName, NDW/Meetmomenten/DaysPeriods/name, NDW/Meetmomenten/DaysPeriods/TimeGroupName);
+		
+		container DayGroups := ='NDW/Meetmomenten/datetime/PerDayGroup/'+DayGroupName;
+		container TimeGroup := ='DayGroups/'+TimeGroupName;
+
+		container CongestionSpeed := 
+			for_each_nedv(
+				TimeGroup/name
+				, 'rjoin(id(NWB), Link_NWB_to_NDW/ArcID, Link_NWB_to_NDW/PerDayGroupPeriod/'+DayGroupPeriodName+'/Avg_speed/'+TimeGroup/name+')' 
+				, NWB
+				, uint32
+			)
+		{
+			attribute<float32> sum           (NWB) := ='add('+AsItemList('MakeDefined('+TimeGroup/name+'[float32],0f)')+')';
+			attribute<float32> mean          (NWB) := sum / Count_CongestionSpeedPerSegment/count;
+		}
+			
+		container CongestionFlow := 
+			for_each_nedv(
+				TimeGroup/name
+				, 'rjoin(id(NWB), Link_NWB_to_NDW/ArcID, Link_NWB_to_NDW/PerDayGroupPeriod/'+DayGroupPeriodName+'/Avg_flow/'+TimeGroup/name+')' 
+				, NWB
+				, uint32
+			)
+		{
+			attribute<float32> sum           (NWB) := ='add('+AsItemList('MakeDefined('+TimeGroup/name+'[float32],0f)')+')';
+			attribute<float32> mean          (NWB) := sum / Count_CongestionFlowPerSegment/count;
+		}
+		
+		container Count_CongestionSpeedPerSegment := 
+			for_each_nedv(
+				TimeGroup/name
+				, 'IsDefined(CongestionSpeed/'+TimeGroup/name+') ? 1 : 0'
+				, NWB
+				, uint32
+			)
+		{
+			attribute<float32> count           (NWB) := = 'add('+AsItemList(TimeGroup/name+'[float32]')+')';
+		}
+		
+		container Count_CongestionFlowPerSegment := 
+			for_each_nedv(
+				TimeGroup/name
+				, 'IsDefined(CongestionFlow/'+TimeGroup/name+') ? 1 : 0'
+				, NWB
+				, uint32
+			)
+		{
+			attribute<float32> count           (NWB) := = 'add('+AsItemList(TimeGroup/name+'[float32]')+')';
+		}
+	}
+
+	container Link_NWB_to_NDW := connect_info(geometry, NDW/Telpunten/geometry_rd)
+	{
+		container PerDayGroupPeriod :=
+			for_each_ne(
+				NDW/Meetmomenten/DaysPeriods/name
+				, 'PerDayGroupPeriod_T('+quote(NDW/Meetmomenten/DaysPeriods/name)+')'
+			);
+		
+		Template PerDayGroupPeriod_T
+		{
+			parameter<string> DayGroupPeriodName;
+			parameter<string> DayGroupName        := rjoin(DayGroupPeriodName, NDW/Meetmomenten/DaysPeriods/name, NDW/Meetmomenten/DaysPeriods/DayGroupName);
+			parameter<string> TimeGroupName       := rjoin(DayGroupPeriodName, NDW/Meetmomenten/DaysPeriods/name, NDW/Meetmomenten/DaysPeriods/TimeGroupName);
+			
+			container DayGroups := ='NDW/Meetmomenten/datetime/PerDayGroup/'+DayGroupName;
+			container TimeGroup := ='DayGroups/'+TimeGroupName;
+
+			container Avg_speed :=
+				for_each_nedv(
+					TimeGroup/name
+					, 'NDW/Telpunten/PerDayGroupPeriod/'+DayGroupPeriodName+'/Avg_speed/'+TimeGroup/name
+					, NDW/Telpunten
+					, uint32
+				);
+				
+			container Avg_flow := 
+				for_each_nedv(
+					TimeGroup/name
+					, 'NDW/Telpunten/PerDayGroupPeriod/'+DayGroupPeriodName+'/Avg_flow/'+TimeGroup/name
+					, NDW/Telpunten
+					, uint32
+				);
+		}
+	}
+}

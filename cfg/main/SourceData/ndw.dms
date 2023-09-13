@@ -1,0 +1,150 @@
+container NDW
+{ 
+	unit<uint32> Telpunten 
+	:	StorageName     = "='%SourceDataDir%/NetworkModel/Infrastructuur/NDW/Telpunten_WGS84_'+ModelParameters/NDW_file_date+'.shp'"
+	,	StorageType     = "gdal.vect"
+	,	StorageReadOnly = "True"
+	,	DialogType      = "map"
+	,	DialogData      = "geometry_rd"
+	{
+		attribute<fpoint>         geometry;
+		attribute<geometries/rdc> geometry_rd := LatLongWgs842RD(geometry,geometries/rdc);
+		
+		container PerDayGroupPeriod :=
+			for_each_ne(
+				NDW/Meetmomenten/DaysPeriods/name
+				, 'PerDayGroup_T('+quote(NDW/Meetmomenten/DaysPeriods/name)+')'
+			);
+		
+		Template PerDayGroup_T
+		{
+			parameter<string> DayGroupPeriodName;
+			parameter<string> DayGroupName        := rjoin(DayGroupPeriodName, NDW/Meetmomenten/DaysPeriods/name, NDW/Meetmomenten/DaysPeriods/DayGroupName);
+			parameter<string> TimeGroupName       := rjoin(DayGroupPeriodName, NDW/Meetmomenten/DaysPeriods/name, NDW/Meetmomenten/DaysPeriods/TimeGroupName);
+			
+			container DayGroups := ='NDW/Meetmomenten/datetime/PerDayGroup/'+DayGroupName;
+			container TimeGroup := ='DayGroups/'+TimeGroupName;
+
+			container Avg_speed := 
+				for_each_nedv(
+					TimeGroup/name
+					, 'rjoin(dgl_loc, ReadTrafficSpeedFromXML/'+TimeGroup/name+'/meetvak_id, ReadTrafficSpeedFromXML/'+TimeGroup/name+'/avg_speed_per_site)'
+					, Telpunten
+					, uint32
+				);
+			
+			container Avg_flow := 
+				for_each_nedv(
+					TimeGroup/name
+					, 'rjoin(dgl_loc, ReadTrafficSpeedFromXML/'+TimeGroup/name+'/meetvak_id, ReadTrafficSpeedFromXML/'+TimeGroup/name+'/avg_flowrate_per_site)'
+					, Telpunten
+					, uint32
+				);
+		}
+	}
+	
+	container Meetmomenten
+	{
+		unit<uint32> date        := ModelParameters/Advanced/NDW_meetmomenten/date;
+		unit<uint32> time        := ModelParameters/Advanced/NDW_meetmomenten/time;
+		unit<uint32> DayGroups   := ModelParameters/Advanced/NDW_meetmomenten/DayGroups;
+		unit<uint32> TimeGroups  := ModelParameters/Advanced/NDW_meetmomenten/TimeGroups;
+		
+		unit<uint32> DaysPeriods := combine(DayGroups, TimeGroups)
+		{
+			attribute<string> name                 := DayGroupName + '_' + TimeGroupName;
+			attribute<string> DayGroupName         := DayGroups/name[nr_1];
+			attribute<string> TimeGroupName        := TimeGroups/name[nr_2];
+		}
+		unit<uint32> datetime := combine(date, time)
+		{
+			attribute<string> datum         := date/value[nr_1];
+			attribute<bool>   IsMonTue      := date/IsMonTue[nr_1];
+			attribute<bool>   IsWedThuFri   := date/IsWedThuFri[nr_1];
+			attribute<bool>   IsSatSun      := date/IsSatSun[nr_1];
+			attribute<string> tijd          := time/value[nr_2];
+			attribute<bool>   IsMorningRush := time/morningrush[nr_2][bool];
+			attribute<bool>   IsNoonRush    := time/noonrush[nr_2][bool];
+			attribute<bool>   IsLateEveningRush    := time/LateEveningRush[nr_2][bool];
+			attribute<string> name          := 'd' + datum + '_' + tijd;
+			
+			container PerDayGroup :=
+				for_each_ne(
+					DayGroups/name
+					, 'PerDayGroup_T('+quote(DayGroups/name)+')'
+				);
+			
+			Template PerDayGroup_T
+			{
+				parameter<string> DayGroupName;
+				
+				unit<uint32> MorningRush := ='subset(IsMorningRush && Is'+DayGroupName+')'
+				{
+					attribute<string> name          := datetime/name[nr_OrgEntity];
+				}
+				unit<uint32> NoonRush := ='subset(IsNoonRush && Is'+DayGroupName+')'
+				{
+					attribute<string> name          := datetime/name[nr_OrgEntity];
+				}
+				unit<uint32> LateEveningRush := ='subset(IsLateEveningRush && Is'+DayGroupName+')'
+				{
+					attribute<string> name          := datetime/name[nr_OrgEntity];
+				}
+			}
+		}
+	}
+	
+	container ReadTrafficSpeedFromXML := 
+		for_each_ne(
+			Meetmomenten/datetime/name
+			, 'ReadTrafficSpeedFromXML_T('+quote(Meetmomenten/datetime/datum)+','+quote(Meetmomenten/datetime/tijd)+')'
+		);
+	
+	
+	Template ReadTrafficSpeedFromXML_T : Descr = "MST, https://www.ndw.nu/documenten/nl/#cat_2"
+	{
+		parameter<string> Date;
+		parameter<string> Time;
+		
+		parameter<string> XmlData
+		:	StorageName = "='%SourceDataDir%/NetworkModel/Infrastructuur/NDW/'+string(Date)+'/'+string(Time)+'_TrafficSpeed.xml'"
+		,	StorageType = "str";
+		
+		container ParsedXML  := parse_xml(XmlData, XMLschema);
+
+		unit<uint32> siteMeasurements := ParsedXML/siteMeasurements;
+		unit<uint32> measuredValue    := ParsedXML/siteMeasurements/measuredValue;
+
+		attribute<string> meetvak_id                     (siteMeasurements)               := rjoin(id(ParsedXML/siteMeasurements), ParsedXML/siteMeasurements/measurementSiteReference/Parent_rel, ParsedXML/siteMeasurements/measurementSiteReference/id);
+		attribute<uint32> avg_speed_per_site             (siteMeasurements)               := mean(avg_speed_per_measuredValue, ParsedXML/siteMeasurements/measuredValue/parent_rel[ParsedXML/siteMeasurements]);
+		attribute<uint32> avg_speed_per_measuredValue    (measuredValue)                  := mean(ParsedXML/siteMeasurements/measuredValue/averageVehicleSpeed/speed, ParsedXML/siteMeasurements/measuredValue/averageVehicleSpeed/parent_rel[ParsedXML/siteMeasurements/measuredValue]);
+		
+		attribute<uint32> avg_flowrate_per_site          (siteMeasurements)               := mean(avg_flowrate_per_measuredValue, ParsedXML/siteMeasurements/measuredValue/parent_rel[ParsedXML/siteMeasurements]);
+		attribute<uint32> avg_flowrate_per_measuredValue (measuredValue)                  := mean(ParsedXML/siteMeasurements/measuredValue/vehicleFlow/vehicleFlowRate, ParsedXML/siteMeasurements/measuredValue/vehicleFlow/parent_rel[ParsedXML/siteMeasurements/measuredValue]);
+
+	}
+	
+	container XMLschema// xml attributes are here modelled as sub units of the entity related unit.
+	{
+		unit<uint32> siteMeasurements //A  measurement data set derived from a specific measurement site.
+		{
+			unit<uint32> measurementSiteReference //A reference to a versioned measurement site record defined in a Measurement Site table
+			{
+				attribute<string> id;
+			}
+			attribute<string> measurementTimeDefault; //The time associated with the set of measurements. It may be the time of the beginning, the end or the middle of the measurement period.
+			
+			unit<uint32> measuredValue  //Contains optional characteristics for the specific measured value (indexed to correspond with the defined characteristics of the measurement at the referenced measurement site) which override the static characteristics defined in the MeasurementSiteTable
+			{							//Composition to the indexed measured value associated with the measurement site. The index uniquely associates the measurement value with the corresponding indexed measurement characteristics defined for the measurement site.
+				unit<uint32> vehicleFlow //A value of vehicle flow rate expressed in vehicles per hour.
+				{
+					attribute<uint32> vehicleFlowRate;
+				}
+				unit<uint32> averageVehicleSpeed //Averaged measurements or calculations of traffic speed.
+				{
+					attribute<uint32> speed; //Averaged measurements or calculations of traffic speed.
+				}
+			}
+		}
+	}
+}

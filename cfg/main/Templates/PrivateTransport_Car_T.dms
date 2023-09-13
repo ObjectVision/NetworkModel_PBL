@@ -1,0 +1,204 @@
+Template PrivateTransport_Car_T
+{
+	unit<uint32> org;
+	unit<uint32> dest;
+	parameter<bool>    DoMakeAllPairs;
+	// parameter<string>  CongestionType;
+	///
+	parameter<string>  netwerk_type_OSM := 'car';
+
+	container Settings
+	{
+		parameter<string>  netwerk_type_Logit := netwerk_type_OSM == classifications/OSM/netwerk_type/name[classifications/OSM/netwerk_type/V/Pedestrian] ? classifications/OSM/netwerk_type/name[classifications/OSM/netwerk_type/V/Bike] : netwerk_type_OSM;
+		
+		parameter<min_f>   max_traveldistance_min  := ModelParameters/MaxCarTime;
+		parameter<uint32>  nr_balancing_iter       := ModelParameters/Advanced/PrivateTransportSettings/nr_balancing_iter;
+		parameter<uint32>  nr_imp_iter             := ModelParameters/Advanced/PrivateTransportSettings/nr_imp_iter;
+		parameter<float32> imp_margin              := ModelParameters/Advanced/PrivateTransportSettings/imp_margin;
+		parameter<float32> imp_step                := ModelParameters/Advanced/PrivateTransportSettings/imp_step; 
+		
+		attribute<uint32> dest_mass (dest) := ='dest/'+ModelParameters/items_of_interest;
+		
+		parameter<string> fileNamePrefix :=  ModelParameters/Advanced/fileNamePrefix;
+		parameter<string> fileNameSuffix :=  
+			'_ORG-'    + ModelParameters/Orgset + '-' + regio_name + 
+			'_DEST-'   + ModelParameters/Advanced/DestSet_string +
+			'_NETWERK-'+ netwerk_type_OSM +
+			'_DayGroup-'+ModelParameters/CongestionSpeed_DaygroupSelection +
+			'_MaxTime-' + string(ModelParameters/MaxCarTime)+'min';
+
+			
+		parameter<string> fileNameSuffix_MakeCongestionSpeeds :=  
+			'_ORG-'+Determine_CongestedSpeeds/InwonerOD_set+
+			'_DEST-'+Determine_CongestedSpeeds/InwonerOD_set+
+			'_OSMdate-' + ModelParameters/OSM_file_date+
+			'_NDWdates-' + ModelParameters/Advanced/NDW_meetmomenten/DateRange+
+			'_DayGroup-'+ModelParameters/CongestionSpeed_DaygroupSelection;
+		parameter<string> fileNameSuffix_ReadCongestionSpeeds :=  
+			'_ORG-'+Determine_CongestedSpeeds/InwonerOD_set+
+			'_DEST-'+Determine_CongestedSpeeds/InwonerOD_set+
+			'_OSMdate-' + ModelParameters/CarCongestionSpeed_date+
+			'_NDWdates-' + ModelParameters/Advanced/NDW_meetmomenten/DateRange+
+			'_DayGroup-'+ModelParameters/CongestionSpeed_DaygroupSelection;  
+			
+		parameter<string> logit_weight_prefix := 'ModelParameters/Advanced/Distance_Decay/' + netwerk_type_Logit;
+		parameter<string> logit_weights_expr  := logit_weight_prefix+'_a, ' + logit_weight_prefix+'_b, ' + logit_weight_prefix+'_c';
+	}
+
+	
+	container Determine_CongestedSpeeds := Templates/Determine_CongestedSpeeds_T(regio_name, 'Gemeente'); //regio, InwonerOD_set
+	container Create_Optimised_Network  := Templates/CreateNetwork_Efficient_T(org, dest, Determine_CongestedSpeeds/Read_CongestionSpeeds_FSS, 'Car');
+
+	container Traveltimes
+	{
+		unit<uint64> MorningRush :=
+			dijkstra_m64('bidirectional;startPoint(Node_rel):max_imp;endPoint(Node_rel);cut(OrgZone_max_imp);od:impedance,OrgZone_rel,DstZone_rel'
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet/Impedance_per_ImpedanceType/congested_morning_car
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet/F1
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet/F2
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalNodeSet/OrgNode_rel
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalNodeSet/DestNode_rel
+				, convert(settings/max_traveldistance_min, s_f) //cut impedance      
+			)
+		{
+			attribute<string> Org_Dest := string(OrgZone_rel)+'_'+string(DstZone_rel);
+		}
+		
+		unit<uint64> NoonRush :=
+			dijkstra_m64('bidirectional;startPoint(Node_rel):max_imp;endPoint(Node_rel);cut(OrgZone_max_imp);od:impedance,OrgZone_rel,DstZone_rel'
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet/Impedance_per_ImpedanceType/congested_noon_car
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet/F1
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet/F2
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalNodeSet/OrgNode_rel
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalNodeSet/DestNode_rel
+				, convert(settings/max_traveldistance_min, s_f) //cut impedance      
+			)
+		{
+			attribute<string> Org_Dest := string(OrgZone_rel)+'_'+string(DstZone_rel);
+		}
+		
+		unit<uint64> LateEveningRush :=
+			dijkstra_m64('bidirectional;startPoint(Node_rel):max_imp;endPoint(Node_rel);cut(OrgZone_max_imp);od:impedance,OrgZone_rel,DstZone_rel'
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet/Impedance_per_ImpedanceType/congested_Late_car
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet/F1
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet/F2
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalNodeSet/OrgNode_rel
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalNodeSet/DestNode_rel
+				, convert(settings/max_traveldistance_min, s_f) //cut impedance      
+			)
+		{
+			attribute<string> Org_Dest := string(OrgZone_rel)+'_'+string(DstZone_rel);
+		}
+		
+		unit<uint64> MaxSpeed :=
+			dijkstra_m64('bidirectional;startPoint(Node_rel):max_imp;endPoint(Node_rel);cut(OrgZone_max_imp);od:impedance,OrgZone_rel,DstZone_rel'
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet/Impedance_per_ImpedanceType/max_limit_car
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet/F1
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet/F2
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalNodeSet/OrgNode_rel
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalNodeSet/DestNode_rel
+				, convert(settings/max_traveldistance_min, s_f) //cut impedance      
+			)
+		{
+			attribute<string> Org_Dest := string(OrgZone_rel)+'_'+string(DstZone_rel);
+		}
+	}
+	
+	container Decayed
+	{
+		unit<uint64> MorningRush := 
+			dijkstra_m64('bidirectional;startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);interaction(v_i,w_j,dist_logit(alpha,beta,gamma)):D_i'
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet/Impedance_per_ImpedanceType/congested_morning_car
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet/F1
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet/F2
+				
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalNodeSet/OrgNode_rel
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalNodeSet/DestNode_rel
+				, convert(settings/max_traveldistance_min, s_f) 
+				, 1f                                 // v_i
+				, settings/dest_mass[float32]        // w_j
+				, ModelParameters/Advanced/Distance_Decay/car_a , ModelParameters/Advanced/Distance_Decay/car_b , ModelParameters/Advanced/Distance_Decay/car_c
+			);
+
+		unit<uint64> NoonRush := 
+			dijkstra_m64('bidirectional;startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);interaction(v_i,w_j,dist_logit(alpha,beta,gamma)):D_i'
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet/Impedance_per_ImpedanceType/congested_noon_car
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet/F1
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet/F2
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalNodeSet/OrgNode_rel
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalNodeSet/DestNode_rel
+				, convert(settings/max_traveldistance_min, s_f) 
+				, 1f                                 // v_i
+				, settings/dest_mass[float32]        // w_j
+				, ModelParameters/Advanced/Distance_Decay/car_a , ModelParameters/Advanced/Distance_Decay/car_b , ModelParameters/Advanced/Distance_Decay/car_c
+			);
+
+		unit<uint64> LateEveningRush := 
+			dijkstra_m64('bidirectional;startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);interaction(v_i,w_j,dist_logit(alpha,beta,gamma)):D_i'
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet/Impedance_per_ImpedanceType/congested_Late_car
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet/F1
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet/F2
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalNodeSet/OrgNode_rel
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalNodeSet/DestNode_rel
+				, convert(settings/max_traveldistance_min, s_f) 
+				, 1f                                 // v_i
+				, settings/dest_mass[float32]        // w_j
+				, ModelParameters/Advanced/Distance_Decay/car_a , ModelParameters/Advanced/Distance_Decay/car_b , ModelParameters/Advanced/Distance_Decay/car_c
+			);
+
+		unit<uint64> MaxSpeed := 
+			dijkstra_m64('bidirectional;startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);interaction(v_i,w_j,dist_logit(alpha,beta,gamma)):D_i'
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet/Impedance_per_ImpedanceType/max_limit_car
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet/F1
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet/F2
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalNodeSet/OrgNode_rel
+				, Create_Optimised_Network/CreateMoreEfficientNetwork/FinalNodeSet/DestNode_rel
+				, convert(settings/max_traveldistance_min, s_f)
+				, 1f                                 // v_i
+				, settings/dest_mass[float32]        // w_j
+				, ModelParameters/Advanced/Distance_Decay/car_a , ModelParameters/Advanced/Distance_Decay/car_b , ModelParameters/Advanced/Distance_Decay/car_c
+			);
+	}
+	
+	
+	container ExportTable_Decayed
+	{
+		attribute<float32> nr_items_of_interest_decayed_MaxSpeed        (org) := Decayed/MaxSpeed/D_i;
+		attribute<float32> nr_items_of_interest_decayed_MorningRush     (org) := Decayed/MorningRush/D_i;
+		attribute<float32> nr_items_of_interest_decayed_NoonRush        (org) := Decayed/NoonRush/D_i;
+		attribute<float32> nr_items_of_interest_decayed_LateEveningRush (org) := Decayed/LateEveningRush/D_i;
+		attribute<float32> Loss_MorningRush       (org) := nr_items_of_interest_decayed_MaxSpeed - nr_items_of_interest_decayed_MorningRush;
+		attribute<float32> Loss_NoonRush          (org) := nr_items_of_interest_decayed_MaxSpeed - nr_items_of_interest_decayed_NoonRush;
+		attribute<float32> Loss_LateEveningRush   (org) := nr_items_of_interest_decayed_MaxSpeed - nr_items_of_interest_decayed_LateEveningRush;
+		
+		attribute<string> BodyLines (org) := org/name + ';' + string(nr_items_of_interest_decayed_MaxSpeed) + ';' + string(nr_items_of_interest_decayed_MorningRush)+';'+string(nr_items_of_interest_decayed_NoonRush)+';'+string(nr_items_of_interest_decayed_LateEveningRush);
+		parameter<string> File            := 'Org;freeflow;MorningRush;NoonRush;LateEveningRush\n'++AsList(BodyLines, '\n'), StorageName = "=settings/fileNamePrefix+''+ModelParameters/items_of_interest+'_decayed'+settings/fileNameSuffix +'.csv'", StorageType = "str";
+	}
+	
+	unit<uint64> ExportTable_Traveltimes := Traveltimes/MaxSpeed
+	{
+		attribute<org > Org_rel := OrgZone_rel;
+		attribute<dest> Dst_rel := DstZone_rel;
+		
+		attribute<s_f> MaxSpeed_imp        := Impedance;
+		attribute<s_f> MorningRush_imp     := rjoin(Org_Dest, Traveltimes/MorningRush/Org_Dest, Traveltimes/MorningRush/Impedance);
+		attribute<s_f> NoonRush_imp        := rjoin(Org_Dest, Traveltimes/NoonRush/Org_Dest, Traveltimes/NoonRush/Impedance);
+		attribute<s_f> LateEveningRush_imp := rjoin(Org_Dest, Traveltimes/LateEveningRush/Org_Dest, Traveltimes/LateEveningRush/Impedance);
+		
+		attribute<bool>  IsCorrect_MorningRush     := MorningRush_imp >= MaxSpeed_imp;
+		attribute<bool>  IsCorrect_NoonRush        := NoonRush_imp >= MaxSpeed_imp;
+		attribute<bool>  IsCorrect_LateEveningRush := LateEveningRush_imp >= MaxSpeed_imp;
+		
+		attribute<string> BodyLines :=
+			org/name[Org_rel] + ';' + 
+			dest/name[Dst_rel] + ';' +
+			// string(MaxSpeed_imp);
+			string(MaxSpeed_imp) + ';' + 
+			// string(MorningRush_imp);
+			string(MorningRush_imp)+';' +
+			string(NoonRush_imp)+';' +
+			string(LateEveningRush_imp);
+		parameter<string> File := 'Org;Dst;MaxSpeed;MorningRush;NoonRush;LateEveningRush\n'++AsList(BodyLines, '\n'), StorageName = "=settings/fileNamePrefix+'Traveltimes'+settings/fileNameSuffix +'.csv'", StorageType = "str";
+		// parameter<string> File := 'Org;Dst;MaxSpeed\n'++AsList(BodyLines, '\n'), StorageName = "=settings/fileNamePrefix+'Traveltimes'+settings/fileNameSuffix +'.csv'", StorageType = "str";
+	}
+}

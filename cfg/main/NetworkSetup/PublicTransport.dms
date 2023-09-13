@@ -1,0 +1,544 @@
+Template PublicTransport_T 
+{  
+	parameter<uint32>   inTime;
+	parameter<string>   inTime_string;
+	
+	parameter<string>   OUTPUT_Generate_decay_CSVFiles        := =AsList('CreateODs/CreateExports/'+ModelParameters/Advanced/Export_CombinationTypes/name+'/LongFormat/File_decay',' + ');
+	parameter<string>   OUTPUT_Generate_fullOD_long_CSVFiles  := =AsList('CreateODs/CreateExports/'+ModelParameters/Advanced/Export_CombinationTypes/name+'/LongFormat/File_fullOD',' + ');
+	parameter<string>   OUTPUT_Generate_fullOD_wide_CSVFiles  := =AsList('CreateODs/CreateExports/'+ModelParameters/Advanced/Export_CombinationTypes/name+'/WideFormat/File_fullOD',' + ');
+
+	container OUTPUT_decayed := 
+		for_each_nedv(
+			ModelParameters/Advanced/Export_CombinationTypes/name
+			, 'CreateODs/CreateExports/'+ModelParameters/Advanced/Export_CombinationTypes/name+'/nr_items_of_interest_bereikbaar_decayed'
+			, org
+			, float32
+		);
+	
+	unit<uint32>        Static_net  := SourceData/Infrastructuur/GTFS/StaticNets/Static_net;
+	unit<uint32>        Stops       := SourceData/Infrastructuur/GTFS/StaticNets/Stops;
+	unit<uint32>        NodeSet     := SourceData/Infrastructuur/GTFS/StaticNets/Static_net/NodeSet;
+	unit<uint32>        Places      := SourceData/Infrastructuur/GTFS/StaticNets/allLinks/Places;
+	unit<uint32>        Routes      := SourceData/Infrastructuur/GTFS/StaticNets/Routes;
+	unit<uint32>        NS_Stations := SourceData/Infrastructuur/OVprijzen/NS/NS_Stations;
+	unit<uint32>        Modes       := ModesList/List_selectie;
+	unit<uint8>         PrijsTabel  := SourceData/Infrastructuur/OVprijzen/PrijsTabel;
+	unit<uint32>        Provincie   := SourceData/RegioIndelingen/Provincie;
+	
+	unit<uint32>        Org2Stop_B_Tic  := ODConnections/CreateODconnections/Sparse_uitwerking_Org2StopIC_B/AB;
+	unit<uint32>        Org2Stop_B_T    := ODConnections/CreateODconnections/Sparse_uitwerking_Org2StopT_B/AB;
+	unit<uint32>        Org2Stop_B_TM   := ODConnections/CreateODconnections/Sparse_uitwerking_Org2StopTM_B/AB;
+	unit<uint32>        Org2Stop_B_TMT  := ODConnections/CreateODconnections/Sparse_uitwerking_Org2StopTMT_B/AB;
+	unit<uint32>        Org2Stop_W      := ODConnections/CreateODconnections/Sparse_uitwerking_Org2Stop_W/AB;
+	unit<uint32>        Org2Stop_B      := ODConnections/CreateODconnections/Sparse_uitwerking_Org2Stop_B/AB;
+	unit<uint32>        Stop2Dest_W     := ODConnections/CreateODconnections/Sparse_uitwerking_Stop2Dest_W/AB;
+	unit<uint32>        Stop2Dest_B     := ODConnections/CreateODconnections/Sparse_uitwerking_Stop2Dest_B/AB;
+	
+	unit<uint64> Combine_OrgDest        := combine_uint64(Org, Dest)
+	{
+		attribute<string> OrgName  := Org/name[nr_1];
+		attribute<string> DestName := Dest/name[nr_2];
+		attribute<string> Label    := OrgName +'_'+DestName, DialogType = "LabelText";
+	}
+
+	container TransitionTypes := 
+		for_each_ne(
+			ModelParameters/Advanced/TransitionType_list/Type
+			, 'Transition_T('+inTime_string+'/'+string(ModelParameters/Advanced/TransitionType_list/Type)+', '+quote(ModelParameters/Advanced/TransitionType_list/Type)+', '+quote(ModelParameters/Advanced/TransitionType_list/Mode)+', '+string(ModelParameters/Advanced/TransitionType_list/ModeMax)+'[min_f], '+quote(ModelParameters/Advanced/TransitionType_list/FromTime)+', '+quote(ModelParameters/Advanced/TransitionType_list/ToTime)+', '+quote(ModelParameters/Advanced/TransitionType_list/OrgDest)+')'
+		);
+	
+	Template Transition_T
+	{
+		unit<uint32>      OD_unit;
+		parameter<string> OD_unit_name;
+		parameter<string> Mode;
+		parameter<min_f>  ModeMax_min;
+		parameter<string> FromTime_str;
+		parameter<string> ToTime_str;
+		parameter<string> OrgDest;
+		///
+		parameter<Time>     ModeMax_sec := convert(ModeMax_min, s_f)[Time];
+		parameter<string>   Arrive_at_time_CalcStr     := replace('subset(UNIT/FT >= (inTime[Time] - convert(ModelParameters/MaxOVTime, s_f)[Time] - MM)
+																			&& UNIT/TT <= inTime[Time] 
+																			&& UNIT/FT <= inTime[Time] 
+																			&& UNIT/duration_TMode <= MM)'
+																				,'UNIT',OD_unit_name,'FT',FromTime_str,'TT', ToTime_str,'TMode',Mode,'MM', string(ModeMax_sec));
+		
+		
+		parameter<string>   Departure_at_time_CalcStr  := replace('subset(UNIT/FT >= inTime[Time] 
+																			&& UNIT/TT >= inTime[Time] 
+																			&& UNIT/duration_TMode <= MM 
+																			&& UNIT/FT < (inTime[Time] + convert(ModelParameters/MaxOVTime, s_f)[Time] + MM))'
+																				,'UNIT',OD_unit_name,'FT',FromTime_str,'TT', ToTime_str,'TMode',Mode,'MM', string(ModeMax_sec));
+		
+		
+		
+		parameter<string>   CalcStr  := ModelParameters/Arrival_or_Departure_at_time == 'Arrival'
+																? Arrive_at_time_CalcStr
+																: Departure_at_time_CalcStr;
+
+		unit<uint32> Transition := =CalcStr
+		, FreeData = "false"
+		{
+			attribute<Org>                        Org_rel           := ='OD_unit/'+OrgDest+'_rel[nr_OrgEntity]';
+			attribute<Dest>                       Dest_rel          := ='OD_unit/'+OrgDest+'_rel[nr_OrgEntity]';
+			attribute<Stops>                      Stop_rel          := OD_unit/Stop_rel[nr_OrgEntity];
+			attribute<Places>                     Place_rel         := OD_unit/Place_rel[nr_OrgEntity];
+			attribute<rdc>                        geometry (arc)    := OD_unit/geometry[nr_OrgEntity];
+			attribute<m>                          Distance          := OD_unit/Distance[nr_OrgEntity];
+			attribute<Time>                       Duration          := ='OD_unit/Duration_'+Mode+'[nr_OrgEntity]';
+			attribute<Time>                       FromTime          := ='OD_unit/'+FromTime_str+'[nr_OrgEntity]';
+			attribute<Time>                       toTime            := ='OD_unit/'+ToTime_str+'[nr_OrgEntity]';
+			attribute<string>                     Label         := OD_unit/Label[nr_OrgEntity];
+			attribute<string>                     LabelText_ext     := ModelParameters/Advanced/WegingWachttijdThuisVoortransport == 1f && OrgDest == 'Org'
+																			? Label + ' ('+time/Label[FromTime]+' - '+time/Label[ToTime]+' and waiting at home from '+time/Label[InTime]+' to '+time/Label[FromTime]+')'
+																			: Label + ' ('+time/Label[FromTime]+' - '+time/Label[ToTime]+')';
+			attribute<upoint>                     MomentxPlace_O2S  := point(toTime, Place_rel, upoint);
+			attribute<upoint>                     MomentxPlace_S2D  := point(FromTime, Place_rel, upoint);
+			attribute<NodeSet>                    NodeRef_O2S       := rlookup(MomentxPlace_O2S, NodeSet/values);
+			attribute<NodeSet>                    NodeRef_S2D       := rlookup(MomentxPlace_S2D, NodeSet/values);
+			
+			attribute<Time>                       Duration_withWaitingAtOrg := Duration + ((FromTime - InTime)[float32] * ModelParameters/Advanced/WegingWachttijdThuisVoortransport)[Time];
+			// attribute<Time>                       FromTime_edit             := toTime - Duration_withWaitingAtOrg;
+		}
+	}
+
+	container CreateODs
+	{
+		unit<uint32> StaticNet_subset_debug := Static_net
+		{
+			attribute<bool>   IsSub_from := FromTime >= inTime ;
+			attribute<bool>   IsSub_to   := ToTime   < (inTime + (convert(ModelParameters/MaxOVTime, s_f)[Time] * 2));
+			attribute<bool>   IsSub_dur  := duration <= convert(ModelParameters/MaxOVTime , s_f) * 2f;
+		}
+	
+		unit<uint32> StaticNet_subset := select_with_attr_by_cond(SourceData/Infrastructuur/GTFS/StaticNets/Static_net, StaticNet_subset_debug/IsSub_from && StaticNet_subset_debug/IsSub_to && StaticNet_subset_debug/IsSub_dur);
+	
+		//// CREATE OD FSS ////
+		
+		container OD_traveltime_WW     := OD_traveltime_PrivateTransport_T('WW');
+		// container OD_traveltime_BB     := OD_traveltime_PrivateTransport_T('BB');
+		
+		Template OD_traveltime_PrivateTransport_T
+		{
+			parameter<string> name;
+			////
+			parameter<string> transport_type := name == 'WW' ? 'pedestrian' : name == 'BB' ? 'bike' : '';
+			
+			unit<uint64> OD := ='NetworkSetup/ConfigurationPerRegio/'+Regio_Name+'/PrivateTransport/'+transport_type+'/Calc_Traveltimes_maxspeed/Traveltimes'  
+			{
+				attribute<float32>          reistijd_min                                    := value(impedance, float32);
+				attribute<Combine_OrgDest>  OD_nummer                                       := combine_data(Combine_OrgDest, OrgZone_rel, DstZone_rel);
+				
+				attribute<float32>          nr_items_of_interest                            := dest/nr_items_of_interest[float32][DstZone_rel];
+				attribute<float32>          decay_function                                  := reistijd_min == 0f ? 1f : 1f / (1f + exp(ModelParameters/Advanced/Distance_decay/ov_a + ModelParameters/Advanced/Distance_decay/ov_b*log(reistijd_min) + ModelParameters/Advanced/Distance_decay/ov_c*reistijd_min));
+				attribute<float32>          nr_items_of_interest_decayed                    := MakeDefined(nr_items_of_interest * decay_function,0f);
+				attribute<float32>          nr_items_of_interest_bereikbaar_decayed (Org)   := sum(UniqueOD/Best_nr_items_of_interest_decayed, value(UniqueOD/OD_nummer / uint64(#dest), org));
+				attribute<float32>          nr_items_of_interest_bereikbaar (Org)           := sum(UniqueOD/Best_nr_items_of_interest, value(UniqueOD/OD_nummer / uint64(#dest), org));
+
+				parameter<string>           MaxDuration_Org2Dest_str                        := ='string(ModelParameters/Max'+transport_type+'Time_Org2Dest) + ''min''';
+				attribute<string>           ModeUsed                                        := const(name,.);
+
+				unit<uint64> UniqueOD := subset(IsDefined(OD_nummer))
+				{
+					attribute<float32>          Best_nr_items_of_interest_decayed   := ../nr_items_of_interest_decayed[nr_OrgEntity];
+					attribute<float32>          Best_nr_items_of_interest           := ../nr_items_of_interest[nr_OrgEntity];
+					attribute<float32>          ShortestTraveltime                  := ../reistijd_min[nr_OrgEntity];
+					attribute<string>           ModeUsed                            := ../ModeUsed[nr_OrgEntity];
+					attribute<Combine_OrgDest>  OD_nummer                           := ../OD_nummer[nr_OrgEntity];
+					attribute<Combine_OrgDest>  values                              := OD_nummer;
+					attribute<string>           OrgName                             := Combine_OrgDest/OrgName[od_nummer];
+					attribute<string>           DestName                            := Combine_OrgDest/DestName[od_nummer];
+					attribute<uint32>           OrgID                               := Combine_OrgDest/nr_2[od_nummer];
+					attribute<uint32>           DestID                              := Combine_OrgDest/nr_1[od_nummer];
+				}
+			}
+		}		
+		
+		//singles
+		container OD_traveltime_W_OV_W     := OD_Traveltime_single_T('W','W');
+		// container OD_traveltime_B_OV_W     := OD_Traveltime_single_T('B','W');
+		// container OD_traveltime_B_OV_B     := OD_Traveltime_single_T('B','B');
+		// container OD_traveltime_B_T_OV_B   := OD_Traveltime_single_T('B_T','B');
+		// container OD_traveltime_B_TM_OV_B  := OD_Traveltime_single_T('B_TM','B');
+		// container OD_traveltime_B_TMT_OV_B := OD_Traveltime_single_T('B_TMT','B');
+		// container OD_traveltime_B_Tic_OV_B := OD_Traveltime_single_T('B_Tic','B');
+		// container OD_traveltime_B_T_OV_W   := OD_Traveltime_single_T('B_T','W');
+		// container OD_traveltime_B_TM_OV_W  := OD_Traveltime_single_T('B_TM','W');
+		// container OD_traveltime_B_TMT_OV_W := OD_Traveltime_single_T('B_TMT','W');
+		// container OD_traveltime_B_Tic_OV_W := OD_Traveltime_single_T('B_Tic','W');
+		
+		Template OD_Traveltime_single_T
+		{
+			parameter<string> voortransport;
+			parameter<string> natransport;
+			////
+			
+			parameter<string> name := voortransport+'_OV_'+natransport;
+			
+			container Org2Stop     := ='TransitionTypes/Org2Stop_'+voortransport;
+			container Stop2Dest    := ='TransitionTypes/Stop2Dest_'+natransport;
+			
+			unit<uint64> OD := 
+			impedance_matrix_od64('directed;startPoint(Node_rel,impedance,OrgZone_rel);endPoint(Node_rel,impedance,DstZone_rel);cut(OrgZone_max_imp);od:impedance,OrgZone_rel,DstZone_rel,LinkSet'
+					, StaticNet_subset/Duration[float32]
+					, StaticNet_subset/F1
+					, StaticNet_subset/F2
+					
+					, Org2Stop/Transition/NodeRef_O2S , Org2Stop/Transition/Duration_withWaitingAtOrg[float32], Org2Stop/Transition/Org_rel     //sP node_rel, impedance, OrgZone_rel
+					, Stop2Dest/Transition/NodeRef_S2D, Stop2Dest/Transition/Duration[float32]                , Stop2Dest/Transition/Dest_rel //eP node_rel, impedance, DstZone_rel
+					, convert(ModelParameters/MaxOVTime, s_f)
+				)
+			{
+				attribute<float32>          reistijd_min                                    := impedance / 60f;
+				attribute<Combine_OrgDest>  OD_nummer                                       := combine_data(Combine_OrgDest, OrgZone_rel, DstZone_rel);
+				
+				attribute<float32>          nr_items_of_interest                            := dest/nr_items_of_interest[float32][DstZone_rel];
+				attribute<float32>          decay_function                                  := reistijd_min == 0f ? 1f : 1f / (1f + exp(ModelParameters/Advanced/Distance_decay/ov_a + ModelParameters/Advanced/Distance_decay/ov_b*log(reistijd_min) + ModelParameters/Advanced/Distance_decay/ov_c*reistijd_min));
+				attribute<float32>          nr_items_of_interest_decayed                    := MakeDefined(nr_items_of_interest * decay_function,0f);
+				attribute<float32>          nr_items_of_interest_bereikbaar_decayed (Org)   := sum(UniqueOD/Best_nr_items_of_interest_decayed, value(UniqueOD/OD_nummer / uint64(#dest), org));
+				attribute<float32>          nr_items_of_interest_bereikbaar (Org)           := sum(UniqueOD/Best_nr_items_of_interest, value(UniqueOD/OD_nummer / uint64(#dest), org));
+
+				parameter<string>           MaxDuration_Org2Stop_str                        := string(Org2Stop/ModeMax_min) + 'min';
+				parameter<string>           MaxDuration_Stop2Dest_str                       := string(Stop2Dest/ModeMax_min) + 'min';
+				attribute<string>           ModeUsed                                        := const(name,.);
+				
+				attribute<string>           OD_key                                          := Combine_OrgDest/Label[OD_nummer];
+				attribute<string>           Org_name                                        := org/name[OrgZone_rel];
+				attribute<string>           Dest_name                                       := dest/label[DstZone_rel];
+				
+				attribute<Euro>             Prijs_per_reis                                  := sum(AfgelegdeReis/uq_reis_route_sorted/Price_Qbuzz_Bus + AfgelegdeReis/uq_reis_route_sorted/Price_NS_Rail, AfgelegdeReis/uq_reis_route_sorted/Reis_rel);
+				
+				unit<uint32> AfgelegdeReis := sequence2points(LinkSet) //vertaling van LinkSet attribute (afgelegde route in OD), naar onderdelen van de reis
+				, KeepData = "true"
+				{
+					attribute<rdc>                     geometry (arc)          := StaticNet_subset/geometry[point];
+					attribute<string>                  Label                   := FromPlace_name + ' to ' + ToPlace_name;
+					attribute<Places>                  FromPlace               := StaticNet_subset/FromPlace[point];
+					attribute<string>                  FromPlace_name          := StaticNet_subset/FromPlace_name[point];
+					attribute<Places>                  ToPlace                 := StaticNet_subset/ToPlace[point];
+					attribute<string>                  ToPlace_name            := StaticNet_subset/ToPlace_name[point];
+					// attribute<string>                  Segment_Label           := StaticNet_subset/Label[point];
+					attribute<Time>                    FromTime                := StaticNet_subset/FromTime[point];
+					attribute<Time>                    ToTime                  := StaticNet_subset/ToTime[point];
+					// attribute<s_f>                     Duration                := StaticNet_subset/Duration[point];
+					attribute<LinkTypes>               LinkType_rel            := StaticNet_subset/LinkType[point];
+					attribute<Modes>                   Mode_rel                := StaticNet_subset/Mode[point];
+					// attribute<uint32>                  TripRef                 := StaticNet_subset/TripRef[point];
+					attribute<string>                  RouteName               := StaticNet_subset/RouteName[point];
+					// attribute<string>                  RouteName_short         := StaticNet_subset/RouteName_short[point];
+					attribute<km>                      Length                  := StaticNet_subset/Length[point]; //nodig tbv variabele prijs bepaling
+					attribute<Agencies>                Agency_rel              := StaticNet_subset/Agency_rel[point];
+					
+					attribute<Stops>                   FromStop_rel            := Places/StopRef[FromPlace];
+					attribute<Stops>                   ToStop_rel              := Places/StopRef[ToPlace];
+					
+					// attribute<string>                  Org_name                := ../Org_name[Sequence_rel];
+					// attribute<string>                  Dest_name               := ../Dest_name[Sequence_rel];
+					
+					attribute<OD>                      Reis_rel                := Sequence_rel;
+					attribute<Routes>                  Route_rel               := StaticNet_subset/Route_rel[point];
+					attribute<upoint>                  Reis_Route_Identifier   := point(Route_rel, uint32(Reis_rel));
+					attribute<uq_reis_route>           uq_reis_route_rel       := rlookup(Reis_Route_Identifier, uq_reis_route/values);
+					
+					attribute<uint64>                  Reis_FromTime_Identifier := Reis_rel * value(1000000000, uint64) + value(FromTime, uint64);
+					attribute<uint64>                  Reis_ToTime_Identifier   := Reis_rel * value(1000000000, uint64) + value(ToTime, uint64);
+					
+					
+					unit<uint32> uq_reis_route := unique(Reis_Route_Identifier) //indikking van reis/route combinaties. Transfers en wachten vallen eruit, net zoals de tussenliggende stations binnen een route.
+					, KeepData = "true"
+					{
+						attribute<Routes>        Route_rel                     := pointcol(values);
+						attribute<OD>            Reis_rel                      := value(pointrow(values),OD);
+						attribute<Agencies>      Agency_rel                    := first(../Agency_rel, ../uq_reis_route_rel);
+						attribute<LinkTypes>     LinkType_rel                  := first(../LinkType_rel, ../uq_reis_route_rel);
+						attribute<Modes>         Mode_rel                      := first(../Mode_rel, ../uq_reis_route_rel);
+						attribute<string>        Label                         := first(../label, ../uq_reis_route_rel);
+						
+						attribute<Time>          First_StopTime_Route          := min(../FromTime, ../uq_reis_route_rel);
+						attribute<Time>          Last_StopTime_Route           := max(../ToTime, ../uq_reis_route_rel);
+						
+						attribute<uint64>        Reis_FirstTime_Identifier     := uint64(Reis_rel) * value(1000000000, uint64) + value(First_StopTime_Route, uint64);
+						// attribute<uint64>        Reis_LastTime_Identifier      := uint64(Reis_rel) * value(1000000000, uint64) + value(Last_StopTime_Route, uint64);
+						
+						attribute<km>            Afgelegde_afstand             := sum(../length, ../uq_reis_route_rel); //nodig tbv variabele prijs bepaling
+						attribute<.>             Reis_Time_Sort_Index          := index(Reis_FirstTime_Identifier);
+					}
+					
+					unit<uint32> uq_reis_route_sorted := unique(uq_reis_route/Reis_Time_Sort_Index) // hack om het domein te sorteren op reis_rel en vertrektijden. Om zo in de prijsbepaling de volgende 'leg' te kunnen bepalen. En dus bus/trein onderbroken door overstappen samen te kunnen voegen.
+					{
+						attribute<uint64>        Reis_Time_Identifier          := (uq_reis_route/Reis_FirstTime_Identifier[uq_reis_route/Reis_Time_Sort_Index])[values];
+						attribute<Routes>        Route_rel                     := (uq_reis_route/Route_rel[uq_reis_route/Reis_Time_Sort_Index])[values];
+						attribute<OD>            Reis_rel                      := (uq_reis_route/Reis_rel[uq_reis_route/Reis_Time_Sort_Index])[values];
+						attribute<Agencies>      Agency_rel                    := (uq_reis_route/Agency_rel[uq_reis_route/Reis_Time_Sort_Index])[values];
+						
+						attribute<Time>          First_StopTime_Route          := (uq_reis_route/First_StopTime_Route[uq_reis_route/Reis_Time_Sort_Index])[values];
+						attribute<Time>          Last_StopTime_Route           := (uq_reis_route/Last_StopTime_Route[uq_reis_route/Reis_Time_Sort_Index])[values];
+						attribute<km>            Afgelegde_afstand             := (uq_reis_route/Afgelegde_afstand[uq_reis_route/Reis_Time_Sort_Index])[values];
+						attribute<string>        Label                         := (uq_reis_route/Label[uq_reis_route/Reis_Time_Sort_Index])[values];
+						attribute<string>        RouteName                     := Routes/route_name[Route_rel];
+						
+						attribute<Stops>         FromStop_rel                  := rjoin(impl/Reis_FirstTime_Identifier, ../Reis_FromTime_Identifier, ../FromStop_rel);
+						attribute<Stops>         ToStop_rel                    := rjoin(impl/Reis_LastTime_Identifier, ../Reis_ToTime_Identifier, ../ToStop_rel);
+						
+						attribute<Euro>          Price_Qbuzz_Bus               := Agency_rel == Agencies/V/Qbuzz && (impl/Start_Provincie_rel == Provincie/V/Groningen || impl/Start_Provincie_rel == Provincie/V/Drenthe)
+																					? impl/IsPrevLegSameAgency
+																						? PrijsTabel/VariabelePrijs[impl/PrijsTabel_rel] * Afgelegde_afstand
+																						: PrijsTabel/VastePrijs[impl/PrijsTabel_rel] + (PrijsTabel/VariabelePrijs[impl/PrijsTabel_rel] * Afgelegde_afstand)
+																					: 0[Euro];
+
+						attribute<Euro>          Price_NS_Rail                 := Agency_rel == Agencies/V/NS
+																					? impl/IsPrevLegSameAgency
+																						? 0[Euro]
+																						: rjoin(impl/NS_OrgDest_identifier
+																								, SourceData/Infrastructuur/OVprijzen/NS/NS_tariefeenheden_matrix/ConnectedNetwork/ODMatrix/OrgDest_identifier
+																								, SourceData/Infrastructuur/OVprijzen/NS/NS_tariefeenheden_matrix/ConnectedNetwork/ODMatrix/Prijs_voltarief
+																							)
+																					: 0[Euro];
+						
+						unit<uint32> impl := uq_reis_route_sorted
+						{
+							attribute<LinkTypes>     LinkType_rel                  := (uq_reis_route/LinkType_rel[uq_reis_route/Reis_Time_Sort_Index])[values];
+							attribute<Modes>         Mode_rel                      := (uq_reis_route/Mode_rel[uq_reis_route/Reis_Time_Sort_Index])[values];
+
+							attribute<uint64>        Reis_FirstTime_Identifier     := uint64(Reis_rel) * value(1000000000, uint64) + value(First_StopTime_Route, uint64);
+							attribute<uint64>        Reis_LastTime_Identifier      := uint64(Reis_rel) * value(1000000000, uint64) + value(Last_StopTime_Route, uint64);
+							attribute<string>        RouteName_short               := Routes/route_short_name[Route_rel];
+							
+							attribute<bool>          IsNextLegSameAgency           := reis_rel == reis_rel[id(.)+1[.]] && agency_rel == agency_rel[id(.)+1[.]];
+							attribute<bool>          IsPrevLegSameAgency           := reis_rel == reis_rel[id(.)-1[.]] && agency_rel == agency_rel[id(.)-1[.]];
+
+							attribute<string>        Mode_Agency_Provincie_Lijn_identifier         := Modes/name[Mode_rel] +'_'+ Agencies/name[Agency_rel] +'_'+ Provincie/name[Start_Provincie_rel] + '_' + RouteName_short;
+							attribute<string>        Mode_Agency_Provincie_Lijn_identifier_wo_lijn := Modes/name[Mode_rel] +'_'+ Agencies/name[Agency_rel] +'_'+ Provincie/name[Start_Provincie_rel] + '_';
+						
+							attribute<NS_Stations>   From_NS_Stations_rel          := Stops/Recollect/NS_Stations_rel[FromStop_rel];
+							attribute<NS_Stations>   To_NS_Stations_rel            := IsNextLegSameAgency 
+																							? Stops/Recollect/NS_Stations_rel[ToStop_rel[id(.)+1[.]]]
+																							: Stops/Recollect/NS_Stations_rel[ToStop_rel];
+							attribute<upoint>        NS_OrgDest_identifier         := point(From_NS_Stations_rel, To_NS_Stations_rel, upoint);
+
+							attribute<PrijsTabel>    PrijsTabel_rel_initial        := rlookup(Mode_Agency_Provincie_Lijn_identifier, PrijsTabel/Mode_Agency_Provincie_Lijn_identifier);
+							attribute<PrijsTabel>    PrijsTabel_rel_augmented      := rlookup(Mode_Agency_Provincie_Lijn_identifier_wo_lijn, PrijsTabel/Mode_Agency_Provincie_Lijn_identifier);
+							attribute<PrijsTabel>    PrijsTabel_rel                := MakeDefined(PrijsTabel_rel_initial, PrijsTabel_rel_augmented);
+						
+							attribute<Provincie>     Start_Provincie_rel           := point_in_polygon(Stops/geometry[FromStop_rel], Provincie/geometry);
+							attribute<Provincie>     End_Provincie_rel             := point_in_polygon(Stops/geometry[ToStop_rel], Provincie/geometry);
+						}
+					}
+					
+					// voor visuaisatie
+					attribute<rdc>         Route (arc) := points2sequence(LinkPoints/Point, LinkPoints/Sequence_rel, LinkPoints/Ordinal);
+					attribute<rdc>         FromPoint   := StaticNet_subset/FromPoint[point];
+					attribute<rdc>         ToPoint     := StaticNet_subset/ToPoint[point];
+
+					unit<uint32> LinkPoints := union_unit(., .)
+					{
+						attribute<rdc>                  Point        := union_data(., FromPoint, ToPoint);
+						attribute<..>                   Sequence_rel := union_data(., id(..), id(..));
+						attribute<uint32>               Ordinal      := union_data(., const(0,..,uint32), const(1,..,uint32));
+					}
+				}
+
+				unit<uint64> UniqueOD := subset(IsDefined(OD_nummer))
+				{
+					attribute<float32>          Best_nr_items_of_interest_decayed   := ../nr_items_of_interest_decayed[nr_OrgEntity];
+					attribute<float32>          Best_nr_items_of_interest           := ../nr_items_of_interest[nr_OrgEntity];
+					attribute<float32>          ShortestTraveltime                  := ../reistijd_min[nr_OrgEntity];
+					attribute<string>           ModeUsed                            := ../ModeUsed[nr_OrgEntity];
+					attribute<Combine_OrgDest>  OD_nummer                           := ../OD_nummer[nr_OrgEntity];
+					attribute<Combine_OrgDest>  values                              := OD_nummer;
+					attribute<string>           OrgName                             := Combine_OrgDest/OrgName[od_nummer];
+					attribute<string>           DestName                            := Combine_OrgDest/DestName[od_nummer];
+					attribute<uint32>           OrgID                               := Combine_OrgDest/nr_2[od_nummer];
+					attribute<uint32>           DestID                              := Combine_OrgDest/nr_1[od_nummer];
+				}
+			}
+		}
+		
+		//combines first degree
+		container OD_traveltime_W_OV_W_with_WW     := OD_Traveltime_combine_first_T('W_OV_W','WW');
+		// container OD_traveltime_B_OV_W_with_BB     := OD_Traveltime_combine_first_T('B_OV_W','BB');
+		// container OD_traveltime_B_OV_B_with_BB     := OD_Traveltime_combine_first_T('B_OV_B','BB');
+		// container OD_traveltime_B_Tic_OV_W_with_BB := OD_Traveltime_combine_first_T('B_Tic_OV_W','BB');
+		// container OD_traveltime_B_Tic_OV_B_with_BB := OD_Traveltime_combine_first_T('B_Tic_OV_B','BB');
+		// container OD_traveltime_B_T_OV_W_with_BB   := OD_Traveltime_combine_first_T('B_T_OV_W','BB');
+		// container OD_traveltime_B_T_OV_B_with_BB   := OD_Traveltime_combine_first_T('B_T_OV_B','BB');
+		// container OD_traveltime_B_TM_OV_W_with_BB  := OD_Traveltime_combine_first_T('B_TM_OV_W','BB');
+		// container OD_traveltime_B_TM_OV_B_with_BB  := OD_Traveltime_combine_first_T('B_TM_OV_B','BB');
+		// container OD_traveltime_B_TMT_OV_W_with_BB := OD_Traveltime_combine_first_T('B_TMT_OV_W','BB');
+		// container OD_traveltime_B_TMT_OV_B_with_BB := OD_Traveltime_combine_first_T('B_TMT_OV_B','BB');
+		
+		Template OD_Traveltime_combine_first_T
+		{
+			parameter<string> first_name;
+			parameter<string> second_name;
+			////
+			
+			unit<uint64> first  := ='OD_traveltime_'+first_name+'/OD';
+			unit<uint64> second := ='OD_traveltime_'+second_name+'/OD';
+			
+			unit<uint64> OD := union_unit_uint64(first, second)
+			{
+				attribute<float32>          reistijd_min                                    := union_data(., first/reistijd_min                , second/reistijd_min);
+				attribute<float32>          nr_items_of_interest_decayed                    := union_data(., first/nr_items_of_interest_decayed, second/nr_items_of_interest_decayed);
+				attribute<float32>          nr_items_of_interest                            := union_data(., first/nr_items_of_interest        , second/nr_items_of_interest);
+				attribute<Combine_OrgDest>  OD_nummer                                       := union_data(., first/OD_nummer                   , second/OD_nummer);
+				attribute<UniqueOD>         UniqueOD_rel                                    := rlookup(OD_nummer, UniqueOD/Values);
+				attribute<string>           ModeUsed                                        := union_data(., first/ModeUsed                    , second/ModeUsed);
+				attribute<float32>          nr_items_of_interest_bereikbaar_decayed (Org)   := sum(UniqueOD/Best_nr_items_of_interest_decayed, value(UniqueOD/values / uint64(#dest), org));
+				attribute<float32>          nr_items_of_interest_bereikbaar (Org)           := sum(UniqueOD/Best_nr_items_of_interest, value(UniqueOD/values / uint64(#dest), org));
+				
+				attribute<string>           Reistijd_key                                    := ModeUsed +'_'+ string(reistijd_min);
+				parameter<string>           Mode1                                           := first_name;
+				parameter<string>           Mode2                                           := second_name;
+				
+				unit<uint64> UniqueOD := unique(OD_nummer)
+				{
+					attribute<float32>          Best_nr_items_of_interest_decayed := max(../nr_items_of_interest_decayed, ../UniqueOD_rel);
+					attribute<float32>          Best_nr_items_of_interest         := max(../nr_items_of_interest, ../UniqueOD_rel);
+					attribute<float32>          ShortestTraveltime                := min(../reistijd_min, ../UniqueOD_rel);
+					attribute<bool>             ArgMin1                           := IsDefined(rlookup(Mode1+'_'+string(ShortestTraveltime), Reistijd_key));
+					attribute<bool>             ArgMin2                           := IsDefined(rlookup(Mode2+'_'+string(ShortestTraveltime), Reistijd_key));
+					attribute<string>           ModeUsed                          := ArgMin1 ? Mode1 : ArgMin2 ? Mode2 : '';
+					attribute<string>           OrgName                           := Combine_OrgDest/OrgName[values];
+					attribute<string>           DestName                          := Combine_OrgDest/DestName[values];
+					attribute<uint32>           OrgID                             := Combine_OrgDest/nr_2[values];
+					attribute<uint32>           DestID                            := Combine_OrgDest/nr_1[values];
+				}
+			}
+		}
+		
+		//combines second degree
+		// container OD_traveltime_B_Tic_OV_W_with_W_OV_W_WW     := OD_Traveltime_combine_second_T('B_Tic_OV_W','W_OV_W','WW');
+		// container OD_traveltime_B_Tic_OV_W_with_W_OV_W_BB     := OD_Traveltime_combine_second_T('B_Tic_OV_W','W_OV_W','BB');
+		// container OD_traveltime_B_Tic_OV_W_with_B_OV_W_BB     := OD_Traveltime_combine_second_T('B_Tic_OV_W','B_OV_W','BB');
+		// container OD_traveltime_B_Tic_OV_B_with_W_OV_W_BB     := OD_Traveltime_combine_second_T('B_Tic_OV_B','W_OV_W','BB');
+		// container OD_traveltime_B_Tic_OV_B_with_B_OV_W_BB     := OD_Traveltime_combine_second_T('B_Tic_OV_B','B_OV_W','BB');
+		// container OD_traveltime_B_T_OV_W_with_W_OV_W_WW       := OD_Traveltime_combine_second_T('B_T_OV_W','W_OV_W','WW');
+		// container OD_traveltime_B_T_OV_W_with_W_OV_W_BB       := OD_Traveltime_combine_second_T('B_T_OV_W','W_OV_W','BB');
+		// container OD_traveltime_B_T_OV_B_with_W_OV_W_BB       := OD_Traveltime_combine_second_T('B_T_OV_B','W_OV_W','BB');
+		// container OD_traveltime_B_T_OV_W_with_B_OV_W_BB       := OD_Traveltime_combine_second_T('B_T_OV_W','B_OV_W','BB');
+		// container OD_traveltime_B_T_OV_B_with_B_OV_W_BB       := OD_Traveltime_combine_second_T('B_T_OV_B','B_OV_W','BB');
+		// container OD_traveltime_B_TM_OV_W_with_W_OV_W_WW      := OD_Traveltime_combine_second_T('B_TM_OV_W','W_OV_W','WW');
+		// container OD_traveltime_B_TM_OV_W_with_W_OV_W_BB      := OD_Traveltime_combine_second_T('B_TM_OV_W','W_OV_W','BB');
+		// container OD_traveltime_B_TM_OV_B_with_W_OV_W_BB      := OD_Traveltime_combine_second_T('B_TM_OV_B','W_OV_W','BB');
+		// container OD_traveltime_B_TM_OV_W_with_B_OV_W_BB      := OD_Traveltime_combine_second_T('B_TM_OV_W','B_OV_W','BB');
+		// container OD_traveltime_B_TM_OV_B_with_B_OV_W_BB      := OD_Traveltime_combine_second_T('B_TM_OV_B','B_OV_W','BB');
+		// container OD_traveltime_B_TMT_OV_W_with_W_OV_W_WW     := OD_Traveltime_combine_second_T('B_TMT_OV_W','W_OV_W','WW');
+		// container OD_traveltime_B_TMT_OV_W_with_W_OV_W_BB     := OD_Traveltime_combine_second_T('B_TMT_OV_W','W_OV_W','BB');
+		// container OD_traveltime_B_TMT_OV_W_with_B_OV_W_WW     := OD_Traveltime_combine_second_T('B_TMT_OV_W','B_OV_W','WW');
+		// container OD_traveltime_B_TMT_OV_W_with_B_OV_W_BB     := OD_Traveltime_combine_second_T('B_TMT_OV_W','B_OV_W','BB');
+		// container OD_traveltime_B_TMT_OV_B_with_W_OV_W_WW     := OD_Traveltime_combine_second_T('B_TMT_OV_B','W_OV_W','WW');
+		// container OD_traveltime_B_TMT_OV_B_with_W_OV_W_BB     := OD_Traveltime_combine_second_T('B_TMT_OV_B','W_OV_W','BB');
+		// container OD_traveltime_B_TMT_OV_B_with_B_OV_W_WW     := OD_Traveltime_combine_second_T('B_TMT_OV_B','B_OV_W','WW');
+		// container OD_traveltime_B_TMT_OV_B_with_B_OV_W_BB     := OD_Traveltime_combine_second_T('B_TMT_OV_B','B_OV_W','BB');
+		
+		Template OD_Traveltime_combine_second_T
+		{
+			parameter<string> first_name;
+			parameter<string> second_name;
+			parameter<string> third_name;
+			////
+			
+			unit<uint64> first  := ='OD_traveltime_'+first_name+'/OD';
+			unit<uint64> second := ='OD_traveltime_'+second_name+'/OD';
+			unit<uint64> third  := ='OD_traveltime_'+third_name+'/OD';
+			
+			unit<uint64> OD := union_unit_uint64(first, second, third)
+			{
+				attribute<float32>          reistijd_min                                    := union_data(., first/reistijd_min                , second/reistijd_min                , third/reistijd_min);
+				attribute<float32>          nr_items_of_interest_decayed                    := union_data(., first/nr_items_of_interest_decayed, second/nr_items_of_interest_decayed, third/nr_items_of_interest_decayed);
+				attribute<float32>          nr_items_of_interest                            := union_data(., first/nr_items_of_interest        , second/nr_items_of_interest        , third/nr_items_of_interest);
+				attribute<Combine_OrgDest>  OD_nummer                                       := union_data(., first/OD_nummer                   , second/OD_nummer                   , third/OD_nummer);
+				attribute<UniqueOD>         UniqueOD_rel                                    := rlookup(OD_nummer, UniqueOD/Values);
+				attribute<string>           ModeUsed                                        := union_data(., first/ModeUsed                    , second/ModeUsed                    , third/ModeUsed);
+				attribute<float32>          nr_items_of_interest_bereikbaar_decayed (Org)   := sum(UniqueOD/Best_nr_items_of_interest_decayed, value(UniqueOD/values / uint64(#dest), org));
+				attribute<float32>          nr_items_of_interest_bereikbaar (Org)           := sum(UniqueOD/Best_nr_items_of_interest, value(UniqueOD/values / uint64(#dest), org));
+				
+				attribute<string>           Reistijd_key                                    := ModeUsed +'_'+ string(reistijd_min);
+				parameter<string>           Mode1                                           := first_name;
+				parameter<string>           Mode2                                           := second_name;
+				parameter<string>           Mode3                                           := third_name;
+				
+				unit<uint64> UniqueOD := unique(OD_nummer)
+				{
+					attribute<float32>          Best_nr_items_of_interest_decayed  := max(../nr_items_of_interest_decayed, ../UniqueOD_rel);
+					attribute<float32>          Best_nr_items_of_interest          := max(../nr_items_of_interest, ../UniqueOD_rel);
+					attribute<float32>          ShortestTraveltime                 := min(../reistijd_min, ../UniqueOD_rel);
+					attribute<bool>             ArgMin1                            := IsDefined(rlookup(Mode1+'_'+string(ShortestTraveltime), Reistijd_key));
+					attribute<bool>             ArgMin2                            := IsDefined(rlookup(Mode2+'_'+string(ShortestTraveltime), Reistijd_key));
+					attribute<bool>             ArgMin3                            := IsDefined(rlookup(Mode3+'_'+string(ShortestTraveltime), Reistijd_key));
+					attribute<string>           ModeUsed                           := ArgMin1 ? Mode1 : ArgMin2 ? Mode2  : ArgMin3 ? Mode3 : '';
+					attribute<string>           OrgName                            := Combine_OrgDest/OrgName[values];
+					attribute<string>           DestName                           := Combine_OrgDest/DestName[values];
+					attribute<uint32>           OrgID                              := Combine_OrgDest/nr_2[values];
+					attribute<uint32>           DestID                             := Combine_OrgDest/nr_1[values];
+				}
+			}
+		}
+		
+		
+		container CreateExports :=
+			for_each_ne(
+				ModelParameters/Advanced/Export_CombinationTypes/name
+				, 'CreateExports_T('+quote(ModelParameters/Advanced/Export_CombinationTypes/name)+')'
+			);
+		
+		Template CreateExports_T
+		{
+			parameter<string>  TypeName;
+			
+			unit<uint64>       domain                                        := ='OD_traveltime_'+TypeName+'/OD';
+			unit<uint64>       domain_UniqueOD                               := ='OD_traveltime_'+TypeName+'/OD/UniqueOD';
+			attribute<float32> nr_items_of_interest_bereikbaar_decayed (org) := domain/nr_items_of_interest_bereikbaar_decayed; //, StorageName = "=fileNamePrefix+''+ModelParameters/items_of_interest+'_decayed'+'_'+TypeName+''+fileNameSuffix +'.fss'";
+			attribute<string>  ShortestTraveltime_min (domain_UniqueOD)      := string(domain_UniqueOD/ShortestTraveltime); //Convert the impedance from seconds to minutes, and store it as a string value.
+			attribute<string>  ModeUsed               (domain_UniqueOD)      := domain_UniqueOD/ModeUsed; //Convert the impedance from seconds to minutes, and store it as a string value.
+			
+			container LongFormat
+			{
+				attribute<string>  BodyLines_fullOD (domain_UniqueOD) := domain_UniqueOD/OrgName + ';' + domain_UniqueOD/DestName + ';' + ShortestTraveltime_min + ';' + ModeUsed;
+				parameter<string>  File_fullOD                        := 'OrgName;DestName;Traveltime_m_'+inTime_string+';ModeUsed_'+inTime_string+'\n'++AsList(BodyLines_fullOD, '\n'), StorageName = "=fileNamePrefix+'Traveltime_Long_'+TypeName+''+fileNameSuffix +'.csv'", StorageType = "str";
+			
+				attribute<string>  BodyLines_decay (org)              := org/name + ';' + string(nr_items_of_interest_bereikbaar_decayed);
+				parameter<string>  File_decay                         := 'Org;'+ModelParameters/items_of_interest+'_'+inTime_string+'\n'++AsList(BodyLines_decay, '\n'), StorageName = "=fileNamePrefix+ModelParameters/items_of_interest+'_decayed_Long_'+TypeName+''+fileNameSuffix +'.csv'", StorageType = "str";
+			}
+			
+			container WideFormat
+			{
+				unit<uint64> Complete_OrgDest := Combine_OrgDest
+				{
+					attribute<float32> ShortestTraveltime_min := rjoin(id(.), domain_UniqueOD/values, domain_UniqueOD/ShortestTraveltime);  //Convert the impedance from seconds to minutes, and store it as a string value. 60f
+				}
+				
+				unit<uint32> Matrix_Array := org
+				{
+					attribute<string> org_name           := org/name;
+					attribute<string> impedance_list := AsList(string(MakeDefined(Complete_OrgDest/ShortestTraveltime_min, -1f)), ';', Complete_OrgDest/nr_1);
+				}
+
+				unit<uint32> Header : nrofrows = 1
+				{
+					attribute<string> dest_name          := AsList(Complete_OrgDest/DestName, ';', const(0[Header],Complete_OrgDest));
+				}
+
+				unit<uint32> Matrix_met_header := union_unit(Header, Matrix_Array) //This unit can easily be exported to csv and used in other applications.
+				{
+					attribute<string> org_name           := union_data(., const('',Header), Matrix_Array/org_name);
+					attribute<string> values             := union_data(., Header/dest_name, replace(Matrix_Array/impedance_list,'-1',''));
+				}
+				
+				attribute<string>  BodyLines_fullOD (Matrix_met_header) := Matrix_met_header/org_name + ';' + Matrix_met_header/values;
+				parameter<string>  File_fullOD                          := AsList(BodyLines_fullOD, '\n'), StorageName = "=fileNamePrefix+'Traveltime_Wide_'+TypeName+''+fileNameSuffix +'.csv'", StorageType = "str";
+			}
+			
+			parameter<string> fileNamePrefix := ModelParameters/Advanced/fileNamePrefix;
+			parameter<string> fileNameSuffix :=  
+				'_' + ModelParameters/Analysis_Date + 
+				'_' + ModelParameters/Arrival_or_Departure_at_time + 
+				'_' + inTime_string + 
+				'_ORG-'    + ModelParameters/Orgset + '-' + regio_name + 
+				'_DEST-'   + ModelParameters/Advanced/DestSet_string +
+				'_O2SWtime-' + string(ModelParameters/MaxWalkingTime_Org2Stop)+'min';
+		}
+	}
+}

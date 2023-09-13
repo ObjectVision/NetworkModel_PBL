@@ -1,0 +1,485 @@
+container NetworkSetup : using = "units;geometries;SourceData;Classifications"
+{     
+	container ConfigurationPerRegio := 
+		for_each_ne(
+			/ModelParameters/Advanced/Regio/name
+			, 'ConfigurationPerRegio_T('+quote(ModelParameters/Advanced/Regio/name)+')'
+		)
+	{
+		container Generate_Output
+		{
+			parameter<string> OUTPUT_Generate_PublicTransport_decay_CSVFiles        := =AsList(/ModelParameters/Advanced/Regio/name+'/PublicTransport/Generate_Output/OUTPUT_Generate_decay_CSVFiles',' + ');
+			parameter<string> OUTPUT_Generate_PublicTransport_fullOD_long_CSVFiles  := =AsList(/ModelParameters/Advanced/Regio/name+'/PublicTransport/Generate_Output/OUTPUT_Generate_fullOD_long_CSVFiles',' + ');
+			parameter<string> OUTPUT_Generate_PublicTransport_fullOD_wide_CSVFiles  := =AsList(/ModelParameters/Advanced/Regio/name+'/PublicTransport/Generate_Output/OUTPUT_Generate_fullOD_wide_CSVFiles',' + ');
+			parameter<string> OUTPUT_Generate_Car_decay_CSVFiles                    := =AsList(ModelParameters/Advanced/Regio/name+'/PrivateTransport/Export_Car_Decayed',' + ');
+			parameter<string> OUTPUT_Generate_Car_traveltimes_CSVFiles              := =AsList(ModelParameters/Advanced/Regio/name+'/PrivateTransport/Export_Car_Traveltimes',' + ');
+			parameter<string> OUTPUT_Generate_Bike_decay_CSVFiles                   := =AsList(ModelParameters/Advanced/Regio/name+'/PrivateTransport/Export_Bike_Decayed',' + '); 
+			parameter<string> OUTPUT_Generate_Bike_traveltimes_CSVFiles             := =AsList(ModelParameters/Advanced/Regio/name+'/PrivateTransport/Export_Bike_Traveltimes',' + '); 
+			parameter<string> OUTPUT_Generate_Pedestrian_decay_CSVFiles             := =AsList(ModelParameters/Advanced/Regio/name+'/PrivateTransport/Export_Pedestrian_Decayed',' + '); 
+			parameter<string> OUTPUT_Generate_Pedestrian_traveltimes_CSVFiles       := =AsList(ModelParameters/Advanced/Regio/name+'/PrivateTransport/Export_Pedestrian_Traveltimes',' + '); 
+		}
+	}
+		
+	Template ConfigurationPerRegio_T 
+	{
+		parameter<string> regio_name;
+
+		unit<uint32> org := =impl/Org_domain
+		{
+			attribute<rdc>                   geometry       := =impl/Org_domain+'/geometry';
+			attribute<string>                name           := =impl/Org_domain+'/name';
+			attribute<float32>               nr_inwoners    := =impl/Org_domain+'/nr_inwoners[float32]';
+		}
+		
+		unit<uint32> dest := =ModelParameters/Create_Symmetric_fullOD ? 'org' : 'impl/dest_src';
+		
+		container impl
+		{
+			container src := .;
+			parameter<string> Org_domain        := replace(rjoin(ModelParameters/Advanced/Orgset_str, lowercase(ModelParameters/Advanced/org_domain_list/label), ModelParameters/Advanced/org_domain_list/path), '@REGIO@', regio_name);
+			parameter<string> Dest_domain       := rjoin(lowercase(ModelParameters/DestSet), lowercase(ModelParameters/Advanced/dest_domain_list/label), ModelParameters/Advanced/dest_domain_list/path);
+			
+			unit<uint32> dest_src := =Dest_domain
+			{
+				attribute<uint32>                nr_items_of_interest := =Dest_domain+'/'+ModelParameters/items_of_interest;
+				attribute<rdc>                   geometry             := =Dest_domain+'/geometry';
+				attribute<string>                name                 := =Dest_domain+'/name';
+				attribute<string>                label                := name;
+			}
+		}
+		
+		container PublicTransport := 
+			for_each_ne(
+				ModelParameters/Advanced/MeasureMoments/Name
+				, 'PublicTransport_T('+string(ModelParameters/Advanced/MeasureMoments/Moment)+', '+quote(ModelParameters/Advanced/MeasureMoments/name)+')'
+			)
+		{
+			container Generate_Output
+			{
+				parameter<string>   OUTPUT_Generate_decay_CSVFiles        := =AsList(ModelParameters/Advanced/MeasureMoments/Name+'/OUTPUT_Generate_decay_CSVFiles',' + ');
+				parameter<string>   OUTPUT_Generate_fullOD_long_CSVFiles  := =AsList(ModelParameters/Advanced/MeasureMoments/Name+'/OUTPUT_Generate_fullOD_long_CSVFiles',' + ');
+				parameter<string>   OUTPUT_Generate_fullOD_wide_CSVFiles  := =AsList(ModelParameters/Advanced/MeasureMoments/Name+'/OUTPUT_Generate_fullOD_wide_CSVFiles',' + ');
+			}
+			
+			container ODConnections
+			{
+				unit<uint32> Stops                       := SourceData/Infrastructuur/GTFS/StudyAreaFeeds/Stops;
+				unit<uint32> Stops_ICstations            := SourceData/Infrastructuur/GTFS/StudyAreaFeeds/Stops_ICstation;
+				unit<uint32> Stops_Trainstations         := SourceData/Infrastructuur/GTFS/StudyAreaFeeds/Stops_Trainstation;
+				unit<uint32> Stops_TrainMetrostation     := SourceData/Infrastructuur/GTFS/StudyAreaFeeds/Stops_TrainMetrostation;
+				unit<uint32> Stops_TrainMetroTramstation := SourceData/Infrastructuur/GTFS/StudyAreaFeeds/Stops_TrainMetroTramstation;
+				
+				container RoadNets_Org2Stop_W    := templates/CreateNetwork_Pedestrian_Bike_T(Org   ,Stops                       ,SourceData/Infrastructuur/OSM/Network_Pedestrian, 'Walking', 'Org2Stop');
+				container RoadNets_Org2Stop_B    := templates/CreateNetwork_Pedestrian_Bike_T(Org   ,Stops                       ,SourceData/Infrastructuur/OSM/Network_Bike      , 'Biking' , 'Org2Stop');
+				container RoadNets_Org2StopIC_B  := templates/CreateNetwork_Pedestrian_Bike_T(Org   ,Stops_ICstations            ,SourceData/Infrastructuur/OSM/Network_Bike      , 'Biking' , 'Org2Stop');
+				container RoadNets_Org2StopT_B   := templates/CreateNetwork_Pedestrian_Bike_T(Org   ,Stops_Trainstations         ,SourceData/Infrastructuur/OSM/Network_Bike      , 'Biking' , 'Org2Stop');
+				container RoadNets_Org2StopTM_B  := templates/CreateNetwork_Pedestrian_Bike_T(Org   ,Stops_TrainMetrostation     ,SourceData/Infrastructuur/OSM/Network_Bike      , 'Biking' , 'Org2Stop');
+				container RoadNets_Org2StopTMT_B := templates/CreateNetwork_Pedestrian_Bike_T(Org   ,Stops_TrainMetroTramstation ,SourceData/Infrastructuur/OSM/Network_Bike      , 'Biking' , 'Org2Stop');
+				
+				container RoadNets_Stop2Dest_W   := templates/CreateNetwork_Pedestrian_Bike_T(Stops ,Dest                        ,SourceData/Infrastructuur/OSM/Network_Pedestrian, 'Walking', 'Stop2Dest');
+				container RoadNets_Stop2Dest_B   := templates/CreateNetwork_Pedestrian_Bike_T(Stops ,Dest                        ,SourceData/Infrastructuur/OSM/Network_Bike      , 'Biking' , 'Stop2Dest');
+				
+				container CreateODconnections : using = "/SourceData/Infrastructuur/GTFS/StaticNets"
+				{
+					container Sparse_uitwerking_Org2StopIC_B
+					{
+						unit<uint32> OD_path := RoadNets_Org2StopIC_B/Network/ODMatrix;
+						
+						unit<uint32> AB := join_equal_values_uint32(OD_path/Complete_Stops_rel, ScheduledSpaceTimeEvents/StopRef)
+						{
+							attribute<Stops>                      Stop_rel          := nr_X_rel;
+							attribute<OD_path>                    OD_rel            := nr_1_rel;
+							attribute<ScheduledSpaceTimeEvents>   SSTE_rel          := nr_2_rel;
+							
+							attribute<allLinks/Places>            Place_rel         := stops/PlaceRef[Stop_rel];
+							attribute<Org>                        Org_rel           := OD_path/StartRef[OD_rel];
+							attribute<rdc>                        geometry (arc)    := OD_path/geometry[OD_rel];
+							attribute<Time>                       Duration_Bike     := (Distance / ModelParameters/Advanced/BikingSpeed)[Time];
+							attribute<m>                          Distance          := OD_path/Distance[OD_rel];
+							attribute<Time>                       FromTime_Bike     := toTime_Bike[int32] - Duration_Bike[int32] > 0i
+																						? toTime_Bike - Duration_Bike 
+																						: (toTime_Bike[int32] - Duration_Bike[int32] + (#Time / 2)[int32])[uint32];
+							attribute<Time>                       toTime_Bike       := ScheduledSpaceTimeEvents/TimeRef[SSTE_rel];
+							attribute<string>                     LabelText         := OD_path/labeltext[OD_rel], DialogType = "LabelText";
+							
+							attribute<upoint>                     MomentxPlace      := point(toTime_Bike, Place_rel, upoint);
+							attribute<allLinks/NodeSet>           NodeRef           := rlookup(MomentxPlace, allLinks/NodeSet/values);
+							
+							unit<uint32> uq_stops := unique(Place_rel)
+							{
+								attribute<allLinks/Places> UsedStops := values;
+							}
+						}
+					}
+					
+					container Sparse_uitwerking_Org2StopT_B
+					{
+						unit<uint32> OD_path := RoadNets_Org2StopT_B/Network/ODMatrix;
+						
+						unit<uint32> AB := join_equal_values_uint32(OD_path/Complete_Stops_rel, ScheduledSpaceTimeEvents/StopRef)
+						{
+							attribute<Stops>                      Stop_rel          := nr_X_rel;
+							attribute<OD_path>                    OD_rel            := nr_1_rel;
+							attribute<ScheduledSpaceTimeEvents>   SSTE_rel          := nr_2_rel;
+							
+							attribute<allLinks/Places>            Place_rel         := stops/PlaceRef[Stop_rel];
+							attribute<Org>                        Org_rel           := OD_path/StartRef[OD_rel];
+							attribute<rdc>                        geometry (arc)    := OD_path/geometry[OD_rel];
+							attribute<Time>                       Duration_Bike     := (Distance / ModelParameters/Advanced/BikingSpeed)[Time];
+							attribute<m>                          Distance          := OD_path/Distance[OD_rel];
+							attribute<Time>                       FromTime_Bike     := toTime_Bike[int32] - Duration_Bike[int32] > 0i
+																						? toTime_Bike - Duration_Bike 
+																						: (toTime_Bike[int32] - Duration_Bike[int32] + (#Time / 2)[int32])[uint32];
+							attribute<Time>                       toTime_Bike       := ScheduledSpaceTimeEvents/TimeRef[SSTE_rel];
+							attribute<string>                     LabelText         := OD_path/labeltext[OD_rel], DialogType = "LabelText";
+							
+							attribute<upoint>                     MomentxPlace      := point(toTime_Bike, Place_rel, upoint);
+							attribute<allLinks/NodeSet>           NodeRef           := rlookup(MomentxPlace, allLinks/NodeSet/values);
+							
+							unit<uint32> uq_stops := unique(Place_rel)
+							{
+								attribute<allLinks/Places> UsedStops := values;
+							}
+						}
+					}
+					
+					container Sparse_uitwerking_Org2StopTM_B
+					{
+						unit<uint32> OD_path := RoadNets_Org2StopTM_B/Network/ODMatrix;
+						
+						unit<uint32> AB := join_equal_values_uint32(OD_path/Complete_Stops_rel, ScheduledSpaceTimeEvents/StopRef)
+						{
+							attribute<Stops>                      Stop_rel          := nr_X_rel;
+							attribute<OD_path>                    OD_rel            := nr_1_rel;
+							attribute<ScheduledSpaceTimeEvents>   SSTE_rel          := nr_2_rel;
+							
+							attribute<allLinks/Places>            Place_rel         := stops/PlaceRef[Stop_rel];
+							attribute<Org>                        Org_rel           := OD_path/StartRef[OD_rel];
+							attribute<rdc>                        geometry (arc)    := OD_path/geometry[OD_rel];
+							attribute<Time>                       Duration_Bike     := (Distance / ModelParameters/Advanced/BikingSpeed)[Time];
+							attribute<m>                          Distance          := OD_path/Distance[OD_rel];
+							attribute<Time>                       FromTime_Bike     := toTime_Bike[int32] - Duration_Bike[int32] > 0i
+																						? toTime_Bike - Duration_Bike 
+																						: (toTime_Bike[int32] - Duration_Bike[int32] + (#Time / 2)[int32])[uint32];
+							attribute<Time>                       toTime_Bike       := ScheduledSpaceTimeEvents/TimeRef[SSTE_rel];
+							attribute<string>                     LabelText         := OD_path/labeltext[OD_rel], DialogType = "LabelText";
+							
+							attribute<upoint>                     MomentxPlace      := point(toTime_Bike, Place_rel, upoint);
+							attribute<allLinks/NodeSet>           NodeRef           := rlookup(MomentxPlace, allLinks/NodeSet/values);
+							
+							unit<uint32> uq_stops := unique(Place_rel)
+							{
+								attribute<allLinks/Places> UsedStops := values;
+							}
+						}
+					}
+					
+					container Sparse_uitwerking_Org2StopTMT_B
+					{
+						unit<uint32> OD_path := RoadNets_Org2StopTMT_B/Network/ODMatrix;
+						
+						unit<uint32> AB := join_equal_values_uint32(OD_path/Complete_Stops_rel, ScheduledSpaceTimeEvents/StopRef)
+						{
+							attribute<Stops>                      Stop_rel          := nr_X_rel;
+							attribute<OD_path>                    OD_rel            := nr_1_rel;
+							attribute<ScheduledSpaceTimeEvents>   SSTE_rel          := nr_2_rel;
+							
+							attribute<allLinks/Places>            Place_rel         := stops/PlaceRef[Stop_rel];
+							attribute<Org>                        Org_rel           := OD_path/StartRef[OD_rel];
+							attribute<rdc>                        geometry (arc)    := OD_path/geometry[OD_rel];
+							attribute<Time>                       Duration_Bike     := (Distance / ModelParameters/Advanced/BikingSpeed)[Time];
+							attribute<m>                          Distance          := OD_path/Distance[OD_rel];
+							attribute<Time>                       FromTime_Bike     := toTime_Bike[int32] - Duration_Bike[int32] > 0i
+																						? toTime_Bike - Duration_Bike 
+																						: (toTime_Bike[int32] - Duration_Bike[int32] + (#Time / 2)[int32])[uint32];
+							attribute<Time>                       toTime_Bike       := ScheduledSpaceTimeEvents/TimeRef[SSTE_rel];
+							attribute<string>                     LabelText         := OD_path/labeltext[OD_rel], DialogType = "LabelText";
+							
+							attribute<upoint>                     MomentxPlace      := point(toTime_Bike, Place_rel, upoint);
+							attribute<allLinks/NodeSet>           NodeRef           := rlookup(MomentxPlace, allLinks/NodeSet/values);
+							
+							unit<uint32> uq_stops := unique(Place_rel)
+							{
+								attribute<allLinks/Places> UsedStops := values;
+							}
+						}
+					}
+					
+					container Sparse_uitwerking_Org2Stop_W
+					{
+						unit<uint32> OD_path := RoadNets_Org2Stop_W/Network/ODMatrix;
+						unit<uint32> AB := join_equal_values_uint32(OD_path/EindRef, ScheduledSpaceTimeEvents/stopRef)
+						{
+							attribute<Stops>                      Stop_rel          := nr_X_rel;
+							attribute<OD_path>                    OD_rel            := nr_1_rel;
+							attribute<ScheduledSpaceTimeEvents>   SSTE_rel          := nr_2_rel;
+							
+							attribute<allLinks/Places>            Place_rel         := stops/PlaceRef[Stop_rel];
+							attribute<Org>                        Org_rel           := OD_path/StartRef[OD_rel];
+							attribute<rdc>    		              geometry (arc)    := OD_path/geometry[OD_rel];
+							
+							attribute<Time>                       Duration_Walk     := OD_path/Duration[OD_rel];
+							attribute<m>                          Distance          := OD_path/Distance[OD_rel];
+							attribute<Time>                       FromTime_Walk     := toTime_Walk[int32] - Duration_Walk[int32] > 0i
+																						? toTime_Walk - Duration_Walk 
+																						: (toTime_Walk[int32] - Duration_Walk[int32] + (#Time / 2)[int32])[uint32];
+							attribute<Time>                       toTime_Walk       := ScheduledSpaceTimeEvents/TimeRef[SSTE_rel];
+							attribute<string>                     LabelText         := OD_path/labeltext[OD_rel], DialogType = "LabelText";
+							
+							attribute<upoint>                     MomentxPlace      := point(toTime_Walk, Place_rel, upoint);
+							attribute<allLinks/NodeSet>           NodeRef           := rlookup(MomentxPlace, allLinks/NodeSet/values);
+							
+							unit<uint32> uq_stops := unique(Place_rel)
+							{
+								attribute<allLinks/Places> UsedStops := values;
+							}
+						}
+					}
+					container Sparse_uitwerking_Org2Stop_B
+					{
+						unit<uint32> OD_path := RoadNets_Org2Stop_B/Network/ODMatrix;
+						unit<uint32> AB := join_equal_values_uint32(OD_path/EindRef, ScheduledSpaceTimeEvents/stopRef)
+						{
+							attribute<Stops>                      Stop_rel          := nr_X_rel;
+							attribute<OD_path>                    OD_rel            := nr_1_rel;
+							attribute<ScheduledSpaceTimeEvents>   SSTE_rel          := nr_2_rel;
+							
+							attribute<allLinks/Places>            Place_rel         := stops/PlaceRef[Stop_rel];
+							attribute<Org>                        Org_rel           := OD_path/StartRef[OD_rel];
+							attribute<rdc>    		              geometry (arc)        := OD_path/geometry[OD_rel];
+							
+							attribute<Time>                       Duration_Bike     := (Distance / ModelParameters/Advanced/BikingSpeed)[Time];
+							attribute<m>                          Distance          := OD_path/Distance[OD_rel];
+							attribute<Time>                       FromTime_Bike     := toTime_Bike[int32] - Duration_Bike[int32] > 0i
+																						? toTime_Bike - Duration_Bike 
+																						: (toTime_Bike[int32] - Duration_Bike[int32] + (#Time / 2)[int32])[uint32];
+							attribute<Time>                       toTime_Bike       := ScheduledSpaceTimeEvents/TimeRef[SSTE_rel];
+							attribute<string>                     LabelText         := OD_path/labeltext[OD_rel], DialogType = "LabelText";
+							
+							attribute<upoint>                     MomentxPlace      := point(toTime_Bike, Place_rel, upoint);
+							attribute<allLinks/NodeSet>           NodeRef           := rlookup(MomentxPlace, allLinks/NodeSet/values);
+							
+							unit<uint32> uq_stops := unique(Place_rel)
+							{
+								attribute<allLinks/Places> UsedStops := values;
+							}
+						}
+					}
+					container Sparse_uitwerking_Stop2Dest_W
+					{
+						unit<uint32> OD_path := RoadNets_Stop2Dest_W/Network/ODMatrix;
+						unit<uint32> AB := join_equal_values_uint32(OD_path/StartRef, ScheduledSpaceTimeEvents/stopRef)
+						{
+							attribute<Stops>                      Stop_rel          := nr_X_rel;
+							attribute<OD_path>                    OD_rel            := nr_1_rel;
+							attribute<ScheduledSpaceTimeEvents>   SSTE_rel          := nr_2_rel;
+							
+							attribute<allLinks/Places>            Place_rel         := stops/PlaceRef[Stop_rel];
+							attribute<Dest>                       Dest_rel          := OD_path/EindRef[OD_rel];
+							attribute<rdc>    		              geometry (arc)    := OD_path/geometry[OD_rel];
+							
+							attribute<Time>                       Duration_Walk     := OD_path/Duration[OD_rel] > #Time / 2
+																						? #Time / 2
+																						: OD_path/Duration[OD_rel];
+							attribute<m>                          Distance          := OD_path/Distance[OD_rel];
+							attribute<Time>                       FromTime_Walk     := ScheduledSpaceTimeEvents/TimeRef[SSTE_rel];
+							attribute<Time>                       ToTime_Walk       := FromTime_Walk + Duration_Walk > #Time
+																						? FromTime_Walk + Duration_Walk - #Time
+																						: FromTime_Walk + Duration_Walk;
+							attribute<string>                     LabelText         := OD_path/labeltext[OD_rel], DialogType = "LabelText";
+							
+							attribute<upoint>                     MomentxPlace      := point(FromTime_Walk, Place_rel, upoint);
+							attribute<allLinks/NodeSet>           NodeRef           := rlookup(MomentxPlace, allLinks/NodeSet/values);
+							
+							unit<uint32> uq_stops := unique(Place_rel)
+							{
+								attribute<allLinks/Places> UsedStops := values;
+							}
+						}
+					}
+					container Sparse_uitwerking_Stop2Dest_B
+					{
+						unit<uint32> OD_path := RoadNets_Stop2Dest_B/Network/ODMatrix;
+						unit<uint32> AB := join_equal_values_uint32(OD_path/StartRef, ScheduledSpaceTimeEvents/stopRef)
+						{
+							attribute<Stops>                      Stop_rel          := nr_X_rel;
+							attribute<OD_path>                    OD_rel            := nr_1_rel;
+							attribute<ScheduledSpaceTimeEvents>   SSTE_rel          := nr_2_rel;
+							
+							attribute<allLinks/Places>            Place_rel         := stops/PlaceRef[Stop_rel];
+							attribute<Dest>                       Dest_rel          := OD_path/EindRef[OD_rel];
+							attribute<rdc>    		              geometry (arc)    := OD_path/geometry[OD_rel];
+							
+							attribute<Time>                       Duration_Bike     := (Distance / ModelParameters/Advanced/BikingSpeed)[Time];
+							attribute<m>                          Distance          := OD_path/Distance[OD_rel];
+							attribute<Time>                       FromTime_Bike     := ScheduledSpaceTimeEvents/TimeRef[SSTE_rel];
+							attribute<Time>                       ToTime_Bike       := FromTime_Bike + Duration_Bike > #Time
+																						? FromTime_Bike + Duration_Bike - #Time
+																						: FromTime_Bike + Duration_Bike;
+							attribute<string>                     LabelText         := OD_path/labeltext[OD_rel], DialogType = "LabelText";
+							
+							attribute<upoint>                     MomentxPlace      := point(FromTime_Bike, Place_rel, upoint);
+							attribute<allLinks/NodeSet>           NodeRef           := rlookup(MomentxPlace, allLinks/NodeSet/values);
+							
+							unit<uint32> uq_stops := unique(Place_rel)
+							{
+								attribute<allLinks/Places> UsedStops := values;
+							}
+						}
+					}
+				}
+			}
+		}
+		
+		container PrivateTransport 
+		{
+			parameter<string> Export_Pedestrian_decayed      := Pedestrian/ExportTable_Decayed/File;
+			parameter<string> Export_Pedestrian_traveltimes  := Pedestrian/ExportTable_Traveltimes/File;
+			parameter<string> Export_Bike_decayed            := Bike/ExportTable_Decayed/File;
+			parameter<string> Export_Bike_traveltimes        := Bike/ExportTable_Traveltimes/File;
+			parameter<string> Export_Car_Decayed             := Car/ExportTable_Decayed/File;
+			parameter<string> Export_Car_traveltimes         := Car/ExportTable_Traveltimes/File;
+			
+			container Impl
+			{
+				parameter<string> fileNamePrefix :=  ModelParameters/Advanced/fileNamePrefix;
+				parameter<string> fileNameSuffix :=  
+					'_ORG-'    + ModelParameters/Orgset + '-' + regio_name + 
+					'_DEST-'   + ModelParameters/Advanced/DestSet_string +
+					'_NETWERK-@@' +
+					'_MaxTime-' + string(ModelParameters/MaxCarTime)+'min';
+			}
+			
+			Container Pedestrian
+			{
+				container Create_Optimised_Network  := Templates/CreateNetwork_Efficient_T(org, dest, SourceData/Infrastructuur/OSM/Network_Pedestrian/IsVerbonden, 'Pedestrian');
+				
+				unit<uint32> LinkSet := Create_Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet;
+				unit<uint32> NodeSet := Create_Optimised_Network/CreateMoreEfficientNetwork/FinalNodeSet;
+				container Calc_Traveltimes_maxspeed := Calc_Traveltimes_T(LinkSet, NodeSet, LinkSet/Impedance_per_ImpedanceType/max_pedestrian, ModelParameters/MaxPedestrianTime_Org2Dest);
+				
+				unit<uint64> ExportTable_Traveltimes := Calc_Traveltimes_maxspeed/Traveltimes
+				{
+					attribute<org > Org_rel := OrgZone_rel;
+					attribute<dest> Dst_rel := DstZone_rel;
+					
+					attribute<min_f> DefaultSpeed_imp    := Impedance;
+					
+					attribute<string> BodyLines :=
+						org/name[Org_rel] + ';' + 
+						dest/name[Dst_rel] + ';' +
+						string(DefaultSpeed_imp);
+					parameter<string> File := 'Org;Dst;Freeflow\n'++AsList(BodyLines, '\n'), StorageName = "=impl/fileNamePrefix+'Traveltimes'+replace(impl/fileNameSuffix, '@@', 'Pedestrian') +'.csv'", StorageType = "str";
+				}
+				unit<uint32> ExportTable_Decayed := org
+				{
+					attribute<float32> nr_items_of_interest_decayed_freeflow        := Calc_Traveltimes_maxspeed/Decay/D_i;
+					
+					attribute<string> BodyLines (org) := org/name + ';' + string(nr_items_of_interest_decayed_freeflow);
+					parameter<string> File            := 'Org;freeflow\n'++AsList(BodyLines, '\n'), StorageName = "=impl/fileNamePrefix+''+ModelParameters/items_of_interest+'_decayed'+replace(impl/fileNameSuffix, '@@', 'Pedestrian')+'.csv'", StorageType = "str";
+				}
+			}
+			
+			Container Bike
+			{
+				container Create_Optimised_Network_Bike    := Templates/CreateNetwork_Efficient_T(org, dest, SourceData/Infrastructuur/OSM/Network_Bike/IsVerbonden, 'Bike');
+				container Create_Optimised_Network_EBike   := Templates/CreateNetwork_Efficient_T(org, dest, SourceData/Infrastructuur/OSM/Network_Bike/IsVerbonden, 'E_Bike');
+
+				unit<uint32> LinkSet_bike := Create_Optimised_Network_Bike/CreateMoreEfficientNetwork/FinalLinkSet;
+				unit<uint32> NodeSet_bike := Create_Optimised_Network_Bike/CreateMoreEfficientNetwork/FinalNodeSet;
+				container Calc_Traveltimes_maxspeed_bike  := Calc_Traveltimes_T(LinkSet_bike, NodeSet_bike, LinkSet_bike/Impedance_per_ImpedanceType/max_bike, ModelParameters/MaxBikeTime_Org2Dest);
+				container Calc_Traveltimes_congested_bike := Calc_Traveltimes_T(LinkSet_bike, NodeSet_bike, LinkSet_bike/Impedance_per_ImpedanceType/congested_bike, ModelParameters/MaxBikeTime_Org2Dest);
+				
+				unit<uint32> LinkSet_e_bike := Create_Optimised_Network_EBike/CreateMoreEfficientNetwork/FinalLinkSet;
+				unit<uint32> NodeSet_e_bike := Create_Optimised_Network_EBike/CreateMoreEfficientNetwork/FinalNodeSet;
+				container Calc_Traveltimes_maxspeed_e_bike := Calc_Traveltimes_T(LinkSet_e_bike, NodeSet_e_bike, LinkSet_e_bike/Impedance_per_ImpedanceType/max_e_bike, ModelParameters/MaxBikeTime_Org2Dest);
+				container Calc_Traveltimes_congested_e_bike := Calc_Traveltimes_T(LinkSet_e_bike, NodeSet_e_bike, LinkSet_e_bike/Impedance_per_ImpedanceType/congested_e_bike, ModelParameters/MaxBikeTime_Org2Dest);
+				
+				unit<uint64> ExportTable_Traveltimes := Calc_Traveltimes_maxspeed_bike/Traveltimes
+				{
+					attribute<org > Org_rel := OrgZone_rel;
+					attribute<dest> Dst_rel := DstZone_rel;
+					
+					attribute<min_f> DefaultSpeed_imp     := Impedance;
+					attribute<min_f> E_Bike_imp           := rjoin(Org_Dest, Calc_Traveltimes_maxspeed_e_bike/Traveltimes/Org_Dest, Calc_Traveltimes_maxspeed_e_bike/Traveltimes/Impedance);
+					attribute<min_f> ActualBike_imp       := rjoin(Org_Dest, Calc_Traveltimes_congested_bike/Traveltimes/Org_Dest, Calc_Traveltimes_congested_bike/Traveltimes/Impedance);
+					attribute<min_f> ActualE_Bike_Adj_imp := rjoin(Org_Dest, Calc_Traveltimes_congested_e_bike/Traveltimes/Org_Dest, Calc_Traveltimes_congested_e_bike/Traveltimes/Impedance);
+
+					attribute<bool>  IsCorrect_ActualBike     := ActualBike_imp >= DefaultSpeed_imp;
+					
+					attribute<string> BodyLines_ActualBike :=
+						org/name[Org_rel] + ';' + 
+						dest/name[Dst_rel] + ';' +
+						string(DefaultSpeed_imp) + ';' +
+						string(E_Bike_imp) + ';' +
+						string(ActualBike_imp) + ';' +
+						string(ActualE_Bike_Adj_imp);
+					parameter<string> File_ActualBike := 'Org;Dst;Freeflow;Freeflow_ebike;ActualBike;ActualE_Bike_Adj\n'++AsList(BodyLines_ActualBike, '\n'), StorageName = "=impl/fileNamePrefix+'Traveltimes'+replace(impl/fileNameSuffix, '@@', 'Bike') +'.csv'", StorageType = "str";
+					
+					attribute<string> BodyLines_Freeflow :=
+						org/name[Org_rel] + ';' + 
+						dest/name[Dst_rel] + ';' +
+						string(DefaultSpeed_imp) + ';' + 
+						string(E_Bike_imp);
+					parameter<string> File_Freeflow := 'Org;Dst;Freeflow;Freeflow_ebike\n'++AsList(BodyLines_Freeflow, '\n'), StorageName = "=impl/fileNamePrefix+'Traveltimes'+replace(impl/fileNameSuffix, '@@', 'Bike') +'.csv'", StorageType = "str";
+					
+					parameter<string> File := =ModelParameters/UseActualBikeSpeeds ? 'File_ActualBike' : 'File_Freeflow';
+				}
+				
+				unit<uint32> ExportTable_Decayed := org
+				{
+					attribute<float32> nr_items_of_interest_decayed_Bike_MaxSpeed    := Calc_Traveltimes_maxspeed_bike/Decay/D_i;
+					attribute<float32> nr_items_of_interest_decayed_Ebike            := Calc_Traveltimes_maxspeed_e_bike/Decay/D_i;
+					attribute<float32> nr_items_of_interest_decayed_ActualBike       := Calc_Traveltimes_congested_bike/Decay/D_i;
+					attribute<float32> nr_items_of_interest_decayed_ActualE_Bike_adj := Calc_Traveltimes_congested_e_bike/Decay/D_i;
+					attribute<float32> Loss_ActualBike                               := nr_items_of_interest_decayed_Bike_MaxSpeed - nr_items_of_interest_decayed_ActualBike;
+					
+					attribute<string> BodyLines (org) := org/name + ';' + string(nr_items_of_interest_decayed_Bike_MaxSpeed) + ';'+string(nr_items_of_interest_decayed_Ebike) + ';'+string(nr_items_of_interest_decayed_ActualBike) + ';'+string(nr_items_of_interest_decayed_ActualE_Bike_adj);
+					parameter<string> File            := 'Org;freeflow;freeflow_ebike;ActualBike;ActualE_Bike_Adj\n'++AsList(BodyLines, '\n'), StorageName = "=impl/fileNamePrefix+''+ModelParameters/items_of_interest+'_decayed'+replace(impl/fileNameSuffix, '@@', 'Bike')+'.csv'", StorageType = "str";
+				}
+			}
+			
+			// container Car := Templates/PrivateTransport_Car_T(org, dest, true, 'MorningRush');
+			container Car := Templates/PrivateTransport_Car_T(org, dest, true); //, 'MorningRush');
+			
+			Template Calc_Traveltimes_T
+			{
+				unit<uint32>     LinkSet;
+				unit<uint32>     NodeSet;
+				attribute<s_f>   impedance   (LinkSet);
+				parameter<min_f> MaxTraveltime_min;
+				///
+				
+				unit<uint64> Traveltimes :=
+					impedance_matrix_od64('bidirectional;startPoint(Node_rel):max_imp;endPoint(Node_rel);cut(OrgZone_max_imp);od:impedance,OrgZone_rel,DstZone_rel'
+						, convert(impedance, min_f)
+						, LinkSet/F1
+						, LinkSet/F2
+						, NodeSet/OrgNode_rel
+						, NodeSet/DestNode_rel
+						, MaxTraveltime_min //cut impedance
+					)
+				{
+					attribute<string> Org_Dest := string(OrgZone_rel)+'_'+string(DstZone_rel);
+					
+					unit<uint64> uq_dest := unique(dstZone_rel);
+				}
+				
+				unit<uint64> Decay := 
+					impedance_matrix_od64('bidirectional;startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);interaction(v_i,w_j,dist_logit(alpha,beta,gamma)):D_i'
+						, convert(impedance, min_f)
+						, LinkSet/F1
+						, LinkSet/F2
+						, NodeSet/OrgNode_rel
+						, NodeSet/DestNode_rel
+						, MaxTraveltime_min
+						, 1f                                 // v_i
+						, dest/nr_items_of_interest[float32]        // w_j
+						, ModelParameters/Advanced/Distance_Decay/car_a , ModelParameters/Advanced/Distance_Decay/car_b , ModelParameters/Advanced/Distance_Decay/car_c
+					);
+			}
+		}
+		
+		#include<PublicTransport.dms>
+	}
+}
