@@ -1,99 +1,180 @@
 container BAG
 {
 	// parameter<string> SnapshotDir := '%BAG_DataDir_OVSRV6%/BAG/snapshots.ext/20220101';
-	parameter<string> SnapshotDir   := '%NetworkModel_dir%/RegioIndelingen/BAG/20230101';
+	parameter<string> SnapshotDir   := '%NetworkModel_dir%/RegioIndelingen/BAG/'+ModelParameters_base/RegioIndelingen_jaar+'0101';
 	unit<uint32> RegioUnit_Buurt    := /SourceData/RegioIndelingen/Buurt;
 	unit<uint32> RegioUnit_Wijk     := /SourceData/RegioIndelingen/Wijk;
 	unit<uint32> RegioUnit_Gemeente := /SourceData/RegioIndelingen/Gemeente;
 	
-	unit<uint32> adres
-	:	StorageName     = "= SnapshotDir + '/adres.fss'"
-	,	StorageReadOnly = "True"
+	container VBOs
 	{
-		attribute<string>   straatnaam;
-		attribute<string>   postcode;
-		attribute<int32>    huisnummer;
-		attribute<string>   huisletter;
-		attribute<string>   toevoeging;
-		attribute<string>   woonplaatsnaam;
-		attribute<string>   city                   := woonplaatsnaam;
-		attribute<string>   nummeraanduiding_id;
-		attribute<rdc>      geometry;
-		attribute<rdc>      point                  := geometry;
-		attribute<string>   pc_huisnr              := postcode +'_'+string(huisnummer);
-		attribute<string>   name                   := pc_huisnr;
-		
-		
-		attribute<RegioUnit_Buurt>    buurt_rel    := point_in_polygon(geometry,  RegioUnit_Buurt/geometry);
-		attribute<RegioUnit_Wijk>     wijk_rel     := point_in_polygon(geometry,  RegioUnit_Wijk/geometry);
-		attribute<RegioUnit_Gemeente> gemeente_rel := point_in_polygon(geometry,  RegioUnit_Gemeente/geometry);
-		
-		attribute<uint32>   uq_rel := rlookup(postcode, pc6_uq/values);
-		
-		unit<uint32> buurt := RegioUnit_Buurt
+		unit<uint32> import
+		:	StorageName     = "= SnapshotDir+'/vbo.fss'"
+		,	StorageReadOnly = "True"
 		{
-			attribute<float32>  x_mean    := mean(pointcol(../geometry), buurt_rel);
-			attribute<float32>  y_mean    := mean(pointrow(../geometry), buurt_rel);
-			attribute<rdc>      centroid0 := point(x_mean, y_mean, rdc);
+			attribute<rdc_mm>              geometry_mm;
+			attribute<string>              identificatie;
+			attribute<int32>               oppervlakte;
+			attribute<string>              nummeraanduiding_id;
+			attribute<string>              pand_id;
+			attribute<string>              status;
 			
-			//controles
-			attribute<.>        poly_rel             := point_in_polygon(centroid0, ./geometry);
-			attribute<string>   statcode_poly        := ./statcode;
-			attribute<string>   statcode_centr       := statcode_poly[Poly_rel];
-			attribute<bool>     IsStatcode_gelijk    := statcode_poly == statcode_centr;
-			
-			attribute<rdc>      centroid_or_mid      := centroid_or_mid(./geometry);
-			attribute<rdc>      centroid             := IsStatcode_gelijk ? centroid0 : centroid_or_mid;
+			container gebruiksdoelen := for_each_ndv(vbo_gebruiksdoel/name, import, bool);
 		}
 		
-		unit<uint32> wijk := RegioUnit_Wijk
+		unit<uint32> src := import
 		{
-			attribute<float32>  x_mean := mean(pointcol(../geometry), wijk_rel);
-			attribute<float32>  y_mean := mean(pointrow(../geometry), wijk_rel);
-			attribute<rdc>      centroid0 := point(x_mean, y_mean, rdc);
+			attribute<rdc_mm>              geometry_mm             := import/geometry_mm;
+			attribute<rdc>                 geometry                := geometry_mm[rdc];
+			attribute<string>              identificatie           := import/identificatie;
+			attribute<string>              nummeraanduiding_id     := import/nummeraanduiding_id;
+			attribute<uint64>              vbo_bag_nr              := uint64(import/identificatie);
+			attribute<vbo_status>          status_rel              := rlookup(status, vbo_status/label);
+			attribute<string>              status                  := import/status;
 			
-			//controles
-			attribute<.>        poly_rel       := point_in_polygon(centroid0, ./geometry);
-			attribute<string>   statcode_poly  := ./statcode;
-			attribute<string>   statcode_centr := statcode_poly[Poly_rel];
-			attribute<bool>     IsStatcode_gelijk   := statcode_poly == statcode_centr;
+			container gebruiksdoelen := 
+				for_each_nedv(
+					vbo_gebruiksdoel/name
+					, 'import/gebruiksdoelen/'+vbo_gebruiksdoel/name
+					, import
+					, bool
+				);
+				
+			attribute<bool> VBO_selection := src/status_rel == Classifications/vbo_status/V/verblijfsobject_in_gebruik
+												|| src/status_rel == Classifications/vbo_status/V/verblijfsobject_in_gebruik_niet_ingemeten
+												|| src/status_rel == Classifications/vbo_status/V/verblijfsobject_buiten_gebruik
+												|| src/status_rel == Classifications/vbo_status/V/Verbouwing_verblijfsobject;
+		}
+											
+		// unit<uint32> VBO := select_with_attr_by_cond(src, src/VBO_selection)
+		// {
+			// attribute<adres_domein>        adres_rel                          := rlookup(nummeraanduiding_id, adres/nummeraanduiding_id);
 			
-			attribute<rdc>      centroid_or_mid      := centroid_or_mid(./geometry);
-			attribute<rdc>      centroid             := IsStatcode_gelijk ? centroid0 : centroid_or_mid;
+			// container gebruiksdoelen := collect_attr_by_cond(src/gebruiksdoelen, ., src/VBO_selection);
+		// }
+		
+		container GebruiksdoelSets :=
+			for_each_ne(
+				vbo_gebruiksdoel/name,
+				'MaakGebruiksdoelSets_T(' + quote(vbo_gebruiksdoel/name) +')'
+			);
+		
+		Template MaakGebruiksdoelSets_T
+		{
+			//
+			parameter<string> name;
+			//
+			
+			unit<uint32> GebruiksdoelSet := ='select_with_org_rel(src/gebruiksdoelen/'+name+'&& src/VBO_selection)'
+			{
+				attribute<rdc_mm>              geometry_mm                          := org_rel -> geometry_mm;
+				attribute<rdc>                 geometry                             := geometry_mm[rdc];
+				attribute<string>              identificatie                        := org_rel -> identificatie;
+				attribute<string>              nummeraanduiding_id                  := org_rel -> nummeraanduiding_id;
+			}
+		}
+	}
+	
+	container Adressen
+	{	
+		unit<uint32> import
+		:	StorageName     = "= SnapshotDir + '/adres.fss'"
+		,	StorageReadOnly = "True"
+		{
+			attribute<string>   straatnaam;
+			attribute<string>   postcode;
+			attribute<int32>    huisnummer;
+			attribute<string>   huisletter;
+			attribute<string>   toevoeging;
+			attribute<string>   woonplaatsnaam;
+			attribute<string>   nummeraanduiding_id;
 		}
 		
-		unit<uint32> gemeente := RegioUnit_Gemeente
+		unit<uint32> src := import
 		{
-			attribute<float32>  x_mean := mean(pointcol(../geometry), gemeente_rel);
-			attribute<float32>  y_mean := mean(pointrow(../geometry), gemeente_rel);
-			attribute<rdc>      centroid0 := point(x_mean, y_mean, rdc);
-			
-			//controles
-			attribute<.>        poly_rel       := point_in_polygon(centroid0, ./geometry);
-			attribute<string>   statcode_poly  := ./statcode;
-			attribute<string>   statcode_centr := statcode_poly[Poly_rel];
-			attribute<bool>     IsStatcode_gelijk   := statcode_poly == statcode_centr;
-			
-			attribute<rdc>      centroid_or_mid      := centroid_or_mid(./geometry);
-			attribute<rdc>      centroid             := IsStatcode_gelijk ? centroid0 : centroid_or_mid;
+			attribute<string>   postcode               := import/postcode;
+			attribute<string>   city                   := woonplaatsnaam;
+			attribute<rdc>      geometry               := ='rjoin(nummeraanduiding_id, VBOs/src/nummeraanduiding_id, VBOs/src/geometry)';
+			attribute<bool>     IsWoon                 := ='rjoin(nummeraanduiding_id, VBOs/src/nummeraanduiding_id, VBOs/src/gebruiksdoelen/woon)';
+			attribute<bool>     IsVoorraad             := ='rjoin(nummeraanduiding_id, VBOs/src/nummeraanduiding_id, VBOs/src/VBO_selection)';
+			attribute<rdc>      point                  := geometry;
+			attribute<string>   pc_huisnr              := postcode +'_'+string(huisnummer);
+			attribute<string>   name                   := pc_huisnr;
 		}
 		
-		unit<uint32> pc6_uq := unique(postcode)
+		unit<uint32> Woon_Voorraad := select_with_attr_by_cond(src, src/IsWoon && src/IsVoorraad)
 		{
-			attribute<float32>  x_mean   := mean(pointcol(../geometry), uq_rel);
-			attribute<float32>  y_mean   := mean(pointrow(../geometry), uq_rel);
-			attribute<rdc>      geometry := point(x_mean, y_mean, rdc);
-			attribute<string>   PC6      := values;
-		}
-		
-		unit<uint32> PC6_centroids := subset(IsDefined(pc6_uq/geometry) && pc6_uq/PC6 != '')
-		{
-			attribute<rdc>      geometry := pc6_uq/geometry[nr_OrgEntity];
-			attribute<rdc>      point    := geometry;
-			attribute<string>   PC6      := pc6_uq/PC6[nr_OrgEntity];
-			attribute<string>   name     := PC6;
-			// attribute<string>   city     := /SourceData/RegioIndelingen/Gemeenten/GM_NAAM[point_in_polygon(geometry, /SourceData/RegioIndelingen/Gemeenten/geometry)];
-			// attribute<string>   prov     := /SourceData/RegioIndelingen/Provincies/name[point_in_polygon(geometry, /SourceData/RegioIndelingen/Provincies/geometry)];
+			attribute<RegioUnit_Buurt>    buurt_rel    := point_in_polygon(geometry,  RegioUnit_Buurt/geometry);
+			attribute<RegioUnit_Wijk>     wijk_rel     := point_in_polygon(geometry,  RegioUnit_Wijk/geometry);
+			attribute<RegioUnit_Gemeente> gemeente_rel := point_in_polygon(geometry,  RegioUnit_Gemeente/geometry);
+			
+			attribute<uint32>   uq_rel := rlookup(postcode, pc6_uq/values);
+			
+			unit<uint32> buurt := RegioUnit_Buurt
+			{
+				attribute<float32>  x_mean    := mean(pointcol(../geometry), buurt_rel);
+				attribute<float32>  y_mean    := mean(pointrow(../geometry), buurt_rel);
+				attribute<rdc>      centroid0 := point(x_mean, y_mean, rdc);
+				
+				//controles
+				attribute<.>        poly_rel             := point_in_polygon(centroid0, ./geometry);
+				attribute<string>   statcode_poly        := ./statcode;
+				attribute<string>   statcode_centr       := statcode_poly[Poly_rel];
+				attribute<bool>     IsStatcode_gelijk    := statcode_poly == statcode_centr;
+				
+				attribute<rdc>      centroid_or_mid      := centroid_or_mid(./geometry);
+				attribute<rdc>      centroid             := IsStatcode_gelijk ? centroid0 : centroid_or_mid;
+			}
+			
+			unit<uint32> wijk := RegioUnit_Wijk
+			{
+				attribute<float32>  x_mean := mean(pointcol(../geometry), wijk_rel);
+				attribute<float32>  y_mean := mean(pointrow(../geometry), wijk_rel);
+				attribute<rdc>      centroid0 := point(x_mean, y_mean, rdc);
+				
+				//controles
+				attribute<.>        poly_rel       := point_in_polygon(centroid0, ./geometry);
+				attribute<string>   statcode_poly  := ./statcode;
+				attribute<string>   statcode_centr := statcode_poly[Poly_rel];
+				attribute<bool>     IsStatcode_gelijk   := statcode_poly == statcode_centr;
+				
+				attribute<rdc>      centroid_or_mid      := centroid_or_mid(./geometry);
+				attribute<rdc>      centroid             := IsStatcode_gelijk ? centroid0 : centroid_or_mid;
+			}
+			
+			unit<uint32> gemeente := RegioUnit_Gemeente
+			{
+				attribute<float32>  x_mean := mean(pointcol(../geometry), gemeente_rel);
+				attribute<float32>  y_mean := mean(pointrow(../geometry), gemeente_rel);
+				attribute<rdc>      centroid0 := point(x_mean, y_mean, rdc);
+				
+				//controles
+				attribute<.>        poly_rel       := point_in_polygon(centroid0, ./geometry);
+				attribute<string>   statcode_poly  := ./statcode;
+				attribute<string>   statcode_centr := statcode_poly[Poly_rel];
+				attribute<bool>     IsStatcode_gelijk   := statcode_poly == statcode_centr;
+				
+				attribute<rdc>      centroid_or_mid      := centroid_or_mid(./geometry);
+				attribute<rdc>      centroid             := IsStatcode_gelijk ? centroid0 : centroid_or_mid;
+			}
+			
+			unit<uint32> pc6_uq := unique(postcode)
+			{
+				attribute<float32>  x_mean   := mean(pointcol(../geometry), uq_rel);
+				attribute<float32>  y_mean   := mean(pointrow(../geometry), uq_rel);
+				attribute<rdc>      geometry := point(x_mean, y_mean, rdc);
+				attribute<string>   PC6      := values;
+			}
+			
+			unit<uint32> PC6_centroids := subset(IsDefined(pc6_uq/geometry) && pc6_uq/PC6 != '')
+			{
+				attribute<rdc>      geometry := pc6_uq/geometry[nr_OrgEntity];
+				attribute<rdc>      point    := geometry;
+				attribute<string>   PC6      := pc6_uq/PC6[nr_OrgEntity];
+				attribute<string>   name     := PC6;
+				// attribute<string>   city     := /SourceData/RegioIndelingen/Gemeenten/GM_NAAM[point_in_polygon(geometry, /SourceData/RegioIndelingen/Gemeenten/geometry)];
+				// attribute<string>   prov     := /SourceData/RegioIndelingen/Provincies/name[point_in_polygon(geometry, /SourceData/RegioIndelingen/Provincies/geometry)];
+			}
 		}
 	}
 }
