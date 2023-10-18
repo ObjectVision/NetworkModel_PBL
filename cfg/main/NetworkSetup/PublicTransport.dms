@@ -5,7 +5,6 @@ Template PublicTransport_T
 	
 	parameter<string>   OUTPUT_Generate_decay_CSVFiles        := =AsList('CreateODs/CreateExports/'+ModelParameters/Advanced/Export_CombinationTypes/name+'/LongFormat/File_decay',' + ');
 	parameter<string>   OUTPUT_Generate_fullOD_long_CSVFiles  := =AsList('CreateODs/CreateExports/'+ModelParameters/Advanced/Export_CombinationTypes/name+'/LongFormat/File_fullOD',' + ');
-	parameter<string>   OUTPUT_Generate_fullOD_wide_CSVFiles  := =AsList('CreateODs/CreateExports/'+ModelParameters/Advanced/Export_CombinationTypes/name+'/WideFormat/File_fullOD',' + ');
 
 	container OUTPUT_decayed := 
 		for_each_nedv(
@@ -34,11 +33,11 @@ Template PublicTransport_T
 	unit<uint32>        Stop2Dest_W     := ODConnections/CreateODconnections/Sparse_uitwerking_Stop2Dest_W/AB;
 	unit<uint32>        Stop2Dest_B     := ODConnections/CreateODconnections/Sparse_uitwerking_Stop2Dest_B/AB;
 	
-	unit<uint64> Combine_OrgDest        := combine_uint64(Org, Dest)
+	unit<uint64> Combine_OrgDest        := combine_unit_uint64(Org, Dest)
 	{
-		attribute<string> OrgName  := Org/name[nr_1];
-		attribute<string> DestName := Dest/name[nr_2];
-		attribute<string> Label    := OrgName +'_'+DestName, DialogType = "LabelText";
+		// attribute<string> OrgName  := Org/name[nr_1];
+		// attribute<string> DestName := Dest/name[nr_2];
+		// attribute<string> Label    := OrgName +'_'+DestName, DialogType = "LabelText";
 	}
 
 	container TransitionTypes := 
@@ -58,14 +57,14 @@ Template PublicTransport_T
 		parameter<string> OrgDest;
 		///
 		parameter<Time>     ModeMax_sec := convert(ModeMax_min, s_f)[Time];
-		parameter<string>   Arrive_at_time_CalcStr     := replace('subset(UNIT/FT >= (inTime[Time] - convert(ModelParameters/MaxOVTime, s_f)[Time] - MM)
+		parameter<string>   Arrive_at_time_CalcStr     := replace('select_with_org_rel(UNIT/FT >= (inTime[Time] - convert(ModelParameters/MaxOVTime, s_f)[Time] - MM)
 																			&& UNIT/TT <= inTime[Time] 
 																			&& UNIT/FT <= inTime[Time] 
 																			&& UNIT/duration_TMode <= MM)'
 																				,'UNIT',OD_unit_name,'FT',FromTime_str,'TT', ToTime_str,'TMode',Mode,'MM', string(ModeMax_sec));
 		
 		
-		parameter<string>   Departure_at_time_CalcStr  := replace('subset(UNIT/FT >= inTime[Time] 
+		parameter<string>   Departure_at_time_CalcStr  := replace('select_with_org_rel(UNIT/FT >= inTime[Time] 
 																			&& UNIT/TT >= inTime[Time] 
 																			&& UNIT/duration_TMode <= MM 
 																			&& UNIT/FT < (inTime[Time] + convert(ModelParameters/MaxOVTime, s_f)[Time] + MM))'
@@ -80,16 +79,16 @@ Template PublicTransport_T
 		unit<uint32> Transition := =CalcStr
 		, FreeData = "false"
 		{
-			attribute<Org>                        Org_rel           := ='OD_unit/'+OrgDest+'_rel[nr_OrgEntity]';
-			attribute<Dest>                       Dest_rel          := ='OD_unit/'+OrgDest+'_rel[nr_OrgEntity]';
-			attribute<Stops>                      Stop_rel          := OD_unit/Stop_rel[nr_OrgEntity];
-			attribute<Places>                     Place_rel         := OD_unit/Place_rel[nr_OrgEntity];
-			attribute<rdc>                        geometry (arc)    := OD_unit/geometry[nr_OrgEntity];
-			attribute<m>                          Distance          := OD_unit/Distance[nr_OrgEntity];
-			attribute<Time>                       Duration          := ='OD_unit/Duration_'+Mode+'[nr_OrgEntity]';
-			attribute<Time>                       FromTime          := ='OD_unit/'+FromTime_str+'[nr_OrgEntity]';
-			attribute<Time>                       toTime            := ='OD_unit/'+ToTime_str+'[nr_OrgEntity]';
-			attribute<string>                     Label         := OD_unit/Label[nr_OrgEntity];
+			attribute<Org>                        Origin_rel           := ='OD_unit/'+OrgDest+'_rel[org_rel]';
+			attribute<Dest>                       Dest_rel          := ='OD_unit/'+OrgDest+'_rel[org_rel]';
+			attribute<Stops>                      Stop_rel          := OD_unit/Stop_rel[org_rel];
+			attribute<Places>                     Place_rel         := OD_unit/Place_rel[org_rel];
+			attribute<rdc>                        geometry (arc)    := OD_unit/geometry[org_rel];
+			attribute<m>                          Distance          := OD_unit/Distance[org_rel];
+			attribute<Time>                       Duration          := ='OD_unit/Duration_'+Mode+'[org_rel]';
+			attribute<Time>                       FromTime          := ='OD_unit/'+FromTime_str+'[org_rel]';
+			attribute<Time>                       toTime            := ='OD_unit/'+ToTime_str+'[org_rel]';
+			attribute<string>                     Label         := OD_unit/Label[org_rel];
 			attribute<string>                     LabelText_ext     := ModelParameters/Advanced/WegingWachttijdThuisVoortransport == 1f && OrgDest == 'Org'
 																			? Label + ' ('+time/Label[FromTime]+' - '+time/Label[ToTime]+' and waiting at home from '+time/Label[InTime]+' to '+time/Label[FromTime]+')'
 																			: Label + ' ('+time/Label[FromTime]+' - '+time/Label[ToTime]+')';
@@ -112,7 +111,35 @@ Template PublicTransport_T
 			attribute<bool>   IsSub_dur  := duration <= convert(ModelParameters/MaxOVTime , s_f) * 2f;
 		}
 	
-		unit<uint32> StaticNet_subset := select_with_attr_by_cond(SourceData/Infrastructuur/GTFS/StaticNets/Static_net, StaticNet_subset_debug/IsSub_from && StaticNet_subset_debug/IsSub_to && StaticNet_subset_debug/IsSub_dur);
+		unit<uint32> StaticNet_subset_write := select_with_attr_by_cond(SourceData/Infrastructuur/GTFS/StaticNets/Static_net, StaticNet_subset_debug/IsSub_from && StaticNet_subset_debug/IsSub_to && StaticNet_subset_debug/IsSub_dur)
+		, StorageName = "='%LocalDataProjDir%/StaticNet_'+inTime_string+'.fss'";
+		unit<uint32> StaticNet_subset
+		: StorageName = "='%LocalDataProjDir%/StaticNet_'+inTime_string+'.fss'"
+		{
+			attribute<rdc>                     geometry (arc);
+			attribute</SourceData/Infrastructuur/GTFS/StaticNets/AllPlaces> FromPlace;
+			attribute<string>                  FromPlace_name;
+			attribute<string>                  ToPlace_name;
+			attribute</SourceData/Infrastructuur/GTFS/StaticNets/AllPlaces> ToPlace;
+			attribute<rdc>                     FromPoint;
+			attribute<rdc>                     ToPoint;
+			attribute<string>                  Label;
+			attribute<Time>                    FromTime;
+			attribute<Time>                    ToTime;
+			attribute<s_f>                     Duration;
+			attribute<LinkTypes>               LinkType;
+			attribute<NodeSet>                 F1;
+			attribute<NodeSet>                 F2;
+			attribute<km>                      Length;
+			attribute<ModesList/List_selectie> Mode;
+			attribute<uint32>                  TripRef;
+			attribute<Agencies>                Agency_rel;
+			attribute<Routes>                  Route_rel;
+			attribute<string>                  RouteName;
+			attribute<string>                  RouteName_short;
+
+			attribute<uint32>                  LinkTypeSum (LinkTypes);
+		}
 	
 		//// CREATE OD FSS ////
 		
@@ -147,10 +174,10 @@ Template PublicTransport_T
 					attribute<string>           ModeUsed                            := ../ModeUsed[nr_OrgEntity];
 					attribute<Combine_OrgDest>  OD_nummer                           := ../OD_nummer[nr_OrgEntity];
 					attribute<Combine_OrgDest>  values                              := OD_nummer;
-					attribute<string>           OrgName                             := Combine_OrgDest/OrgName[od_nummer];
-					attribute<string>           DestName                            := Combine_OrgDest/DestName[od_nummer];
-					attribute<uint32>           OrgID                               := Combine_OrgDest/nr_2[od_nummer];
-					attribute<uint32>           DestID                              := Combine_OrgDest/nr_1[od_nummer];
+					attribute<string>           OrgName                             := Org/name[Origin_rel];
+					attribute<string>           DestName                            := Dest/name[Dest_rel];
+					attribute<org>              Origin_rel                           := value(OD_nummer / uint64(#Dest), org);
+					attribute<dest>             Dest_rel                             := value(OD_nummer % uint64(#Dest), Dest);
 				}
 			}
 		}		
@@ -179,6 +206,40 @@ Template PublicTransport_T
 			container Org2Stop     := ='TransitionTypes/Org2Stop_'+voortransport;
 			container Stop2Dest    := ='TransitionTypes/Stop2Dest_'+natransport;
 			
+			unit<uint32> Write_Org2Stop := Org2Stop/Transition
+			, StorageName = "='%LocalDataProjDir%/Org2Stop_'+voortransport+'.fss'"
+			{
+				attribute<Org>                        Origin_rel                := Org2Stop/Transition/Origin_rel;
+				attribute<NodeSet>                    NodeRef_O2S               := Org2Stop/Transition/NodeRef_O2S;
+				attribute<Time>                       Duration_withWaitingAtOrg := Org2Stop/Transition/Duration_withWaitingAtOrg;
+			}
+			
+			unit<uint32> Read_Org2Stop
+			: StorageName = "='%LocalDataProjDir%/Org2Stop_'+voortransport+'.fss'"
+			, StorageReadOnly = "true"
+			{
+				attribute<Org>                        Origin_rel;
+				attribute<NodeSet>                    NodeRef_O2S;
+				attribute<Time>                       Duration_withWaitingAtOrg;
+			}
+			
+			unit<uint32> Write_Stop2Dest := Stop2Dest/Transition
+			, StorageName = "='%LocalDataProjDir%/Stop2Dest_'+natransport+'.fss'"
+			{
+				attribute<Dest>                        Dest_rel                := Stop2Dest/Transition/Dest_rel;
+				attribute<NodeSet>                    NodeRef_S2D               := Stop2Dest/Transition/NodeRef_S2D;
+				attribute<Time>                       Duration := Stop2Dest/Transition/Duration;
+			}
+			
+			unit<uint32> Read_Stop2Dest
+			: StorageName = "='%LocalDataProjDir%/Stop2Dest_'+natransport+'.fss'"
+			, StorageReadOnly = "true"
+			{
+				attribute<Dest>                        Dest_rel;
+				attribute<NodeSet>                    NodeRef_S2D;
+				attribute<Time>                       Duration;
+			}
+			
 			unit<uint64> OD := 
 			// impedance_matrix_od64('directed;startPoint(Node_rel,impedance,OrgZone_rel);endPoint(Node_rel,impedance,DstZone_rel);cut(OrgZone_max_imp);od:impedance,OrgZone_rel,DstZone_rel,LinkSet'
 			impedance_matrix_od64('directed;startPoint(Node_rel,impedance,OrgZone_rel);endPoint(Node_rel,impedance,DstZone_rel);cut(OrgZone_max_imp);od:impedance,OrgZone_rel,DstZone_rel'
@@ -186,8 +247,10 @@ Template PublicTransport_T
 					, StaticNet_subset/F1
 					, StaticNet_subset/F2
 					
-					, Org2Stop/Transition/NodeRef_O2S , Org2Stop/Transition/Duration_withWaitingAtOrg[float32], Org2Stop/Transition/Org_rel     //sP node_rel, impedance, OrgZone_rel
-					, Stop2Dest/Transition/NodeRef_S2D, Stop2Dest/Transition/Duration[float32]                , Stop2Dest/Transition/Dest_rel //eP node_rel, impedance, DstZone_rel
+					// , Org2Stop/Transition/NodeRef_O2S , Org2Stop/Transition/Duration_withWaitingAtOrg[float32], Org2Stop/Transition/Origin_rel     //sP node_rel, impedance, OrgZone_rel
+					// , Stop2Dest/Transition/NodeRef_S2D, Stop2Dest/Transition/Duration[float32]                , Stop2Dest/Transition/Dest_rel //eP node_rel, impedance, DstZone_rel
+					, Read_Org2Stop/NodeRef_O2S ,Read_Org2Stop/Duration_withWaitingAtOrg[float32], Read_Org2Stop/Origin_rel     //sP node_rel, impedance, OrgZone_rel
+					, Read_Stop2Dest/NodeRef_S2D, Read_Stop2Dest/Duration[float32]                , Read_Stop2Dest/Dest_rel //eP node_rel, impedance, DstZone_rel
 					, convert(ModelParameters/MaxOVTime, s_f)
 				)
 			{
@@ -204,9 +267,9 @@ Template PublicTransport_T
 				parameter<string>           MaxDuration_Stop2Dest_str                       := string(Stop2Dest/ModeMax_min) + 'min';
 				attribute<string>           ModeUsed                                        := const(name,.);
 				
-				attribute<string>           OD_key                                          := Combine_OrgDest/Label[OD_nummer];
-				attribute<string>           Org_name                                        := org/name[OrgZone_rel];
-				attribute<string>           Dest_name                                       := dest/label[DstZone_rel];
+				// attribute<string>           OD_key                                          := Combine_OrgDest/Label[OD_nummer];
+				// attribute<string>           Org_name                                        := org/name[OrgZone_rel];
+				// attribute<string>           Dest_name                                       := dest/label[DstZone_rel];
 				
 				// attribute<Euro>             Prijs_per_reis                                  := sum(AfgelegdeReis/uq_reis_route_sorted/Price_Qbuzz_Bus + AfgelegdeReis/uq_reis_route_sorted/Price_NS_Rail, AfgelegdeReis/uq_reis_route_sorted/Reis_rel);
 				
@@ -348,10 +411,10 @@ Template PublicTransport_T
 					attribute<string>           ModeUsed                            := ../ModeUsed[nr_OrgEntity];
 					attribute<Combine_OrgDest>  OD_nummer                           := ../OD_nummer[nr_OrgEntity];
 					attribute<Combine_OrgDest>  values                              := OD_nummer;
-					attribute<string>           OrgName                             := Combine_OrgDest/OrgName[od_nummer];
-					attribute<string>           DestName                            := Combine_OrgDest/DestName[od_nummer];
-					attribute<uint32>           OrgID                               := Combine_OrgDest/nr_2[od_nummer];
-					attribute<uint32>           DestID                              := Combine_OrgDest/nr_1[od_nummer];
+					attribute<string>           OrgName                             := Org/name[Origin_rel];
+					attribute<string>           DestName                            := Dest/name[Dest_rel];
+					attribute<org>              Origin_rel                           := value(OD_nummer / uint64(#Dest), org);
+					attribute<dest>             Dest_rel                             := value(OD_nummer % uint64(#Dest), Dest);
 				}
 			}
 		}
@@ -395,16 +458,17 @@ Template PublicTransport_T
 				
 				unit<uint64> UniqueOD := unique(OD_nummer)
 				{
+					attribute<Combine_OrgDest>  OD_nummer                         := values;
 					attribute<float32>          Best_nr_items_of_interest_decayed := max(../nr_items_of_interest_decayed, ../UniqueOD_rel);
 					attribute<float32>          Best_nr_items_of_interest         := max(../nr_items_of_interest, ../UniqueOD_rel);
 					attribute<float32>          ShortestTraveltime                := min(../reistijd_min, ../UniqueOD_rel);
 					attribute<bool>             ArgMin1                           := IsDefined(rlookup(Mode1+'_'+string(ShortestTraveltime), Reistijd_key));
 					attribute<bool>             ArgMin2                           := IsDefined(rlookup(Mode2+'_'+string(ShortestTraveltime), Reistijd_key));
 					attribute<string>           ModeUsed                          := ArgMin1 ? Mode1 : ArgMin2 ? Mode2 : '';
-					attribute<string>           OrgName                           := Combine_OrgDest/OrgName[values];
-					attribute<string>           DestName                          := Combine_OrgDest/DestName[values];
-					attribute<uint32>           OrgID                             := Combine_OrgDest/nr_2[values];
-					attribute<uint32>           DestID                            := Combine_OrgDest/nr_1[values];
+					attribute<string>           OrgName                           := Org/name[Origin_rel];
+					attribute<string>           DestName                          := Dest/name[Dest_rel];
+					attribute<org>              Origin_rel                        := value(OD_nummer / uint64(#Dest), org);
+					attribute<dest>             Dest_rel                          := value(OD_nummer % uint64(#Dest), Dest);
 				}
 			}
 		}
@@ -470,10 +534,10 @@ Template PublicTransport_T
 					attribute<bool>             ArgMin2                            := IsDefined(rlookup(Mode2+'_'+string(ShortestTraveltime), Reistijd_key));
 					attribute<bool>             ArgMin3                            := IsDefined(rlookup(Mode3+'_'+string(ShortestTraveltime), Reistijd_key));
 					attribute<string>           ModeUsed                           := ArgMin1 ? Mode1 : ArgMin2 ? Mode2  : ArgMin3 ? Mode3 : '';
-					attribute<string>           OrgName                            := Combine_OrgDest/OrgName[values];
-					attribute<string>           DestName                           := Combine_OrgDest/DestName[values];
-					attribute<uint32>           OrgID                              := Combine_OrgDest/nr_2[values];
-					attribute<uint32>           DestID                             := Combine_OrgDest/nr_1[values];
+					attribute<string>           OrgName                             := Org/name[Origin_rel];
+					attribute<string>           DestName                            := Dest/name[Dest_rel];
+					attribute<org>              Origin_rel                           := value(OD_nummer / uint64(#Dest), org);
+					attribute<dest>             Dest_rel                             := value(OD_nummer % uint64(#Dest), Dest);
 				}
 			}
 		}
@@ -504,33 +568,6 @@ Template PublicTransport_T
 				parameter<string>  File_decay                         := 'Org;'+ModelParameters/items_of_interest+'_'+inTime_string+'\n'++AsList(BodyLines_decay, '\n'), StorageName = "=fileNamePrefix+ModelParameters/items_of_interest+'_decayed_Long_'+TypeName+''+fileNameSuffix +'.csv'", StorageType = "str";
 			}
 			
-			container WideFormat
-			{
-				unit<uint64> Complete_OrgDest := Combine_OrgDest
-				{
-					attribute<float32> ShortestTraveltime_min := rjoin(id(.), domain_UniqueOD/values, domain_UniqueOD/ShortestTraveltime);  //Convert the impedance from seconds to minutes, and store it as a string value. 60f
-				}
-				
-				unit<uint32> Matrix_Array := org
-				{
-					attribute<string> org_name           := org/name;
-					attribute<string> impedance_list := AsList(string(MakeDefined(Complete_OrgDest/ShortestTraveltime_min, -1f)), ';', Complete_OrgDest/nr_1);
-				}
-
-				unit<uint32> Header : nrofrows = 1
-				{
-					attribute<string> dest_name          := AsList(Complete_OrgDest/DestName, ';', const(0[Header],Complete_OrgDest));
-				}
-
-				unit<uint32> Matrix_met_header := union_unit(Header, Matrix_Array) //This unit can easily be exported to csv and used in other applications.
-				{
-					attribute<string> org_name           := union_data(., const('',Header), Matrix_Array/org_name);
-					attribute<string> values             := union_data(., Header/dest_name, replace(Matrix_Array/impedance_list,'-1',''));
-				}
-				
-				attribute<string>  BodyLines_fullOD (Matrix_met_header) := Matrix_met_header/org_name + ';' + Matrix_met_header/values;
-				parameter<string>  File_fullOD                          := AsList(BodyLines_fullOD, '\n'), StorageName = "=fileNamePrefix+'Traveltime_Wide_'+TypeName+''+fileNameSuffix +'.csv'", StorageType = "str";
-			}
 			
 			parameter<string> fileNamePrefix := ModelParameters/Advanced/fileNamePrefix;
 			parameter<string> fileNameSuffix :=  
