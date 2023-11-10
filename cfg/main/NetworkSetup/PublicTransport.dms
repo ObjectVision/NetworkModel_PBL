@@ -111,35 +111,7 @@ Template PublicTransport_T
 			attribute<bool>   IsSub_dur  := duration <= convert(ModelParameters/MaxOVTime , s_f) * 2f;
 		}
 	
-		unit<uint32> StaticNet_subset_write := select_with_attr_by_cond(SourceData/Infrastructuur/GTFS/StaticNets/Static_net, StaticNet_subset_debug/IsSub_from && StaticNet_subset_debug/IsSub_to && StaticNet_subset_debug/IsSub_dur)
-		, StorageName = "='%LocalDataProjDir%/StaticNet_'+inTime_string+'.fss'";
-		unit<uint32> StaticNet_subset
-		: StorageName = "='%LocalDataProjDir%/StaticNet_'+inTime_string+'.fss'"
-		{
-			attribute<rdc>                     geometry (arc);
-			attribute</SourceData/Infrastructuur/GTFS/StaticNets/AllPlaces> FromPlace;
-			attribute<string>                  FromPlace_name;
-			attribute<string>                  ToPlace_name;
-			attribute</SourceData/Infrastructuur/GTFS/StaticNets/AllPlaces> ToPlace;
-			attribute<rdc>                     FromPoint;
-			attribute<rdc>                     ToPoint;
-			attribute<string>                  Label;
-			attribute<Time>                    FromTime;
-			attribute<Time>                    ToTime;
-			attribute<s_f>                     Duration;
-			attribute<LinkTypes>               LinkType;
-			attribute<NodeSet>                 F1;
-			attribute<NodeSet>                 F2;
-			attribute<km>                      Length;
-			attribute<ModesList/List_selectie> Mode;
-			attribute<uint32>                  TripRef;
-			attribute<Agencies>                Agency_rel;
-			attribute<Routes>                  Route_rel;
-			attribute<string>                  RouteName;
-			attribute<string>                  RouteName_short;
-
-			attribute<uint32>                  LinkTypeSum (LinkTypes);
-		}
+		unit<uint32> StaticNet_subset := select_with_attr_by_cond(SourceData/Infrastructuur/GTFS/StaticNets/Static_net, StaticNet_subset_debug/IsSub_from && StaticNet_subset_debug/IsSub_to && StaticNet_subset_debug/IsSub_dur);
 	
 		//// CREATE OD FSS ////
 		
@@ -206,40 +178,6 @@ Template PublicTransport_T
 			container Org2Stop     := ='TransitionTypes/Org2Stop_'+voortransport;
 			container Stop2Dest    := ='TransitionTypes/Stop2Dest_'+natransport;
 			
-			unit<uint32> Write_Org2Stop := Org2Stop/Transition
-			, StorageName = "='%LocalDataProjDir%/Org2Stop_'+voortransport+'.fss'"
-			{
-				attribute<Org>                        Origin_rel                := Org2Stop/Transition/Origin_rel;
-				attribute<NodeSet>                    NodeRef_O2S               := Org2Stop/Transition/NodeRef_O2S;
-				attribute<Time>                       Duration_withWaitingAtOrg := Org2Stop/Transition/Duration_withWaitingAtOrg;
-			}
-			
-			unit<uint32> Read_Org2Stop
-			: StorageName = "='%LocalDataProjDir%/Org2Stop_'+voortransport+'.fss'"
-			, StorageReadOnly = "true"
-			{
-				attribute<Org>                        Origin_rel;
-				attribute<NodeSet>                    NodeRef_O2S;
-				attribute<Time>                       Duration_withWaitingAtOrg;
-			}
-			
-			unit<uint32> Write_Stop2Dest := Stop2Dest/Transition
-			, StorageName = "='%LocalDataProjDir%/Stop2Dest_'+natransport+'.fss'"
-			{
-				attribute<Dest>                        Dest_rel                := Stop2Dest/Transition/Dest_rel;
-				attribute<NodeSet>                    NodeRef_S2D               := Stop2Dest/Transition/NodeRef_S2D;
-				attribute<Time>                       Duration := Stop2Dest/Transition/Duration;
-			}
-			
-			unit<uint32> Read_Stop2Dest
-			: StorageName = "='%LocalDataProjDir%/Stop2Dest_'+natransport+'.fss'"
-			, StorageReadOnly = "true"
-			{
-				attribute<Dest>                        Dest_rel;
-				attribute<NodeSet>                    NodeRef_S2D;
-				attribute<Time>                       Duration;
-			}
-			
 			unit<uint64> OD := 
 			// impedance_matrix_od64('directed;startPoint(Node_rel,impedance,OrgZone_rel);endPoint(Node_rel,impedance,DstZone_rel);cut(OrgZone_max_imp);od:impedance,OrgZone_rel,DstZone_rel,LinkSet'
 			impedance_matrix_od64('directed;startPoint(Node_rel,impedance,OrgZone_rel);endPoint(Node_rel,impedance,DstZone_rel);cut(OrgZone_max_imp);od:impedance,OrgZone_rel,DstZone_rel'
@@ -247,10 +185,8 @@ Template PublicTransport_T
 					, StaticNet_subset/F1
 					, StaticNet_subset/F2
 					
-					// , Org2Stop/Transition/NodeRef_O2S , Org2Stop/Transition/Duration_withWaitingAtOrg[float32], Org2Stop/Transition/Origin_rel     //sP node_rel, impedance, OrgZone_rel
-					// , Stop2Dest/Transition/NodeRef_S2D, Stop2Dest/Transition/Duration[float32]                , Stop2Dest/Transition/Dest_rel //eP node_rel, impedance, DstZone_rel
-					, Read_Org2Stop/NodeRef_O2S ,Read_Org2Stop/Duration_withWaitingAtOrg[float32], Read_Org2Stop/Origin_rel     //sP node_rel, impedance, OrgZone_rel
-					, Read_Stop2Dest/NodeRef_S2D, Read_Stop2Dest/Duration[float32]                , Read_Stop2Dest/Dest_rel //eP node_rel, impedance, DstZone_rel
+					, Org2Stop/Transition/NodeRef_O2S , Org2Stop/Transition/Duration_withWaitingAtOrg[float32], Org2Stop/Transition/Origin_rel     //sP node_rel, impedance, OrgZone_rel
+					, Stop2Dest/Transition/NodeRef_S2D, Stop2Dest/Transition/Duration[float32]                , Stop2Dest/Transition/Dest_rel //eP node_rel, impedance, DstZone_rel
 					, convert(ModelParameters/MaxOVTime, s_f)
 				)
 			{
@@ -575,8 +511,8 @@ Template PublicTransport_T
 				'_' + ModelParameters/Arrival_or_Departure_at_time + 
 				'_' + inTime_string + 
 				'_ORG-'    + ModelParameters/Orgset + '-' + regio_name + 
-				'_DEST-'   + ModelParameters/Advanced/DestSet_string +
-				'_O2SWtime-' + string(ModelParameters/MaxWalkingTime_Org2Stop)+'min';
+				'_DEST-'   + ModelParameters/Advanced/DestSet_string;
+				// '_O2SWtime-' + string(ModelParameters/MaxWalkingTime_Org2Stop)+'min';
 		}
 	}
 }
