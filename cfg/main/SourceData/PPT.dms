@@ -1,0 +1,173 @@
+container PPT
+{
+	unit<uint8> Aanbieders_x_Gebieden : NrOfRows = 8
+	{
+		unit<uint32> Elements  := Range(uint32, 0, nrAttr*#.)
+		{
+			attribute<String> Text:
+			[
+				//Name      , gebied      , file  
+				 'Qbuzz'    ,'BRU'        ,'Drgl BRU-20231120-20231209.V8140_2' 
+				,'Qbuzz'    ,'DMG'        ,'Drgl DMG-20231015-20231209.V8140' 
+				,'Qbuzz'    ,'GD'         ,'Drgl GD-20231117-20231209.V8140' 
+				,'EBS'      ,'HGL'        ,'PPT_EBS_HGL_20231029_20231209_323_PublicationDelivery2023-10-30 232933'  //Haaglanden
+				,'EBS'      ,'IJV'        ,'PPT_EBS_IJV_20231029_20231209_428_PublicationDelivery2023-10-30 233243' 
+				,'EBS'      ,'VPR'        ,'PPT_EBS_VPR_20231029_20231209_224_PublicationDelivery2023-10-30 232708' 
+				,'EBS'      ,'WTL'        ,'PPT_EBS_WTL_20231029_20231209_129_PublicationDelivery2023-10-30 232421' 
+				,'RET'      ,''           ,'RET_PPT_20231115-0925' 
+			];
+		}
+		
+		attribute<string>       aanbieder      := Elements/Text[value(UInt32(ID(.))* nrAttr + 0, Elements)];
+		attribute<string>       gebied         := Elements/Text[value(UInt32(ID(.))* nrAttr + 1, Elements)];
+		attribute<string>       filename       := Elements/Text[value(UInt32(ID(.))* nrAttr + 2, Elements)];
+	
+		attribute<string>       name           := aanbieder +'_'+gebied;
+		parameter<uint32> nrAttr := 3;
+	}
+
+
+	container ReadPricesFromXML := 
+		for_each_ne(
+			Aanbieders_x_Gebieden/name
+			, 'ReadPricesFromXML_T('+quote(Aanbieders_x_Gebieden/filename)+')'
+		);
+	
+
+
+	Template ReadPricesFromXML_T : Descr = "MST, https://www.ndw.nu/documenten/nl/#cat_2"
+	{
+		parameter<string> filename;
+		
+		parameter<string> XmlData
+		:	StorageName = "='%SourceDataDir%/NetworkModel/Infrastructuur/PPT/'+filename+'.xml'"
+		,	StorageType = "str";
+		
+		container ParsedXML  := parse_xml(XmlData, XMLschema);
+
+		parameter<string> Aanbieder_name := ParsedXML/ResourceFrame/dataSource/name[0];
+		
+		
+		parameter<float32> KM_prijs    := value(ParsedXML/FareFrame/tariffs/tariff/GeographicalInterval/amount, float32)[0] * 0.1f;
+		
+		
+		unit<uint32> DistanceMatrix    := ParsedXML/FareFrame/tariffs/tariff/distanceMatrixElement
+		{
+			attribute<string>  lijn_stop            := ParsedXML/FareFrame/tariffs/tariff/distanceMatrixElement/id;
+			attribute<float32> distance             := value(ParsedXML/FareFrame/tariffs/tariff/distanceMatrixElement/distance,float32);
+			attribute<string>  Start_StopPointRef   := rjoin(id(.), ParsedXML/FareFrame/tariffs/tariff/distanceMatrixElement/StartStopPointRef/parent_rel, ParsedXML/FareFrame/tariffs/tariff/distanceMatrixElement/StartStopPointRef/ref);
+			attribute<string>  End_StopPointRef     := rjoin(id(.), ParsedXML/FareFrame/tariffs/tariff/distanceMatrixElement/EndStopPointRef/parent_rel, ParsedXML/FareFrame/tariffs/tariff/distanceMatrixElement/EndStopPointRef/ref);
+			attribute<float32> price                := distance * KM_prijs;
+			
+		}
+		
+		
+		
+		// attribute<string> meetvak_id                     (siteMeasurements)               := rjoin(id(ParsedXML/siteMeasurements), ParsedXML/siteMeasurements/measurementSiteReference/Parent_rel, ParsedXML/siteMeasurements/measurementSiteReference/id);
+		// attribute<uint32> avg_speed_per_site             (siteMeasurements)               := mean(avg_speed_per_measuredValue, ParsedXML/siteMeasurements/measuredValue/parent_rel[ParsedXML/siteMeasurements]);
+		// attribute<uint32> avg_speed_per_measuredValue    (measuredValue)                  := mean(ParsedXML/siteMeasurements/measuredValue/averageVehicleSpeed/speed, ParsedXML/siteMeasurements/measuredValue/averageVehicleSpeed/parent_rel[ParsedXML/siteMeasurements/measuredValue]);
+		
+		// attribute<uint32> avg_flowrate_per_site          (siteMeasurements)               := mean(avg_flowrate_per_measuredValue, ParsedXML/siteMeasurements/measuredValue/parent_rel[ParsedXML/siteMeasurements]);
+		// attribute<uint32> avg_flowrate_per_measuredValue (measuredValue)                  := mean(ParsedXML/siteMeasurements/measuredValue/vehicleFlow/vehicleFlowRate, ParsedXML/siteMeasurements/measuredValue/vehicleFlow/parent_rel[ParsedXML/siteMeasurements/measuredValue]);
+
+	}
+
+	container XMLschema// xml attributes are here modelled as sub units of the entity related unit.
+	{
+		unit<uint32> ResourceFrame 
+		{
+			unit<uint32> dataSource 
+			{
+				attribute<string> name;
+			}
+		}
+		
+		unit<uint32> ServiceFrame 
+		{
+			unit<uint32> Network 
+			{
+				attribute<string> id;
+				attribute<string> name;
+				
+				unit<uint32> GroupOfLines 
+				{
+					unit<uint32> LineRef 
+					{
+						attribute<string> ref; //set met alle lijnen
+					}
+				}
+			}
+			unit<uint32> Lines 
+			{
+				unit<uint32> Line
+				{
+					attribute<string> id; //lijn id
+					attribute<string> value; //lijn id short
+					attribute<string> name; //lijn naam
+				}
+			}
+			unit<uint32> ScheduledStopPoints 
+			{
+				unit<uint32> ScheduledStopPoint
+				{
+					attribute<string> id; //lijn id
+				}
+				
+			}
+		}
+		
+		unit<uint32> FareFrame 
+		{
+			attribute<string> key;
+			attribute<string> value;
+			
+			unit<uint32> tariffs 
+			{
+				unit<uint32> tariff 
+				{
+					attribute<string> id;    //naam van lijn waarvoor deze matrix geldt
+					attribute<string> value; //tarief type
+					attribute<string> name;
+					
+					unit<uint32> GeographicalInterval
+					{	
+						attribute<string> amount;
+						attribute<string> units;
+					}
+					unit<uint32> distanceMatrixElement
+					{	
+						attribute<string> id;
+						attribute<string> Distance;
+						attribute<string> InverseAllowed;
+						unit<uint32> StartStopPointRef
+						{
+							attribute<string> ref;
+						}
+						unit<uint32> EndStopPointRef
+						{
+							attribute<string> ref;
+						}
+						attribute<string> Amount;
+						attribute<string> Units;
+					}
+				}
+			}
+		}
+		
+		
+			// attribute<string> measurementTimeDefault; //The time associated with the set of measurements. It may be the time of the beginning, the end or the middle of the measurement period.
+			
+			// unit<uint32> measuredValue  //Contains optional characteristics for the specific measured value (indexed to correspond with the defined characteristics of the measurement at the referenced measurement site) which override the static characteristics defined in the MeasurementSiteTable
+			// {							//Composition to the indexed measured value associated with the measurement site. The index uniquely associates the measurement value with the corresponding indexed measurement characteristics defined for the measurement site.
+				// unit<uint32> vehicleFlow //A value of vehicle flow rate expressed in vehicles per hour.
+				// {
+					// attribute<uint32> vehicleFlowRate;
+				// }
+				// unit<uint32> averageVehicleSpeed //Averaged measurements or calculations of traffic speed.
+				// {
+					// attribute<uint32> speed; //Averaged measurements or calculations of traffic speed.
+				// }
+			// }
+		// }
+	}
+}
