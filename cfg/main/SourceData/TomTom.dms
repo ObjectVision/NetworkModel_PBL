@@ -1,7 +1,12 @@
 container TomTom
 { 
 	parameter<string> file_date := Modelparameters/CarCongestionSpeed_date;
-
+	
+	unit<uint8> Moments : nrofrows = 11
+	{
+		attribute<string> name : ['weekday','weekend','week','freeflow','sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+	}
+		
 	container Impl
 	{
 		parameter<string> dir       := '%NetworkModel_PrivDir%/TomTom/'+file_date+''; //must have forward slashes!
@@ -87,6 +92,14 @@ container TomTom
 			attribute<uint16> SP_weekday                   := ='union_data(., '+AsList('Read_TomTom_Files_SP_network/'+FileNames_Speedprofiles_network/name+'/Read/spweekday[uint16]', ',')+')', Descr = "speedprofile weekday";
 			attribute<uint16> SP_weekend                   := ='union_data(., '+AsList('Read_TomTom_Files_SP_network/'+FileNames_Speedprofiles_network/name+'/Read/spweekend[uint16]', ',')+')', Descr = "speedprofile weekend";
 			attribute<uint16> SP_week                      := ='union_data(., '+AsList('Read_TomTom_Files_SP_network/'+FileNames_Speedprofiles_network/name+'/Read/spweek[uint16]', ',')+')', Descr = "speedprofile week";
+			
+			attribute<uint16> SP_Sunday                    := ='union_data(., '+AsList('Read_TomTom_Files_SP_network/'+FileNames_Speedprofiles_network/name+'/Read/profile_1[uint16]', ',')+')', Descr = "speedprofile sunday";
+			attribute<uint16> SP_Monday                    := ='union_data(., '+AsList('Read_TomTom_Files_SP_network/'+FileNames_Speedprofiles_network/name+'/Read/profile_2[uint16]', ',')+')', Descr = "speedprofile monday";
+			attribute<uint16> SP_Tuesday                   := ='union_data(., '+AsList('Read_TomTom_Files_SP_network/'+FileNames_Speedprofiles_network/name+'/Read/profile_3[uint16]', ',')+')', Descr = "speedprofile tuesday";
+			attribute<uint16> SP_Wednesday                 := ='union_data(., '+AsList('Read_TomTom_Files_SP_network/'+FileNames_Speedprofiles_network/name+'/Read/profile_4[uint16]', ',')+')', Descr = "speedprofile wednesday";
+			attribute<uint16> SP_Thursday                  := ='union_data(., '+AsList('Read_TomTom_Files_SP_network/'+FileNames_Speedprofiles_network/name+'/Read/profile_5[uint16]', ',')+')', Descr = "speedprofile thursday";
+			attribute<uint16> SP_Friday                    := ='union_data(., '+AsList('Read_TomTom_Files_SP_network/'+FileNames_Speedprofiles_network/name+'/Read/profile_6[uint16]', ',')+')', Descr = "speedprofile friday";
+			attribute<uint16> SP_Saturday                  := ='union_data(., '+AsList('Read_TomTom_Files_SP_network/'+FileNames_Speedprofiles_network/name+'/Read/profile_7[uint16]', ',')+')', Descr = "speedprofile saturday";
 		}
 		
 		unit<uint32>  Merge_Speedprofiles := ='union_unit('+AsList('Read_TomTom_Files_SP_profiles/'+FileNames_Speedprofiles_profile/name+'/Read', ',')+')'
@@ -252,24 +265,26 @@ container TomTom
 				ModelParameters/Advanced/CongestionTimes/name
 				, 'CalcTimes_T('+quote(ModelParameters/Advanced/CongestionTimes/name)+')'
 			);
-			
+		
 		Template CalcTimes_T
 		{ 
 			parameter<string> Time;
 			///
-			attribute<min_f> Minutes_weekday      (Roads_selection) := ='Minutes / MakeDefined(Speednetworks/CalcTimes/'+Time+'/factor_weekday[Speednetworks_rel], 1f)';
-			attribute<min_f> Minutes_weekend      (Roads_selection) := ='Minutes / MakeDefined(Speednetworks/CalcTimes/'+Time+'/factor_weekend[Speednetworks_rel], 1f)';
-			attribute<min_f> Minutes_week         (Roads_selection) := ='Minutes / MakeDefined(Speednetworks/CalcTimes/'+Time+'/factor_week[Speednetworks_rel], 1f)';
-			attribute<min_f> Minutes_freeflow     (Roads_selection) := ='minutes / MakeDefined(Speednetworks/CalcTimes/'+Time+'/factor_freeflow[Speednetworks_rel], 1f)';
-			attribute<km_hr> Weekday_kph          (Roads_selection) := convert(meters, km) / convert(Minutes_weekday, hr_f);
-			attribute<km_hr> Weekend_kph          (Roads_selection) := convert(meters, km) / convert(Minutes_weekend, hr_f);
-			attribute<km_hr> Week_kph             (Roads_selection) := convert(meters, km) / convert(Minutes_week, hr_f);
-			attribute<km_hr> Freeflow_kph         (Roads_selection) := convert(meters, km) / convert(Minutes_freeflow, hr_f);
 			
-			attribute<km_hr> Speed_weekday_PerRPS  (RoadPointSet) := Weekday_kph[RoadPointSet/Sequence_rel];
-			attribute<km_hr> Speed_weekend_PerRPS  (RoadPointSet) := Weekend_kph[RoadPointSet/Sequence_rel];
-			attribute<km_hr> Speed_week_PerRPS     (RoadPointSet) := Week_kph[RoadPointSet/Sequence_rel];
-			attribute<km_hr> Speed_freeflow_PerRPS (RoadPointSet) := Freeflow_kph[RoadPointSet/Sequence_rel];
+			container PerMoment :=
+				for_each_ne(
+					Moments/name
+					, 'PerMoment_T('+quote(Moments/name)+')'
+				);
+			
+			Template PerMoment_T
+			{
+				parameter<string> Moment;
+				//
+				attribute<min_f> Minutes       (Roads_selection) := ='Roads_selection/Minutes / MakeDefined(Speednetworks/CalcTimes/'+Time+'/PerMoment/'+Moment+'/factor[Speednetworks_rel], 1f)';
+				attribute<km_hr> kph           (Roads_selection) := convert(Roads_selection/meters, km) / convert(Minutes, hr_f);
+				attribute<km_hr> Speed_PerRPS  (RoadPointSet)    := kph[RoadPointSet/Sequence_rel];
+			}
 		}
 		
 		unit<uint32> RoadPointSet := sequence2points(geometry)
@@ -283,10 +298,20 @@ container TomTom
 	{
 		attribute<uint64> NW_ID;
 		attribute<string> region_code;
+		
 		attribute<uint16> SP_freeflow;
 		attribute<uint16> SP_weekday;
 		attribute<uint16> SP_weekend;
 		attribute<uint16> SP_week;
+		
+		attribute<uint16> SP_Sunday;
+		attribute<uint16> SP_Monday;
+		attribute<uint16> SP_Tuesday;
+		attribute<uint16> SP_Wednesday;
+		attribute<uint16> SP_Thursday;
+		attribute<uint16> SP_Friday;
+		attribute<uint16> SP_Saturday;
+		
 		attribute<Roads>  Roads_rel    := rlookup(NW_ID, Roads/NW_ID);
 		
 		container CalcTimes :=
@@ -304,16 +329,21 @@ container TomTom
 			parameter<uint32> Time_min_in_sec  := uint32(substr(Time, 2, 2)) * 60;
 			parameter<uint32> Time_in_seconds  := Time_hour_in_sec + Time_min_in_sec;
 			
-			attribute<string> Region_SP_freeflow_key (Speednetworks) := region_code + '_' + string(SP_freeflow) + '_' + string(Time_in_seconds);
-			attribute<string> Region_SP_weekday_key  (Speednetworks) := region_code + '_' + string(SP_weekday) + '_' + string(Time_in_seconds);
-			attribute<string> Region_SP_weekend_key  (Speednetworks) := region_code + '_' + string(SP_weekend) + '_' + string(Time_in_seconds);
-			attribute<string> Region_SP_week_key     (Speednetworks) := region_code + '_' + string(SP_week) + '_' + string(Time_in_seconds);
+			container PerMoment :=
+				for_each_ne(
+					Moments/name
+					, 'PerMoment_T('+quote(Moments/name)+')'
+				);
 			
-			attribute<float32> factor_weekday        (Speednetworks) := rjoin(Region_SP_weekday_key, Speedprofiles/Region_Profile_TimeSlot_key, Speedprofiles/rel_sp / 100f); 
-			attribute<float32> factor_weekend        (Speednetworks) := rjoin(Region_SP_weekday_key, Speedprofiles/Region_Profile_TimeSlot_key, Speedprofiles/rel_sp / 100f);  
-			attribute<float32> factor_week           (Speednetworks) := rjoin(Region_SP_weekday_key, Speedprofiles/Region_Profile_TimeSlot_key, Speedprofiles/rel_sp / 100f); 
-			attribute<float32> factor_freeflow       (Speednetworks) := rjoin(Region_SP_freeflow_key, Speedprofiles/Region_Profile_TimeSlot_key, Speedprofiles/rel_sp / 100f);
-		
+			Template PerMoment_T
+			{
+				parameter<string> Moment;
+				//
+				
+				attribute<uint16>  SP            (Speednetworks) := ='SP_'+Moment;
+				attribute<string>  Region_SP_key (Speednetworks) := region_code + '_' + string(SP) + '_' + string(Time_in_seconds);
+				attribute<float32> factor        (Speednetworks) := rjoin(Region_SP_key, Speedprofiles/Region_Profile_TimeSlot_key, Speedprofiles/rel_sp / 100f); 
+			}
 		}
 	}
 	
