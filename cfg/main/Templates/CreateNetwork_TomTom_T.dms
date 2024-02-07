@@ -1,0 +1,137 @@
+Template CreateNetwork_TomTom_T 
+{
+	// begin case parameters
+	unit<uint32> OrgDomain;
+	unit<uint32> DestDomain;
+	unit<uint32> RoadDomain;
+	// parameter<string> NetworkType;
+	// end case parameters
+	container root := .;
+	
+	unit<uint32> Locations := union_unit(orgDomain, destDomain)
+	{
+		attribute<rdc>                             geometry                       := union_data(.,orgDomain/geometry, destDomain/geometry);
+		attribute<bool>                            IsOrg                          := union_data(.,const(TRUE , OrgDomain), const(FALSE,DestDomain));
+		attribute<bool>                            IsDest                         := union_data(.,const(FALSE, OrgDomain), const(TRUE ,DestDomain));
+	}
+	
+	unit<uint32> UniqueLocations    := unique(Locations/geometry) 
+	{ 
+		attribute<rdc>                          geometry       := values;
+		attribute<Locations>                    Locations_rel  := rlookup(geometry, Locations/geometry);
+		attribute<OrgDomain>                    OrgDomain_rel  := rlookup(geometry, orgDomain/geometry);
+		attribute<bool>                         IsOrg          := rjoin(geometry, Locations/geometry, Locations/IsOrg);
+	}
+	
+	container CreateInitialWorkingNetwork
+	{
+		unit<uint32> Roads := arc2segm(RoadDomain/geometry)
+		{
+			container Speed_per_ImpedanceType :=
+				for_each_nedv(
+					ModelParameters/Advanced/CongestionTimes/name
+					,'sequence_rel -> CalcTimes/'+ModelParameters/Advanced/CongestionTimes/name+'/PerMoment/'+Modelparameters/CongestionSpeed_DaySelection+'/KPH'
+					, .
+					, km_hr
+				)
+			{
+				attribute<km_hr> Freeflow (Roads) := ='sequence_rel -> CalcTimes/'+ModelParameters/Advanced/CongestionTimes/name+'/PerMoment/freeflow/KPH';
+			}
+
+			attribute<bool>               Connectable          := sequence_rel->Connectable;
+			attribute<bool>               IsOneDirection       := sequence_rel->IsOneDirection;
+			
+			unit<uint32> PointSet := union_unit(., .)
+			{
+				attribute<rdc>   geometry     := union_data(., point, NextPoint);
+			}
+			unit<uint32> UqGeomPointSet := unique(PointSet/geometry)
+			{ 
+				attribute<rdc> geometry := values;
+			}
+			attribute<UqGeomPointSet> F1 := rlookup(point, UqGeomPointSet/values);
+			attribute<UqGeomPointSet> F2 := rlookup(nextpoint, UqGeomPointSet/values);
+			
+			// for checking and visualisation only
+			container Connectiveness := Templates/Check_Connectiveness_T(.,UqGeomPointSet, F1, F2);
+			attribute<rdc> geometry(arc) := points2sequence(PointSet/geometry, convert(id(PointSet) % #., .));
+		}
+	
+		unit<uint32> LinkSet := connect_ne(Roads/geometry, uint32(Roads/Connectable), UniqueLocations/geometry, const(0, UniqueLocations))
+		{
+			attribute<rdc>     geometry(arc);
+			attribute<bool>    IsOneDirection       := arc_rel->IsOneDirection;
+			
+			container Speed_per_ImpedanceType :=
+				for_each_nedv(
+					ModelParameters/Advanced/CongestionTimes/name
+					, 'MakeDefined(arc_rel->Speed_per_ImpedanceType/'+ModelParameters/Advanced/CongestionTimes/name+', ModelParameters/Advanced/CarDefaultSpeed_low)'
+					, .
+					, km_hr
+				)
+			{
+				attribute<km_hr> Freeflow (LinkSet) := ='MakeDefined(arc_rel->Speed_per_ImpedanceType/freeflow, ModelParameters/Advanced/CarDefaultSpeed_low)';
+			}
+			
+			attribute<rdc>     first_point    := first_point(geometry); //OD point
+			attribute<rdc>     last_point     := last_point(geometry);  //May or may not be an existing network node, otherwise it is a new node
+			attribute<km>      LengthKm       := convert(dist(first_point, last_point)[m], km);
+			
+			container Impedance_per_ImpedanceType :=
+				for_each_nedv(
+					ModelParameters/Advanced/CongestionTimes/name
+					, 'convert(MakeDefined(convert((LengthKm / Speed_per_ImpedanceType/'+ModelParameters/Advanced/CongestionTimes/name+'), min_f), 0.0001[min_f]), s_f) + Float32(CorrectImpedanceForCrossroads/impedance_Start + CorrectImpedanceForCrossroads/impedance_End)'
+					, .
+					, s_f
+				)
+			{
+				attribute<s_f> Freeflow (LinkSet) := convert(MakeDefined(convert((LengthKm / Speed_per_ImpedanceType/freeflow), min_f), 0.0001[min_f]), s_f) + Float32(CorrectImpedanceForCrossroads/impedance_Start + CorrectImpedanceForCrossroads/impedance_End);
+			}
+			
+			attribute<NodeSet> F1             := rlookup(first_point, NodeSet/Values); //node from the OD towards the network
+			attribute<NodeSet> F2             := rlookup(last_point,  NodeSet/Values); //network node to which the the OD is connected 
+
+			unit<uint32> PointSet := union_unit(., .);
+		}
+
+		unit<uint32> NodeSet := unique(union_data(LinkSet/PointSet, LinkSet/first_point, LinkSet/last_point))
+		{
+			attribute<rdc>    geometry         := values;
+			attribute<uint32> NrConnectedLinks := pcount(LinkSet/F1) + pcount(LinkSet/F2);
+			
+			attribute<.>   OrgNode_rel  (OrgDomain)  := rlookup(OrgDomain/geometry,  geometry);
+			attribute<.>   DestNode_rel (DestDomain) := rlookup(DestDomain/geometry, geometry);	
+		}
+					
+		container CorrectImpedanceForCrossroads
+		// hiermee wordt voor ieder begin en eind node het aantal geconnecte links bepaald
+		// dit bepaalt of het een bocht (2 links), zijweg (3 links), kruising (4 links) of complexe kruising (meer dan 4 links) is
+		// afhankelijk van dit aantal wordt een aantal seconden opgeteld bij de totale impedance
+		{
+			// helft van de opgegeven waarden omdat er zowel bij begin als einde een factor wordt opgeteld
+			parameter<s>       Impedance2Links    := 0[s];
+			parameter<s>       Impedance3Links    := 2[s];
+			parameter<s>       Impedance4Links    := 5[s];
+			parameter<s>       Impedance_gt4Links := 6[s];
+
+			attribute<uint32>  Start (LinkSet)     := NodeSet/NrConnectedLinks[LinkSet/F1];
+			attribute<uint32>  End   (LinkSet)     := NodeSet/NrConnectedLinks[LinkSet/F2];
+		
+			attribute<s> impedance_Start (LinkSet):=
+				switch(
+					 case(Start <= 2, Impedance2Links)
+					,case(Start  = 3, Impedance3Links)
+					,case(Start  = 4, Impedance4Links)
+					,Impedance_gt4Links
+				);
+		
+			attribute<s> impedance_End (LinkSet):=
+				switch(
+					 case(End <= 2, Impedance2Links)
+					,case(End  = 3, Impedance3Links)
+					,case(End  = 4, Impedance4Links)
+					,Impedance_gt4Links
+				);
+		}
+	}
+}
