@@ -216,7 +216,7 @@ container TomTom
 		}
 	}
 
-	unit<uint32>  Junctions 
+	unit<uint32>  Junctions0
 	: StorageName = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Junctions_FSS.fss'"
 	, StorageReadOnly = "true"
 	{
@@ -225,7 +225,29 @@ container TomTom
 		attribute<uint64> JNCTID;
 		attribute<uint8>  JNCTTYP;
 		attribute<int8>   ELEV;
+		
+		attribute<Junctions> Junctions_rel := rlookup(JNCTID, junctions/values);
 	}
+	
+	unit<uint32>  Junctions := unique(Junctions0/JNCTID)
+	{
+		attribute<rdc>            geometry         := first(Junctions0/geometry, Junctions0/Junctions_rel);
+		attribute<int32>          FeatureType      := first(Junctions0/FeatureType, Junctions0/Junctions_rel);
+		attribute<uint64>         JNCTID           := values;
+		attribute<uint8>          JNCTTYP          := first(Junctions0/JNCTTYP, Junctions0/Junctions_rel);
+		attribute<int8>           ELEV             := first(Junctions0/ELEV, Junctions0/Junctions_rel);
+		attribute<bool>           Connectable      := rjoin(JNCTID, Roads/F_JNCTID, Roads/Connectable) || rjoin(JNCTID, Roads/T_JNCTID, Roads/Connectable);
+		attribute<uqGeoJunctions> UqGeoJunctionsID := rlookup(geometry, uqGeoJunctions/geometry);
+	}
+
+	unit<uint32> uqGeoJunctions := unique(Junctions/geometry)
+	{
+		attribute<rdc>              geometry           := values;
+		attribute<uint64>           JNCTID             := first(Junctions/JNCTID, Junctions/UqGeoJunctionsID);
+		attribute<Junctions>        Junctions_rel      := first(id(Junctions), Junctions/UqGeoJunctionsID);
+		attribute<float64>          Connectable       := float64(any(Junctions/Connectable, Junctions/UqGeoJunctionsID));
+	}
+	
 	
 	unit<uint32>  Roads 
 	: StorageName = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Roads_FSS.fss'"
@@ -240,8 +262,10 @@ container TomTom
 		attribute<uint8>          FerryType;
 		attribute<uint64>         F_JNCTID;
 		attribute<uint64>         T_JNCTID;
-		attribute<Junctions>      F_JNCT_rel             := rlookup(F_JNCTID, Junctions/JNCTID);
-		attribute<Junctions>      T_JNCT_rel             := rlookup(T_JNCTID, Junctions/JNCTID);
+		attribute<uint64>         F_JNCTID_directed := Direction == Directions/v/backwards ? T_JNCTID : F_JNCTID;
+		attribute<uint64>         T_JNCTID_directed := Direction == Directions/v/backwards ? F_JNCTID : T_JNCTID;
+		attribute<Junctions>      F_JNCT_rel             := rlookup(F_JNCTID_directed, Junctions/JNCTID);
+		attribute<Junctions>      T_JNCT_rel             := rlookup(T_JNCTID_directed, Junctions/JNCTID);
 		
 		attribute<uint8>          F_JNCTTYP;
 		attribute<uint8>          T_JNCTTYP;

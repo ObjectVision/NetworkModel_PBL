@@ -4,10 +4,12 @@ Template CreateNetwork_TomTom_T
 	unit<uint32> OrgDomain;
 	unit<uint32> DestDomain;
 	unit<uint32> RoadDomain;
-	// parameter<string> NetworkType;
+	unit<uint32> Junctions;
 	// end case parameters
 	container root := .;
-	
+	unit<uint32> uqGeoJunctions := SourceData/Infrastructuur/TomTom/uqGeoJunctions;
+
+
 	unit<uint32> Locations := union_unit(orgDomain, destDomain)
 	{
 		attribute<rdc>                             geometry                       := union_data(.,orgDomain/geometry, destDomain/geometry);
@@ -17,65 +19,127 @@ Template CreateNetwork_TomTom_T
 	
 	unit<uint32> UniqueLocations    := unique(Locations/geometry) 
 	{ 
-		attribute<rdc>                          geometry       := values;
-		attribute<Locations>                    Locations_rel  := rlookup(geometry, Locations/geometry);
-		attribute<OrgDomain>                    OrgDomain_rel  := rlookup(geometry, orgDomain/geometry);
-		attribute<bool>                         IsOrg          := rjoin(geometry, Locations/geometry, Locations/IsOrg);
+		attribute<rdc>                          geometry         := values;
+		attribute<Locations>                    Locations_rel    := rlookup(geometry, Locations/geometry);
+		attribute<OrgDomain>                    OrgDomain_rel    := rlookup(geometry, orgDomain/geometry);
+		attribute<bool>                         IsOrg            := rjoin(geometry, Locations/geometry, Locations/IsOrg);
+		
+		attribute<uint64>                       F_JNCTID         := max(Junctions/JNCTID) + 1000000u64 + uint64(id(.));
+		attribute<uint64>                       T_JNCTID         := Closest_JNCTID;
+		
+		attribute<uqGeoJunctions>               Closest_Junction := capacitated_connect(uqGeoJunctions/geometry, float64(uqGeoJunctions/Connectable), geometry, const(1d,.));
+		attribute<uint64>                       Closest_JNCTID   := uqGeoJunctions/JNCTID[Closest_Junction];
+		attribute<rdc>                          OD_line (arc)    := points2sequence(GenConnLines/Points, GenConnLines/Seq, GenConnLines/Ord);
+		attribute<m>                            length           := arc_length(OD_line, m);
+		attribute<float32>                      DestWeight       := const(1f,.);
+		
+		attribute<rdc>                          Clostest_JNCT_geometry := uqGeoJunctions/geometry[Closest_Junction];
+		
+		unit<uint32> GenConnLines := union_unit(.,.)
+		{
+			attribute<rdc>             Points := union_data(., geometry, uqGeoJunctions/geometry[Closest_Junction]);
+			attribute<..>              Seq    := union_data(., id(..), id(..));
+			attribute<uint32>          Ord    := union_data(., const(0,..,uint32), const(1,..,uint32));
+		}  
 	}
 	
 	container CreateInitialWorkingNetwork
 	{
-		unit<uint32> Roads := arc2segm(RoadDomain/geometry)
+		unit<uint32> Roads_with_unconnected_subnetworks_w_CarRoads := RoadDomain
 		{
+			attribute<bool>                   IsCarRoad              := Direction != /Classifications/Directions/V/nocars;
+		
 			container Speed_per_ImpedanceType :=
 				for_each_nedv(
 					ModelParameters/Advanced/CongestionTimes/name
-					,'sequence_rel -> CalcTimes/'+ModelParameters/Advanced/CongestionTimes/name+'/PerMoment/'+Modelparameters/CongestionSpeed_DaySelection+'/KPH'
+					,'CalcTimes/'+ModelParameters/Advanced/CongestionTimes/name+'/PerMoment/'+Modelparameters/CongestionSpeed_DaySelection+'/KPH'
 					, .
 					, km_hr
 				)
 			{
-				attribute<km_hr> Freeflow (Roads) := ='sequence_rel -> CalcTimes/'+ModelParameters/Advanced/CongestionTimes/name+'/PerMoment/freeflow/KPH';
+				attribute<km_hr> Freeflow (..) := ='CalcTimes/'+ModelParameters/Advanced/CongestionTimes/name+'/PerMoment/freeflow/KPH';
+			}
+		}
+		
+		unit<uint32> Roads_with_unconnected_subnetworks_wo_CarRoads := select(Roads_with_unconnected_subnetworks_w_CarRoads/IsCarRoad)
+		{
+			attribute<rdc>                geometry (arc)       := collect_by_cond(.,Roads_with_unconnected_subnetworks_w_CarRoads/IsCarRoad, Roads_with_unconnected_subnetworks_w_CarRoads/geometry);
+			attribute<bool>               IsOneDirection       := collect_by_cond(.,Roads_with_unconnected_subnetworks_w_CarRoads/IsCarRoad, Roads_with_unconnected_subnetworks_w_CarRoads/IsOneDirection);
+			attribute<m>                  Meters               := collect_by_cond(.,Roads_with_unconnected_subnetworks_w_CarRoads/IsCarRoad, Roads_with_unconnected_subnetworks_w_CarRoads/Meters);
+			attribute<Bool >              Connectable          := collect_by_cond(.,Roads_with_unconnected_subnetworks_w_CarRoads/IsCarRoad, Roads_with_unconnected_subnetworks_w_CarRoads/Connectable);
+			
+			attribute<uint64>             F_JNCTID             := collect_by_cond(.,Roads_with_unconnected_subnetworks_w_CarRoads/IsCarRoad, Roads_with_unconnected_subnetworks_w_CarRoads/F_JNCTID_directed);
+			attribute<uint64>             T_JNCTID             := collect_by_cond(.,Roads_with_unconnected_subnetworks_w_CarRoads/IsCarRoad, Roads_with_unconnected_subnetworks_w_CarRoads/T_JNCTID_directed);
+			attribute<Junctions>          F_JNCT_rel           := collect_by_cond(.,Roads_with_unconnected_subnetworks_w_CarRoads/IsCarRoad, Roads_with_unconnected_subnetworks_w_CarRoads/F_JNCT_rel);
+			attribute<Junctions>          T_JNCT_rel           := collect_by_cond(.,Roads_with_unconnected_subnetworks_w_CarRoads/IsCarRoad, Roads_with_unconnected_subnetworks_w_CarRoads/T_JNCT_rel);
+			
+			container Speed_per_ImpedanceType :=
+				for_each_nedv(
+					ModelParameters/Advanced/CongestionTimes/name
+					,'collect_by_cond(Roads_with_unconnected_subnetworks_wo_CarRoads,Roads_with_unconnected_subnetworks_w_CarRoads/IsCarRoad, Roads_with_unconnected_subnetworks_w_CarRoads/Speed_per_ImpedanceType/'+ModelParameters/Advanced/CongestionTimes/name+')'
+					, .
+					, km_hr
+				)
+			{
+				attribute<km_hr> Freeflow (..) := collect_by_cond(Roads_with_unconnected_subnetworks_wo_CarRoads,Roads_with_unconnected_subnetworks_w_CarRoads/IsCarRoad, Roads_with_unconnected_subnetworks_w_CarRoads/Speed_per_ImpedanceType/Freeflow);
 			}
 
-			attribute<bool>               Connectable          := sequence_rel->Connectable;
-			attribute<bool>               IsOneDirection       := sequence_rel->IsOneDirection;
-			
-			unit<uint32> PointSet := union_unit(., .)
-			{
-				attribute<rdc>   geometry     := union_data(., point, NextPoint);
-			}
-			unit<uint32> UqGeomPointSet := unique(PointSet/geometry)
-			{ 
-				attribute<rdc> geometry := values;
-			}
-			attribute<UqGeomPointSet> F1 := rlookup(point, UqGeomPointSet/values);
-			attribute<UqGeomPointSet> F2 := rlookup(nextpoint, UqGeomPointSet/values);
-			
-			// for checking and visualisation only
-			container Connectiveness := Templates/Check_Connectiveness_T(.,UqGeomPointSet, F1, F2);
-			attribute<rdc> geometry(arc) := points2sequence(PointSet/geometry, convert(id(PointSet) % #., .));
+			container Connectiveness := Templates/Check_Connectiveness_T(.,Junctions, F_JNCT_rel, T_JNCT_rel);
 		}
-	
-		unit<uint32> LinkSet := connect_ne(Roads/geometry, uint32(Roads/Connectable), UniqueLocations/geometry, const(0, UniqueLocations))
+		
+		attribute<bool> Roads_isConnected (Roads_with_unconnected_subnetworks_wo_CarRoads) := Roads_with_unconnected_subnetworks_wo_CarRoads/Connectiveness/IsVerbonden;
+
+		unit<uint32> Road_linestrings := select(Roads_isConnected)
 		{
-			attribute<rdc>     geometry(arc);
-			attribute<bool>    IsOneDirection       := arc_rel->IsOneDirection;
+			attribute<rdc>                geometry (arc) := collect_by_cond(.,Roads_isConnected, Roads_with_unconnected_subnetworks_wo_CarRoads/geometry);
+			attribute<bool>               IsOneDirection := collect_by_cond(.,Roads_isConnected, Roads_with_unconnected_subnetworks_wo_CarRoads/IsOneDirection);
+			attribute<Bool>               Connectable    := collect_by_cond(.,Roads_isConnected, Roads_with_unconnected_subnetworks_wo_CarRoads/Connectable);
+			attribute<m>                  Meters         := collect_by_cond(.,Roads_isConnected, Roads_with_unconnected_subnetworks_wo_CarRoads/Meters);
+			attribute<Junctions>          F_JNCT_rel     := collect_by_cond(.,Roads_isConnected, Roads_with_unconnected_subnetworks_wo_CarRoads/F_JNCT_rel);
+			attribute<Junctions>          T_JNCT_rel     := collect_by_cond(.,Roads_isConnected, Roads_with_unconnected_subnetworks_wo_CarRoads/T_JNCT_rel);
+			
+			attribute<uint64>          F_JNCTID     := collect_by_cond(.,Roads_isConnected, Roads_with_unconnected_subnetworks_wo_CarRoads/F_JNCTID);
+			attribute<uint64>          T_JNCTID     := collect_by_cond(.,Roads_isConnected, Roads_with_unconnected_subnetworks_wo_CarRoads/T_JNCTID);
 			
 			container Speed_per_ImpedanceType :=
 				for_each_nedv(
 					ModelParameters/Advanced/CongestionTimes/name
-					, 'MakeDefined(arc_rel->Speed_per_ImpedanceType/'+ModelParameters/Advanced/CongestionTimes/name+', ModelParameters/Advanced/CarDefaultSpeed_low)'
+					, 'Collect_by_cond(..,Roads_isConnected,Roads_with_unconnected_subnetworks_wo_CarRoads/Speed_per_ImpedanceType/'+ModelParameters/Advanced/CongestionTimes/name+')'
 					, .
 					, km_hr
 				)
 			{
-				attribute<km_hr> Freeflow (LinkSet) := ='MakeDefined(arc_rel->Speed_per_ImpedanceType/freeflow, ModelParameters/Advanced/CarDefaultSpeed_low)';
+				attribute<km_hr> Freeflow (..) := Collect_by_cond(..,Roads_isConnected,Roads_with_unconnected_subnetworks_wo_CarRoads/Speed_per_ImpedanceType/Freeflow);
+
+			}
+		}
+
+		unit<uint32> LinkSet := union_unit(Road_linestrings, UniqueLocations)
+		{
+			attribute<rdc>        geometry(arc)    := union_data(., Road_linestrings/geometry, UniqueLocations/OD_line);
+			attribute<bool>       IsOneDirection   := union_data(., Road_linestrings/IsOneDirection, const(FALSE,UniqueLocations));
+			attribute<m>          Meters           := union_data(., Road_linestrings/Meters, UniqueLocations/Length);
+			attribute<uint64>     F_JNCTID         := union_data(., Road_linestrings/F_JNCTID, UniqueLocations/F_JNCTID);
+			attribute<uint64>     T_JNCTID         := union_data(., Road_linestrings/T_JNCTID, UniqueLocations/T_JNCTID);
+			
+			attribute<rdc>        FromPoint        := union_data(., rjoin(Road_linestrings/F_JNCTID, Junctions/JNCTID, Junctions/geometry), UniqueLocations/geometry);
+			attribute<rdc>        ToPoint          := union_data(., rjoin(Road_linestrings/T_JNCTID, Junctions/JNCTID, Junctions/geometry), UniqueLocations/Clostest_JNCT_geometry);
+			
+			attribute<NodeSet>    F1               := rlookup(F_JNCTID, NodeSet/JNCTID);
+			attribute<NodeSet>    F2               := rlookup(T_JNCTID, NodeSet/JNCTID);
+			
+			container Speed_per_ImpedanceType :=
+				for_each_nedv(
+					ModelParameters/Advanced/CongestionTimes/name
+					, 'union_data(.., MakeDefined(Road_linestrings/Speed_per_ImpedanceType/'+ModelParameters/Advanced/CongestionTimes/name+', ModelParameters/Advanced/CarDefaultSpeed_low), const(ModelParameters/Advanced/CarDefaultSpeed_low, UniqueLocations))'
+					, .
+					, km_hr
+				)
+			{
+				attribute<km_hr> Freeflow (LinkSet) := union_data(.., MakeDefined(Road_linestrings/Speed_per_ImpedanceType/Freeflow, ModelParameters/Advanced/CarDefaultSpeed_low), const(ModelParameters/Advanced/CarDefaultSpeed_low, UniqueLocations));
 			}
 			
-			attribute<rdc>     first_point    := first_point(geometry); //OD point
-			attribute<rdc>     last_point     := last_point(geometry);  //May or may not be an existing network node, otherwise it is a new node
-			attribute<km>      LengthKm       := convert(dist(first_point, last_point)[m], km);
+			attribute<km>      LengthKm       := convert(meters, km);
 			
 			container Impedance_per_ImpedanceType :=
 				for_each_nedv(
@@ -87,16 +151,13 @@ Template CreateNetwork_TomTom_T
 			{
 				attribute<s_f> Freeflow (LinkSet) := convert(MakeDefined(convert((LengthKm / Speed_per_ImpedanceType/freeflow), min_f), 0.0001[min_f]), s_f) + Float32(CorrectImpedanceForCrossroads/impedance_Start + CorrectImpedanceForCrossroads/impedance_End);
 			}
-			
-			attribute<NodeSet> F1             := rlookup(first_point, NodeSet/Values); //node from the OD towards the network
-			attribute<NodeSet> F2             := rlookup(last_point,  NodeSet/Values); //network node to which the the OD is connected 
-
-			unit<uint32> PointSet := union_unit(., .);
 		}
 
-		unit<uint32> NodeSet := unique(union_data(LinkSet/PointSet, LinkSet/first_point, LinkSet/last_point))
+		unit<uint32> NodeSet := union_unit(Junctions, UniqueLocations)
 		{
-			attribute<rdc>    geometry         := values;
+			attribute<uint64> JNCTID           := union_data(., Junctions/JNCTID,   UniqueLocations/F_JNCTID);
+			attribute<rdc>    geometry         := union_data(., Junctions/geometry, UniqueLocations/geometry);
+			
 			attribute<uint32> NrConnectedLinks := pcount(LinkSet/F1) + pcount(LinkSet/F2);
 			
 			attribute<.>   OrgNode_rel  (OrgDomain)  := rlookup(OrgDomain/geometry,  geometry);
