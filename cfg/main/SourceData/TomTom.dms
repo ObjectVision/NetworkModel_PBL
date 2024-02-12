@@ -248,6 +248,23 @@ container TomTom
 		attribute<float64>          Connectable       := float64(any(Junctions/Connectable, Junctions/UqGeoJunctionsID));
 	}
 	
+	unit<uint32> TexelHack : nrofrows = 1, Using = "units"
+	{
+		parameter<rdc> top_left     := point(113790f, 557996f, rdc); // X=113790.89; Y=557996.776; ZL=0.297619048
+		parameter<rdc> top_right    := point(114661f, 557946f, rdc); // X=114661.13; Y=557946.376; ZL=0.297619048
+		parameter<rdc> bottom_left  := point(113952f, 557344f, rdc); // X=113952.17; Y=557344.936; ZL=0.297619048
+		parameter<rdc> bottom_right := point(114580f, 557472f, rdc); // X=114580.49; Y=557472.616; ZL=0.297619048
+
+		
+		unit<uint32> point_set : nrofrows = 5
+		{
+			attribute<rdc>  point        := union_data(., top_left, top_right, bottom_right, bottom_left, top_left);
+			attribute<..>   sequence_rel := const(0, .);
+			attribute<.>    ordinal      := id(.);
+		}
+		
+		attribute<rdc> polygon (poly)      := points2sequence(point_set/point, point_set/sequence_rel, point_set/ordinal);
+	}
 	
 	unit<uint32>  Roads 
 	: StorageName = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Roads_FSS.fss'"
@@ -272,7 +289,9 @@ container TomTom
 		attribute<m>              METERS;
 		attribute<min_f>          MINUTES;
 		attribute<string>         ONEWAY;
-		attribute<Directions>     Direction             := MakeDefined(rlookup(Oneway, Directions/code), 0[Directions]); // relevant voor latere routen (bij direction = 3 moet je f_ en t_ swappen, bij 3 & 4 geldt eenrichtingsverkeer)
+		attribute<bool>           IsInTexelHack         := IsDefined(point_in_polygon(first_point(geometry), TexelHack/polygon)) || IsDefined(point_in_polygon(last_point(geometry), TexelHack/polygon));
+		attribute<Directions>     Direction0            := MakeDefined(rlookup(Oneway, Directions/code), 0[Directions]); // relevant voor latere routen (bij direction = 3 moet je f_ en t_ swappen, bij 3 & 4 geldt eenrichtingsverkeer)
+		attribute<Directions>     Direction             := IsInTexelHack ? Directions/v/dual : Direction0;
 		attribute<bool>           IsOneDirection        := Direction == Directions/v/backwards || Direction == Directions/v/forwards;
 		attribute<km_hr>          KPH;
 		attribute<int8>           F_ELEV;
