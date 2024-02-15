@@ -7,8 +7,6 @@ Template CreateNetwork_TomTom_T
 	unit<uint32> Junctions;
 	// end case parameters
 	container root := .;
-	unit<uint32> uqGeoJunctions := SourceData/Infrastructuur/TomTom/uqGeoJunctions;
-
 
 	unit<uint32> Locations := union_unit(orgDomain, destDomain)
 	{
@@ -27,12 +25,13 @@ Template CreateNetwork_TomTom_T
 		attribute<uint64>                       F_JNCTID         := max(Junctions/JNCTID) + 1000000u64 + uint64(id(.));
 		attribute<uint64>                       T_JNCTID         := Closest_JNCTID;
 		
+		//for OD connection lines:
+		unit<uint32> uqGeoJunctions := CreateInitialWorkingNetwork/Road_linestrings/uqGeoJunctions;
 		attribute<uqGeoJunctions>               Closest_Junction := capacitated_connect(uqGeoJunctions/geometry, float64(uqGeoJunctions/Connectable), geometry, const(1d,.));
 		attribute<uint64>                       Closest_JNCTID   := uqGeoJunctions/JNCTID[Closest_Junction];
 		attribute<rdc>                          OD_line (arc)    := points2sequence(GenConnLines/Points, GenConnLines/Seq, GenConnLines/Ord);
 		attribute<m>                            length           := arc_length(OD_line, m);
 		attribute<float32>                      DestWeight       := const(1f,.);
-		
 		attribute<rdc>                          Clostest_JNCT_geometry := uqGeoJunctions/geometry[Closest_Junction];
 		
 		unit<uint32> GenConnLines := union_unit(.,.)
@@ -110,7 +109,23 @@ Template CreateNetwork_TomTom_T
 				)
 			{
 				attribute<km_hr> Freeflow (..) := Collect_by_cond(..,Roads_isConnected,Roads_with_unconnected_subnetworks_wo_CarRoads/Speed_per_ImpedanceType/Freeflow);
-
+			}
+			
+			//needed for OD-connection lines
+			unit<uint32> UseableJunctions := union_unit(.,.)
+			{
+				attribute<rdc>             geometry         := union_data(., Junctions/geometry[F_JNCT_rel], Junctions/geometry[T_JNCT_rel]);
+				attribute<uint64>          JNCTID           := union_data(., F_JNCTID, T_JNCTID);
+				attribute<uqGeoJunctions>  UqGeoJunctionsID := rlookup(geometry, uqGeoJunctions/geometry);
+				attribute<bool>            Connectable      := rjoin(JNCTID, Road_linestrings/F_JNCTID, Road_linestrings/Connectable) || rjoin(JNCTID, Road_linestrings/T_JNCTID, Road_linestrings/Connectable);
+			}  
+			//needed for OD-connection lines
+			unit<uint32> uqGeoJunctions := unique(UseableJunctions/geometry)
+			{
+				attribute<rdc>              geometry           := values;
+				attribute<uint64>           JNCTID             := first(UseableJunctions/JNCTID, UseableJunctions/UqGeoJunctionsID);
+				attribute<UseableJunctions> Junctions_rel      := first(id(UseableJunctions), UseableJunctions/UqGeoJunctionsID);
+				attribute<float64>          Connectable        := float64(any(UseableJunctions/Connectable, UseableJunctions/UqGeoJunctionsID));
 			}
 		}
 
