@@ -11,7 +11,7 @@ Template PrivateTransport_Car_T
 		parameter<string>  netwerk_type_Logit := netwerk_type_OSM == classifications/OSM/netwerk_type/name[classifications/OSM/netwerk_type/V/Pedestrian] ? classifications/OSM/netwerk_type/name[classifications/OSM/netwerk_type/V/Bike] : netwerk_type_OSM;
 		
 		parameter<min_f>   max_traveldistance_min  := ModelParameters/MaxCarTime;
-		attribute<uint32>  dest_mass (dest) := ='dest/'+ModelParameters/items_of_interest;
+		attribute<uint32>  dest_mass (dest) := ='dest/'+ModelParameters/Advanced/items_of_interest;
 		
 		parameter<string>  netwerk_type_suffix := ModelParameters/UseTomTomNetworkForCars ? '-TomTom' : '-OSM';
 		parameter<string>  fileNamePrefix :=  ModelParameters/Advanced/fileNamePrefix;
@@ -19,7 +19,7 @@ Template PrivateTransport_Car_T
 			'_ORG-'    + ModelParameters/Orgset + '-' + regio_name + 
 			'_DEST-'   + ModelParameters/Advanced/DestSet_string +
 			'_NETWERK-'+ netwerk_type_OSM + netwerk_type_suffix +
-			'_DayGroup-'+ModelParameters/CongestionSpeed_DaySelection +
+			'_DayGroup-'+ModelParameters/Advanced/CongestionSpeed_DaySelection +
 			'_MaxTime-' + string(ModelParameters/MaxCarTime)+'min';
 
 		parameter<string> logit_weight_prefix := 'ModelParameters/Advanced/Distance_Decay/' + netwerk_type_Logit;
@@ -84,7 +84,6 @@ Template PrivateTransport_Car_T
 		
 		unit<uint64> Freeflow_TomTom :=
 			dijkstra_m64('bidirectional(link_flag);startPoint(Node_rel):max_imp;endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel'
-			// dijkstra_m64('bidirectional(link_flag);startPoint(Node_rel):max_imp;endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel,LinkSet'
 				, Create_Network_TomTom/CreateInitialWorkingNetwork/LinkSet/Impedance_per_ImpedanceType/Freeflow
 				, Create_Network_TomTom/CreateInitialWorkingNetwork/LinkSet/F1
 				, Create_Network_TomTom/CreateInitialWorkingNetwork/LinkSet/F2
@@ -110,7 +109,83 @@ Template PrivateTransport_Car_T
 					attribute<rdc>                  Point        := union_data(., FromPoint, ToPoint);
 					attribute<..>                   Sequence_rel := union_data(., id(..), id(..));
 					attribute<uint32>               Ordinal      := union_data(., const(0,..,uint32), const(1,..,uint32));
-					attribute<Freeflow_TomTom>      Sequence_rel_old := AfgelegdeReis/Sequence_rel[Sequence_rel];
+					attribute<...>                  Sequence_rel_old := AfgelegdeReis/Sequence_rel[Sequence_rel];
+					attribute<uint32>               Ordinal_old      := AfgelegdeReis/Ordinal[Sequence_rel];
+				}
+			}
+		}
+			
+		unit<uint64> MorningRush_TomTom_woAltImp :=
+			dijkstra_m64('bidirectional(link_flag);startPoint(Node_rel):max_imp;endPoint(Node_rel);cut(OrgZone_max_imp);od:impedance,OrgZone_rel,DstZone_rel'
+				, Create_Network_TomTom/CreateInitialWorkingNetwork/LinkSet/Impedance_per_ImpedanceType/MorningRush
+				, Create_Network_TomTom/CreateInitialWorkingNetwork/LinkSet/F1
+				, Create_Network_TomTom/CreateInitialWorkingNetwork/LinkSet/F2
+				//
+				, not(Create_Network_TomTom/CreateInitialWorkingNetwork/LinkSet/IsOneDirection)
+				, Create_Network_TomTom/CreateInitialWorkingNetwork/NodeSet/OrgNode_rel
+				, Create_Network_TomTom/CreateInitialWorkingNetwork/NodeSet/DestNode_rel
+				, convert(settings/max_traveldistance_min, s_f) //cut impedance      
+			)
+		{
+			attribute<string> Org_Dest := string(OrgZone_rel)+'_'+string(DstZone_rel);
+		}
+		
+		unit<uint64> NoonRush_TomTom_woAltImp :=
+			dijkstra_m64('bidirectional(link_flag);startPoint(Node_rel):max_imp;endPoint(Node_rel);cut(OrgZone_max_imp);od:impedance,OrgZone_rel,DstZone_rel'
+				, Create_Network_TomTom/CreateInitialWorkingNetwork/LinkSet/Impedance_per_ImpedanceType/NoonRush
+				, Create_Network_TomTom/CreateInitialWorkingNetwork/LinkSet/F1
+				, Create_Network_TomTom/CreateInitialWorkingNetwork/LinkSet/F2
+				//
+				, not(Create_Network_TomTom/CreateInitialWorkingNetwork/LinkSet/IsOneDirection)
+				, Create_Network_TomTom/CreateInitialWorkingNetwork/NodeSet/OrgNode_rel
+				, Create_Network_TomTom/CreateInitialWorkingNetwork/NodeSet/DestNode_rel
+				, convert(settings/max_traveldistance_min, s_f) //cut impedance      
+			)
+		{
+			attribute<string> Org_Dest := string(OrgZone_rel)+'_'+string(DstZone_rel);
+		}
+		unit<uint64> LateEveningRush_TomTom_woAltImp :=
+			dijkstra_m64('bidirectional(link_flag);startPoint(Node_rel):max_imp;endPoint(Node_rel);cut(OrgZone_max_imp);od:impedance,OrgZone_rel,DstZone_rel'
+				, Create_Network_TomTom/CreateInitialWorkingNetwork/LinkSet/Impedance_per_ImpedanceType/LateEveningRush
+				, Create_Network_TomTom/CreateInitialWorkingNetwork/LinkSet/F1
+				, Create_Network_TomTom/CreateInitialWorkingNetwork/LinkSet/F2
+				//
+				, not(Create_Network_TomTom/CreateInitialWorkingNetwork/LinkSet/IsOneDirection)
+				, Create_Network_TomTom/CreateInitialWorkingNetwork/NodeSet/OrgNode_rel
+				, Create_Network_TomTom/CreateInitialWorkingNetwork/NodeSet/DestNode_rel
+				, convert(settings/max_traveldistance_min, s_f) //cut impedance      
+			)
+		{
+			attribute<string> Org_Dest := string(OrgZone_rel)+'_'+string(DstZone_rel);
+		}
+		
+		unit<uint64> Freeflow_TomTom_woAltImp :=
+			dijkstra_m64('bidirectional(link_flag);startPoint(Node_rel):max_imp;endPoint(Node_rel);cut(OrgZone_max_imp);od:impedance,OrgZone_rel,DstZone_rel'
+				, Create_Network_TomTom/CreateInitialWorkingNetwork/LinkSet/Impedance_per_ImpedanceType/Freeflow
+				, Create_Network_TomTom/CreateInitialWorkingNetwork/LinkSet/F1
+				, Create_Network_TomTom/CreateInitialWorkingNetwork/LinkSet/F2
+				//
+				, not(Create_Network_TomTom/CreateInitialWorkingNetwork/LinkSet/IsOneDirection)
+				, Create_Network_TomTom/CreateInitialWorkingNetwork/NodeSet/OrgNode_rel
+				, Create_Network_TomTom/CreateInitialWorkingNetwork/NodeSet/DestNode_rel
+				, convert(settings/max_traveldistance_min, s_f) //cut impedance      
+			)
+		{
+			attribute<string> Org_Dest       := string(OrgZone_rel)+'_'+string(DstZone_rel);
+			
+			unit<uint32> AfgelegdeReis := sequence2points(LinkSet) //vertaling van LinkSet attribute (afgelegde route in OD), naar onderdelen van de reis
+			, KeepData = "true"
+			{
+				attribute<rdc>         Route (arc)    := points2sequence(LinkPoints/Point, LinkPoints/Sequence_rel, LinkPoints/Ordinal);
+				attribute<rdc>         FromPoint      := Create_Network_TomTom/CreateInitialWorkingNetwork/LinkSet/FromPoint[point];
+				attribute<rdc>         ToPoint        := Create_Network_TomTom/CreateInitialWorkingNetwork/LinkSet/ToPoint[point];
+
+				unit<uint32> LinkPoints := union_unit(., .)
+				{
+					attribute<rdc>                  Point        := union_data(., FromPoint, ToPoint);
+					attribute<..>                   Sequence_rel := union_data(., id(..), id(..));
+					attribute<uint32>               Ordinal      := union_data(., const(0,..,uint32), const(1,..,uint32));
+					attribute<...>                  Sequence_rel_old := AfgelegdeReis/Sequence_rel[Sequence_rel];
 					attribute<uint32>               Ordinal_old      := AfgelegdeReis/Ordinal[Sequence_rel];
 				}
 			}
@@ -299,18 +374,25 @@ Template PrivateTransport_Car_T
 		attribute<float32> nr_items_of_interest_decayed_MorningRush_TomTom     (org) := Decayed/MorningRush_TomTom/D_i;
 		attribute<float32> nr_items_of_interest_decayed_NoonRush_TomTom        (org) := Decayed/NoonRush_TomTom/D_i;
 		attribute<float32> nr_items_of_interest_decayed_LateEveningRush_TomTom (org) := Decayed/LateEveningRush_TomTom/D_i;
-		// attribute<float32> Loss_MorningRush       (org) := nr_items_of_interest_decayed_MaxSpeed - nr_items_of_interest_decayed_MorningRush;
-		// attribute<float32> Loss_NoonRush          (org) := nr_items_of_interest_decayed_MaxSpeed - nr_items_of_interest_decayed_NoonRush;
-		// attribute<float32> Loss_LateEveningRush   (org) := nr_items_of_interest_decayed_MaxSpeed - nr_items_of_interest_decayed_LateEveningRush;
 		
 		attribute<string> BodyLines_OSM (org)    := org/name + ';' + string(nr_items_of_interest_decayed_MaxSpeed_OSM) + ';' + string(nr_items_of_interest_decayed_MorningRush_OSM)+';'+string(nr_items_of_interest_decayed_NoonRush_OSM)+';'+string(nr_items_of_interest_decayed_LateEveningRush_OSM);
-		parameter<string> File_OSM               := 'Org;freeflow;MorningRush;NoonRush;LateEveningRush\n'++AsList(BodyLines_OSM, '\n'), StorageName = "=settings/fileNamePrefix+''+ModelParameters/items_of_interest+'_decayed'+settings/fileNameSuffix +'.csv'", StorageType = "str";
+		parameter<string> File_OSM               := 'Org;freeflow;MorningRush;NoonRush;LateEveningRush\n'++AsList(BodyLines_OSM, '\n'), StorageName = "=settings/fileNamePrefix+''+ModelParameters/Advanced/items_of_interest+'_decayed'+settings/fileNameSuffix +'.csv'", StorageType = "str";
 		attribute<string> BodyLines_TomTom (org) := org/name + ';' + string(nr_items_of_interest_decayed_Freeflow_TomTom) + ';' + string(nr_items_of_interest_decayed_MorningRush_TomTom)+';'+string(nr_items_of_interest_decayed_NoonRush_TomTom)+';'+string(nr_items_of_interest_decayed_LateEveningRush_TomTom);
-		parameter<string> File_TomTom            := 'Org;freeflow;MorningRush;NoonRush;LateEveningRush\n'++AsList(BodyLines_TomTom, '\n'), StorageName = "=settings/fileNamePrefix+''+ModelParameters/items_of_interest+'_decayed'+settings/fileNameSuffix +'.csv'", StorageType = "str";
+		parameter<string> File_TomTom            := 'Org;freeflow;MorningRush;NoonRush;LateEveningRush\n'++AsList(BodyLines_TomTom, '\n'), StorageName = "=settings/fileNamePrefix+''+ModelParameters/Advanced/items_of_interest+'_decayed'+settings/fileNameSuffix +'.csv'", StorageType = "str";
 		parameter<string> File                   := =ModelParameters/UseTomTomNetworkForCars ? 'File_TomTom' : 'File_OSM';
 	}
 	
-	unit<uint64> ExportTable_Traveltimes := =ModelParameters/UseTomTomNetworkForCars ? 'Traveltimes/Freeflow_TomTom' : 'Traveltimes/MaxSpeed_OSM'
+	
+	parameter<string> ExportTable_Traveltimes_str := 	 switch(
+															 case(ModelParameters/UseTomTomNetworkForCars  && ModelParameters/Export_AfgelegdeAfstand  , 'Traveltimes/Freeflow_TomTom')
+															,case(ModelParameters/UseTomTomNetworkForCars  && !ModelParameters/Export_AfgelegdeAfstand , 'Traveltimes/Freeflow_TomTom_woAltImp')
+															,case(!ModelParameters/UseTomTomNetworkForCars && ModelParameters/Export_AfgelegdeAfstand  , 'Traveltimes/MaxSpeed_OSM')
+															,case(!ModelParameters/UseTomTomNetworkForCars && !ModelParameters/Export_AfgelegdeAfstand , 'Traveltimes/MaxSpeed_OSM_woAltImp')
+															,''
+														);
+														
+													
+	unit<uint64> ExportTable_Traveltimes := =ExportTable_Traveltimes_str
 	{
 		parameter<string> NetworkTypeSuffix := ModelParameters/UseTomTomNetworkForCars ? '_TomTom' : '_OSM';
 	
@@ -322,7 +404,7 @@ Template PrivateTransport_Car_T
 		attribute<min_f> NoonRush_min        := ='convert(rjoin(Org_Dest, Traveltimes/NoonRush'+NetworkTypeSuffix+'/Org_Dest, Traveltimes/NoonRush'+NetworkTypeSuffix+'/Impedance), min_f)';
 		attribute<min_f> LateEveningRush_min := ='convert(rjoin(Org_Dest, Traveltimes/LateEveningRush'+NetworkTypeSuffix+'/Org_Dest, Traveltimes/LateEveningRush'+NetworkTypeSuffix+'/Impedance), min_f)';
 		
-		attribute<km>    MaxSpeed_km         := Alt_imp;
+		attribute<km>    MaxSpeed_km         := ='Alt_imp';
 		attribute<km>    MorningRush_km      := ='rjoin(Org_Dest, Traveltimes/MorningRush'+NetworkTypeSuffix+'/Org_Dest, Traveltimes/MorningRush'+NetworkTypeSuffix+'/Alt_imp)';
 		attribute<km>    NoonRush_km         := ='rjoin(Org_Dest, Traveltimes/NoonRush'+NetworkTypeSuffix+'/Org_Dest, Traveltimes/NoonRush'+NetworkTypeSuffix+'/Alt_imp)';
 		attribute<km>    LateEveningRush_km  := ='rjoin(Org_Dest, Traveltimes/LateEveningRush'+NetworkTypeSuffix+'/Org_Dest, Traveltimes/LateEveningRush'+NetworkTypeSuffix+'/Alt_imp)';
@@ -343,13 +425,24 @@ Template PrivateTransport_Car_T
 			string(NoonRush_km)+';' +
 			string(LateEveningRush_km);
 			
+		attribute<string> BodyLines_woDistance :=
+			org/name[Org_rel] + ';' + 
+			dest/name[Dst_rel] + ';' +
+			string(MaxSpeed_min) + ';' + 
+			string(MorningRush_min)+';' +
+			string(NoonRush_min)+';' +
+			string(LateEveningRush_min);
+			
 		attribute<string> BodyLines_woCongestion :=
 			org/name[Org_rel] + ';' + 
 			dest/name[Dst_rel] + ';' +
 			string(MaxSpeed_min) + ';' +
 			string(MaxSpeed_km);
 			
-		parameter<string> File              := 'Org;Dst;MaxSpeed;MorningRush;NoonRush;LateEveningRush;MaxSpeed_km;MorningRush_km;NoonRush_km;LateEveningRush_km\n'++AsList(BodyLines, '\n'), StorageName = "=settings/fileNamePrefix+'Traveltimes'+settings/fileNameSuffix +'.csv'", StorageType = "str";
+		parameter<string> File_full         := 'Org;Dst;MaxSpeed;MorningRush;NoonRush;LateEveningRush;MaxSpeed_km;MorningRush_km;NoonRush_km;LateEveningRush_km\n'++AsList(BodyLines, '\n'), StorageName = "=settings/fileNamePrefix+'Traveltimes'+settings/fileNameSuffix +'.csv'", StorageType = "str";
+		parameter<string> File_woDistance   := 'Org;Dst;MaxSpeed;MorningRush;NoonRush;LateEveningRush\n'++AsList(BodyLines_woDistance, '\n'), StorageName = "=settings/fileNamePrefix+'Traveltimes'+settings/fileNameSuffix +'.csv'", StorageType = "str";
 		parameter<string> File_woCongestion := 'Org;Dst;MaxSpeed;MaxSpeed_km\n'++AsList(BodyLines_woCongestion, '\n'), StorageName = "=settings/fileNamePrefix+'Traveltimes'+settings/fileNameSuffix +'.csv'", StorageType = "str";
+		
+		parameter<string> File              := =ModelParameters/Export_AfgelegdeAfstand ? 'File_full' : 'File_woDistance';
 	}
 }
