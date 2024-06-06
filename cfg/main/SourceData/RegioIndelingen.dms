@@ -4,6 +4,88 @@ container RegioIndelingen : using = "geometries"
 	parameter<bool>   IsGeneraliseerd     := rjoin('Y'+Regio_jaar, Gebiedsindelingen_jaren/name, Gebiedsindelingen_jaren/IsGeneraliseerd);
 	parameter<string> gegeneraliseerd_str := IsGeneraliseerd ? '_gegeneraliseerd' : '_niet_gegeneraliseerd';
 	
+	
+	container Concessiegebieden
+	{
+		unit<uint32> Gem := Gemeente
+		{
+			attribute<Provincie>         prov_rel             := point_in_polygon(centroid_or_mid(geometry), Provincie/geometry);
+			attribute<Corop>             corop_rel            := point_in_polygon(centroid_or_mid(geometry), Corop/geometry);
+			attribute<uint8>             corop_rel_uint8      := uint8(corop_rel);
+			attribute<Zorgkantoorregio>  Zorgkantoorregio_rel := point_in_polygon(centroid_or_mid(geometry), Zorgkantoorregio/geometry);
+			attribute<uint8>    Zorgkantoorregio_rel_u8 := uint8(Zorgkantoorregio_rel);
+			
+			// attribute<bool>              Identified           := naam != '';
+			attribute<Concessiegebieden> ConcessieGeb_rel     := 	switch(
+																		 case(prov_rel == Provincie/V/Groningen
+																				|| prov_rel == Provincie/V/Drenthe, Concessiegebieden/v/GD_Concessie)
+																		,case(prov_rel == Provincie/V/Fryslân, Concessiegebieden/v/Openbaar_busvervoer_Fryslân)
+																		,case(Zorgkantoorregio_rel == Zorgkantoorregio/V/Flevoland 
+																				|| Zorgkantoorregio_rel == Zorgkantoorregio/V/Zwolle
+																				|| corop_rel == Corop/V/Zuidwest_Overijssel
+																				|| id(.) == v/nijkerk 
+																				|| id(.) == v/Brummen 
+																				|| (corop_rel == Corop/V/Veluwe && NOT(id(.) == v/Ede || id(.) == v/Barneveld || id(.) == v/Wageningen || id(.) == v/Scherpenzeel))
+																					, Concessiegebieden/v/IJssel_Vecht)
+																		,case(Zorgkantoorregio_rel == Zorgkantoorregio/V/Twente, Concessiegebieden/v/Twente)
+																		,case(corop_rel == Corop/V/Achterhoek
+																			&& NOT(id(.) == v/Brummen || id(.) == v/Montferland)
+																			, Concessiegebieden/v/Achterhoek_Rivierenland)
+																		, null_b
+																	);
+		}
+		
+
+		unit<uint8> Concessiegebieden : NrOfRows = 30
+		, URL = "https://www.crow.nl/downloads/pdf/collectief-vervoer/concessieposter-2024.aspx?ext=.pdf"
+		{
+			unit<uint32> Elements  := Range(uint32, 0, nrAttr*#.)
+			{
+				attribute<String> Text: //data 1 januari 2024
+				[
+					//Label                            , Vervoersbedrijf
+					'GD-concessie'                     , 'Qbuzz',
+					'Openbaar busvervoer Fryslân'      , 'Arriva',
+					'IJssel-Vecht'                     , 'EBS',
+					'Twente'                           , 'Arriva',
+					'Achterhoek Rivierenland'          , 'Arriva',
+					'Concessie Arnhem Nijmegen'        , 'Hermes',
+					'Noodconcessie Veluwe-Zuid'        , 'Hermes',
+					'Busvervoer Almere'                , 'Keolis Nederland',
+					'Provincie Utrecht'                , 'Keolis Nederland',
+					'Tram en Bus Regio Utrecht'        , 'Qbuzz',
+					'Gooi en Vechtstreek'              , 'Connexxion/Transdev',
+					'Noord-Holland Noord'              , 'Connexxion/Transdev',
+					'Haarlem/IJmond'                   , 'Connexxion/Transdev',
+					'Zaanstreek-Waterland'             , 'EBS',
+					'Concessie Amsterdam'              , 'GVB',
+					'Amstelland-Meerlanden'            , 'Connexxion/Transdev',
+					'Zuid-Holland Noord'               , 'Arriva',
+					'Bus Haaglanden Stad'              , 'HTM',
+					'Concessie Rail Haaglanden'        , 'HTM',
+					'Haaglanden Streek'                , 'EBS',
+					'Concessie Rail Rotterdam'         , 'RET',
+					'Bus Rotterdam e.o.'               , 'RET',
+					'Voorne-Putten en Rozenburg'       , 'EBS',
+					'Hoeksche Waard/GoereeOverflakkee' , 'Connexxion/Transdev',
+					'Drechtsteden-MolenlandenGorinchem', 'Qbuzz',
+					'Zeeland'                          , 'Connexxion/Transdev',
+					'West-Brabant'                     , 'Arriva',
+					'Oost-Brabant'                     , 'Arriva',
+					'Zuidoost-Brabant'                 , 'Hermes',
+					'Limburg'                          , 'Arriva'
+				];
+			}
+			
+			attribute<string>       Label           := Elements/Text[value(UInt32(ID(.))* nrAttr + 0, Elements)];
+			attribute<string>       Vervoerder      := Elements/Text[value(UInt32(ID(.))* nrAttr + 1, Elements)];
+			attribute<string>       name            := AsItemName(label);
+			container V := for_each_nedv(name, 'value('+string(id(.))+', ..)', void, .);
+			parameter<uint32> nrAttr := 2;
+		}
+	}
+	
+	
 	unit<uint32> Gebiedsindelingen_jaren := range(uint32, 2000, 2024)
 	{
 		attribute<uint32> jaar            := id(.);
@@ -58,7 +140,7 @@ container RegioIndelingen : using = "geometries"
 			attribute<float32> mean_X              := Weighted_X / W;
 			attribute<float32> mean_Y              := Weighted_y / W;
 			 
-			attribute<rdc>     weighted_centroid0  := point(mean_X, mean_Y, rdc);
+			attribute<rdc>     weighted_centroid0  := point_xy(mean_X, mean_Y, rdc);
 			
 			//controles
 			attribute<.>        poly_rel           := point_in_polygon(weighted_centroid0, ../geometry);
@@ -203,7 +285,7 @@ container RegioIndelingen : using = "geometries"
 			attribute<float32> mean_X     := Weighted_X / W;
 			attribute<float32> mean_Y     := Weighted_y / W;
 			 
-			attribute<rdc>  weighted_centroid0            := point(mean_X, mean_Y, rdc);
+			attribute<rdc>  weighted_centroid0            := point_xy(mean_X, mean_Y, rdc);
 			attribute<bool> IsWeighted_centroid_in_regio  := IsDefined(point_in_polygon(weighted_centroid0, ../geometry));
 			attribute<rdc>  weighted_centroid             := IsWeighted_centroid_in_regio ? weighted_centroid0 : centroid_or_mid(../geometry);
 			attribute<rdc>  geometry                      := weighted_centroid;
@@ -266,6 +348,17 @@ container RegioIndelingen : using = "geometries"
 		attribute<.>         per_rdc_100m (rdc_100m) := poly2grid(Geometry, rdc_100m);
 		attribute<uint32>    nr_Inwoners             := sum(/SourceData/Locaties/Inwoners/nr_inwoners,point_in_polygon(/SourceData/Locaties/Inwoners/centroid, geometry));
 		attribute<uint32>    nr_banen                := ='sum(uint32(/SourceData/Locaties/LISA/ReadFSS/y'+/ModelParameters/Advanced/LISA_jaar+'/PerYear/banen), point_in_polygon(/SourceData/Locaties/LISA/ReadFSS/y'+/ModelParameters/Advanced/LISA_jaar+'/PerYear/Geometry, geometry))';
+
+		container V := for_each_nedv(name, 'value('+string(id(.))+', ..)', void, .);
+	}
+	
+	unit<uint32>  Zorgkantoorregio := ='Gebiedsindelingen/y'+Regio_jaar+'/gpkg/zorgkantoorregio_gegeneraliseerd' 
+	{
+		attribute<rdc>       geometry (poly)         := ='Gebiedsindelingen/y'+Regio_jaar+'/gpkg/zorgkantoorregio_gegeneraliseerd/geometry';
+		attribute<string>    statcode                := ='Gebiedsindelingen/y'+Regio_jaar+'/gpkg/zorgkantoorregio_gegeneraliseerd/statcode';
+		attribute<string>    statnaam                := ='Gebiedsindelingen/y'+Regio_jaar+'/gpkg/zorgkantoorregio_gegeneraliseerd/statnaam';
+		attribute<string>    name                    := AsItemName(statnaam);
+		attribute<string>    label                   := statnaam;
 
 		container V := for_each_nedv(name, 'value('+string(id(.))+', ..)', void, .);
 	}

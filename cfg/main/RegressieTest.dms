@@ -1,7 +1,7 @@
 container RegressieTest
 {
-	parameter<string> Output_DateTime              := '20230727';
-	parameter<string> Benchmark_DateTime           := '20220701';
+	parameter<string> Output_DateTime              := '20240605';
+	parameter<string> Benchmark_DateTime           := '20240605';
 	
 	parameter<string> fileNamePrefix               := '%LocalDataProjDir%/Output/'+Output_DateTime+'/';  //Locatie waar output files moeten worden opgeslagen.
 	parameter<string> fileNamePrefix_benchmark     := '%LocalDataProjDir%/Benchmark/'+Benchmark_DateTime+'/';  //Locatie waar benchmark files moeten worden opgeslagen.
@@ -11,10 +11,10 @@ container RegressieTest
 	
 	container Generate_new_output
 	{
-		parameter<string> OV               := 'OrgName;DestName;Traveltime_m_At_07h00m00s;ModeUsed_At_07h00m00s\n'++AsList(/NetworkSetup/ConfigurationPerRegio/all/PublicTransport/At_07h00m00s/CreateODs/CreateExports/W_OV_W_with_WW/LongFormat/BodyLines_fullOD_woPrijs, '\n'), StorageName = "=fileNamePrefix+'W_OV_W_with_WW.csv'", StorageType = "str";
-		parameter<string> Car              := 'Org;Dst;MaxSpeed;MorningRush;NoonRush;LateEveningRush\n'++AsList(/NetworkSetup/ConfigurationPerRegio/all/PrivateTransport/Car/ExportTable_Traveltimes/BodyLines, '\n'), StorageName = "=fileNamePrefix+'Car.csv'", StorageType = "str";
-		parameter<string> Bike             := 'Org;Dst;Freeflow;Freeflow_ebike;ActualBike;ActualE_Bike_Adj\n'++AsList(/NetworkSetup/ConfigurationPerRegio/all/PrivateTransport/Bike/ExportTable_Traveltimes/BodyLines_ActualBike, '\n'), StorageName = "=fileNamePrefix+'Bike.csv'", StorageType = "str";
-		parameter<string> Pedestrian       := 'Org;Dst;Freeflow\n'++AsList(/NetworkSetup/ConfigurationPerRegio/all/PrivateTransport/Pedestrian/ExportTable_Traveltimes/BodyLines, '\n'), StorageName = "=fileNamePrefix+'Pedestrian.csv'", StorageType = "str";
+		parameter<string> OV               := 'OrgName;DestName;Traveltime_m_At_07h00m00s;ModeUsed_At_07h00m00s;Price\n'++AsList(/NetworkSetup/ConfigurationPerRegio/all/PublicTransport/At_07h00m00s/CreateODs/CreateExports/W_OV_W_with_WW/LongFormat/BodyLines_fullOD_wPrijs, '\n'), StorageName = "=fileNamePrefix+'W_OV_W_with_WW.csv'", StorageType = "str";
+		// parameter<string> Car              := 'Org;Dst;MaxSpeed;MorningRush;NoonRush;LateEveningRush\n'++AsList(/NetworkSetup/ConfigurationPerRegio/all/PrivateTransport/Car/ExportTable_Traveltimes/BodyLines_woDistance, '\n'), StorageName = "=fileNamePrefix+'Car.csv'", StorageType = "str";
+		// parameter<string> Bike             := 'Org;Dst;Freeflow;Freeflow_ebike;ActualBike;ActualE_Bike_Adj\n'++AsList(/NetworkSetup/ConfigurationPerRegio/all/PrivateTransport/Bike/ExportTable_Traveltimes/BodyLines_ActualBike, '\n'), StorageName = "=fileNamePrefix+'Bike.csv'", StorageType = "str";
+		// parameter<string> Pedestrian       := 'Org;Dst;Freeflow\n'++AsList(/NetworkSetup/ConfigurationPerRegio/all/PrivateTransport/Pedestrian/ExportTable_Traveltimes/BodyLines, '\n'), StorageName = "=fileNamePrefix+'Pedestrian.csv'", StorageType = "str";
 	}
 
 	container Read_new_output
@@ -24,8 +24,8 @@ container RegressieTest
 		, StorageType     = "gdal.vect"
 		, StorageReadOnly = "true"
 		{
-			attribute<orgs>   Orgs_rel    := rlookup(org, orgs/name);
-			attribute<dests>  Dests_rel   := rlookup(dst, dests/name);
+			attribute<orgs>   Orgs_rel    := rlookup(orgname, orgs/name);
+			attribute<dests>  Dests_rel   := rlookup(destname, dests/name);
 			attribute<ipoint> OrgDest_rel := point(int32(Orgs_rel), int32(Dests_rel), ipoint);
 		}
 		unit<uint32> Pedestrian 
@@ -64,8 +64,8 @@ container RegressieTest
 		, StorageType     = "gdal.vect"
 		, StorageReadOnly = "true"
 		{
-			attribute<orgs>   Orgs_rel    := rlookup(org, orgs/name);
-			attribute<dests>  Dests_rel   := rlookup(dst, dests/name);
+			attribute<orgs>   Orgs_rel    := rlookup(orgname, orgs/name);
+			attribute<dests>  Dests_rel   := rlookup(destname, dests/name);
 			attribute<ipoint> OrgDest_rel := point(int32(Orgs_rel), int32(Dests_rel), ipoint);
 		}
 		unit<uint32> Pedestrian 
@@ -107,6 +107,7 @@ container RegressieTest
 		container Bike        := Indicators_T(Read_benchmark_output/Bike,Read_new_output/Bike,'Freeflow');
 		container Car         := Indicators_T(Read_benchmark_output/Car,Read_new_output/Car,'morningrush ');
 		container OV          := Indicators_T(Read_benchmark_output/OV,Read_new_output/OV,'Traveltime_m_At_07h00m00s');
+		container OV_price    := Indicators_T(Read_benchmark_output/OV,Read_new_output/OV,'Price');
 		
 		Template Indicators_T
 		{
@@ -146,6 +147,7 @@ container RegressieTest
 				attribute<dests>   Dests_rel   := Output_dom/Dests_rel;
 				attribute<float32> Benchmark_v := rjoin(OrgDest_rel, benchmark_dom/OrgDest_rel, benchmark);
 				attribute<float32> Output_v    := Output;
+				attribute<float32> Diff        := Benchmark_v - Output_v;
 			}
 		}
 	}
