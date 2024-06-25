@@ -15,7 +15,10 @@ Template PublicTransport_T
 		);
 	
 	unit<uint32>        Static_net        := SourceData/Infrastructuur/GTFS/StaticNets/Static_net;
-	unit<uint32>        Stops             := SourceData/Infrastructuur/GTFS/StaticNets/Stops;
+	unit<uint32>        Stops             := SourceData/Infrastructuur/GTFS/StaticNets/Stops
+	{
+			attribute<rdc> geometry := SourceData/Infrastructuur/GTFS/StaticNets/Stops/geometry;
+	}
 	unit<uint32>        NodeSet           := SourceData/Infrastructuur/GTFS/StaticNets/Static_net/NodeSet;
 	unit<uint32>        Places            := SourceData/Infrastructuur/GTFS/StaticNets/allLinks/Places;
 	unit<uint32>        Routes            := SourceData/Infrastructuur/GTFS/StaticNets/Routes;
@@ -39,32 +42,38 @@ Template PublicTransport_T
 	container TransitionTypes := 
 		for_each_ne(
 			ModelParameters/Advanced/TransitionType_list/Type
-			, 'Transition_T('+inTime_string+'/'+string(ModelParameters/Advanced/TransitionType_list/Type)+', '+quote(ModelParameters/Advanced/TransitionType_list/Type)+', '+quote(ModelParameters/Advanced/TransitionType_list/Mode)+', '+string(ModelParameters/Advanced/TransitionType_list/ModeMax)+'[min_f], '+quote(ModelParameters/Advanced/TransitionType_list/FromTime)+', '+quote(ModelParameters/Advanced/TransitionType_list/ToTime)+', '+quote(ModelParameters/Advanced/TransitionType_list/OrgDest)+')'
+			, 'Transition_T(
+				'+inTime_string+'/'+string(ModelParameters/Advanced/TransitionType_list/Type)+'
+				, '+quote(ModelParameters/Advanced/TransitionType_list/Type)+'
+				, '+quote(ModelParameters/Advanced/TransitionType_list/Type_shrt)+'
+				, '+quote(ModelParameters/Advanced/TransitionType_list/Mode)+'
+				, '+string(ModelParameters/Advanced/TransitionType_list/ModeMax)+'[min_f]
+				, '+quote(ModelParameters/Advanced/TransitionType_list/OrgDest)+'
+			)'
 		);
 	
 	Template Transition_T
 	{
 		unit<uint32>      OD_unit;
 		parameter<string> OD_unit_name;
+		parameter<string> Type_shrt;
 		parameter<string> Mode;
 		parameter<min_f>  ModeMax_min;
-		parameter<string> FromTime_str;
-		parameter<string> ToTime_str;
 		parameter<string> OrgDest;
 		///
 		parameter<Time>     ModeMax_sec := convert(ModeMax_min, s_f)[Time];
-		parameter<string>   Arrive_at_time_CalcStr     := replace('select_with_org_rel(UNIT/FT >= (inTime[Time] - convert(ModelParameters/MaxOVTime, s_f)[Time] - MM)
-																			&& UNIT/TT <= inTime[Time] 
-																			&& UNIT/FT <= inTime[Time] 
-																			&& UNIT/duration_TMode <= MM)'
-																				,'UNIT',OD_unit_name,'FT',FromTime_str,'TT', ToTime_str,'TMode',Mode,'MM', string(ModeMax_sec));
+		parameter<string>   Arrive_at_time_CalcStr     := replace('select_with_org_rel(UNIT/TPS_FromTime >= (inTime[Time] - convert(ModelParameters/MaxOVTime, s_f)[Time] - MM)
+																			&& UNIT/TPS_FromTime <= inTime[Time] 
+																			&& UNIT/TPS_FromTime <= inTime[Time] 
+																			&& UNIT/duration <= MM)'
+																				,'UNIT',OD_unit_name,'TPS',Type_shrt,'MM', string(ModeMax_sec));
 		
 		
-		parameter<string>   Departure_at_time_CalcStr  := replace('select_with_org_rel(UNIT/FT >= inTime[Time] 
-																			&& UNIT/TT >= inTime[Time] 
-																			&& UNIT/duration_TMode <= MM 
-																			&& UNIT/FT < (inTime[Time] + convert(ModelParameters/MaxOVTime, s_f)[Time] + MM))'
-																				,'UNIT',OD_unit_name,'FT',FromTime_str,'TT', ToTime_str,'TMode',Mode,'MM', string(ModeMax_sec));
+		parameter<string>   Departure_at_time_CalcStr  := replace('select_with_org_rel(UNIT/TPS_FromTime >= inTime[Time] 
+																			&& UNIT/TPS_ToTime >= inTime[Time] 
+																			&& UNIT/duration <= MM 
+																			&& UNIT/TPS_FromTime < (inTime[Time] + convert(ModelParameters/MaxOVTime, s_f)[Time] + MM))'
+																				,'UNIT',OD_unit_name,'TPS',Type_shrt,'MM', string(ModeMax_sec));
 		
 		
 		
@@ -80,11 +89,11 @@ Template PublicTransport_T
 			attribute<Stops>                      Stop_rel          := OD_unit/Stop_rel[org_rel];
 			attribute<Places>                     Place_rel         := OD_unit/Place_rel[org_rel];
 			attribute<rdc>                        geometry (arc)    := OD_unit/geometry[org_rel];
-			attribute<m>                          Distance          := OD_unit/Distance[org_rel];
-			attribute<Time>                       Duration          := ='OD_unit/Duration_'+Mode+'[org_rel]';
-			attribute<Time>                       FromTime          := ='OD_unit/'+FromTime_str+'[org_rel]';
-			attribute<Time>                       toTime            := ='OD_unit/'+ToTime_str+'[org_rel]';
-			attribute<string>                     Label         := OD_unit/Label[org_rel];
+			attribute<km>                         LengthKm          := OD_unit/LengthKm[org_rel];
+			attribute<Time>                       Duration          := OD_unit/Duration[org_rel];
+			attribute<Time>                       FromTime          := ='OD_unit/'+Type_shrt+'_FromTime[org_rel]';
+			attribute<Time>                       toTime            := ='OD_unit/'+Type_shrt+'_ToTime[org_rel]';
+			attribute<string>                     Label             := OD_unit/Label[org_rel];
 			attribute<string>                     LabelText_ext     := ModelParameters/Advanced/WegingWachttijdThuisVoortransport == 1f && OrgDest == 'Org'
 																			? Label + ' ('+time/Label[FromTime]+' - '+time/Label[ToTime]+' and waiting at home from '+time/Label[InTime]+' to '+time/Label[FromTime]+')'
 																			: Label + ' ('+time/Label[FromTime]+' - '+time/Label[ToTime]+')';
@@ -224,6 +233,13 @@ Template PublicTransport_T
 																									AfgelegdeReis/uq_reis_route_sorted/Price
 																									, AfgelegdeReis/uq_reis_route_sorted/Reis_rel
 																								);
+				// attribute<upoint>           OpstapHalte_identifier                          := min(AfgelegdeReis/OpstapHalte_identifier, AfgelegdeReis/Reis_rel);
+				// attribute<Places>           OpstapHalte                                     := PointCol(OpstapHalte_identifier)[Places];
+				// attribute<km>               AfgelegdeAfstand_Voortransport                  := rjoin(OpstapHalte, Org2Stop/Transition/Place_rel, Org2Stop/Transition/LengthKm);
+				
+				// attribute<upoint>           UitstapHalte_identifier                          := min(AfgelegdeReis/UitstapHalte_identifier, AfgelegdeReis/Reis_rel);
+				// attribute<Places>           UitstapHalte                                     := PointCol(UitstapHalte_identifier)[Places];
+				// attribute<km>               AfgelegdeAfstand_Natransport                     := rjoin(UitstapHalte, Stop2Dest/Transition/Place_rel, Stop2Dest/Transition/LengthKm);
 				
  				unit<uint32> AfgelegdeReis := sequence2points(LinkSet) //vertaling van LinkSet attribute (afgelegde route in OD), naar onderdelen van de reis
 				, KeepData = "true"
@@ -235,13 +251,14 @@ Template PublicTransport_T
 					attribute<Time>                    ToTime                  := StaticNet_subset/ToTime[point];
 					attribute<Modes>                   Mode_rel                := StaticNet_subset/Mode[point];
 					attribute<LinkTypes>               LinkType                := StaticNet_subset/LinkType[point];
-					attribute<km>                      Length                  := StaticNet_subset/Length[point]; //nodig tbv variabele prijs bepaling
+					attribute<km>                      Length_OV               := StaticNet_subset/Length[point]; //nodig tbv variabele prijs bepaling
+					attribute<km>                      Total_Length            := AfgelegdeAfstand_Voortransport + Length_OV + AfgelegdeAfstand_Natransport;
 					attribute<Agencies>                Agency_rel              := StaticNet_subset/Agency_rel[point];
 					
 					attribute<Stops>                   FromStop_rel            := Places/StopRef[FromPlace];
 					attribute<Stops>                   ToStop_rel              := Places/StopRef[ToPlace];
 					
-					attribute<OD>                      Reis_rel                := Sequence_rel;
+					attribute<OD_wPrijzen>             Reis_rel                := Sequence_rel;
 					attribute<Routes>                  Route_rel               := StaticNet_subset/Route_rel[point];
 					attribute<upoint>                  Reis_Route_Identifier   := point_xy(Route_rel, uint32(Reis_rel));
 					attribute<uq_reis_route>           uq_reis_route_rel       := rlookup(Reis_Route_Identifier, uq_reis_route/values);
@@ -249,24 +266,29 @@ Template PublicTransport_T
 					attribute<uint64>                  Reis_FromTime_Identifier := Reis_rel * value(1000000000, uint64) + value(FromTime, uint64);
 					attribute<uint64>                  Reis_ToTime_Identifier   := Reis_rel * value(1000000000, uint64) + value(ToTime, uint64);
 					
+					attribute<Places>                  OpstapHalte                    := min(FromTime) == FromTime ? FromPlace : null_u; //tbv afgelegde afstand voortransport
+					attribute<km>                      AfgelegdeAfstand_Voortransport := MakeDefined(rjoin(OpstapHalte, Org2Stop/Transition/Place_rel, Org2Stop/Transition/LengthKm), 0[km]);
+					attribute<Places>                  UitstapHalte                   := max(ToTime) == ToTime ? ToPlace : null_u; //; //tbv afgelegde afstand natransport
+					attribute<km>                      AfgelegdeAfstand_Natransport := MakeDefined(rjoin(UitstapHalte, Stop2Dest/Transition/Place_rel, Stop2Dest/Transition/LengthKm), 0[km]);
+					
 					unit<uint32> uq_reis_route := unique(Reis_Route_Identifier) //indikking van reis/route combinaties. Transfers en wachten vallen eruit, net zoals de tussenliggende stations binnen een route.
 					, KeepData = "true"
 					{
 						attribute<Routes>        Route_rel                     := pointcol(values);
-						attribute<OD>            Reis_rel                      := value(pointrow(values),OD);
+						attribute<OD_wPrijzen>   Reis_rel                      := value(pointrow(values),OD_wPrijzen);
 						attribute<Agencies>      Agency_rel                    := first(../Agency_rel, ../uq_reis_route_rel);
 						attribute<Modes>         Mode_rel                      := first(../Mode_rel, ../uq_reis_route_rel);
 						attribute<Time>          First_StopTime_Route          := min(../FromTime, ../uq_reis_route_rel);
 						attribute<Time>          Last_StopTime_Route           := max(../ToTime, ../uq_reis_route_rel);
 						attribute<uint64>        Reis_FirstTime_Identifier     := uint64(Reis_rel) * value(1000000000, uint64) + value(First_StopTime_Route, uint64);
-						attribute<km>            Afgelegde_afstand             := sum(../length, ../uq_reis_route_rel); //nodig tbv variabele prijs bepaling
+						attribute<km>            Afgelegde_afstand             := sum(../Total_Length, ../uq_reis_route_rel); //nodig tbv variabele prijs bepaling
 						attribute<.>             Reis_Time_Sort_Index          := index(Reis_FirstTime_Identifier);
 					}
 					
 					unit<uint32> uq_reis_route_sorted := unique(uq_reis_route/Reis_Time_Sort_Index) // hack om het domein te sorteren op reis_rel en vertrektijden. Om zo in de prijsbepaling de volgende 'leg' te kunnen bepalen. En dus bus/trein onderbroken door overstappen samen te kunnen voegen.
 					{
 						attribute<Routes>        Route_rel                     := (uq_reis_route/Route_rel[uq_reis_route/Reis_Time_Sort_Index])[values];
-						attribute<OD>            Reis_rel                      := (uq_reis_route/Reis_rel[uq_reis_route/Reis_Time_Sort_Index])[values];
+						attribute<OD_wPrijzen>   Reis_rel                      := (uq_reis_route/Reis_rel[uq_reis_route/Reis_Time_Sort_Index])[values];
 						attribute<Agencies>      Agency_rel                    := (uq_reis_route/Agency_rel[uq_reis_route/Reis_Time_Sort_Index])[values];
 						
 						attribute<Time>          First_StopTime_Route          := (uq_reis_route/First_StopTime_Route[uq_reis_route/Reis_Time_Sort_Index])[values];
