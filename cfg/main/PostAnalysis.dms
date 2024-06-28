@@ -1,83 +1,16 @@
 container PostAnalysis : using = "units;geometries"
 {
-	container ReadExport_OV_PvdA //:= Per_Export_CombinationTypes_T('W_OV_W_with_WW')
+	container ReadExport_OV
 	{	
-		container ReadExport_OV_PvdA_Supermarkten := 
+		container ReadExport_OV_Ziekenhuizen := 
 			for_each_ne(
 				ModelParameters/Advanced/MeasureMoments/name
-				, 'ReadExport_OV_T('+quote(/ModelParameters/Advanced/MeasureMoments/name)+', ''W_OV_W_with_WW'',''BAG_woonpanden_Clustered'',''Supermarkten_2023'')'
+				, 'ReadExport_OV_T('+quote(/ModelParameters/Advanced/MeasureMoments/name)+', ''W_OV_W_with_WW'',''Gemeente'',''Ziekenhuizen_y2022_alg_ac_bp'')'
 			)
 		{
 			container Merge_Times := Merge_Times_T(., SourceData/BAG/Panden/pand/pand_woon_vbo/HeeftPanden, SourceData/locaties/Supermarkten/y2023);
 		}
-		container ReadExport_OV_PvdA_Scholen := 
-			for_each_ne(
-				ModelParameters/Advanced/MeasureMoments/name
-				, 'ReadExport_OV_T('+quote(/ModelParameters/Advanced/MeasureMoments/name)+', ''W_OV_W_with_WW'',''BAG_woonpanden_Clustered'',''Scholen'')'
-			)
-		{
-			container Merge_Times := Merge_Times_T(., SourceData/BAG/Panden/pand/pand_woon_vbo/HeeftPanden, SourceData/Locaties/Scholen/Combinatie);
-		}
-		container ReadExport_OV_PvdA_Ziekenhuizen := 
-			for_each_ne(
-				ModelParameters/Advanced/MeasureMoments/name
-				, 'ReadExport_OV_T('+quote(/ModelParameters/Advanced/MeasureMoments/name)+', ''W_OV_W_with_WW'',''BAG_woonpanden_Clustered'',''Ziekenhuizen_y2022'')'
-			)
-		{
-			container Merge_Times := Merge_Times_T(., SourceData/BAG/Panden/pand/pand_woon_vbo/HeeftPanden, SourceData/locaties/Ziekenhuizen/y2022/Ziekenhuizen_apr2022_xy);
-		}
 	} 
-	
-	unit<uint32> Write_PvdA_Analyse := SourceData/BAG/Panden/pand/pand_woon_vbo/HeeftPanden
-	, StorageName = "%LocalDataProjDir%/Export/PvdA_Analyse.fss"
-	{
-		attribute<string> name                       := SourceData/BAG/Panden/pand/pand_woon_vbo/HeeftPanden/name;
-		attribute<uint32> Aantal_woningen            := SourceData/BAG/Panden/pand/pand_woon_vbo/HeeftPanden/Count_per_domain;
-		attribute<min_f>  Reistijd_naar_supermarkten := ReadExport_OV_PvdA/ReadExport_OV_PvdA_Supermarkten/Merge_Times/Combine_OrgDest/shortest_avg_traveltime;
-		attribute<min_f>  Reistijd_naar_scholen      := ReadExport_OV_PvdA/ReadExport_OV_PvdA_Scholen/Merge_Times/Combine_OrgDest/shortest_avg_traveltime;
-		attribute<min_f>  Reistijd_naar_ziekenhuizen := ReadExport_OV_PvdA/ReadExport_OV_PvdA_Ziekenhuizen/Merge_Times/Combine_OrgDest/shortest_avg_traveltime;
-	}
-	unit<uint32> PvdA_Analyse := SourceData/BAG/Panden/pand/pand_woon_vbo/HeeftPanden
-	, StorageName = "%LocalDataProjDir%/Export/PvdA_Analyse.fss"
-	, StorageReadOnly = "true"
-	{
-		attribute<string> name;
-		attribute<uint32> Aantal_woningen;
-		attribute<SourceData/Locaties/Inwoners/HeeftInwoners> vierkant_rel := point_in_polygon(geometry, SourceData/Locaties/Inwoners/HeeftInwoners/geometry);
-		attribute<uint32> Aantal_personen := SourceData/Locaties/Inwoners/HeeftInwoners/nr_inwoners[vierkant_rel];
-		attribute<min_f>  Reistijd_naar_supermarkten;
-		attribute<min_f>  Reistijd_naar_scholen;
-		attribute<min_f>  Reistijd_naar_ziekenhuizen;
-		
-		attribute<min_f>  Reistijd_naar_supermarkten_clean := Reistijd_naar_supermarkten > 600f ? null_f : Reistijd_naar_supermarkten;
-		attribute<min_f>  Reistijd_naar_scholen_clean      := Reistijd_naar_scholen > 600f ? null_f : Reistijd_naar_scholen;
-		attribute<min_f>  Reistijd_naar_ziekenhuizen_clean := Reistijd_naar_ziekenhuizen > 600f ? null_f : Reistijd_naar_ziekenhuizen;
-		
-		attribute<rdc> Supermarkten                         (SourceData/locaties/Supermarkten/y2023) := SourceData/locaties/Supermarkten/y2023/geometry;
-		attribute<rdc> Ziekenhuizen (SourceData/locaties/Ziekenhuizen/y2022/Ziekenhuizen_apr2022_xy) := SourceData/locaties/Ziekenhuizen/y2022/Ziekenhuizen_apr2022_xy/geometry;
-		attribute<rdc> Scholen                              (SourceData/locaties/Scholen/Combinatie) := SourceData/locaties/Scholen/Combinatie/geometry;
-		
-		attribute<bool>   Supermarkt_within_reach          := Reistijd_naar_supermarkten <= 45f;
-		attribute<bool>   School_within_reach              := Reistijd_naar_scholen <= 45f;
-		attribute<bool>   Ziekenhuis_within_reach          := Reistijd_naar_ziekenhuizen <= 45f ;
-		
-		attribute<bool>   Alles_within_reach               := Supermarkt_within_reach && School_within_reach && Ziekenhuis_within_reach;
-		
-		parameter<float32> Aantal_woningen_dat_supermarkt_bereikt := sum_float32(Supermarkt_within_reach ? Aantal_woningen : 0);
-		parameter<float32> Aantal_woningen_dat_school_bereikt     := sum_float32(School_within_reach ? Aantal_woningen : 0);
-		parameter<float32> Aantal_woningen_dat_ziekenhuis_bereikt := sum_float32(Ziekenhuis_within_reach ? Aantal_woningen : 0);
-		
-		parameter<float32> Aantal_woningen_dat_alles_bereikt      := sum_float32(Alles_within_reach ? Aantal_woningen : 0);
-		parameter<float32> Aantal_inwoners_dat_alles_bereikt      := sum_float32(Alles_within_reach ? Aantal_personen : 0);
-		
-		parameter<float32> Aandeel_woningen_met_supermarkt_binnen_bereik := Aantal_woningen_dat_supermarkt_bereikt / sum_float32(Aantal_woningen);
-		parameter<float32> Aandeel_woningen_met_school_binnen_bereik     := Aantal_woningen_dat_school_bereikt / sum_float32(Aantal_woningen);
-		parameter<float32> Aandeel_woningen_met_ziekenhuis_binnen_bereik := Aantal_woningen_dat_ziekenhuis_bereikt / sum_float32(Aantal_woningen);
-		
-		parameter<float32> Aandeel_woningen_met_alles_binnen_bereik      := Aantal_woningen_dat_alles_bereikt / sum_float32(Aantal_woningen);
-		parameter<float32> Aandeel_inwoners_met_alles_binnen_bereik      := Aantal_inwoners_dat_alles_bereikt / sum_float32(Aantal_personen);
-		
-	}
 	
 	Template Merge_Times_T
 	{
