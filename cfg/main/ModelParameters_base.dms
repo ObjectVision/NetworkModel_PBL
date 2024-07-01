@@ -6,13 +6,14 @@
 	parameter<string>   Destset                      := 'Ziekenhuizen_y2022_alg_ac_bp';     //Welke destination punten worden gebruikt? Opties: Groen_BS2017 'LISA' 'Huisartsenposten' 'Huisartsenposten_geclusterd', 'Ziekenhuizen_y2020', 'Ziekenhuizen_y2020_sub' 'Supermarkten_yokt2018' 'Winkelsdagelijks_yokt2018' 'PC6pnt_y2020' 'Basisscholen_okt2021' 'Scholen_voortgezet_onderwijs_okt2021'
 	parameter<string>   CentroidWeightType           := 'Addresses';                        //Als je gewogen centroide neemt bij de orgs, op welke manier wil je die gewogen hebben? Obv Population of Addresses ?
 	parameter<string>   Orgset_EnkeleBuurt_selectie  := 'BU00141705';                       //Als je een enkele buurt selecteert bij OrgSet, welke buurt wil je dan? BU00140107  'Laanhuizen'; 'Elzenhof'; BU19010209
+	parameter<string>   Orgset_EnkeleGem_selectie    := 'GM0119';                           //Als je een enkele gemeente selecteert bij OrgSet, welke gemeente wil je dan?
 	parameter<string>   Orgset_EnkeleProv_selectie   := 'Groningen';                        //Als je een enkele provincie selecteert bij OrgSet, welke provincie wil je dan?
-	parameter<string>   Destset_Enkele_selectie      := '195';                              //Als je een enkele dest selecteert bij dest, welke gebruik je dan in de subset selectie?
-	parameter<bool>     Export_AfgelegdeAfstand      := TRUE;                              // export (en daarmee bereken) de afgelegde afstand in de output cvs's voor private transport.
+	parameter<string>   Destset_Enkele_selectie      := '91';                              //Als je een enkele dest selecteert bij dest, welke gebruik je dan in de subset selectie?
+	parameter<bool>     Export_AfgelegdeAfstand      := TRUE;                               // export (en daarmee bereken) de afgelegde afstand in de output cvs's voor private transport.
 	
 	//OV-berekening instellingen
 	parameter<string>   GTFS_file_date               := '20220928';                         //GTFS file date #'20191007' #20201002 20211001 20120917
-	parameter<string>   Analysis_date                := '20221004', IntegrityCheck = "uint32(Analysis_date) >= uint32(GTFS_file_date)";                //GTFS model date #'20191008' 20201006 20201004 20211005 20211003 20171003 (=dinsdag) 20171001 (=zondag)
+	parameter<string>   Analysis_date                := '20221004', IntegrityCheck = "uint32(this) >= uint32(GTFS_file_date) && uint32(this) <= uint32(GTFS_file_date) + 100";                //GTFS model date #'20191008' 20201006 20201004 20211005 20211003 20171003 (=dinsdag) 20171001 (=zondag)
 
 	parameter<min_f>    MaxPedestrianTime_Org2Stop   := 10[min_f];                          //Maximum looptijd van org naar eerste halte, in seconden. x  MaxWalkingDistSelection_Org2Stop
 	parameter<min_f>    MaxPedestrianTime_Stop2Dest  := 10[min_f];                          //Maximum looptijd van de laatste stop naar dest, in seconden. x
@@ -47,8 +48,9 @@
 		parameter<m>        MaxTransferDistKm            := 500[m];                             //Maximale euclidische loopafstand tussen OV-haltes voor overstappen, in meters.
 		parameter<float32>  MaxODconn                    := 25f;                                //Maximum aantal haltes dat bij de org of de dest wordt gezocht
 		parameter<string>   TomTom_StreetTypeSelectie    := 'FuncRoadClass/V/Local_Road_of_Minor_Importance';    //7 FuncRoadClass/V/Local_Road   8 FuncRoadClass/V/Secondary_Road Local_Road_of_Minor_Importance  Local_Road_of_High_Importance 
-	
-		unit<uint8>  AnalyseMomentPresets : nrofrows = 5
+		parameter<string>   Concessiegebied_jaar         := 'Y2024';                             //Welk jaar voor de concessiegebied indeling wil je gebruiken? Dit is relevant voor de prijsbepaling van OV-vervoer.
+		
+		unit<uint8>  AnalyseMomentPresets : nrofrows = 6
 		{
 			unit<uint32> Elements  := Range(uint32, 0, nrAttr*#.)
 			{
@@ -56,6 +58,7 @@
 				// name, OSM date , Regios, OSM_perProv, CarCongestionSpeed_date_TomTom
 				[
 				'Y2013','20140101', '2022', 'FALSE', 'yr2022_12',
+				'Y2018','20190101', '2020', 'FALSE', 'yr2021_12',
 				'Y2020','20200117', '2020', 'FALSE', 'yr2021_12',
 				'Y2021','20211221', '2021', 'TRUE',  'yr2021_12',
 				'Y2022','20221201', '2022', 'TRUE',  'yr2022_12',
@@ -72,7 +75,7 @@
 			parameter<uint32> nrAttr := 5;
 		}
 	
-		unit<uint32> org_domain_list : nrofrows = 16 // Hier worden de paden voor elke org set opgegeven. En wanneer er nieuwe bij komen dat hier ook toegevoegd worden.
+		unit<uint32> org_domain_list : nrofrows = 17 // Hier worden de paden voor elke org set opgegeven. En wanneer er nieuwe bij komen dat hier ook toegevoegd worden.
 		{
 			unit<uint32> Elements  := Range(uint32, 0, nrAttr*#.)
 			{
@@ -92,6 +95,7 @@
 				'Gemeente'                            ,'SourceData/RegioIndelingen/Gemeente/Centroiden',
 				'Gemeente_perProvincie'               ,'SourceData/RegioIndelingen/Gemeente/Per_Prov/@REGIO@/sub',
 				'Gemeente_perCOROP'                   ,'SourceData/RegioIndelingen/Gemeente/Per_COROP/@REGIO@/sub',
+				'Gemeente_enkele_gemeente'            ,'SourceData/RegioIndelingen/Gemeente/Enkele_gemeente',
 				
 				'PC4'                                 ,'SourceData/BAG/Adressen/Woon_Voorraad/PC4_centroids',
 				// 'PC4_sub1'                            ,'SourceData/BAG/Adressen/Woon_Voorraad/PC4_centroids/sub1',
@@ -313,10 +317,10 @@
 				// attribute<uint32> values : [7,8,12,13,21,22];
 				attribute<uint32> values : [7];
 			}
-			unit<uint8> ChosenMinutes : nrofrows = 2
+			unit<uint8> ChosenMinutes : nrofrows = 1
 			{
 				// attribute<uint32> values : [0,5,10,15,20,25,30,35,40,45,50,55]; 
-				attribute<uint32> values : [0, 5]; 
+				attribute<uint32> values : [0]; 
 			}
 			unit<uint8> HoursMinutes := combine_uint8(ChosenHours, ChosenMinutes)
 			{
