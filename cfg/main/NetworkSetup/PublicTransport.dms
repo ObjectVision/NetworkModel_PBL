@@ -4,7 +4,7 @@ Template PublicTransport_T
 	parameter<string>   inTime_string;
 	
 	parameter<string>   OUTPUT_Generate_decay_CSVFiles        := =AsList('CreateODs/CreateExports/'+ModelParameters/Advanced/Export_CombinationTypes/name+'/LongFormat/File_decay',' + ');
-	parameter<string>   OUTPUT_Generate_fullOD_long_CSVFiles  := =AsList('CreateODs/CreateExports/'+ModelParameters/Advanced/Export_CombinationTypes/name+'/LongFormat/File_fullOD',' + ');
+	parameter<string>   OUTPUT_Generate_fullOD_long_CSVFiles  := =AsList('CreateODs/CreateExports/'+ModelParameters/Advanced/Export_CombinationTypes/name+'/LongFormat/results/File_fullOD',' + ');
 
 	container OUTPUT_decayed := 
 		for_each_nedv(
@@ -144,12 +144,9 @@ Template PublicTransport_T
 				attribute<Euro>             Prijs_per_reis                                  := const(0[Euro],.);
 
  				unit<uint32> AfgelegdeReis := sequence2points(LinkSet) //vertaling van LinkSet attribute (afgelegde route in OD), naar onderdelen van de reis
-				, KeepData = "true"
 				{
 					unit<uint32> LinkSet := PrivateTransport/Pedestrian/Calc_Traveltimes_maxspeed_pedestrian/LinkSet;
 					unit<uint32> NodeSet := PrivateTransport/Pedestrian/Calc_Traveltimes_maxspeed_pedestrian/NodeSet;
-					
-					// attribute<rdc>                     geometry (arc)          := NodeSet/geometry[point];
 
 					// voor visuaisatie
 					attribute<rdc>         Route (arc) := points2sequence(LinkPoints/Point, LinkPoints/Sequence_rel, LinkPoints/Ordinal);
@@ -164,14 +161,14 @@ Template PublicTransport_T
 					}
 				}
 				
-				
-				unit<uint64> UniqueOD := subset(IsDefined(OD_nummer))
+				unit<uint64> UniqueOD := select_with_org_rel(IsDefined(OD_nummer))
 				{
-					attribute<float32>          Best_nr_items_of_interest_decayed   := ../nr_items_of_interest_decayed[nr_OrgEntity];
-					attribute<float32>          Best_nr_items_of_interest           := ../nr_items_of_interest[nr_OrgEntity];
-					attribute<float32>          ShortestTraveltime                  := ../reistijd_min[nr_OrgEntity];
-					attribute<string>           ModeUsed                            := ../ModeUsed[nr_OrgEntity];
-					attribute<Combine_OrgDest>  OD_nummer                           := ../OD_nummer[nr_OrgEntity];
+					attribute<float32>          Best_nr_items_of_interest_decayed   := ../nr_items_of_interest_decayed[org_rel];
+					attribute<float32>          Best_nr_items_of_interest           := ../nr_items_of_interest[org_rel];
+					attribute<float32>          ShortestTraveltime                  := ../reistijd_min[org_rel];
+					attribute<Euro>             Prijs_van_snelste_reis              := const(0[Euro],.);
+					attribute<string>           ModeUsed                            := ../ModeUsed[org_rel];
+					attribute<Combine_OrgDest>  OD_nummer                           := ../OD_nummer[org_rel];
 					attribute<Combine_OrgDest>  values                              := OD_nummer;
 					attribute<string>           OrgName                             := Org/name[Origin_rel];
 					attribute<string>           DestName                            := Dest/name[Dest_rel];
@@ -229,7 +226,7 @@ Template PublicTransport_T
 				attribute<s_f>              Sum_Reistijd_VoorNaTransport                    := sum(AfgelegdeReis/Reistijd_Voortransport + AfgelegdeReis/Reistijd_Natransport, AfgelegdeReis/Reis_rel);
 				
  				unit<uint32> AfgelegdeReis := sequence2points(LinkSet) //vertaling van LinkSet attribute (afgelegde route in OD), naar onderdelen van de reis
-				, KeepData = "true"
+				// , KeepData = "true"
 				{
 					attribute<Combine_OrgDest>         OD_nummer               := ../OD_nummer[reis_rel];
 					attribute<rdc>                     geometry (arc)          := StaticNet_subset/geometry[point];
@@ -269,7 +266,7 @@ Template PublicTransport_T
 					attribute<bool>                    IsUnwantedTrip                 := ../IsUnwantedTrip[reis_rel];
 					
 					unit<uint32> uq_reis_route := unique(Reis_Route_Identifier) //indikking van reis/route combinaties. Transfers en wachten vallen eruit, net zoals de tussenliggende stations binnen een route.
-					, KeepData = "true"
+					// , KeepData = "true"
 					{
 						attribute<Routes>        Route_rel                     := pointcol(values);
 						attribute<...>           Reis_rel                      := value(pointrow(values),...);
@@ -388,6 +385,7 @@ Template PublicTransport_T
 					attribute<float32>          Best_nr_items_of_interest           := ../nr_items_of_interest[org_rel];
 					attribute<min_f>            ShortestTraveltime                  := ../reistijd_min[org_rel];
 					attribute<km>               Lengte_Snelste_Reis                 := rjoin(OD_Reistijd_key, ../OD_Reistijd_key, ../afgelegde_afstand_km);
+					attribute<Euro>             Prijs_van_snelste_reis              := rjoin(OD_Reistijd_key, ../OD_Reistijd_key, ../Prijs_per_reis);
 					attribute<string>           ModeUsed                            := ../ModeUsed[org_rel];
 					attribute<Combine_OrgDest>  OD_nummer                           := ../OD_nummer[org_rel];
 					attribute<Combine_OrgDest>  values                              := OD_nummer;
@@ -576,7 +574,11 @@ Template PublicTransport_T
 				attribute<string>  BodyLines_fullOD_woPrijs (domain_UniqueOD) := domain_UniqueOD/OrgName + ';' + domain_UniqueOD/DestName + ';' + ShortestTraveltime_min + ';' + ModeUsed;
 				parameter<string>  File_fullOD_woPrijs                        := 'OrgName;DestName;Traveltime_m_'+inTime_string+';ModeUsed_'+inTime_string+'\n'++AsList(BodyLines_fullOD_woPrijs, '\n'), StorageName = "=fileNamePrefix+'Traveltime_Long_'+TypeName+''+fileNameSuffix +'.csv'", StorageType = "str";
 			
-				parameter<string>  File_fullOD                                := =ModelParameters/Add_OV_PriceInformation ? 'File_fullOD_wPrijs' : 'File_fullOD_woPrijs';
+				
+				container Results
+				{
+					parameter<string>  File_fullOD := =ModelParameters/Add_OV_PriceInformation ? 'File_fullOD_wPrijs' : 'File_fullOD_woPrijs';
+				}
 				
 				attribute<string>  BodyLines_decay (org)              := org/name + ';' + string(nr_items_of_interest_bereikbaar_decayed);
 				parameter<string>  File_decay                         := 'Org;'+ModelParameters/Advanced/items_of_interest+'_'+inTime_string+'\n'++AsList(BodyLines_decay, '\n'), StorageName = "=fileNamePrefix+ModelParameters/Advanced/items_of_interest+'_decayed_Long_'+TypeName+''+fileNameSuffix +'.csv'", StorageType = "str";
@@ -588,7 +590,7 @@ Template PublicTransport_T
 				'_' + ModelParameters/Analysis_Date + 
 				'_' + ModelParameters/Advanced/Arrival_or_Departure_at_time + 
 				'_' + inTime_string + 
-				'_ORG-'    + ModelParameters/Orgset + '-' + regio_name + 
+				'_ORG-'    + ModelParameters/Orgset + '-' + regio_name_if_enkel_sub + 
 				'_DEST-'   + ModelParameters/Advanced/DestSet_string;
 		}
 	}

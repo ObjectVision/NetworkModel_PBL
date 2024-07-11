@@ -25,64 +25,69 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 			parameter<string> OUTPUT_Merge_Car_Regions_traveltimes_CSVFiles               := ReadMergeExports_PrivateTransport/Car/Merge/OUTPUT_Merge_Regions;
 			parameter<string> OUTPUT_Merge_Bike_Regions_traveltimes_CSVFiles              := ReadMergeExports_PrivateTransport/Bike/Merge/OUTPUT_Merge_Regions;
 			parameter<string> OUTPUT_Merge_Pedestrian_Regions_traveltimes_CSVFiles        := ReadMergeExports_PrivateTransport/Pedestrian/Merge/OUTPUT_Merge_Regions;
-		}
-		
-		container ReadMergeExports_PublicTransport := 
-			for_each_ne(
-				Advanced/Export_CombinationTypes/name
-				, 'Templates/ReadMergeExports_OV_perType_T('+quote(Advanced/Export_CombinationTypes/name)+','+quote(DestSet)+')'
-			)
-		{
-			parameter<string> OUTPUT_Merge_Types       := =AsList(Advanced/Export_CombinationTypes/name+'/merge/OUTPUT_Merge_Regions',' + '); 
-		}
-		
-		container ReadMergeExports_PrivateTransport
-		{
-			container Car
+			
+			container ReadMergeExports_PublicTransport := 
+				for_each_ne(
+					Advanced/Export_CombinationTypes/name
+					, 'Templates/ReadMergeExports_OV_perType_T('+quote(Advanced/Export_CombinationTypes/name)+','+quote(DestSet)+')'
+				)
 			{
-				container Read := 
-					for_each_ne(
-						Advanced/Regio/name
-						, 'Templates/ReadExport_Car_T('+quote(Advanced/Regio/name)+','+quote(DestSet)+')'
-					);
-					
-				container Merge := Templates/Merge_Regions_Car_T(DestSet)
-				{
-					parameter<string>   OUTPUT_Merge_Regions  := LongFormat/File_full;
-				}
+				parameter<string> OUTPUT_Merge_Types       := =AsList(Advanced/Export_CombinationTypes/name+'/merge/OUTPUT_Merge_Regions',' + '); 
 			}
-			container Bike
+			
+			container ReadMergeExports_PrivateTransport
 			{
-				container Read := 
-					for_each_ne(
-						Advanced/Regio/name
-						, 'Templates/ReadExport_PedestrianBike_T('+quote(Advanced/Regio/name)+','+quote(DestSet)+',''Bike'')'
-					);
-					
-				container Merge := Templates/Merge_Regions_PedestrianBike_T(DestSet,'Bike')
+				container Car
 				{
-					parameter<string>   OUTPUT_Merge_Regions  := File;
+					container Read := 
+						for_each_ne(
+							Advanced/Regio/name
+							, 'Templates/ReadExport_Car_T('+quote(Advanced/Regio/name)+','+quote(DestSet)+')'
+						);
+						
+					container Merge := Templates/Merge_Regions_Car_T(DestSet)
+					{
+						parameter<string>   OUTPUT_Merge_Regions  := LongFormat/File_full;
+					}
 				}
-			}
-			container Pedestrian
-			{
-				container Read := 
-					for_each_ne(
-						Advanced/Regio/name
-						, 'Templates/ReadExport_PedestrianBike_T('+quote(Advanced/Regio/name)+','+quote(DestSet)+',''Pedestrian'')'
-					);
-					
-				container Merge := Templates/Merge_Regions_PedestrianBike_T(DestSet,'Pedestrian')
+				container Bike
 				{
-					parameter<string>   OUTPUT_Merge_Regions  := File;
+					container Read := 
+						for_each_ne(
+							Advanced/Regio/name
+							, 'Templates/ReadExport_PedestrianBike_T('+quote(Advanced/Regio/name)+','+quote(DestSet)+',''Bike'')'
+						);
+						
+					container Merge := Templates/Merge_Regions_PedestrianBike_T(DestSet,'Bike')
+					{
+						parameter<string>   OUTPUT_Merge_Regions  := File;
+					}
+				}
+				container Pedestrian
+				{
+					container Read := 
+						for_each_ne(
+							Advanced/Regio/name
+							, 'Templates/ReadExport_PedestrianBike_T('+quote(Advanced/Regio/name)+','+quote(DestSet)+',''Pedestrian'')'
+						);
+						
+					container Merge := Templates/Merge_Regions_PedestrianBike_T(DestSet,'Pedestrian')
+					{
+						parameter<string>   OUTPUT_Merge_Regions  := File;
+					}
 				}
 			}
 		}
 	}
-		
+
 	Template ConfigurationPerRegio_T 
 	{
 		parameter<string> regio_name;
+		parameter<string> regio_name_if_enkel_sub := switch(
+														 case(strcount(ModelParameters/Orgset, 'Buurt_enkele_Corop') > 0, ModelParameters/Orgset_EnkeleCorop_selectie)
+														,case(strcount(ModelParameters/Orgset, 'Buurt_enkele_Prov') > 0, ModelParameters/Orgset_EnkeleProv_selectie)
+														, regio_name
+													);
 
 		unit<uint32> org := =impl/Org_domain
 		{
@@ -219,7 +224,7 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 			{
 				parameter<string> fileNamePrefix :=  Advanced/fileNamePrefix;
 				parameter<string> fileNameSuffix :=  
-					'_ORG-'    + ModelParameters/Orgset + '-' + regio_name + 
+					'_ORG-'    + ModelParameters/Orgset + '-' + regio_name_if_enkel_sub + 
 					'_DEST-'   + Advanced/DestSet_string +
 					'_NETWERK-@@' +
 					'_MaxTime-##min';
