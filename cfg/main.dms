@@ -6,34 +6,27 @@ container NetworkModel
 	
 	container MaakOntkoppeldeData
 	{
-			parameter<String> Step1_Generate_roads := 'Ready', ExplicitSuppliers = "SourceData/Infrastructuur/OSM/NetworkPreperation/Network_with_extraverbindingen/Make_Final_Network";
-			parameter<String> Setp2_Generate_GTFS  := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructuur/GTFS/LoadFeeds/storefss";
-
 		container OSM
 		{   
-			parameter<String> Step1_Generate_roads_Final_Network             := 'Ready', ExplicitSuppliers = "SourceData/Infrastructuur/OSM/NetworkPreperation/Network_with_extraverbindingen/Make_Final_Network";
+			parameter<String> Step1_Generate_roads_shp2fss                   := 'Ready', ExplicitSuppliers = "SourceData/Infrastructuur/OSM/Prepare_SourceData/Generate";
+			parameter<String> Step2_Generate_roads_Final_Network             := 'Ready', ExplicitSuppliers = "SourceData/Infrastructuur/OSM/NetworkPreperation/Network_with_extraverbindingen/Make_Final_Network";
+			
 			parameter<String> Export_Networks_toShapefile                    := 'Ready', ExplicitSuppliers = "SourceData/Infrastructuur/OSM/OSM_Netwerken_Export/Generate";
 		}
 		
+		container TomTom
+		{
+			parameter<String> GetFilesName_network                           := 'Ready', ExplicitSuppliers = "SourceData/Infrastructuur/TomTom/impl/GetFileNames_Network/WriteFilesCSV";
+			parameter<String> GetFilesName_profiles                          := 'Ready', ExplicitSuppliers = "SourceData/Infrastructuur/TomTom/impl/GetFileNames_Speedprofiles/WriteFilesCSV";
+			parameter<String> Generate_FSS                                   := 'Ready', ExplicitSuppliers = "SourceData/Infrastructuur/TomTom/impl/Generate_FSS";
+		} 
+		
 		container GTFS_2_FSS
 		{
-			parameter<String> Generate_GTSF_FSS := 'Ready',
-				ExplicitSuppliers = "/SourceData/Infrastructuur/GTFS/LoadFeeds/storefss";
-		}
-		container LISA
-		{
-			// parameter<String> Generate_Y2018 := 'Ready',
-				// ExplicitSuppliers = "SourceData/Locaties/LISA/MakeFSS/y2018/PerYear";
-		}
-		
-		container CongestionSpeed_network_ATTENTION_DUURT_ZEER_LANG
-		{
-			parameter<String> Generate := 'Ready',
-				ExplicitSuppliers = "='NetworkSetup/ConfigurationPerRegio/'+first(ModelParameters/Advanced/Regio/name)+'/PrivateTransport/Car/Determine_CongestedSpeeds/Make_CongestionSpeeds_FSS'";
+			parameter<String> Generate_GTSF_FSS                              := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructuur/GTFS/LoadFeeds/storefss";
 		}
 	}
 	#include<ModelParameters_base.dms>
-	#include<ModelParameters_test.dms>
 	container ModelParameters := =IsBenchmarkOmgeving ? 'ModelParameters_test' : 'ModelParameters_base';
 	#include<units.dms>
 	
@@ -43,20 +36,20 @@ container NetworkModel
 		#include <ngr_layer_lea.dms>
 
 		unit<fpoint> rdc_base : SpatialReference = "EPSG:28992", DialogData = "ngr_layer";
-		unit<fpoint> rdc      := range(rdc_base, point(0f, 300000f), point(280000f, 625000f)); //heel NL
-		unit<ipoint> rdc_mm   := gridset(rdc, point(0.001,0.001), point(0.0, 0.0), ipoint);
+		unit<fpoint> rdc      := range(rdc_base, point_xy(0f, 300000f), point_xy(280000f, 625000f)); //heel NL
+		unit<ipoint> rdc_mm   := gridset(rdc, point_xy(0.001,0.001), point_xy(0.0, 0.0), ipoint);
 		
 		unit<dpoint> wgs84_base       : SpatialReference = "EPSG:4326";
 		unit<fpoint> LambertEA_base   : SpatialReference = "EPSG:3035", DialogData = "ngr_layer_lea";
-		unit<fpoint> LambertEA        := range(LambertEA_base, point(2500000f, 1300000f), point(4900000f, 4300000f));
+		unit<fpoint> LambertEA        := range(LambertEA_base, point_xy(2500000f, 1300000f), point_xy(4900000f, 4300000f));
 		unit<fpoint> WebMercator_base : SpatialReference = "EPSG:3857";
 		
 		unit<uint32> selection_polygon : nrofrows = 1, Using = "units"
 		{
-			parameter<rdc> top_left     := point(x_min - 5000[m], y_max + 5000[m], rdc); //XY
-			parameter<rdc> top_right    := point(x_max + 5000[m], y_max + 5000[m], rdc);
-			parameter<rdc> bottom_left  := point(x_min - 5000[m], y_min - 5000[m], rdc);
-			parameter<rdc> bottom_right := point(x_max + 5000[m], y_min - 5000[m], rdc);
+			parameter<rdc> top_left     := point_xy(x_min - 5000[m], y_max + 5000[m], rdc); //XY
+			parameter<rdc> top_right    := point_xy(x_max + 5000[m], y_max + 5000[m], rdc);
+			parameter<rdc> bottom_left  := point_xy(x_min - 5000[m], y_min - 5000[m], rdc);
+			parameter<rdc> bottom_right := point_xy(x_max + 5000[m], y_min - 5000[m], rdc);
 			
 			unit<uint32> point_set : nrofrows = 5
 			{
@@ -86,6 +79,12 @@ container NetworkModel
 		parameter<m> y_min := 300000[m];
 		parameter<m> y_max := 625000[m];
 		
+		// test study area
+		// parameter<m> x_min := 58986[m];
+		// parameter<m> x_max := 74522[m];
+		// parameter<m> y_min := 414166[m];
+		// parameter<m> y_max := 423385[m];
+		
 		container perGridsize :=
 			for_each_ne(
 				Gridsizes/name
@@ -103,19 +102,19 @@ container NetworkModel
 				range(
 					 gridset(
 						 rdc
-						,point(gridsize, -gridsize, rdc)
-						,point(x_min, y_max, rdc)
+						,point_xy(gridsize, -gridsize, rdc)
+						,point_xy(x_min, y_max, rdc)
 						,spoint
 					)
-					,point(0s, 0s)
-					,point(nr_cols, nr_rows)
+					,point_xy(0s, 0s)
+					,point_xy(nr_cols, nr_rows)
 				)
 			,	DialogData = "rdc"
 			{
 				parameter<m>                    gridsize        := ../gridsize;
 				parameter<int16>                nr_cols         := ../nr_cols;
-				attribute<rdc>                  point           := mapping(., rdc) + point(-0.5f * gridsize, 0.5f * gridsize, rdc);
-				attribute<rdc>                  geometry           := mapping(., rdc) + point(-0.5f * gridsize, 0.5f * gridsize, rdc);
+				attribute<rdc>                  point           := mapping(., rdc) + point_xy(-0.5f * gridsize, 0.5f * gridsize, rdc);
+				attribute<rdc>                  geometry           := mapping(., rdc) + point_xy(-0.5f * gridsize, 0.5f * gridsize, rdc);
 				attribute<uint32>               id_rel          := value(uint32(pointrow(id(.))) * uint32(nr_cols) + uint32(pointcol(id(.))), id_key);
 				unit<uint32>  id_key := range(uint32, 0, #domain);
 				
@@ -143,12 +142,15 @@ container NetworkModel
 	#include<PostAnalysis.dms>
 	#include<RegressieTest.dms>
 	
+	#include<ModelParameters_test.dms>
+	
 	#include<ExportSettings.dms>
 	container ConfigSettings
 	{
 		container Overridable
 		{
-			parameter<string> NetworkModel_Dir   := '%SourceDataDir%/RegressionTests/NetworkModel_regressietest';
+			parameter<string> NetworkModel_Dir       := '%SourceDataDir%/NetworkModel';
+			parameter<string> NetworkModel_PrivDir   := '%SourceDataDir%/NetworkModel_PBL_priv';
 			parameter<String> BAG_DataDir        := '%sourceDataDir%';
 			parameter<String> BAG_DataDir_OVSRV6 := 'E:/SourceData';
 		}
