@@ -35,6 +35,7 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 					, km_hr
 				);
 			attribute<bool>               Connectable          := sequence_rel->Connectable;
+			attribute<Classifications/OSM/wegtype>               wegtype_rel          := sequence_rel->wegtype_rel;
 			
 			unit<uint32> PointSet := union_unit(., .)
 			{
@@ -60,6 +61,7 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 		unit<uint32> LinkSet := connect_ne(Roads_Connected/geometry, uint32(Roads_Connected/Connectable), UniqueLocations/geometry, const(0, UniqueLocations))
 		{
 			attribute<rdc>     geometry(arc);
+			attribute<Classifications/OSM/wegtype> wegtype_rel          := arc_rel->wegtype_rel;
 			
 			container Speed_per_ImpedanceType :=
 				for_each_nedv(
@@ -71,10 +73,12 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 					, km_hr
 				);
 			
-			attribute<rdc>     first_point    := first_point(geometry); //OD point
-			attribute<rdc>     last_point     := last_point(geometry);  //May or may not be an existing network node, otherwise it is a new node
-			attribute<km>      LengthKm       := convert(dist(first_point, last_point)[m], km);
+			attribute<rdc>     first_point          := first_point(geometry); //OD point
+			attribute<rdc>     last_point           := last_point(geometry);  //May or may not be an existing network node, otherwise it is a new node
+			attribute<km>      LengthKm             := convert(dist(first_point, last_point)[m], km);
 			attribute<bool>    IsOD_connection_road := !IsDefined(arc_rel); // connect gives arc_rel which gives the rel to the original link, in case of existing link. Is new link, this is undefined.
+			
+			attribute<bool>    IsLangzaamRijdendVerkeerWeg :=  Classifications/OSM/wegtype/IsLangzaamRijdendVerkeerWeg[wegtype_rel];
 			
 			container Impedance_per_ImpedanceType :=
 				for_each_nedv(
@@ -94,6 +98,9 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 		{
 			attribute<rdc>    geometry         := values;
 			attribute<uint32> NrConnectedLinks := pcount(LinkSet/F1) + pcount(LinkSet/F2);
+			attribute<uint32> NrConnectedLinks_metLangzaamrijdendverkeerweg := pcount(LinkSet/IsLangzaamRijdendVerkeerWeg ? LinkSet/F1 : null_u) + pcount(LinkSet/IsLangzaamRijdendVerkeerWeg ? LinkSet/F2 : null_u);
+			
+			attribute<bool>   Crossroad_could_result_in_lower_speed_penalty := NrConnectedLinks == NrConnectedLinks_metLangzaamrijdendverkeerweg;
 		}
 					
 		container CorrectImpedanceForCrossroads
@@ -102,27 +109,43 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 		// afhankelijk van dit aantal wordt een aantal seconden opgeteld bij de totale impedance
 		{
 			// helft van de opgegeven waarden omdat er zowel bij begin als einde een factor wordt opgeteld
-			parameter<s>       Impedance2Links    := ='ModelParameters/Advanced/Junction_Penalties/with_2Links_'+NetworkType;
-			parameter<s>       Impedance3Links    := ='ModelParameters/Advanced/Junction_Penalties/with_3Links_'+NetworkType;
-			parameter<s>       Impedance4Links    := ='ModelParameters/Advanced/Junction_Penalties/with_4Links_'+NetworkType;
-			parameter<s>       Impedance_gt4Links := ='ModelParameters/Advanced/Junction_Penalties/with_gt4Links_'+NetworkType;
+			parameter<s>       Impedance2Links               := ='ModelParameters/Advanced/Junction_Penalties/with_2Links_'+NetworkType;
+			parameter<s>       Impedance3Links               := ='ModelParameters/Advanced/Junction_Penalties/with_3Links_'+NetworkType;
+			parameter<s>       Impedance4Links               := ='ModelParameters/Advanced/Junction_Penalties/with_4Links_'+NetworkType;
+			parameter<s>       Impedance_gt4Links            := ='ModelParameters/Advanced/Junction_Penalties/with_gt4Links_'+NetworkType;
+
+			parameter<s>       Impedance2_lowerSpeedLinks    := ='ModelParameters/Advanced/Junction_Penalties/with_2_lowerSpeedLinks_'+NetworkType;
+			parameter<s>       Impedance3_lowerSpeedLinks    := ='ModelParameters/Advanced/Junction_Penalties/with_3_lowerSpeedLinks_'+NetworkType;
+			parameter<s>       Impedance4_lowerSpeedLinks    := ='ModelParameters/Advanced/Junction_Penalties/with_4_lowerSpeedLinks_'+NetworkType;
+			parameter<s>       Impedance_gt4_lowerSpeedLinks := ='ModelParameters/Advanced/Junction_Penalties/with_gt4_lowerSpeedLinks_'+NetworkType;
 
 			attribute<uint32>  Start (LinkSet)     := NodeSet/NrConnectedLinks[LinkSet/F1];
 			attribute<uint32>  End   (LinkSet)     := NodeSet/NrConnectedLinks[LinkSet/F2];
+			
+			attribute<bool>    Start_IsOnlyLowerSpeed (LinkSet)     := NodeSet/Crossroad_could_result_in_lower_speed_penalty[LinkSet/F1];
+			attribute<bool>    End_IsOnlyLowerSpeed   (LinkSet)     := NodeSet/Crossroad_could_result_in_lower_speed_penalty[LinkSet/F2];
 		
 			attribute<s> impedance_Start (LinkSet):=
 				switch(
-					 case(Start <= 2, Impedance2Links)
+					 case(Start_IsOnlyLowerSpeed && Start <= 2, Impedance2_lowerSpeedLinks)
+					,case(Start <= 2, Impedance2Links)
+					,case(Start_IsOnlyLowerSpeed && Start  = 3, Impedance3_lowerSpeedLinks)
 					,case(Start  = 3, Impedance3Links)
+					,case(Start_IsOnlyLowerSpeed && Start  = 4, Impedance4_lowerSpeedLinks)
 					,case(Start  = 4, Impedance4Links)
+					,case(Start_IsOnlyLowerSpeed && Start  > 4, Impedance_gt4_lowerSpeedLinks)
 					,Impedance_gt4Links
 				);
 		
 			attribute<s> impedance_End (LinkSet):=
 				switch(
-					 case(End <= 2, Impedance2Links)
+					 case(End_IsOnlyLowerSpeed && End <= 2, Impedance2_lowerSpeedLinks)
+					,case(End <= 2, Impedance2Links)
+					,case(End_IsOnlyLowerSpeed && End  = 3, Impedance3_lowerSpeedLinks)
 					,case(End  = 3, Impedance3Links)
+					,case(End_IsOnlyLowerSpeed && End  = 4, Impedance4_lowerSpeedLinks)
 					,case(End  = 4, Impedance4Links)
+					,case(End_IsOnlyLowerSpeed && End  > 4, Impedance_gt4_lowerSpeedLinks)
 					,Impedance_gt4Links
 				);
 		}
