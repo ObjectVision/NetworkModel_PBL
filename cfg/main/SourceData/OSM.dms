@@ -11,7 +11,7 @@ container OSM
 			, 'Prepare_SourceData_T('+quote(Regios/label)+','+quote(Regios/country)+')'
 		)
 	{
-		parameter<string> Generate := =AsList(Regios/name+'/Generate', ' + ');
+		// parameter<string> Generate := =AsList(Regios/name+'/Generate', ' + ');
 	}
 	
 	Template Prepare_SourceData_T
@@ -34,28 +34,37 @@ container OSM
 			unit<uint32> uq := unique(oneway);
 		}
 		
-		unit<uint32> Make_Roads_fss := Read_Roads_shp
-		,   StorageName = "='%LocalDataProjDir%/OSM/RegionFiles/'+Regio+'/Roads_'+file_date+'.fss'"
+		unit<uint32> Roads := Read_Roads_shp
 		{
 			attribute<rdc>                         geometry (arc) := Read_Roads_shp/geometry_rd;
 			attribute<string>                      fclass         := Read_Roads_shp/fclass;
 			attribute<km_hr>                       maxspeed       := Read_Roads_shp/maxspeed[km_hr];
 			attribute<string>                      OSM_id         := Read_Roads_shp/OSM_id;
+			attribute<classifications/OSM/wegtype> wegtype        := rlookup(fclass, classifications/OSM/wegtype/name);  
 		}
 		
-		unit<uint32> Read_Roads_fss 
-		:   StorageName = "='%LocalDataProjDir%/OSM/RegionFiles/'+Regio+'/Roads_'+file_date+'.fss'"
-		,	StorageReadOnly = "True"
-		{
-			attribute<rdc>                         geometry (arc);
-			attribute<string>                      fclass;
-			attribute<string>                      OSM_id;
-			attribute<km_hr>                       maxspeed;
-			attribute<classifications/OSM/wegtype> wegtype                   := rlookup(fclass, classifications/OSM/wegtype/name);  
-		}
+		// unit<uint32> Make_Roads_fss := Read_Roads_shp
+		// ,   StorageName = "='%LocalDataProjDir%/OSM/RegionFiles/'+Regio+'/Roads_'+file_date+'.fss'"
+		// {
+			// attribute<rdc>                         geometry (arc) := Read_Roads_shp/geometry_rd;
+			// attribute<string>                      fclass         := Read_Roads_shp/fclass;
+			// attribute<km_hr>                       maxspeed       := Read_Roads_shp/maxspeed[km_hr];
+			// attribute<string>                      OSM_id         := Read_Roads_shp/OSM_id;
+		// }
 		
-		unit<uint32> Attributes := SubItem_PropValues(Make_Roads_fss,'name');
-		parameter<string> Generate := 'Ready', ExplicitSuppliers = "=AsList('Make_Roads_fss/'+Attributes/name, ';')";
+		// unit<uint32> Read_Roads_fss 
+		// :   StorageName = "='%LocalDataProjDir%/OSM/RegionFiles/'+Regio+'/Roads_'+file_date+'.fss'"
+		// ,	StorageReadOnly = "True"
+		// {
+			// attribute<rdc>                         geometry (arc);
+			// attribute<string>                      fclass;
+			// attribute<string>                      OSM_id;
+			// attribute<km_hr>                       maxspeed;
+			// attribute<classifications/OSM/wegtype> wegtype                   := rlookup(fclass, classifications/OSM/wegtype/name);  
+		// }
+		
+		// unit<uint32> Attributes := SubItem_PropValues(Make_Roads_fss,'name');
+		// parameter<string> Generate := 'Ready', ExplicitSuppliers = "=AsList('Make_Roads_fss/'+Attributes/name, ';')";
 	}
 	
 	container Merge_SourceData
@@ -72,12 +81,12 @@ container OSM
 			parameter<string> country_name;
 			//
 			unit<uint32> Country_regios := ='Regios/'+country_name;
-			unit<uint32>  Merge_CountryRegion_Roads := ='union_unit('+AsList('Prepare_SourceData/'+Country_regios/name+'/Read_Roads_fss', ',')+')'
+			unit<uint32>  Merge_CountryRegion_Roads := ='union_unit('+AsList('Prepare_SourceData/'+Country_regios/name+'/Roads', ',')+')'
 			{
-				attribute<rdc>                          geometry (arc)                   := ='union_data(., '+AsList('Prepare_SourceData/'+Country_regios/name+'/Read_Roads_fss/geometry', ',')+')';
-				attribute<km_hr>                        maxspeed_src                     := ='union_data(., '+AsList('Prepare_SourceData/'+Country_regios/name+'/Read_Roads_fss/maxspeed', ',')+')';
-				attribute<classifications/OSM/wegtype>  wegtype                          := ='union_data(., '+AsList('Prepare_SourceData/'+Country_regios/name+'/Read_Roads_fss/wegtype', ',')+')';
-				attribute<string>                       OSM_id                           := ='union_data(., '+AsList('Prepare_SourceData/'+Country_regios/name+'/Read_Roads_fss/OSM_id', ',')+')';
+				attribute<rdc>                          geometry (arc)                   := ='union_data(., '+AsList('Prepare_SourceData/'+Country_regios/name+'/Roads/geometry', ',')+')';
+				attribute<km_hr>                        maxspeed_src                     := ='union_data(., '+AsList('Prepare_SourceData/'+Country_regios/name+'/Roads/maxspeed', ',')+')';
+				attribute<classifications/OSM/wegtype>  wegtype                          := ='union_data(., '+AsList('Prepare_SourceData/'+Country_regios/name+'/Roads/wegtype', ',')+')';
+				attribute<string>                       OSM_id                           := ='union_data(., '+AsList('Prepare_SourceData/'+Country_regios/name+'/Roads/OSM_id', ',')+')';
 				
 				attribute<km_hr>                        rth_maxspeed_per_wegtype (classifications/OSM/wegtype)         := rth_element(maxspeed_src, 0.9f, wegtype);
 				attribute<km_hr>                        rth_maxspeed_per_wegtype_Defined (classifications/OSM/wegtype) := MakeDefined(rth_maxspeed_per_wegtype, ModelParameters/Advanced/CarDefaultSpeed_low) == 0[km_hr] ? ModelParameters/Advanced/CarDefaultSpeed_low : MakeDefined(rth_maxspeed_per_wegtype, ModelParameters/Advanced/CarDefaultSpeed_low);
@@ -222,6 +231,7 @@ container OSM
 	
 	#include <NetworkPreperation.dms>
 
+	// unit<uint32> Read_Final_Network := NetworkPreperation/Network_with_extraverbindingen/Make_Final_Network
 	unit<uint32> Read_Final_Network
 	:   StorageName = "='%LocalDataProjDir%/OSM/Final_Network_'+file_date+'_CongestionGroup-'+ModelParameters/Advanced/CongestionSpeed_DaySelection+'.fss'"
 	,   StorageReadOnly = "true"
