@@ -206,6 +206,36 @@ container OSM
 	
 	#include <NetworkPreperation.dms>
 
+	unit<uint32> Make_Final_Network := unique(NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/geometry)
+	,   StorageName = "='%LocalDataProjDir%/OSM/Final_Network_'+file_date+'_CongestionGroup-'+ModelParameters/Advanced/CongestionSpeed_DaySelection+'.fss'"
+	{
+		attribute<NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork> ConnectedNetwork_rel    := rlookup(geometry, NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/geometry);
+		attribute<rdc>                          geometry (arc):= values;
+		attribute<rdc>                          values   (arc): DisableStorage = "true";
+		attribute<classifications/OSM/wegtype>  wegtype_rel   := NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/wegtype_rel[ConnectedNetwork_rel];
+		attribute<km_hr>                        maxspeed      := NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/maxspeed[ConnectedNetwork_rel];
+		attribute<string>                       OSM_id        := NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/OSM_id[ConnectedNetwork_rel];
+		
+		attribute<km_hr>                        congestion_speed_bike            := recollect_by_cond(classifications/OSM/wegtype/isPartOfBikeNetwork[wegtype_rel], AddBikeCongestionSpeeds/Impl/bike_speed_OSM);
+		attribute<km_hr>                        congestion_speed_MorningRush     := NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/congestion_speed_MorningRush[ConnectedNetwork_rel];
+		attribute<km_hr>                        congestion_speed_NoonRush        := NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/congestion_speed_NoonRush[ConnectedNetwork_rel];
+		attribute<km_hr>                        congestion_speed_LateEveningRush := NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/congestion_speed_LateEveningRush[ConnectedNetwork_rel];
+		
+		unit<uint32> AddBikeCongestionSpeeds := select_with_org_rel(classifications/OSM/wegtype/isPartOfBikeNetwork[wegtype_rel])
+		{
+			attribute<rdc>                          geometry (arc)                   := ../geometry[org_rel];
+			attribute<string>                       OSM_id                           := ../OSM_id[org_rel];
+			
+			parameter<float32> ConnectSearchDist := 8f^2f;
+			
+			container Impl := connect_info(geometry, Fietstelweek/DynaPoint/Point, ConnectSearchDist)
+			{
+				attribute<km_hr> bike_speed_dynapoint  (Fietstelweek/DynaPoint)        := dist[float32] <= ModelParameters/Advanced/Fietstel_OSM_link_dist ? Fietstelweek/DynaPoint/bike_speed : (0/0)[km_hr];
+				attribute<km_hr> bike_speed_OSM        (AddBikeCongestionSpeeds)       := mean(bike_speed_dynapoint, ArcID);
+			}
+		}
+	}
+
 	unit<uint32> Read_Final_Network
 	:   StorageName = "='%LocalDataProjDir%/OSM/Final_Network_'+file_date+'_CongestionGroup-'+ModelParameters/Advanced/CongestionSpeed_DaySelection+'.fss'"
 	,   StorageReadOnly = "true"
