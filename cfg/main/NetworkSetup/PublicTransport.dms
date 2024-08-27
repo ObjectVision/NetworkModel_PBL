@@ -115,6 +115,24 @@ Template PublicTransport_T
 		}
 	
 		unit<uint32> StaticNet_subset := select_with_attr_by_cond(SourceData/Infrastructuur/GTFS/StaticNets/Static_net, StaticNet_subset_debug/IsSub_from && StaticNet_subset_debug/IsSub_to && StaticNet_subset_debug/IsSub_dur);
+		
+		//ad hoc debug
+		// unit<uint32> write_StaticNet_subset := select_with_attr_by_cond(SourceData/Infrastructuur/GTFS/StaticNets/Static_net, StaticNet_subset_debug/IsSub_from && StaticNet_subset_debug/IsSub_to && StaticNet_subset_debug/IsSub_dur)
+		// , StorageName = "%LocalDataProjDir%/Adhoc/StaticNet.fss";
+		// unit<uint32> read_StaticNet_subset
+		// : StorageName = "%LocalDataProjDir%/Adhoc/StaticNet.fss"
+		// {
+			// attribute<rdc>                     geometry (arc);
+			// attribute<SourceData/Infrastructuur/GTFS/StaticNets/AllPlaces>    FromPlace;
+			// attribute<SourceData/Infrastructuur/GTFS/StaticNets/AllPlaces>    ToPlace;
+			// attribute<Time>                    FromTime;
+			// attribute<Time>                    toTime;
+			// attribute<s_f>                     Duration;
+			// attribute<NodeSet>                 F1;
+			// attribute<NodeSet>                 F2;
+			// attribute<km>                      Length;
+		// }
+		// unit<uint32> StaticNet_subset := read_StaticNet_subset;
 	
 		//// CREATE OD FSS ////
 		
@@ -127,8 +145,9 @@ Template PublicTransport_T
 			////
 			parameter<string> transport_type := name == 'WW' ? 'pedestrian' : name == 'BB' ? 'bike' : '';
 			
-			unit<uint64> OD := ='NetworkSetup/ConfigurationPerRegio/'+Regio_Name+'/PrivateTransport/'+transport_type+'/Calc_Traveltimes_maxspeed_'+transport_type+'/Traveltimes'  
+			unit<uint64> OD := ='NetworkSetup/ConfigurationPerRegio/'+Regio_Name+'/PrivateTransport/'+transport_type+'/Calc_Traveltimes_maxspeed_'+transport_type+'/Traveltimes_with_Linkset'  
 			{
+				// attribute<rdc>              geometry (arc)                                  := geometry;
 				attribute<Min_f>            reistijd_min                                    := impedance;
 				attribute<Km>               afgelegde_afstand_km                            := alt_imp;
 				attribute<Combine_OrgDest>  OD_nummer                                       := combine_data(Combine_OrgDest, OrgZone_rel, DstZone_rel);
@@ -145,13 +164,13 @@ Template PublicTransport_T
 
  				unit<uint32> AfgelegdeReis := sequence2points(LinkSet) //vertaling van LinkSet attribute (afgelegde route in OD), naar onderdelen van de reis
 				{
-					unit<uint32> LinkSet := PrivateTransport/Pedestrian/Calc_Traveltimes_maxspeed_pedestrian/LinkSet;
-					unit<uint32> NodeSet := PrivateTransport/Pedestrian/Calc_Traveltimes_maxspeed_pedestrian/NodeSet;
+					unit<uint32> LinkSet_dom := PrivateTransport/Pedestrian/Calc_Traveltimes_maxspeed_pedestrian/LinkSet_dom;
+					unit<uint32> NodeSet_dom := PrivateTransport/Pedestrian/Calc_Traveltimes_maxspeed_pedestrian/NodeSet_dom;
 
 					// voor visuaisatie
 					attribute<rdc>         Route (arc) := points2sequence(LinkPoints/Point, LinkPoints/Sequence_rel, LinkPoints/Ordinal);
-					attribute<rdc>         FromPoint   := LinkSet/FirstPoint[point];
-					attribute<rdc>         ToPoint     := LinkSet/LastPoint[point];
+					attribute<rdc>         FromPoint   := LinkSet_dom/FirstPoint[point];
+					attribute<rdc>         ToPoint     := LinkSet_dom/LastPoint[point];
 
 					unit<uint32> LinkPoints := union_unit(., .)
 					{
@@ -225,9 +244,56 @@ Template PublicTransport_T
 
 				attribute<s_f>              Sum_Reistijd_VoorNaTransport                    := sum(AfgelegdeReis/Reistijd_Voortransport + AfgelegdeReis/Reistijd_Natransport, AfgelegdeReis/Reis_rel);
 				attribute<min_f>            reistijd_min                                    := impedance[min_f];
+				attribute<OD_src_uint32>    OD_src_uint32_rel                               := invert(OD_src_uint32/OD_src_rel);
+				attribute<rdc>              geometry (arc)                                  := OD_src_uint32/geometry[OD_src_uint32_rel];
+				
+				//nodig om full trip geometry te bepalen.
+				unit<uint32> OD_src_uint32 := union_unit_uint32(OD_src)
+				{
+					attribute<OD_src> OD_src_rel     := union_data(., id(OD_src));
+					attribute<rdc>    geometry (arc) := points2sequence(AfgelegdeReis/unioned_subreizen/point, AfgelegdeReis/unioned_subreizen/OD_src_uint32_rel, AfgelegdeReis/unioned_subreizen/ordinal);
+				}
 				
  				unit<uint32> AfgelegdeReis := sequence2points(LinkSet) //vertaling van LinkSet attribute (afgelegde route in OD), naar onderdelen van de reis
 				{
+					unit<uint32> seq2point_voor := sequence2points(geometry_voortransport) //correcte volgorde
+					{
+						attribute<AfgelegdeReis> subreis_rel          := sequence_rel;
+						attribute<OD_src>        reis_rel             := ../reis_rel[subreis_rel];
+						attribute<OD_src_uint32> OD_src_uint32_rel    := ../OD_src_uint32_rel[subreis_rel];
+					}
+					unit<uint32> seq2point_OV   := sequence2points(geometry) //omgekeerde volgorde
+					{
+						attribute<AfgelegdeReis> subreis_rel          := sequence_rel;
+						attribute<OD_src>        reis_rel             := ../reis_rel[subreis_rel];
+						attribute<OD_src_uint32> OD_src_uint32_rel    := ../OD_src_uint32_rel[subreis_rel];
+						attribute<Time>          FromTime             := ../FromTime[subreis_rel];
+						attribute<Time>          ToTime               := ../ToTime[subreis_rel];
+						attribute<bool>          IsLowestSeqOfReis    := first(sequence_rel, reis_rel)[reis_rel] == Sequence_rel;
+						
+						unit<uint32> relevant_points := select_with_attr_by_cond(., ordinal == 0);
+					}
+					unit<uint32> seq2point_na   := sequence2points(geometry_natransport) //correcte volgorde
+					{
+						attribute<AfgelegdeReis> subreis_rel          := sequence_rel;
+						attribute<OD_src>        reis_rel             := ../reis_rel[subreis_rel];
+						attribute<OD_src_uint32> OD_src_uint32_rel    := ../OD_src_uint32_rel[subreis_rel];
+					}
+					
+					//nodig om full trip geometry te bepalen.
+					unit<uint32> unioned_subreizen := union_unit(seq2point_voor, seq2point_OV/relevant_points, seq2point_na)
+					{
+						attribute<rdc>           point                := union_data(., seq2point_voor/point, seq2point_OV/relevant_points/point, seq2point_na/point);
+						attribute<AfgelegdeReis> subreis_rel          := union_data(., seq2point_voor/subreis_rel, seq2point_OV/relevant_points/subreis_rel, seq2point_na/subreis_rel);
+						attribute<OD_src>        reis_rel             := union_data(., seq2point_voor/reis_rel, seq2point_OV/relevant_points/reis_rel, seq2point_na/reis_rel);
+						attribute<OD_src_uint32> OD_src_uint32_rel    := union_data(., seq2point_voor/OD_src_uint32_rel, seq2point_OV/relevant_points/OD_src_uint32_rel, seq2point_na/OD_src_uint32_rel);
+						attribute<uint32>        unity                := const(1,.);
+						attribute<bool>          IsOV                 := union_data(., const(FALSE, seq2point_voor), const(TRUE, seq2point_OV/relevant_points), const(FALSE, seq2point_na));
+						attribute<uint32>        ordinal_src          := cumulate(unity, reis_rel) - 1;
+						attribute<uint32>        max_ordinal_per_reis := max(ordinal_src, reis_rel)[reis_rel];
+						attribute<uint32>        ordinal              := IsOV ? max_ordinal_per_reis - ordinal_src : ordinal_src;
+					}
+					
 					attribute<Combine_OrgDest>         OD_nummer               := ../OD_nummer[reis_rel];
 					attribute<rdc>                     geometry (arc)          := StaticNet_subset/geometry[point];
 					attribute<Places>                  FromPlace               := StaticNet_subset/FromPlace[point];
@@ -246,6 +312,7 @@ Template PublicTransport_T
 					attribute<Stops>                   ToStop_rel              := Places/Stop_rel[ToPlace];
 					
 					attribute<..>                      Reis_rel                := Sequence_rel;
+					attribute<OD_src_uint32>           OD_src_uint32_rel       := ../OD_src_uint32_rel[Sequence_rel];
 					attribute<Routes>                  Route_rel               := StaticNet_subset/Route_rel[point];
 					attribute<upoint>                  Reis_Route_Identifier   := point_xy(Route_rel, uint32(Reis_rel));
 					attribute<uq_reis_route>           uq_reis_route_rel       := rlookup(Reis_Route_Identifier, uq_reis_route/values);
@@ -355,6 +422,7 @@ Template PublicTransport_T
 			// unit<uint64> OD_raw := =ModelParameters/Add_OV_PriceInformation ? 'OD_wPrijzen' : 'OD_woPrijzen';
 			unit<uint64> OD     := select(NOT(OD_src/IsUnwantedTrip))
 			{
+				attribute<rdc>              geometry (arc)                                  := collect_by_cond(., NOT(OD_src/IsUnwantedTrip), OD_src/geometry);
 				attribute<s_f>              impedance                                       := collect_by_cond(., NOT(OD_src/IsUnwantedTrip), OD_src/impedance);
 				attribute<km>               alt_imp                                         := collect_by_cond(., NOT(OD_src/IsUnwantedTrip), OD_src/alt_imp);
 				attribute<Org>              OrgZone_rel                                     := collect_by_cond(., NOT(OD_src/IsUnwantedTrip), OD_src/OrgZone_rel);
@@ -424,6 +492,7 @@ Template PublicTransport_T
 			
 			unit<uint64> OD := union_unit_uint64(first, second)
 			{
+				attribute<rdc>              geometry (arc)                                  := union_data(., first/geometry                    , second/geometry);
 				attribute<min_f>            reistijd_min                                    := union_data(., first/reistijd_min                , second/reistijd_min);
 				attribute<km>               afgelegde_afstand_km                            := union_data(., first/afgelegde_afstand_km        , second/afgelegde_afstand_km);
 				attribute<float32>          nr_items_of_interest_decayed                    := union_data(., first/nr_items_of_interest_decayed, second/nr_items_of_interest_decayed);
@@ -505,6 +574,7 @@ Template PublicTransport_T
 			
 			unit<uint64> OD := union_unit_uint64(first, second, third)
 			{
+				attribute<rdc>              geometry (arc)                                  := union_data(., first/geometry                    , second/geometry                    , third/geometry);
 				attribute<float32>          reistijd_min                                    := union_data(., first/reistijd_min                , second/reistijd_min                , third/reistijd_min);
 				attribute<float32>          nr_items_of_interest_decayed                    := union_data(., first/nr_items_of_interest_decayed, second/nr_items_of_interest_decayed, third/nr_items_of_interest_decayed);
 				attribute<float32>          nr_items_of_interest                            := union_data(., first/nr_items_of_interest        , second/nr_items_of_interest        , third/nr_items_of_interest);
