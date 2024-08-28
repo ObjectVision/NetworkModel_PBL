@@ -26,6 +26,12 @@ REM call ..\batch\RunDayGroups.cmd MonTue
 REM call ..\batch\RunDayGroups.cmd WedThuFri 
 REM call ..\batch\RunDayGroups.cmd SatSun 
 
+REM Voor het draaien met de batch stel je in:
+REM •	Orgset == Buurt_enkele_Corop
+REM •	Destset = Buurt
+REM •	Getiled_berekenen = false
+
+
 :runPublicTransport
 set Orgset_EnkeleCorop_selectie=Delfzijl_en_omgeving
 "%ProgramPath%" main.dms /NetworkSetup/ConfigurationPerRegio/all/PublicTransport/Generate_Output/OUTPUT_Generate_fullOD_long_CSVFiles
