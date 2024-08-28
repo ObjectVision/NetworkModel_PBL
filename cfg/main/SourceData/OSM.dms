@@ -1,4 +1,4 @@
-container OSM
+container OSM : using = "classifications/OSM"
 {  
 	parameter<string> file_date := ModelParameters/Advanced/OSM_file_date;
 	parameter<string> dir       := '%NetworkModel_Dir%/Infrastructuur/OSM/'+file_date;
@@ -26,6 +26,7 @@ container OSM
 			attribute<wgs84_base>        geometry    (arc);
 			attribute<rdc>               geometry_rd (arc)   := LatLongWgs842RD(geometry, dpoint)[rdc];
 			attribute<string>            fclass;
+			attribute<string>            oneway;
 			attribute<int32>             maxspeed;
 			// unit<uint32> uq := unique(oneway);
 		}
@@ -37,7 +38,9 @@ container OSM
 			attribute<string>                      fclass         := Read_Roads_shp/fclass;
 			attribute<km_hr>                       maxspeed       := Read_Roads_shp/maxspeed[km_hr];
 			attribute<string>                      OSM_id         := Read_Roads_shp/OSM_id;
-			attribute<classifications/OSM/wegtype> wegtype_rel    := rlookup(fclass, classifications/OSM/wegtype/name);  
+			attribute<Directions_OSM>              Direction      := MakeDefined(rlookup(Oneway, Directions_OSM/code), Directions_OSM/v/dual); 
+			attribute<bool>                        IsOneDirection := Direction == Directions_OSM/v/backwards || Direction == Directions_OSM/v/forwards;
+			attribute<wegtype>                     wegtype_rel    := rlookup(fclass, wegtype/name);  
 			
 		}
 	}
@@ -60,8 +63,9 @@ container OSM
 			{
 				attribute<rdc>                          geometry (arc)                   := ='union_data(., '+AsList('Prepare_SourceData/'+Country_regios/name+'/Roads/geometry', ',')+')';
 				attribute<km_hr>                        maxspeed_src                     := ='union_data(., '+AsList('Prepare_SourceData/'+Country_regios/name+'/Roads/maxspeed', ',')+')';
-				attribute<classifications/OSM/wegtype>  wegtype_rel                          := ='union_data(., '+AsList('Prepare_SourceData/'+Country_regios/name+'/Roads/wegtype_rel', ',')+')';
+				attribute<wegtype>                      wegtype_rel                      := ='union_data(., '+AsList('Prepare_SourceData/'+Country_regios/name+'/Roads/wegtype_rel', ',')+')';
 				attribute<string>                       OSM_id                           := ='union_data(., '+AsList('Prepare_SourceData/'+Country_regios/name+'/Roads/OSM_id', ',')+')';
+				attribute<bool>                         IsOneDirection                   := ='union_data(., '+AsList('Prepare_SourceData/'+Country_regios/name+'/Roads/IsOneDirection', ',')+')';
 				
 				attribute<km_hr>                        rth_maxspeed_per_wegtype (classifications/OSM/wegtype)         := rth_element(maxspeed_src, 0.9f, wegtype_rel);
 				attribute<km_hr>                        rth_maxspeed_per_wegtype_Defined (classifications/OSM/wegtype) := MakeDefined(rth_maxspeed_per_wegtype, ModelParameters/Advanced/CarDefaultSpeed_low) == 0[km_hr] ? ModelParameters/Advanced/CarDefaultSpeed_low : MakeDefined(rth_maxspeed_per_wegtype, ModelParameters/Advanced/CarDefaultSpeed_low);
@@ -76,8 +80,8 @@ container OSM
 
 				container AddCongestionData
 				{
-					attribute<bool>    isMotorWay                                 (..) := wegtype_rel == classifications/OSM/wegtype/v/motorway || wegtype_rel == classifications/OSM/wegtype/v/motorway_link;
-					attribute<bool>    isMajor                                    (..) := wegtype_rel == classifications/OSM/wegtype/v/primary_link || wegtype_rel == classifications/OSM/wegtype/v/secondary_link || wegtype_rel == classifications/OSM/wegtype/v/primary; 
+					attribute<bool>    isMotorWay                                 (..) := wegtype_rel == wegtype/v/motorway || wegtype_rel == wegtype/v/motorway_link;
+					attribute<bool>    isMajor                                    (..) := wegtype_rel == wegtype/v/primary_link || wegtype_rel == wegtype/v/secondary_link || wegtype_rel == wegtype/v/primary; 
 					attribute<bool>    isStreet                                   (..) := !isMotorWay && !isMajor;
 					
 					attribute<km_hr>   congestion_speed_motorways_MorningRush     (..) := recollect_by_cond(isMotorWay, Motorways/congestion_speed_MorningRush);
@@ -194,14 +198,14 @@ container OSM
 		{
 			attribute<rdc>                          geometry (arc)     := ='union_data(., '+AsList('Merge_Roads_perCountry/'+Regios/Countries/name+'/Merge_CountryRegion_Roads/geometry', ',')+')';
 			attribute<km_hr>                        maxspeed           := ='union_data(., '+AsList('Merge_Roads_perCountry/'+Regios/Countries/name+'/Merge_CountryRegion_Roads/maxspeed', ',')+')';
-			attribute<classifications/OSM/wegtype>  wegtype_rel            := ='union_data(., '+AsList('Merge_Roads_perCountry/'+Regios/Countries/name+'/Merge_CountryRegion_Roads/wegtype_rel', ',')+')';
+			attribute<wegtype>                      wegtype_rel        := ='union_data(., '+AsList('Merge_Roads_perCountry/'+Regios/Countries/name+'/Merge_CountryRegion_Roads/wegtype_rel', ',')+')';
 			attribute<string>                       OSM_id             := ='union_data(., '+AsList('Merge_Roads_perCountry/'+Regios/Countries/name+'/Merge_CountryRegion_Roads/OSM_id', ',')+')';
+			attribute<bool>                         IsOneDirection     := ='union_data(., '+AsList('Merge_Roads_perCountry/'+Regios/Countries/name+'/Merge_CountryRegion_Roads/IsOneDirection', ',')+')';
 			
 			attribute<km_hr>                        congestion_speed_MorningRush     := ='union_data(., '+AsList('Merge_Roads_perCountry/'+Regios/Countries/name+'/Merge_CountryRegion_Roads/congestion_speed_MorningRush', ',')+')';
 			attribute<km_hr>                        congestion_speed_NoonRush        := ='union_data(., '+AsList('Merge_Roads_perCountry/'+Regios/Countries/name+'/Merge_CountryRegion_Roads/congestion_speed_NoonRush', ',')+')';
 			attribute<km_hr>                        congestion_speed_LateEveningRush := ='union_data(., '+AsList('Merge_Roads_perCountry/'+Regios/Countries/name+'/Merge_CountryRegion_Roads/congestion_speed_LateEveningRush', ',')+')';
 		}
-	
 	}
 	
 	#include <NetworkPreperation.dms>
@@ -210,18 +214,19 @@ container OSM
 	,   StorageName = "='%LocalDataProjDir%/OSM/Final_Network_'+file_date+'_CongestionGroup-'+ModelParameters/Advanced/CongestionSpeed_DaySelection+'.fss'"
 	{
 		attribute<NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork> ConnectedNetwork_rel    := rlookup(geometry, NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/geometry);
-		attribute<rdc>                          geometry (arc):= values;
-		attribute<rdc>                          values   (arc): DisableStorage = "true";
-		attribute<classifications/OSM/wegtype>  wegtype_rel   := NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/wegtype_rel[ConnectedNetwork_rel];
-		attribute<km_hr>                        maxspeed      := NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/maxspeed[ConnectedNetwork_rel];
-		attribute<string>                       OSM_id        := NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/OSM_id[ConnectedNetwork_rel];
+		attribute<rdc>                          geometry (arc) := values;
+		attribute<rdc>                          values   (arc) : DisableStorage = "true";
+		attribute<wegtype>                      wegtype_rel    := NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/wegtype_rel[ConnectedNetwork_rel];
+		attribute<km_hr>                        maxspeed       := NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/maxspeed[ConnectedNetwork_rel];
+		attribute<string>                       OSM_id         := NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/OSM_id[ConnectedNetwork_rel];
+		attribute<bool>                         IsOneDirection := NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/IsOneDirection[ConnectedNetwork_rel];
 		
-		attribute<km_hr>                        congestion_speed_bike            := recollect_by_cond(classifications/OSM/wegtype/isPartOfBikeNetwork[wegtype_rel], AddBikeCongestionSpeeds/Impl/bike_speed_OSM);
+		attribute<km_hr>                        congestion_speed_bike            := recollect_by_cond(wegtype/isPartOfBikeNetwork[wegtype_rel], AddBikeCongestionSpeeds/Impl/bike_speed_OSM);
 		attribute<km_hr>                        congestion_speed_MorningRush     := NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/congestion_speed_MorningRush[ConnectedNetwork_rel];
 		attribute<km_hr>                        congestion_speed_NoonRush        := NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/congestion_speed_NoonRush[ConnectedNetwork_rel];
 		attribute<km_hr>                        congestion_speed_LateEveningRush := NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/congestion_speed_LateEveningRush[ConnectedNetwork_rel];
 		
-		unit<uint32> AddBikeCongestionSpeeds := select_with_org_rel(classifications/OSM/wegtype/isPartOfBikeNetwork[wegtype_rel])
+		unit<uint32> AddBikeCongestionSpeeds := select_with_org_rel(wegtype/isPartOfBikeNetwork[wegtype_rel])
 		{
 			attribute<rdc>                          geometry (arc)                   := ../geometry[org_rel];
 			attribute<string>                       OSM_id                           := ../OSM_id[org_rel];
@@ -241,10 +246,11 @@ container OSM
 	,   StorageReadOnly = "true"
 	{
 		attribute<rdc>                          geometry (arc);
-		attribute<classifications/OSM/wegtype>  wegtype_rel;
+		attribute<wegtype>                      wegtype_rel;
 		attribute<km_hr>                        maxspeed;
 		attribute<string>                       OSM_id;
-		attribute<string>                       wegtype_label                    := classifications/OSM/wegtype/label[wegtype_rel];
+		attribute<bool>                         IsOneDirection;
+		attribute<string>                       wegtype_label                    := wegtype/label[wegtype_rel];
 		attribute<km_hr>                        freeflow_speed_bike              := const(ModelParameters/Advanced/BikingSpeed_kmhr,.);
 		attribute<km_hr>                        freeflow_speed_pedestrian        := const(ModelParameters/Advanced/WalkingSpeed_kmhr,.);
 		attribute<km_hr>                        congestion_speed_bike;
@@ -252,19 +258,19 @@ container OSM
 		attribute<km_hr>                        congestion_speed_NoonRush;
 		attribute<km_hr>                        congestion_speed_LateEveningRush;
 		
-		attribute<bool>                         isPartOfCarNetwork        := classifications/OSM/wegtype/IsPartOfCarNetwork[wegtype_rel];
-		attribute<bool>                         isPartOfBikeNetwork       := classifications/OSM/wegtype/isPartOfBikeNetwork[wegtype_rel];
-		attribute<bool>                         isPartOfPedestrianNetwork := classifications/OSM/wegtype/isPartOfPedestrianNetwork[wegtype_rel];
+		attribute<bool>                         isPartOfCarNetwork        := wegtype/IsPartOfCarNetwork[wegtype_rel];
+		attribute<bool>                         isPartOfBikeNetwork       := wegtype/isPartOfBikeNetwork[wegtype_rel];
+		attribute<bool>                         isPartOfPedestrianNetwork := wegtype/isPartOfPedestrianNetwork[wegtype_rel];
 		
 		container Connectiveness
 		{
 			unit<uint32> src := ..;
-			attribute<geometries/rdc>               point (src)           := first_point(src/geometry);
-			attribute<geometries/rdc>               nextpoint (src)       := last_point(src/geometry);
+			attribute<rdc>               point (src)           := first_point(src/geometry);
+			attribute<rdc>               nextpoint (src)       := last_point(src/geometry);
 			
 			unit<uint32> pointset : = union_unit(src,src)
 			{
-				attribute<geometries/rdc>       point       := union_data(., ../point, ../nextpoint);
+				attribute<rdc>       point       := union_data(., ../point, ../nextpoint);
 				attribute<bool>                 isVerbonden := isNull(rlookup(point, NodesNotConnected/point));
 				attribute<src>                   ArcNr       := value(ID(.) % #(src), src);
 			}
@@ -273,7 +279,7 @@ container OSM
 			,	DialogData = "Values"
 			,	DialogType = "Map"
 			{
-				attribute<geometries/rdc> values;
+				attribute<rdc> values;
 			}
 
 			attribute<NodeSet> F1 (src) := rlookup(point,     NodeSet/Values);
@@ -297,9 +303,10 @@ container OSM
 	unit<uint32> Network_Car := select_with_org_rel(Read_Final_Network/isPartOfCarNetwork)
 	{
 		attribute<rdc>                          geometry (arc)                   := Read_Final_Network/geometry[org_rel];
-		attribute<classifications/OSM/wegtype>  wegtype_rel                      := Read_Final_Network/wegtype_rel[org_rel];
+		attribute<wegtype>                      wegtype_rel                      := Read_Final_Network/wegtype_rel[org_rel];
 		attribute<string>                       OSM_id                           := Read_Final_Network/OSM_id[org_rel];
 		attribute<string>                       wegtype_label                    := Read_Final_Network/wegtype_label[org_rel];
+		attribute<bool>                         IsOneDirection                   := Read_Final_Network/IsOneDirection[org_rel];
 		
 		attribute<bool>                         Connectable                      := wegtype_rel != Classifications/OSM/wegtype/V/motorway && wegtype_rel != Classifications/OSM/wegtype/V/motorway_link;
 		attribute<km_hr>                        speed_max_car                    := Read_Final_Network/maxspeed[org_rel];
@@ -358,7 +365,7 @@ container OSM
 		attribute<classifications/OSM/wegtype>  wegtype_rel                      := Read_Final_Network/wegtype_rel[org_rel];
 		attribute<string>                       OSM_id                           := Read_Final_Network/OSM_id[org_rel];
 		attribute<string>                       wegtype_label                    := Read_Final_Network/wegtype_label[org_rel];
-		
+		attribute<bool>                         IsOneDirection                   := const(FALSE,.);
 		attribute<bool>                         Connectable                      := wegtype_rel != Classifications/OSM/wegtype/V/motorway && wegtype_rel != Classifications/OSM/wegtype/V/motorway_link;
 		
 		attribute<km_hr>                        speed_max_car                    := const((0/0)[km_hr],.);
@@ -417,7 +424,8 @@ container OSM
 		attribute<classifications/OSM/wegtype>  wegtype_rel                      := Read_Final_Network/wegtype_rel[org_rel];
 		attribute<string>                       OSM_id                           := Read_Final_Network/OSM_id[org_rel];
 		attribute<string>                       wegtype_label                    := Read_Final_Network/wegtype_label[org_rel];
-		
+		attribute<bool>                         IsOneDirection                   := const(FALSE,.);
+
 		attribute<bool>                         Connectable                      := wegtype_rel != Classifications/OSM/wegtype/V/motorway && wegtype_rel != Classifications/OSM/wegtype/V/motorway_link;
 		attribute<km_hr>                        speed_max_car                    := const((0/0)[km_hr],.);
 		attribute<km_hr>                        speed_max_limit_car              := const((0/0)[km_hr],.);
