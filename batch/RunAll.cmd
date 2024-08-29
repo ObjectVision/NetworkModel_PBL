@@ -1,4 +1,4 @@
-set geodmsversion=GeoDms15.1.0
+﻿set geodmsversion=GeoDms15.4.0
 set exe_dir=C:\Program Files\ObjectVision\%geodmsversion%
 set ProgramPath=%exe_dir%\GeoDmsRun.exe
 
@@ -33,8 +33,6 @@ REM •	Getiled_berekenen = false
 
 
 :runPublicTransport
-set Orgset_EnkeleCorop_selectie=Delfzijl_en_omgeving
-"%ProgramPath%" main.dms /NetworkSetup/ConfigurationPerRegio/all/PublicTransport/Generate_Output/OUTPUT_Generate_fullOD_long_CSVFiles
 set Orgset_EnkeleCorop_selectie=Oost_Groningen
 "%ProgramPath%" main.dms /NetworkSetup/ConfigurationPerRegio/all/PublicTransport/Generate_Output/OUTPUT_Generate_fullOD_long_CSVFiles
 set Orgset_EnkeleCorop_selectie=Delfzijl_en_omgeving
