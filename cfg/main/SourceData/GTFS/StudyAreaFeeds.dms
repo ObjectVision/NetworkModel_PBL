@@ -2,22 +2,21 @@ container StudyAreaFeeds
 {
 	unit<uint32> Stops := LoadFeeds/Stops
 	{
-		attribute<rdc>      geometry                 := LoadFeeds/Stops/geometry;
-		attribute<uint32>   orgStopId                := id(LoadFeeds/Stops);
-		attribute<uint32>   feedId                   := const(0, LoadFeeds/Stops, uint32);
-		attribute<upoint>   uni_StopId               := point_xy(feedId, orgStopId, upoint);
-		attribute<string>   Name                     := LoadFeeds/Stops/stop_name;
-		attribute<string>   Label                    := Name;
-		attribute<m>        Dist2_ICtrainstation     := rjoin(geometry, uq_points/values, Define_Stopgroups_ICstations/dist);
-		attribute<m>        Dist2_Trainstation       := rjoin(geometry, uq_points/values, Define_Stopgroups_Trainstations/dist);
-		attribute<bool>     IsMetroStation           := ModesServed/Metro > 0;
-		attribute<bool>     IsTramStation            := ModesServed/Tram > 0;
-		attribute<bool>     IsRailStation            := ModesServed/Rail > 0;
+		attribute<rdc>           geometry                 := LoadFeeds/Stops/geometry;
+		attribute<uint32>        orgStopId                := id(LoadFeeds/Stops);
+		attribute<uint32>        feedId                   := const(0, LoadFeeds/Stops, uint32);
+		attribute<upoint>        uni_StopId               := point_xy(feedId, orgStopId, upoint);
+		attribute<string>        Name                     := LoadFeeds/Stops/stop_name;
+		attribute<string>        Label                    := Name;
+		attribute<bool>          IsMetroStation           := ModesServed/Metro > 0;
+		attribute<bool>          IsTramStation            := ModesServed/Tram > 0;
+		attribute<bool>          IsRailStation            := ModesServed/Rail > 0;
 		
-		container Recollect
-		{
-			attribute<SourceData/Infrastructuur/OVprijzen/NS/NS_Stations> NS_Stations_rel (..) := recollect_by_cond(Dist2_Trainstation  < 200[m],Stops_Trainstation/NS_Stations_rel);
-		}
+		attribute<m>             Dist2_ICtrainstation     := rjoin(geometry, uq_points/values, Define_Stopgroups_ICstations/dist);
+		attribute<m>             Dist2_Trainstation       := rjoin(geometry, uq_points/values, Define_Stopgroups_Trainstations/dist);
+		attribute<string>        Trainstations_code       := Dist2_Trainstation  < ModelParameters/Advanced/DistanceTrainStationsSelection ? rjoin(geometry, uq_points/values, Define_Stopgroups_Trainstations/station_code) : '';
+		attribute<string>        IC_stations_code         := Dist2_ICtrainstation  < ModelParameters/Advanced/DistanceTrainStationsSelection ? rjoin(geometry, uq_points/values, Define_Stopgroups_ICstations/station_code) : '';
+		attribute<OVprijzen/NS/NS_Stations> NS_Stations_rel  := rlookup(lowercase(Trainstations_code), OVprijzen/NS/NS_Stations/code);
 		
 		unit<uint32> uq_points := unique(geometry)
 		{
@@ -25,8 +24,11 @@ container StudyAreaFeeds
 			attribute<float32>  y           := PointRow(values);
 		}
 		
-		container Define_Stopgroups_ICstations    := Define_Stopgroups_T(SourceData/Infrastructuur/Infrastructuur/IC_Stations/uq);
-		container Define_Stopgroups_Trainstations := Define_Stopgroups_T(SourceData/Infrastructuur/Infrastructuur/Trainstations/uq);
+		unit<uint32> IC_stations   := SourceData/Infrastructuur/Infrastructuur/IC_Stations/uq;
+		unit<uint32> Trainstations := SourceData/Infrastructuur/Infrastructuur/Trainstations/uq;
+		
+		container Define_Stopgroups_ICstations    := Define_Stopgroups_T(IC_stations);
+		container Define_Stopgroups_Trainstations := Define_Stopgroups_T(Trainstations);
 		
 		Template Define_Stopgroups_T
 		{
@@ -36,10 +38,11 @@ container StudyAreaFeeds
 			attribute<float32>          x         (Station_dom)      := PointCol(geometry);
 			attribute<float32>          y         (Station_dom)      := PointRow(geometry);
 			
-			attribute<uint32>           point_rel (uq_points)       := connect(geometry, uq_points/values);
+			attribute<Station_dom>      stations_rel (uq_points)       := connect(geometry, uq_points/values);
+			attribute<string>           station_code (uq_points)       := Station_dom/code[stations_rel];
 
-			attribute<float32>          x_targetdomain (uq_points)  := PointCol(geometry)[point_rel];
-			attribute<float32>          y_targetdomain (uq_points)  := PointRow(geometry)[point_rel];
+			attribute<float32>          x_targetdomain (uq_points)  := PointCol(geometry)[stations_rel];
+			attribute<float32>          y_targetdomain (uq_points)  := PointRow(geometry)[stations_rel];
 			attribute<float32>          delta_x (uq_points)         := abs(x_targetdomain - uq_points/x)^2f;
 			attribute<float32>          delta_y (uq_points)         := abs(y_targetdomain - uq_points/y)^2f;
 
@@ -75,16 +78,15 @@ container StudyAreaFeeds
 		}
 	}
 	
-	unit<uint32> Stops_ICstation := select_with_attr_by_org_rel(Stops,Stops/Dist2_ICtrainstation < 200[m])
+	
+	unit<uint32> Stops_ICstation := select_with_attr_by_org_rel(Stops,Stops/Dist2_ICtrainstation < ModelParameters/Advanced/DistanceTrainStationsSelection)
 	{
 		attribute<uint32>   Stops_rel   := org_rel;
 	}
 	
-	unit<uint32> Stops_Trainstation := select_with_attr_by_org_rel(Stops,Stops/Dist2_Trainstation  < 200[m])
+	unit<uint32> Stops_Trainstation := select_with_attr_by_org_rel(Stops,Stops/Dist2_Trainstation  < ModelParameters/Advanced/DistanceTrainStationsSelection)
 	{
 		attribute<uint32>   Stops_rel   := org_rel;
-		
-		attribute<SourceData/Infrastructuur/OVprijzen/NS/NS_stations> NS_Stations_rel := rlookup(name, /SourceData/Infrastructuur/OVprijzen/NS/NS_stations/label);
 	}
 	
 	unit<uint32> Stops_Metrostation := select_with_attr_by_org_rel(Stops,Stops/IsMetroStation)
