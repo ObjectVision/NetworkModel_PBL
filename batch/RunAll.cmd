@@ -1,4 +1,4 @@
-set geodmsversion=GeoDms15.4.0
+set geodmsversion=GeoDms15.7.1
 set exe_dir=C:\Program Files\ObjectVision\%geodmsversion%
 set ProgramPath=%exe_dir%\GeoDmsRun.exe
 
