@@ -1,4 +1,4 @@
-set geodmsversion=GeoDms15.4.0
+set geodmsversion=GeoDms15.7.1
 set exe_dir=C:\Program Files\ObjectVision\%geodmsversion%
 set ProgramPath=%exe_dir%\GeoDmsRun.exe
 
@@ -114,7 +114,7 @@ set Orgset_EnkeleCorop_selectie=Zuid_Limburg
 set Orgset_EnkeleCorop_selectie=Flevoland
 "%ProgramPath%" main.dms /NetworkSetup/ConfigurationPerRegio/all/PublicTransport/Generate_Output/OUTPUT_Generate_fullOD_long_CSVFiles
 
-
+"%ProgramPath%" main.dms /NetworkSetup/ConfigurationPerRegio/Merge_Output/OUTPUT_Merge_PublicTransport_Regions_fullOD_long_CSVFiles
 
 
 pause "Klaar ?"
