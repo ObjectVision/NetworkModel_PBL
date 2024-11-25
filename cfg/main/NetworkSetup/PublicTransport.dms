@@ -101,12 +101,42 @@ Template PublicTransport_T
 			attribute<NodeSet>                    NodeRef_O2S       := rlookup(MomentxPlace_O2S, NodeSet/values);
 			attribute<NodeSet>                    NodeRef_S2D       := rlookup(MomentxPlace_S2D, NodeSet/values);
 			
-			attribute<Time>                       Duration_withWaitingAtOrg := ModelParameters/Advanced/WegingWachttijdThuisVoortransport > 0f && (FromTime - InTime) < ModelParameters/Advanced/MaxWachttijdThuisVoortransport
-																				? Duration + ((FromTime - InTime)[float32] * ModelParameters/Advanced/WegingWachttijdThuisVoortransport)[Time]
-																				: ModelParameters/Advanced/WegingWachttijdThuisVoortransport > 0f && (FromTime - InTime) >= ModelParameters/Advanced/MaxWachttijdThuisVoortransport
-																					? Duration + 86400[Time]
-																					: Duration;
-																					
+			// Omgaan met wachttijden via parameter instellingen:
+			// - WegingWachttijdThuisVoortransport: getal tussen 0 en 1. Hoe zwaar wil je de wachttijd laten wegen? 1=volledige wachttijd bij de duration optellen, 0=wachttijd telt niet helemaal niet mee.
+			// - OmitMaxWachttijdThuisVoortransportLinks: TURE or FALSE. Wil je links uit de analyse laten afvallen als je te lang moet wachten voor vertrek?
+			// - MaxWachttijdThuisVoortransport: getal in seconden. Hoelang mag iemand thuis wachten voor hij/zij vertrekt?
+
+			  // case( W=1, O=1, M=1, D+WT+24u )
+			  // case( W=1, O=1, M=0, D+WT )
+			  // case( W=1, O=0, M=0, D+WT )
+			  // case( W=1, O=0, M=1, D+WT )
+			  // case( W=0, O=1, M=1, D+24u )
+			  // case( W=0, O=1, M=0, D )
+			  // case( W=0, O=0, M=1, D )
+			  // case( W=0, O=0, M=0, D )
+			
+			  // case(    , O=1, M=1, D+24u )
+			  // case( W=1,    , M=0, D+WT )
+			  // else( D )
+
+			
+			parameter<bool>                       AddWaitingTimeToDuration       := ModelParameters/Advanced/WegingWachttijdThuisVoortransport  > 0f;
+			parameter<bool>                       OmitMaxWachttijdLinks          := ModelParameters/Advanced/OmitMaxWachttijdThuisVoortransportLinks;
+			attribute<bool>                       WachttijdLangerDanMaxWachttijd := WaitingTime > ModelParameters/Advanced/MaxWachttijdThuisVoortransport;
+			parameter<Time>                       ExtraLangeWachttijdPenalty     := 86400[Time];
+			
+			
+			attribute<Time>                       WaitingTime                    := FromTime - InTime;
+			attribute<Time>                       Duration_withWaitingAtOrg      := switch(
+			  case(    AddWaitingTimeToDuration  &&     OmitMaxWachttijdLinks  &&     WachttijdLangerDanMaxWachttijd , Duration + WaitingTime + ExtraLangeWachttijdPenalty)                 // wel wachttijd toevoegen aan duration, en die wachttijd is kort genoeg.
+			, case(    AddWaitingTimeToDuration  &&     OmitMaxWachttijdLinks  && NOT(WachttijdLangerDanMaxWachttijd), Duration + WaitingTime)                 // wel wachttijd toevoegen aan duration, en die wachttijd is kort genoeg.
+			, case(    AddWaitingTimeToDuration  && NOT(OmitMaxWachttijdLinks) && NOT(WachttijdLangerDanMaxWachttijd), Duration + WaitingTime)                 // wel wachttijd toevoegen aan duration, en die wachttijd is kort genoeg.
+			, case(    AddWaitingTimeToDuration  && NOT(OmitMaxWachttijdLinks) &&     WachttijdLangerDanMaxWachttijd , Duration + WaitingTime)                 // wel wachttijd toevoegen aan duration, en die wachttijd is kort genoeg.
+			, case(NOT(AddWaitingTimeToDuration) &&     OmitMaxWachttijdLinks  &&     WachttijdLangerDanMaxWachttijd , Duration + ExtraLangeWachttijdPenalty)                 // wel wachttijd toevoegen aan duration, en die wachttijd is kort genoeg.
+			, case(NOT(AddWaitingTimeToDuration) &&     OmitMaxWachttijdLinks  && NOT(WachttijdLangerDanMaxWachttijd), Duration)                 // wel wachttijd toevoegen aan duration, en die wachttijd is kort genoeg.
+			, case(NOT(AddWaitingTimeToDuration) && NOT(OmitMaxWachttijdLinks) &&     WachttijdLangerDanMaxWachttijd , Duration)                 // wel wachttijd toevoegen aan duration, en die wachttijd is kort genoeg.
+			, case(NOT(AddWaitingTimeToDuration) && NOT(OmitMaxWachttijdLinks) && NOT(WachttijdLangerDanMaxWachttijd), Duration)                 // wel wachttijd toevoegen aan duration, en die wachttijd is kort genoeg.
+			, null_u);
 		}
 	}
 
