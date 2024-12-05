@@ -4,13 +4,13 @@ Template ReadMergeExports_OV_perType_T
 	parameter<string> Dest;
 	//
 	
-	container Read := 
+	container Read_Regions := 
 		for_each_ne(
 			Advanced/Regio/name
 			, 'Templates/ReadExport_OV_perTime_T('+quote(Export_CombinationTypes)+','+quote(Advanced/Regio/name)+','+quote(Dest)+')'
 		);
 		
-	container Merge :=
+	container Merge_Regions :=
 		for_each_ne(
 			 Advanced/MeasureMoments/name
 			, 'Templates/Merge_Regions_OV_T('+quote(Export_CombinationTypes)+','+quote( Advanced/MeasureMoments/name)+','+quote(Dest)+')'
@@ -18,4 +18,57 @@ Template ReadMergeExports_OV_perType_T
 	{
 		parameter<string>   OUTPUT_Merge_Regions  := =AsList(Advanced/MeasureMoments/Name+'/LongFormat/File_fullOD',' + ');
 	}
+	
+	container Read_Times  := Templates/ReadExport_OV_perTime_T(Export_CombinationTypes,'All',Dest);
+	container Merge_Times := Merge_Times_OV_T(Export_CombinationTypes,Dest);
+	
+	
+	
+	
+	Template Merge_Times_OV_T
+	{
+		parameter<string> Export_CombinationTypes;
+		// parameter<string> Time;	
+		parameter<string> Dest_str;
+		//
+		
+		container per_Time :=
+			for_each_nedv(
+				Advanced/MeasureMoments/Name
+				, 'Read_Times/PerTime/'+Advanced/MeasureMoments/Name+'/data/Traveltime_m_'+Advanced/MeasureMoments/Name+'[0u64]'
+				, void
+				, string
+			);
+		
+		unit<uint32> Merged := ='union_unit('+AsItemList('Read/'+Advanced/Regio/name+'/PerTime/'+Time+'/domain')+')'
+		{
+			attribute<string>  OrgName    := ='union_data(.,'+AsItemList('Read/'+Advanced/Regio/name+'/PerTime/'+Time+'/data/OrgName')+')';
+			attribute<string>  DestName   := ='union_data(.,'+AsItemList('Read/'+Advanced/Regio/name+'/PerTime/'+Time+'/data/DestName')+')';
+			attribute<min_f>   Traveltime := ='union_data(.,'+AsItemList('Read/'+Advanced/Regio/name+'/PerTime/'+Time+'/data/Traveltime')+')';
+			attribute<string>  ModeUsed   := ='union_data(.,'+AsItemList('Read/'+Advanced/Regio/name+'/PerTime/'+Time+'/data/ModeUsed')+')';
+			attribute<string>  Price      := ='union_data(.,'+AsItemList('Read/'+Advanced/Regio/name+'/PerTime/'+Time+'/data/Price')+')';
+			attribute<string>  Label      := OrgName +'_'+DestName, DialogType = "LabelText";
+		}
+		
+		container LongFormat
+		{
+			attribute<string>  BodyLines_fullOD_wPrijs      (Merged) := Merged/OrgName + ';' + Merged/DestName + ';' + string(Merged/Traveltime) + ';' + Merged/ModeUsed + ';' + Merged/Price;
+			parameter<string>  File_fullOD_wPrijs                    := 'OrgName;DestName;Traveltime_m_'+Time+';ModeUsed_'+Time+';Price_'+Time+'\n'+AsList(BodyLines_fullOD_wPrijs, '\n')
+																			, StorageName = "= '%LocalDataProjDir%/Output/Traveltime_Long_'+Export_CombinationTypes+''+fileNameSuffix +'.csv'", StorageType = "str";
+			attribute<string>  BodyLines_fullOD_woPrijs     (Merged) := Merged/OrgName + ';' + Merged/DestName + ';' + string(Merged/Traveltime) + ';' + Merged/ModeUsed;
+			parameter<string>  File_fullOD_woPrijs                   := 'OrgName;DestName;Traveltime_m_'+Time+';ModeUsed_'+Time+'\n'+AsList(BodyLines_fullOD_woPrijs, '\n')
+																			, StorageName = "= '%LocalDataProjDir%/Output/Traveltime_Long_'+Export_CombinationTypes+''+fileNameSuffix +'.csv'", StorageType = "str";
+																			
+			parameter<string>  File_fullOD                           := =ModelParameters/Add_OV_PriceInformation ? 'File_fullOD_wPrijs' : 'File_fullOD_woPrijs';
+		}
+		
+		parameter<string> Export_filename       := Advanced/fileNamePrefix+'Traveltime_Long_'+Export_CombinationTypes+''+fileNameSuffix+'.csv';
+		parameter<string> fileNameSuffix :=  
+			'_' + Analysis_Date + 
+			'_' + Advanced/Arrival_or_Departure_at_time + 
+			'_' + Time + 
+			'_ORG-' + Orgset + 
+			'_DEST-'   + Dest_str;
+	}
+	
 }
