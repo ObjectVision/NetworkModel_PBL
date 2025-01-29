@@ -1,65 +1,26 @@
-container StudyAreaFeeds : using = "LoadFeeds"
+container RelevantSelection : using = "LoadFeeds"
+, Descr = "Subset of GTFS-schedule relevant for the analysis."
 {
-	// unit<uint32> Calendar:= ReadFSS/Calendar/read_domain/domain
-	// {
-		// attribute<string> monday                  := ReadFSS/Calendar/data/monday;
-		// attribute<string> tuesday                 := ReadFSS/Calendar/data/tuesday;
-		// attribute<string> wednesday               := ReadFSS/Calendar/data/wednesday;
-		// attribute<string> thursday                := ReadFSS/Calendar/data/thursday;
-		// attribute<string> friday                  := ReadFSS/Calendar/data/friday;
-		// attribute<string> saturday                := ReadFSS/Calendar/data/saturday;
-		// attribute<string> sunday                  := ReadFSS/Calendar/data/sunday;
-		// attribute<string> service_id              := ReadFSS/Calendar/data/service_id;
-		// attribute<uint32> nStartDate              := uint32(ReadFSS/Calendar/data/start_date);
-		// attribute<uint32> nEndDate                := uint32(ReadFSS/Calendar/data/end_date);
-		// attribute<bool>   Today_in_daterange      := uint32(ModelParameters/Analysis_date) >= nStartDate && uint32(ModelParameters/Analysis_date) <= nEndDate;
-		// attribute<bool>   Yesterday_in_daterange  := uint32(ModelParameters/Advanced/PrevDate) >= nStartDate && uint32(ModelParameters/Advanced/PrevDate) <= nEndDate;
-	// }
+	unit<uint8>  PrijsTabel               := OVprijzen/PrijsTabel;
+	unit<uint32> Modes                    := GTFS_Modes/Selectie;
+	unit<uint8>  Concessiegebied          := /SourceData/Infrastructuur/OVprijzen/Concessiegebieden;
 	
-	// unit<uint32> Calendar_dates := ReadFSS/Calendar_dates/read_domain/domain  
-	// , Descr = "Exceptions for the services defined in the calendar.txt."
-	// {
-		// attribute<uint32>   nDate       := uint32(ReadFSS/Calendar_dates/data/date), Descr = "Date when service exception occurs";
-		// attribute<uint32>   nType       := uint32(ReadFSS/Calendar_dates/data/exception_type), Descr = "exception_type = 1 -> Service has been added for the specified date; exception_type = 2 -> Service has been removed for the specified date.";
-		// attribute<Services> Services_rel := rlookup(ReadFSS/Calendar_dates/data/service_id, Services/Values), Descr = "Identifies a set of dates when a service exception occurs for one or more routes.";
-		// attribute<uint32>   Today       := uint32(uint32(ModelParameters/Analysis_date) = nDate);  
-		// attribute<uint32>   Yesterday   := uint32(uint32(ModelParameters/Advanced/PrevDate) = nDate);
-	// }
-	
-	unit<uint32> Routes := ReadFSS/Routes/read_domain/domain
-	, Descr = "Transit routes. A route is a group of trips that are displayed to riders as a single service."
+	unit<uint32> ScheduledSpaceTimeEvents := unique(ScheduledLinks/findUniqueSpaceTimeEvents/TimesOfStop)
+	, Descr = "aka SSTE"
 	{
-		attribute<string>   agency_id        := ReadFSS/Routes/data/agency_id;
-		attribute<string>   agency_name      := rjoin(agency_id, ReadFSS/agency/data/agency_id, ReadFSS/agency/data/agency_name);
-		attribute<Agencies> agency_rel      := rlookup(AsItemName(agency_name), Agencies/name);
-		attribute<string>   route_id         := ReadFSS/Routes/data/route_id;
-		attribute<string>   route_type       := ReadFSS/Routes/data/route_type;
-		// attribute<bool>	    nzl              := uint32(ReadFSS/Routes/data/route_short_name) = 52;
-		attribute<string>   route_long_name  := ReadFSS/Routes/data/route_long_name;
-		attribute<string>   route_short_name := ReadFSS/Routes/data/route_short_name;
+		attribute<Stops>    Stop_rel         := pointRow(Values)[Stops];
+		attribute<Time>     Time_rel         := pointCol(Values)[Time];
+		attribute<string>   Label           := Stops/Name[Stop_rel] + ' @ ' + Time/Label[Time_rel];
+		attribute<.>        FirstMoment     := min_index(Time_rel, Stop_rel)[Stop_rel];
+		attribute<.>        NextMoment      := Stop_rel[id(.)+1] = Stop_rel ? id(.) + 1 : FirstMoment;
+		attribute<bool>     points_unsorted := Values != sort(Values); // check to verify Values are orderd ascendingly (documented as such in online documentation)
+		attribute<uint32>   cumu_events_Stop:= cumulate(const(1,.,uint32), Stop_rel) - 1;
+		attribute<upoint>   unique_id       := point_xy(cumu_events_Stop, Stop_rel, upoint);
 		
-		attribute<string>   route_name      := route_short_name+ ' ' +route_long_name;
-		attribute<string>   label           := route_name;
+		attribute<uint32>   aantal_tijden_per_stop := pcount(Stop_rel)[Stop_rel];
 	}
-
-	// unit<uint32> Shapes := ReadFSS/Shapes/read_domain/domain
-	// , Descr = "Rules for mapping vehicle travel paths, sometimes referred to as route alignments."
-	// {
-		// attribute<uint32>  shape_id                      := uint32(ReadFSS/Shapes/data/shape_id);
-		// attribute<uint32>  shape_pt_sequence             := uint32(ReadFSS/Shapes/data/shape_pt_sequence);
-		// attribute<float32> shape_pt_lat                  := float32(ReadFSS/Shapes/data/shape_pt_lat);
-		// attribute<float32> shape_pt_lon                  := float32(ReadFSS/Shapes/data/shape_pt_lon);
-		// attribute<uint32>  shape_dist_traveled_cum       := uint32(ReadFSS/Shapes/data/shape_dist_traveled);
-		
-		// attribute<uint32>  shape_dist_traveled_cum_prev  := shape_dist_traveled_cum[sub_or_null(id(.),1)];
-		// attribute<uint32>  shape_id_prev                 := shape_id[sub_or_null(id(.),1)];
-		// attribute<uint32>  shape_dist_traveled_increm    := shape_id == shape_id_prev ? sub_or_null(shape_dist_traveled_cum, shape_dist_traveled_cum_prev) : 0;
-		// attribute<km>      real_length                   := value(shape_dist_traveled_increm, m)[km];
-		// attribute<dpoint>  point_wgs                     := point_xy(float64(shape_pt_lon), float64(shape_pt_lat), wgs84_base);
-		// attribute<rdc>     geometry                      := LatLongWgs842RD(point_wgs[fpoint], rdc);
-	// }
 	
-	unit<uint32> StopTimes := ReadFSS/Stop_times/read_domain/domain
+	unit<uint32> StopTimes := protoStopTimes
 	, Descr = "Times that a vehicle arrives at and departs from stops for each trip."
 	{
 		attribute<uint32>                  shape_id         := Trips/shape_id[Trip_rel];
@@ -94,41 +55,41 @@ container StudyAreaFeeds : using = "LoadFeeds"
 		// container departureTime := getTimes_T(StopTimes,ReadFSS/Stop_times/data/departure_time);
 		// container arrivalTime   := getTimes_T(StopTimes,ReadFSS/Stop_times/data/arrival_time);
 	
-		container Yesterday 
-		{
-			unit<uint32> Links := select_with_attr_by_org_rel(..,SelYesterday && !EndPoint)
-			{
-				attribute<rdc>    geometry (arc) := points2sequence(GenLines/Points,GenLines/Seq,GenLines/Ord);
-				attribute<Stops>  fromStop       := StopTimes/Stop_rel[org_rel];
-				attribute<Stops>  toStop         := StopTimes/Stop_rel[StopTimes/NextStopId[org_rel]];
-				attribute<Time>   depTime        := sub_or_null(departureTime/TimesVector/Time_rel[org_rel],(24*60*60));
-				attribute<Time>   arrTime        := sub_or_null(arrivalTime/TimesVector/Time_rel[StopTimes/NextStopId[org_rel]],(24*60*60));
-			}
+		// container Yesterday 
+		// {
+			// unit<uint32> Links := select_with_attr_by_org_rel(..,SelYesterday && !EndPoint)
+			// {
+				// attribute<rdc>    geometry (arc) := points2sequence(GenLines/Points,GenLines/Seq,GenLines/Ord);
+				// attribute<Stops>  fromStop       := StopTimes/Stop_rel[org_rel];
+				// attribute<Stops>  toStop         := StopTimes/Stop_rel[StopTimes/NextStopId[org_rel]];
+				// attribute<Time>   depTime        := sub_or_null(departureTime/TimesVector/Time_rel[org_rel],(24*60*60));
+				// attribute<Time>   arrTime        := sub_or_null(arrivalTime/TimesVector/Time_rel[StopTimes/NextStopId[org_rel]],(24*60*60));
+			// }
 			
-			unit<uint32> GenLines := union_unit(Links, Links)
-			{
-				attribute<rdc>    Points := union_data(., Links/FromPoint, Links/NextPoint);
-				attribute<Links>  Seq    := union_data(., id(Links), id(Links));
-				attribute<uint32> Ord    := union_data(., const(0,Links,uint32), const(1,Links,uint32));
-			}
-		}
-		container Today  
-		{
-			unit<uint32> Links := select_with_attr_by_org_rel(..,SelToday && !EndPoint)
-			{
-				attribute<rdc>    geometry (arc) := points2sequence(GenLines/Points,GenLines/Seq,GenLines/Ord);
-				attribute<Stops>  fromStop       := StopTimes/Stop_rel[org_rel];
-				attribute<Stops>  toStop         := StopTimes/Stop_rel[StopTimes/NextStopId[org_rel]];
-				attribute<Time>   depTime        := departureTime/TimesVector/Time_rel[org_rel];
-				attribute<Time>   arrTime        := arrivalTime/TimesVector/Time_rel[StopTimes/NextStopId[org_rel]];
-			}
-			unit<uint32> GenLines := union_unit(Links, Links)
-			{
-				attribute<rdc>    Points := union_data(., Links/FromPoint, Links/NextPoint);
-				attribute<Links>  Seq    := union_data(., id(Links), id(Links));
-				attribute<uint32> Ord    := union_data(., const(0,Links,uint32), const(1,Links,uint32));
-			}
-		}
+			// unit<uint32> GenLines := union_unit(Links, Links)
+			// {
+				// attribute<rdc>    Points := union_data(., Links/FromPoint, Links/NextPoint);
+				// attribute<Links>  Seq    := union_data(., id(Links), id(Links));
+				// attribute<uint32> Ord    := union_data(., const(0,Links,uint32), const(1,Links,uint32));
+			// }
+		// }
+		// container Today  
+		// {
+			// unit<uint32> Links := select_with_attr_by_org_rel(..,SelToday && !EndPoint)
+			// {
+				// attribute<rdc>    geometry (arc) := points2sequence(GenLines/Points,GenLines/Seq,GenLines/Ord);
+				// attribute<Stops>  fromStop       := StopTimes/Stop_rel[org_rel];
+				// attribute<Stops>  toStop         := StopTimes/Stop_rel[StopTimes/NextStopId[org_rel]];
+				// attribute<Time>   depTime        := departureTime/TimesVector/Time_rel[org_rel];
+				// attribute<Time>   arrTime        := arrivalTime/TimesVector/Time_rel[StopTimes/NextStopId[org_rel]];
+			// }
+			// unit<uint32> GenLines := union_unit(Links, Links)
+			// {
+				// attribute<rdc>    Points := union_data(., Links/FromPoint, Links/NextPoint);
+				// attribute<Links>  Seq    := union_data(., id(Links), id(Links));
+				// attribute<uint32> Ord    := union_data(., const(0,Links,uint32), const(1,Links,uint32));
+			// }
+		// }
 	}
 	
 	unit<uint32> Stops := select_with_org_rel_with_attr_by_cond(LoadFeeds/protoStops, LoadFeeds/protoStops/StopUsed)
@@ -150,17 +111,16 @@ container StudyAreaFeeds : using = "LoadFeeds"
 		// attribute<string>                    Trainstations_code       := Dist2_Trainstation  < ModelParameters/Advanced/DistanceTrainStationsSelection ? rjoin(geometry, uq_points/values, Define_Stopgroups_Trainstations/station_code) : '';
 		// attribute<string>                    IC_stations_code         := Dist2_ICtrainstation  < ModelParameters/Advanced/DistanceTrainStationsSelection ? rjoin(geometry, uq_points/values, Define_Stopgroups_ICstations/station_code) : '';
 		// attribute<OVprijzen/NS/NS_Stations>  NS_Stations_rel  := rlookup(lowercase(Trainstations_code), OVprijzen/NS/NS_Stations/code);
-		
+		attribute<Time>       FirstEvent            := min(ScheduledSpaceTimeEvents/Time_rel, ScheduledSpaceTimeEvents/Stop_rel);
+		attribute<Time>       LastEvent             := max(ScheduledSpaceTimeEvents/Time_rel, ScheduledSpaceTimeEvents/Stop_rel);
+		attribute<uint32>     TotalScheduledEvents  := pcount(ScheduledSpaceTimeEvents/Stop_rel);
+		// attribute<Places>     Place_rel             := rlookup(geometry, Places/geometry);
+
 		unit<uint32> uq_points := unique(geometry)
 		{
 			attribute<float32>  x           := PointCol(values);
 			attribute<float32>  y           := PointRow(values);
 		}
-		
-		// unit<uint32> IC_stations   := SourceData/Infrastructuur/Infrastructuur/IC_Stations/uq;
-		// unit<uint32> Trainstations := SourceData/Infrastructuur/Infrastructuur/Trainstations/uq;
-		// container Define_Stopgroups_ICstations    := Define_Stopgroups_T(IC_stations);
-		// container Define_Stopgroups_Trainstations := Define_Stopgroups_T(Trainstations);
 		
 		Template Define_Stopgroups_T
 		{
@@ -239,8 +199,8 @@ container StudyAreaFeeds : using = "LoadFeeds"
 	, Descr = ""
 	{
 		attribute<rdc>                     geometry (arc)  := union_data(., StopTimes/Yesterday/Links/geometry, StopTimes/Today/Links/geometry);
-		attribute<Stops>                   fromStop        := union_data(., StopTimes/Yesterday/Links/fromStop, StopTimes/Today/Links/fromStop);
-		attribute<Stops>                   toStop          := union_data(., StopTimes/Yesterday/Links/toStop, StopTimes/Today/Links/toStop);
+		attribute<Stops>                   FromStop_rel        := union_data(., StopTimes/Yesterday/Links/fromStop, StopTimes/Today/Links/fromStop);
+		attribute<Stops>                   ToStop_rel          := union_data(., StopTimes/Yesterday/Links/toStop, StopTimes/Today/Links/toStop);
 		attribute<Time>                    depTime         := union_data(., StopTimes/Yesterday/Links/depTime, StopTimes/Today/Links/depTime);
 		attribute<Time>                    arrTime         := union_data(., StopTimes/Yesterday/Links/arrTime, StopTimes/Today/Links/arrTime);
 		attribute<uint32>                  Trip_rel         := union_data(., StopTimes/Yesterday/Links/Trip_rel, StopTimes/Today/Links/Trip_rel);
@@ -250,13 +210,108 @@ container StudyAreaFeeds : using = "LoadFeeds"
 		attribute<string>                  RouteName_short := Trips/RouteName_short[Trip_rel];
 		attribute<Agencies>                Agency_rel      := Trips/Agency_rel[Trip_rel];
 		
-		attribute<uint32>                  feedId           := const(0, LoadFeeds/ScheduledLinks, uint32);
+		attribute<uint32>                  feedId           := const(0, .);
 		attribute<Stops>                   FromStop2         := rlookup(uni_fStopId, Stops/uni_StopId);
 		attribute<Stops>                   ToStop2           := rlookup(uni_tStopId, Stops/uni_StopId);
-		attribute<upoint>                  uni_fStopId      := point_xy(feedId, fromStop, upoint);
-		attribute<upoint>                  uni_tStopId      := point_xy(feedId, toStop, upoint);
+		attribute<upoint>                  uni_fStopId      := point_xy(feedId, FromStop_rel, upoint);
+		attribute<upoint>                  uni_tStopId      := point_xy(feedId, ToStop_rel, upoint);
 		attribute<AvailableModes>          avMode_id        := rlookup(Mode_rel, AvailableModes/Values);
+		
+		attribute<ScheduledSpaceTimeEvents> from_sst   := rlookup(point_xy(depTime, FromStop_rel, upoint), ScheduledSpaceTimeEvents/Values);
+		attribute<ScheduledSpaceTimeEvents> to_sst     := rlookup(point_xy(arrTime, ToStop_rel, upoint), ScheduledSpaceTimeEvents/Values);
+		attribute<s_f>                      Duration   := depTime <= arrTime 
+															? float32(sub_or_null(arrTime,depTime))[s_f]
+															: float32(sub_or_null(arrTime + #Time, depTime))[s_f];
+		attribute<string>                   Label  := 'Scheduled: ' + Time/Label[depTime] + ' @ ' + Stops/Name[FromStop_rel] + ' to ' + Time/Label[arrTime] + ' @ ' + Stops/Name[ToStop_rel];
+		
+		unit<uint32> findUniqueSpaceTimeEvents := union_unit(ScheduledLinks, ScheduledLinks)
+		{
+			attribute<upoint> timesOfStop  := union_data(., point_xy(ScheduledLinks/depTime, ScheduledLinks/FromStop_rel), point_xy(ScheduledLinks/arrTime, ScheduledLinks/ToStop_rel));
+			attribute<Time>   Time_rel      := pointCol(timesOfStop);
+		}
+		attribute<rdc>                     fromPoint       := first_point(geometry);
+		attribute<rdc>                     toPoint         := last_point(geometry);
+		// attribute<Places>                  FromPlace_rel   := rlookup(fromPoint, Places/geometry);
+		// attribute<Places>                  ToPlace_rel     := rlookup(toPoint, Places/geometry);
+		// attribute<Stops>                   FromStop_rel    := Places/Stop_rel[FromPlace_rel];
+		// attribute<Stops>                   ToStop_rel      := Places/Stop_rel[ToPlace_rel];
+		
+		attribute<Concessiegebied>         Start_Concessiegebied_rel      := point_in_polygon(Stops/geometry[FromStop_rel], Concessiegebied/geometry);
+		attribute<string>                  Mode_Agency_CG_Lijn_identifier := Modes/name[Mode_rel] +'_'+ Agencies/name[Agency_rel] +'_'+ Concessiegebied/name[Start_Concessiegebied_rel] + '_' + RouteName_short;
+		attribute<string>                  Mode_Agency_CG_identifier      := Modes/name[Mode_rel] +'_'+ Agencies/name[Agency_rel] +'_'+ Concessiegebied/name[Start_Concessiegebied_rel];
+		attribute<string>                  Mode_Agency_identifier         := Modes/name[Mode_rel] +'_'+ Agencies/name[Agency_rel];
+		
+		attribute<bool>                    IsForeign  := Agencies/IsForeign[Agency_rel];
+		attribute<bool>                    IsDomestic := NOT(IsForeign);
+		
+		attribute<PrijsTabel>    PrijsTabel_rel_initial        := rlookup(Mode_Agency_CG_Lijn_identifier, PrijsTabel/Mode_Agency_CG_Lijn_identifier);
+		attribute<PrijsTabel>    PrijsTabel_rel_augmented1     := rlookup(Mode_Agency_CG_identifier, PrijsTabel/Mode_Agency_CG_Lijn_identifier);
+		attribute<PrijsTabel>    PrijsTabel_rel_augmented2     := rlookup(Mode_Agency_identifier, PrijsTabel/Mode_Agency_CG_Lijn_identifier);
+		attribute<PrijsTabel>    PrijsTabel_rel_augmentation   := MakeDefined(PrijsTabel_rel_augmented1, PrijsTabel_rel_augmented2);
+		attribute<PrijsTabel>    PrijsTabel_rel_augmented_rev1 := rlookup(Mode_Agency_CG_identifier, PrijsTabel/Mode_Agency_CG_identifier);
+		attribute<PrijsTabel>    PrijsTabel_rel_augmented_rev2 := rlookup(Mode_Agency_identifier, PrijsTabel/Mode_Agency_identifier);
+		attribute<PrijsTabel>    PrijsTabel_rel_augmented_rev  := MakeDefined(PrijsTabel_rel_augmented_rev1, PrijsTabel_rel_augmented_rev2);
+		attribute<PrijsTabel>    PrijsTabel_rel_augmented      := MakeDefined(PrijsTabel_rel_augmentation, PrijsTabel_rel_augmented_rev);
+		attribute<PrijsTabel>    PrijsTabel_rel                := MakeDefined(PrijsTabel_rel_initial, PrijsTabel_rel_augmented);
+		
+		attribute<bool>          HasPriceRelation              := IsForeign || IsDefined(PrijsTabel_rel) && IsDomestic;
+		
+		
+		unit<uint32> HasNoPriceRelation := select_with_org_rel_with_attr_by_cond(.,NOT(HasPriceRelation))
+		{
+			attribute<rdc>                       geometry (arc)         := ../geometry[org_rel];
+			attribute<Agencies>                  Agency_rel             := ../Agency_rel[org_rel];
+			attribute<Modes>   Mode_rel               := ../Mode_rel[org_rel];
+		}
+		
 	}
+
+	
+	
+	unit<uint32> Routes := ReadFSS/Routes/read_domain/domain
+	, Descr = "Transit routes. A route is a group of trips that are displayed to riders as a single service."
+	{
+		attribute<string>   agency_id        := ReadFSS/Routes/data/agency_id;
+		attribute<string>   agency_name      := rjoin(agency_id, ReadFSS/agency/data/agency_id, ReadFSS/agency/data/agency_name);
+		attribute<Agencies> agency_rel      := rlookup(AsItemName(agency_name), Agencies/name);
+		attribute<string>   route_id         := ReadFSS/Routes/data/route_id;
+		attribute<string>   route_type       := ReadFSS/Routes/data/route_type;
+		// attribute<bool>	    nzl              := uint32(ReadFSS/Routes/data/route_short_name) = 52;
+		attribute<string>   route_long_name  := ReadFSS/Routes/data/route_long_name;
+		attribute<string>   route_short_name := ReadFSS/Routes/data/route_short_name;
+		
+		attribute<string>   route_name      := route_short_name+ ' ' +route_long_name;
+		attribute<string>   label           := route_name;
+	}
+	
+	unit<uint32> AvailableModes := unique(ScheduledLinks/Mode_rel)
+	{
+		attribute<string>  Name    := GTFS_Modes/Selectie/Name[Values];
+		// attribute<uint32>  NrLinks := pcount(Links/avMode_id);
+	}
+	
+		// unit<uint32> IC_stations   := SourceData/Infrastructuur/Infrastructuur/IC_Stations/uq;
+		// unit<uint32> Trainstations := SourceData/Infrastructuur/Infrastructuur/Trainstations/uq;
+		// container Define_Stopgroups_ICstations    := Define_Stopgroups_T(IC_stations);
+		// container Define_Stopgroups_Trainstations := Define_Stopgroups_T(Trainstations);
+
+	// unit<uint32> Shapes := ReadFSS/Shapes/read_domain/domain
+	// , Descr = "Rules for mapping vehicle travel paths, sometimes referred to as route alignments."
+	// {
+		// attribute<uint32>  shape_id                      := uint32(ReadFSS/Shapes/data/shape_id);
+		// attribute<uint32>  shape_pt_sequence             := uint32(ReadFSS/Shapes/data/shape_pt_sequence);
+		// attribute<float32> shape_pt_lat                  := float32(ReadFSS/Shapes/data/shape_pt_lat);
+		// attribute<float32> shape_pt_lon                  := float32(ReadFSS/Shapes/data/shape_pt_lon);
+		// attribute<uint32>  shape_dist_traveled_cum       := uint32(ReadFSS/Shapes/data/shape_dist_traveled);
+		
+		// attribute<uint32>  shape_dist_traveled_cum_prev  := shape_dist_traveled_cum[sub_or_null(id(.),1)];
+		// attribute<uint32>  shape_id_prev                 := shape_id[sub_or_null(id(.),1)];
+		// attribute<uint32>  shape_dist_traveled_increm    := shape_id == shape_id_prev ? sub_or_null(shape_dist_traveled_cum, shape_dist_traveled_cum_prev) : 0;
+		// attribute<km>      real_length                   := value(shape_dist_traveled_increm, m)[km];
+		// attribute<dpoint>  point_wgs                     := point_xy(float64(shape_pt_lon), float64(shape_pt_lat), wgs84_base);
+		// attribute<rdc>     geometry                      := LatLongWgs842RD(point_wgs[fpoint], rdc);
+	// }
+	
 
 	// unit<uint32> Services := unique(Trips/service_id)
 	// , Descr = ""
@@ -264,12 +319,6 @@ container StudyAreaFeeds : using = "LoadFeeds"
 		// attribute<uint32>  Today_exc     := sum(Calendar_dates/Today * Calendar_dates/nType, Calendar_dates/Services_rel);
 		// attribute<uint32>  Yesterday_exc := sum(Calendar_dates/Yesterday * Calendar_dates/nType, Calendar_dates/Services_rel);
 	// }
-	
-	unit<uint32> Trips_x_order_uq := unique(StopTimes/Trip_x_Ordinal) 
-	{
-		attribute<Trips>  trip_rel:= pointRow(Values)[Trips];
-		attribute<uint32> ord     := pointCol(Values);
-	}
 	
 	
 	// unit<uint32> Stops_ICstation := select_with_attr_by_org_rel(Stops,Stops/Dist2_ICtrainstation < ModelParameters/Advanced/DistanceTrainStationsSelection)
@@ -315,10 +364,32 @@ container StudyAreaFeeds : using = "LoadFeeds"
 		// attribute<uint32>   Stops_rel   := union_data(., Stops_Trainstation/Stops_rel, Stops_Metrostation/Stops_rel, Stops_Tramstation/Stops_rel);
 	// }
 	
-	unit<uint32> AvailableModes := unique(Links/Mode_rel)
-	{
-		attribute<string>  Name    := GTFS_Modes/Selectie/Name[Values];
-		attribute<uint32>  NrLinks := pcount(Links/avMode_id);
-	}
+	
+	// unit<uint32> Calendar:= ReadFSS/Calendar/read_domain/domain
+	// {
+		// attribute<string> monday                  := ReadFSS/Calendar/data/monday;
+		// attribute<string> tuesday                 := ReadFSS/Calendar/data/tuesday;
+		// attribute<string> wednesday               := ReadFSS/Calendar/data/wednesday;
+		// attribute<string> thursday                := ReadFSS/Calendar/data/thursday;
+		// attribute<string> friday                  := ReadFSS/Calendar/data/friday;
+		// attribute<string> saturday                := ReadFSS/Calendar/data/saturday;
+		// attribute<string> sunday                  := ReadFSS/Calendar/data/sunday;
+		// attribute<string> service_id              := ReadFSS/Calendar/data/service_id;
+		// attribute<uint32> nStartDate              := uint32(ReadFSS/Calendar/data/start_date);
+		// attribute<uint32> nEndDate                := uint32(ReadFSS/Calendar/data/end_date);
+		// attribute<bool>   Today_in_daterange      := uint32(ModelParameters/Analysis_date) >= nStartDate && uint32(ModelParameters/Analysis_date) <= nEndDate;
+		// attribute<bool>   Yesterday_in_daterange  := uint32(ModelParameters/Advanced/PrevDate) >= nStartDate && uint32(ModelParameters/Advanced/PrevDate) <= nEndDate;
+	// }
+	
+	// unit<uint32> Calendar_dates := ReadFSS/Calendar_dates/read_domain/domain  
+	// , Descr = "Exceptions for the services defined in the calendar.txt."
+	// {
+		// attribute<uint32>   nDate       := uint32(ReadFSS/Calendar_dates/data/date), Descr = "Date when service exception occurs";
+		// attribute<uint32>   nType       := uint32(ReadFSS/Calendar_dates/data/exception_type), Descr = "exception_type = 1 -> Service has been added for the specified date; exception_type = 2 -> Service has been removed for the specified date.";
+		// attribute<Services> Services_rel := rlookup(ReadFSS/Calendar_dates/data/service_id, Services/Values), Descr = "Identifies a set of dates when a service exception occurs for one or more routes.";
+		// attribute<uint32>   Today       := uint32(uint32(ModelParameters/Analysis_date) = nDate);  
+		// attribute<uint32>   Yesterday   := uint32(uint32(ModelParameters/Advanced/PrevDate) = nDate);
+	// }
+	
 	
 }

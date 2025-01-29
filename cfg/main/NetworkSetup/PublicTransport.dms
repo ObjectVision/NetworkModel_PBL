@@ -14,14 +14,15 @@ Template PublicTransport_T
 			// , float32
 		// );
 	
-	unit<uint32>        Static_net        := SourceData/Infrastructuur/GTFS/StaticNets/Static_net;
-	unit<uint32>        Stops             := SourceData/Infrastructuur/GTFS/StaticNets/Stops
+	parameter<string>   PT_net_str        := 'SourceData/Infrastructuur/GTFS/PublicTransportNet/Result';
+	unit<uint32>        PT_net            := =PT_net_str; //indirection, want dan kun je die later gebruiken in een select_with_attr_by_cond waarbij alle attributen worden opgehaald.
+	unit<uint32>        Stops             := PT_net/Stops
 	{
-			attribute<rdc> geometry := SourceData/Infrastructuur/GTFS/StaticNets/Stops/geometry;
+			attribute<rdc> geometry := PT_net/Stops/geometry;
 	}
-	unit<uint32>        NodeSet           := SourceData/Infrastructuur/GTFS/StaticNets/Static_net/NodeSet;
-	unit<uint32>        Places            := SourceData/Infrastructuur/GTFS/StaticNets/allLinks/Places;
-	unit<uint32>        Routes            := SourceData/Infrastructuur/GTFS/StaticNets/Routes;
+	unit<uint32>        NodeSet           := PT_net/NodeSet;
+	unit<uint32>        Places            := PT_net/Places;
+	unit<uint32>        Routes            := PT_net/Routes;
 	unit<uint32>        NS_Stations       := SourceData/Infrastructuur/OVprijzen/NS/NS_Stations;
 	unit<uint32>        Modes             := GTFS_Modes/Selectie;
 	unit<uint8>         PrijsTabel        := SourceData/Infrastructuur/OVprijzen/PrijsTabel;
@@ -142,24 +143,26 @@ Template PublicTransport_T
 
 	container CreateODs
 	{
-		unit<uint32> StaticNet_subset_debug := Static_net
+		// append PTnet, voor en na transport, wachttijd thuis (waarin duration parameter afhankelijk is)
+	
+		unit<uint32> PTnet_subset_debug := =PT_net_str
 		{
 			attribute<bool>   IsSub_from := FromTime >= inTime ;
-			attribute<bool>   IsSub_to   := ToTime   < (inTime + (convert(ModelParameters/MaxOVTime, s_f)[Time] * 2));
-			attribute<bool>   IsSub_dur  := duration <= convert(ModelParameters/MaxOVTime , s_f) * 2f;
+			attribute<bool>   IsSub_to   := ToTime   < (inTime + (convert(ModelParameters/MaxTravelTime, s_f)[Time]));
+			attribute<bool>   IsSub_dur  := duration <= convert(ModelParameters/MaxTravelTime , s_f);
 		}
 	
-		unit<uint32> StaticNet_subset := select_with_attr_by_cond(SourceData/Infrastructuur/GTFS/StaticNets/Static_net, StaticNet_subset_debug/IsSub_from && StaticNet_subset_debug/IsSub_to && StaticNet_subset_debug/IsSub_dur);
+		unit<uint32> PTnet_subset := ='select_with_attr_by_cond('+PT_net_str+', PTnet_subset_debug/IsSub_from && PTnet_subset_debug/IsSub_to && PTnet_subset_debug/IsSub_dur)';
 		
 		//ad hoc debug
-		// unit<uint32> write_StaticNet_subset := select_with_attr_by_cond(SourceData/Infrastructuur/GTFS/StaticNets/Static_net, StaticNet_subset_debug/IsSub_from && StaticNet_subset_debug/IsSub_to && StaticNet_subset_debug/IsSub_dur)
-		// , StorageName = "%LocalDataProjDir%/Adhoc/StaticNet.fss";
-		// unit<uint32> read_StaticNet_subset
-		// : StorageName = "%LocalDataProjDir%/Adhoc/StaticNet.fss"
+		// unit<uint32> write_PTnet_subset := select_with_attr_by_cond(PT_net, PTnet_subset_debug/IsSub_from && PTnet_subset_debug/IsSub_to && PTnet_subset_debug/IsSub_dur)
+		// , StorageName = "%LocalDataProjDir%/Adhoc/PTnet.fss";
+		// unit<uint32> read_PTnet_subset
+		// : StorageName = "%LocalDataProjDir%/Adhoc/PTnet.fss"
 		// {
 			// attribute<rdc>                     geometry (arc);
-			// attribute<SourceData/Infrastructuur/GTFS/StaticNets/AllPlaces>    FromPlace;
-			// attribute<SourceData/Infrastructuur/GTFS/StaticNets/AllPlaces>    ToPlace;
+			// attribute<PT_net/Places>           FromPlace_rel;
+			// attribute<PT_net/Places>           ToPlace_rel;
 			// attribute<Time>                    FromTime;
 			// attribute<Time>                    toTime;
 			// attribute<s_f>                     Duration;
@@ -167,7 +170,7 @@ Template PublicTransport_T
 			// attribute<NodeSet>                 F2;
 			// attribute<km>                      Length;
 		// }
-		// unit<uint32> StaticNet_subset := read_StaticNet_subset;
+		// unit<uint32> PTnet_subset := read_StaticNet_subset;
 	
 		//// CREATE OD FSS ////
 		
@@ -234,7 +237,7 @@ Template PublicTransport_T
 		}		
 		
 		//singles
-		container OD_traveltime_W_OV_W     := OD_Traveltime_single_T('W','W');
+		container OD_traveltime_W_OV_W     := OD_Traveltime_single_T('Walking','Walking');
 		container OD_traveltime_B_OV_W     := OD_Traveltime_single_T('B','W');
 		container OD_traveltime_B_OV_B     := OD_Traveltime_single_T('B','B');
 		container OD_traveltime_B_T_OV_B   := OD_Traveltime_single_T('B_T','B');
@@ -254,19 +257,21 @@ Template PublicTransport_T
 			
 			parameter<string> name := voortransport+'_OV_'+natransport;
 			
-			container Org2Stop     := ='TransitionTypes/Org2Stop_'+voortransport;
-			container Stop2Dest    := ='TransitionTypes/Stop2Dest_'+natransport;
+			// container Org2Stop     := ='TransitionTypes/Org2Stop_'+voortransport;
+			// container Stop2Dest     := ='TransitionTypes/Stop2Dest_'+natransport;
+			container Org2Stop      := ='TimeInvariantConnections/Org2Stop_'+voortransport+'/Sparse_uitwerking/AB';
+			container Stop2Dest     := ='TimeInvariantConnections/Stop2Dest_'+natransport+'/Sparse_uitwerking/AB';
 			
 			unit<uint64> OD_src := 
 				impedance_matrix_od64('directed;startPoint(Node_rel,impedance,OrgZone_rel);endPoint(Node_rel,impedance,DstZone_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel,LinkSet'
-					, StaticNet_subset/Duration
-					, StaticNet_subset/F1
-					, StaticNet_subset/F2
+					, PTnet_subset/Duration
+					, PTnet_subset/F1
+					, PTnet_subset/F2
 					
 					, Org2Stop/Transition/NodeRef_O2S , value(Org2Stop/Transition/Duration_withWaitingAtOrg,s_f), Org2Stop/Transition/Origin_rel     //sP node_rel, impedance, OrgZone_rel
 					, Stop2Dest/Transition/NodeRef_S2D, value(Stop2Dest/Transition/Duration,s_f)                , Stop2Dest/Transition/Dest_rel //eP node_rel, impedance, DstZone_rel
 					, convert(ModelParameters/MaxOVTime, s_f)
-					, StaticNet_subset/Length
+					, PTnet_subset/Length
 				)
 			{
 				attribute<Combine_OrgDest>  OD_nummer                                       := combine_data(Combine_OrgDest, OrgZone_rel, DstZone_rel);
