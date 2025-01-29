@@ -95,9 +95,10 @@ container LoadFeeds
 	{
 		// attribute<uint32>                  shape_id         := Trips/shape_id[protoTrip_rel];
 		attribute<protoTrips>              protoTrip_rel         := rlookup(ReadFSS/Stop_times/data/trip_id, protoTrips/trip_id);
-		attribute<bool>                    SelToday         := protoTrips/sel_today[protoTrip_rel];
-		attribute<bool>                    SelYesterday     := protoTrips/sel_yesterday[protoTrip_rel] && (Time/Day[departureTime/TimesVector/Time_rel] > 0);
-		attribute<protoStops>              protoStop_rel    := rlookup(ReadFSS/Stop_times/data/stop_id, protoStops/stop_id);
+		attribute<bool>                    SelToday          := protoTrips/sel_today[protoTrip_rel];
+		attribute<bool>                    SelYesterday      := protoTrips/sel_yesterday[protoTrip_rel] && (Time/Day[departureTime/TimesVector/Time_rel] > 0);
+		attribute<protoStops>              protoStop_rel     := rlookup(ReadFSS/Stop_times/data/stop_id, protoStops/stop_id);
+		attribute<protoStops>              NextprotoStop_rel := protoStop_rel[NextStopId];
 		// attribute<bool>                    InAnalysisPeriod  := protoStops/InAnalysisPeriod[protoStop_rel];
 		// attribute<bool>                    TripInStudyArea  := protoTrips/inStudyArea[protoTrip_rel];
 		
@@ -113,12 +114,12 @@ container LoadFeeds
 		
 		attribute<upoint>                  ThisStopUni      := point_xy(protoTrip_rel, ordered_ord, upoint);
 		attribute<upoint>                  NextStopUni      := point_xy(protoTrip_rel, ordered_ord+1, upoint);
-		attribute<upoint>                  PrevStopUni      := point_xy(protoTrip_rel, ordered_ord-1, upoint);
+		// attribute<upoint>                  PrevStopUni      := point_xy(protoTrip_rel, ordered_ord-1, upoint);
 		attribute<.>                       NextStopId       := rlookup(NextStopUni, ThisStopUni);
-		attribute<.>                       PrevStopId       := rlookup(PrevStopUni, ThisStopUni);
-		attribute<rdc>                     FromPoint        := protoStops/geometry[protoStop_rel];
-		attribute<rdc>                     NextPoint        := protoStops/geometry[protoStop_rel[NextStopId]];
-		attribute<rdc>                     PrevPoint        := protoStops/geometry[protoStop_rel[PrevStopId]];
+		// attribute<.>                       PrevStopId       := rlookup(PrevStopUni, ThisStopUni);
+		// attribute<rdc>                     FromPoint        := protoStops/geometry[protoStop_rel];
+		// attribute<rdc>                     NextPoint        := protoStops/geometry[protoStop_rel[NextStopId]];
+		// attribute<rdc>                     PrevPoint        := protoStops/geometry[protoStop_rel[PrevStopId]];
 		attribute<bool>                    EndPoint         := IsNull(NextStopId);
 		
 		container departureTime := Templates/GTFS_getTimes_T(.,ReadFSS/Stop_times/data/departure_time);
@@ -126,35 +127,41 @@ container LoadFeeds
 	
 		container Yesterday 
 		{
-			unit<uint32> Links := select_with_attr_by_org_rel(..,SelYesterday && !EndPoint)
+			unit<uint32> Links := select_with_org_rel(SelYesterday && !EndPoint)
 			{
-				attribute<rdc>    geometry (arc) := points2sequence(GenLines/Points,GenLines/Seq,GenLines/Ord);
-				attribute<protoStops>  fromStop       := .../protoStop_rel[org_rel];
-				attribute<protoStops>  toStop         := .../protoStop_rel[.../NextStopId[org_rel]];
-				attribute<Time>   depTime        := sub_or_null(departureTime/TimesVector/Time_rel[org_rel],(24*60*60));
-				attribute<Time>   arrTime        := sub_or_null(arrivalTime/TimesVector/Time_rel[.../NextStopId[org_rel]],(24*60*60));
+				attribute<rdc>         geometry     (arc) := points2sequence(GenLines/Points,GenLines/Seq,GenLines/Ord);
+				attribute<rdc>         fromPoint          := protoStops/geometry[protoStopTimes/protoStop_rel[org_rel]];
+				attribute<protoStops>  From_protoStop_rel := .../protoStop_rel[org_rel];
+				attribute<rdc>         toPoint            := protoStops/geometry[protoStopTimes/NextprotoStop_rel[org_rel]];
+				attribute<protoStops>  To_protoStop_rel   := .../protoStop_rel[.../NextStopId[org_rel]];
+				attribute<protoTrips>  protoTrip_rel      := .../protoTrip_rel[org_rel];
+				attribute<Time>        depTime            := sub_or_null(departureTime/TimesVector/Time_rel[org_rel],(24*60*60));
+				attribute<Time>        arrTime            := sub_or_null(arrivalTime/TimesVector/Time_rel[.../NextStopId[org_rel]],(24*60*60));
 			}
 			
 			unit<uint32> GenLines := union_unit(Links, Links)
 			{
-				attribute<rdc>    Points := union_data(., Links/FromPoint, Links/NextPoint);
+				attribute<rdc>    Points := union_data(., Links/FromPoint, Links/toPoint);
 				attribute<Links>  Seq    := union_data(., id(Links), id(Links));
 				attribute<uint32> Ord    := union_data(., const(0,Links,uint32), const(1,Links,uint32));
 			}
 		}
 		container Today  
 		{
-			unit<uint32> Links := select_with_attr_by_org_rel(..,SelToday && !EndPoint)
+			unit<uint32> Links := select_with_org_rel(SelToday && !EndPoint)
 			{
-				attribute<rdc>    geometry (arc) := points2sequence(GenLines/Points,GenLines/Seq,GenLines/Ord);
-				attribute<protoStops>  fromStop       := .../protoStop_rel[org_rel];
-				attribute<protoStops>  toStop         := .../protoStop_rel[.../NextStopId[org_rel]];
-				attribute<Time>   depTime        := departureTime/TimesVector/Time_rel[org_rel];
-				attribute<Time>   arrTime        := arrivalTime/TimesVector/Time_rel[.../NextStopId[org_rel]];
+				attribute<rdc>         geometry (arc) := points2sequence(GenLines/Points,GenLines/Seq,GenLines/Ord);
+				attribute<rdc>         fromPoint      := protoStops/geometry[protoStopTimes/protoStop_rel[org_rel]];
+				attribute<protoStops>  From_protoStop_rel := .../protoStop_rel[org_rel];
+				attribute<rdc>         toPoint        := protoStops/geometry[protoStopTimes/NextprotoStop_rel[org_rel]];
+				attribute<protoStops>  To_protoStop_rel   := .../protoStop_rel[.../NextStopId[org_rel]];
+				attribute<protoTrips>  protoTrip_rel      := .../protoTrip_rel[org_rel];
+				attribute<Time>        depTime        := departureTime/TimesVector/Time_rel[org_rel];
+				attribute<Time>        arrTime        := arrivalTime/TimesVector/Time_rel[.../NextStopId[org_rel]];
 			}
 			unit<uint32> GenLines := union_unit(Links, Links)
 			{
-				attribute<rdc>    Points := union_data(., Links/FromPoint, Links/NextPoint);
+				attribute<rdc>    Points := union_data(., Links/FromPoint, Links/toPoint);
 				attribute<Links>  Seq    := union_data(., id(Links), id(Links));
 				attribute<uint32> Ord    := union_data(., const(0,Links,uint32), const(1,Links,uint32));
 			}

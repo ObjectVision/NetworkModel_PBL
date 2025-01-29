@@ -5,21 +5,6 @@ container RelevantSelection : using = "LoadFeeds"
 	unit<uint32> Modes                    := GTFS_Modes/Selectie;
 	unit<uint8>  Concessiegebied          := /SourceData/Infrastructuur/OVprijzen/Concessiegebieden;
 	
-	unit<uint32> ScheduledSpaceTimeEvents := unique(ScheduledLinks/findUniqueSpaceTimeEvents/TimesOfStop)
-	, Descr = "aka SSTE"
-	{
-		attribute<Stops>    Stop_rel         := pointRow(Values)[Stops];
-		attribute<Time>     Time_rel         := pointCol(Values)[Time];
-		attribute<string>   Label           := Stops/Name[Stop_rel] + ' @ ' + Time/Label[Time_rel];
-		attribute<.>        FirstMoment     := min_index(Time_rel, Stop_rel)[Stop_rel];
-		attribute<.>        NextMoment      := Stop_rel[id(.)+1] = Stop_rel ? id(.) + 1 : FirstMoment;
-		attribute<bool>     points_unsorted := Values != sort(Values); // check to verify Values are orderd ascendingly (documented as such in online documentation)
-		attribute<uint32>   cumu_events_Stop:= cumulate(const(1,.,uint32), Stop_rel) - 1;
-		attribute<upoint>   unique_id       := point_xy(cumu_events_Stop, Stop_rel, upoint);
-		
-		attribute<uint32>   aantal_tijden_per_stop := pcount(Stop_rel)[Stop_rel];
-	}
-	
 	unit<uint32> StopTimes := protoStopTimes
 	, Descr = "Times that a vehicle arrives at and departs from stops for each trip."
 	{
@@ -27,7 +12,7 @@ container RelevantSelection : using = "LoadFeeds"
 		attribute<Trips>                   Trip_rel         := rlookup(ReadFSS/Stop_times/data/trip_id, Trips/trip_id);
 		// attribute<bool>                    SelToday         := Trips/sel_today[Trip_rel];
 		// attribute<bool>                    SelYesterday     := Trips/sel_yesterday[Trip_rel] && (Time/Day[departureTime/TimesVector/Time_rel] > 0);
-		attribute<protoStops>              protoStop_rel    := rlookup(ReadFSS/Stop_times/data/stop_id, protoStops/stop_id);
+		// attribute<protoStops>              protoStop_rel    := rlookup(ReadFSS/Stop_times/data/stop_id, protoStops/stop_id);
 		// attribute<bool>                    StopinStudyArea  := protoStops/inStudyArea[protoStop_rel];
 		// attribute<bool>                    TripInStudyArea  := Trips/inStudyArea[Trip_rel];
 		
@@ -35,22 +20,22 @@ container RelevantSelection : using = "LoadFeeds"
 		attribute<GTFS_Modes/Selectie>     Mode_perstop     := modus(Mode_rel, Stop_rel)[Stop_rel];
 		
 		attribute<string>                  stop_id          := ReadFSS/Stop_times/data/stop_id;
-		attribute<Stops>                   Stop_rel         := rlookup(ReadFSS/Stop_times/data/stop_id, Stops/stop_id);
+		attribute<Stops>                   Stop_rel         := rlookup(stop_id, Stops/stop_id);
 		attribute<uint32>                  Stop_Sequence    := uint32(ReadFSS/Stop_times/data/stop_sequence);
 		 
-		attribute<upoint>                  Trip_x_Ordinal   := point_xy(Stop_Sequence, Trip_rel, upoint);
-		attribute<Trips_x_order_uq>        txo_uq_rel       := rlookup(Trip_x_Ordinal, Trips_x_order_uq/Values);
-		attribute<uint32>                  ordered_ord      := txo_uq_rel - Trips/first_txo[Trip_rel];
+		// attribute<upoint>                  Trip_x_Ordinal   := point_xy(Stop_Sequence, Trip_rel, upoint);
+		// attribute<Trips_x_order_uq>        txo_uq_rel       := rlookup(Trip_x_Ordinal, Trips_x_order_uq/Values);
+		// attribute<uint32>                  ordered_ord      := txo_uq_rel - Trips/first_txo[Trip_rel];
 		
-		attribute<upoint>                  ThisStopUni      := point_xy(Trip_rel, ordered_ord, upoint);
-		attribute<upoint>                  NextStopUni      := point_xy(Trip_rel, ordered_ord+1, upoint);
-		attribute<upoint>                  PrevStopUni      := point_xy(Trip_rel, ordered_ord-1, upoint);
-		attribute<StopTimes>               NextStopId       := rlookup(NextStopUni, ThisStopUni);
-		attribute<StopTimes>               PrevStopId       := rlookup(PrevStopUni, ThisStopUni);
-		attribute<rdc>                     FromPoint        := Stops/geometry[Stop_rel];
-		attribute<rdc>                     NextPoint        := Stops/geometry[Stop_rel[NextStopId]];
-		attribute<rdc>                     PrevPoint        := Stops/geometry[Stop_rel[PrevStopId]];
-		attribute<bool>                    EndPoint         := IsNull(NextStopId);
+		// attribute<upoint>                  ThisStopUni      := point_xy(Trip_rel, ordered_ord, upoint);
+		// attribute<upoint>                  NextStopUni      := point_xy(Trip_rel, ordered_ord+1, upoint);
+		// attribute<upoint>                  PrevStopUni      := point_xy(Trip_rel, ordered_ord-1, upoint);
+		// attribute<StopTimes>               NextStopId       := rlookup(NextStopUni, ThisStopUni);
+		// attribute<StopTimes>               PrevStopId       := rlookup(PrevStopUni, ThisStopUni);
+		// attribute<rdc>                     FromPoint        := Stops/geometry[Stop_rel];
+		// attribute<rdc>                     NextPoint        := Stops/geometry[Stop_rel[NextStopId]];
+		// attribute<rdc>                     PrevPoint        := Stops/geometry[Stop_rel[PrevStopId]];
+		// attribute<bool>                    EndPoint         := IsNull(NextStopId);
 	}
 	
 	unit<uint32> Stops := select_with_org_rel_with_attr_by_cond(LoadFeeds/protoStops, LoadFeeds/protoStops/StopUsed)
@@ -72,9 +57,9 @@ container RelevantSelection : using = "LoadFeeds"
 		// attribute<string>                    Trainstations_code       := Dist2_Trainstation  < ModelParameters/Advanced/DistanceTrainStationsSelection ? rjoin(geometry, uq_points/values, Define_Stopgroups_Trainstations/station_code) : '';
 		// attribute<string>                    IC_stations_code         := Dist2_ICtrainstation  < ModelParameters/Advanced/DistanceTrainStationsSelection ? rjoin(geometry, uq_points/values, Define_Stopgroups_ICstations/station_code) : '';
 		// attribute<OVprijzen/NS/NS_Stations>  NS_Stations_rel  := rlookup(lowercase(Trainstations_code), OVprijzen/NS/NS_Stations/code);
-		attribute<Time>       FirstEvent            := min(ScheduledSpaceTimeEvents/Time_rel, ScheduledSpaceTimeEvents/Stop_rel);
-		attribute<Time>       LastEvent             := max(ScheduledSpaceTimeEvents/Time_rel, ScheduledSpaceTimeEvents/Stop_rel);
-		attribute<uint32>     TotalScheduledEvents  := pcount(ScheduledSpaceTimeEvents/Stop_rel);
+		// attribute<Time>       FirstEvent            := min(ScheduledSpaceTimeEvents/Time_rel, ScheduledSpaceTimeEvents/Stop_rel);
+		// attribute<Time>       LastEvent             := max(ScheduledSpaceTimeEvents/Time_rel, ScheduledSpaceTimeEvents/Stop_rel);
+		// attribute<uint32>     TotalScheduledEvents  := pcount(ScheduledSpaceTimeEvents/Stop_rel);
 		// attribute<Places>     Place_rel             := rlookup(geometry, Places/geometry);
 
 		unit<uint32> uq_points := unique(geometry)
@@ -156,42 +141,45 @@ container RelevantSelection : using = "LoadFeeds"
 		attribute<Trips_x_order_uq>        first_txo       := min_index(Trips_x_order_uq/ord, Trips_x_order_uq/trip_rel);
 	}
 	
-	unit<uint32> ScheduledLinks := union_unit(StopTimes/Yesterday/Links, StopTimes/Today/Links)
+	unit<uint32> ScheduledLinks := union_unit(protoStopTimes/Yesterday/Links, protoStopTimes/Today/Links)
 	, Descr = ""
 	{
-		attribute<rdc>                     geometry (arc)  := union_data(., StopTimes/Yesterday/Links/geometry, StopTimes/Today/Links/geometry);
-		attribute<Stops>                   FromStop_rel    := union_data(., StopTimes/Yesterday/Links/fromStop, StopTimes/Today/Links/fromStop);
-		attribute<Stops>                   ToStop_rel      := union_data(., StopTimes/Yesterday/Links/toStop, StopTimes/Today/Links/toStop);
-		attribute<Time>                    depTime         := union_data(., StopTimes/Yesterday/Links/depTime, StopTimes/Today/Links/depTime);
-		attribute<Time>                    arrTime         := union_data(., StopTimes/Yesterday/Links/arrTime, StopTimes/Today/Links/arrTime);
-		attribute<uint32>                  Trip_rel         := union_data(., StopTimes/Yesterday/Links/Trip_rel, StopTimes/Today/Links/Trip_rel);
+		attribute<rdc>                     geometry (arc)  := union_data(., protoStopTimes/Yesterday/Links/geometry, protoStopTimes/Today/Links/geometry);
+		// attribute<Stops>                   FromStop_rel    := union_data(., protoStopTimes/Yesterday/Links/fromStop, protoStopTimes/Today/Links/fromStop);
+		// attribute<Stops>                   ToStop_rel      := union_data(., protoStopTimes/Yesterday/Links/toStop, protoStopTimes/Today/Links/toStop);
+		attribute<Stops>                   FromStop_rel    := rlookup(union_data(., protoStopTimes/Yesterday/Links/From_protoStop_rel, protoStopTimes/Today/Links/From_protoStop_rel), Stops/org_rel);
+		attribute<Stops>                   ToStop_rel      := rlookup(union_data(., protoStopTimes/Yesterday/Links/To_protoStop_rel, protoStopTimes/Today/Links/To_protoStop_rel), Stops/org_rel);
+		attribute<Time>                    depTime         := union_data(., protoStopTimes/Yesterday/Links/depTime, protoStopTimes/Today/Links/depTime);
+		attribute<Time>                    arrTime         := union_data(., protoStopTimes/Yesterday/Links/arrTime, protoStopTimes/Today/Links/arrTime);
+		attribute<Trips>                   Trip_rel        := union_data(., protoStopTimes/Yesterday/Links/protoTrip_rel, protoStopTimes/Today/Links/protoTrip_rel);
 		attribute<GTFS_Modes/Selectie> Mode_rel            := Trips/Mode_rel[Trip_rel];
 		attribute<string>                  RouteName       := Trips/RouteName[Trip_rel];
 		attribute<Routes>                  Route_rel       := Trips/Route_rel[Trip_rel];
 		attribute<string>                  RouteName_short := Trips/RouteName_short[Trip_rel];
 		attribute<Agencies>                Agency_rel      := Trips/Agency_rel[Trip_rel];
 		
-		attribute<uint32>                  feedId          := const(0, .);
-		attribute<Stops>                   FromStop2       := rlookup(uni_fStopId, Stops/uni_StopId);
-		attribute<Stops>                   ToStop2         := rlookup(uni_tStopId, Stops/uni_StopId);
-		attribute<upoint>                  uni_fStopId     := point_xy(feedId, FromStop_rel, upoint);
-		attribute<upoint>                  uni_tStopId     := point_xy(feedId, ToStop_rel, upoint);
-		attribute<AvailableModes>          avMode_id       := rlookup(Mode_rel, AvailableModes/Values);
+		// attribute<uint32>                  feedId          := const(0, .);
+		// attribute<Stops>                   FromStop2       := rlookup(uni_fStopId, Stops/uni_StopId);
+		// attribute<Stops>                   ToStop2         := rlookup(uni_tStopId, Stops/uni_StopId);
+		// attribute<upoint>                  uni_fStopId     := point_xy(feedId, FromStop_rel, upoint);
+		// attribute<upoint>                  uni_tStopId     := point_xy(feedId, ToStop_rel, upoint);
+		// attribute<AvailableModes>          avMode_id       := rlookup(Mode_rel, AvailableModes/Values);
 		
-		attribute<ScheduledSpaceTimeEvents> from_sst   := rlookup(point_xy(depTime, FromStop_rel, upoint), ScheduledSpaceTimeEvents/Values);
-		attribute<ScheduledSpaceTimeEvents> to_sst     := rlookup(point_xy(arrTime, ToStop_rel, upoint), ScheduledSpaceTimeEvents/Values);
+		// attribute<ScheduledSpaceTimeEvents> from_sst   := rlookup(point_xy(depTime, FromStop_rel, upoint), ScheduledSpaceTimeEvents/Values);
+		// attribute<ScheduledSpaceTimeEvents> to_sst     := rlookup(point_xy(arrTime, ToStop_rel, upoint), ScheduledSpaceTimeEvents/Values);
 		attribute<s_f>                      Duration   := depTime <= arrTime 
 															? float32(sub_or_null(arrTime,depTime))[s_f]
 															: float32(sub_or_null(arrTime + #Time, depTime))[s_f];
 		attribute<string>                   Label  := 'Scheduled: ' + Time/Label[depTime] + ' @ ' + Stops/Name[FromStop_rel] + ' to ' + Time/Label[arrTime] + ' @ ' + Stops/Name[ToStop_rel];
 		
-		unit<uint32> findUniqueSpaceTimeEvents := union_unit(ScheduledLinks, ScheduledLinks)
+		unit<uint32> findUniqueSpaceTimeEvents := union_unit(., .)
 		{
-			attribute<upoint> timesOfStop  := union_data(., point_xy(ScheduledLinks/depTime, ScheduledLinks/FromStop_rel), point_xy(ScheduledLinks/arrTime, ScheduledLinks/ToStop_rel));
+			attribute<upoint> timesOfStop   := union_data(., point_xy(../depTime, ../FromStop_rel), point_xy(../arrTime, ../ToStop_rel));
 			attribute<Time>   Time_rel      := pointCol(timesOfStop);
 		}
-		attribute<rdc>                     fromPoint       := first_point(geometry);
-		attribute<rdc>                     toPoint         := last_point(geometry);
+		
+		// attribute<rdc>                     fromPoint       := first_point(geometry);
+		// attribute<rdc>                     toPoint         := last_point(geometry);
 		// attribute<Places>                  FromPlace_rel   := rlookup(fromPoint, Places/geometry);
 		// attribute<Places>                  ToPlace_rel     := rlookup(toPoint, Places/geometry);
 		// attribute<Stops>                   FromStop_rel    := Places/Stop_rel[FromPlace_rel];
@@ -220,13 +208,27 @@ container RelevantSelection : using = "LoadFeeds"
 		
 		unit<uint32> HasNoPriceRelation := select_with_org_rel_with_attr_by_cond(.,NOT(HasPriceRelation))
 		{
-			attribute<rdc>                       geometry (arc)         := ../geometry[org_rel];
-			attribute<Agencies>                  Agency_rel             := ../Agency_rel[org_rel];
-			attribute<Modes>   Mode_rel               := ../Mode_rel[org_rel];
+			// attribute<rdc>                       geometry (arc)         := ../geometry[org_rel];
+			// attribute<Agencies>                  Agency_rel             := ../Agency_rel[org_rel];
+			// attribute<Modes>   Mode_rel               := ../Mode_rel[org_rel];
 		}
 		
 	}
 
+	unit<uint32> ScheduledSpaceTimeEvents := unique(ScheduledLinks/findUniqueSpaceTimeEvents/TimesOfStop)
+	, Descr = "aka SSTE"
+	{
+		attribute<Stops>    Stop_rel         := pointRow(Values)[Stops];
+		attribute<Time>     Time_rel         := pointCol(Values)[Time];
+		attribute<string>   Label           := Stops/Name[Stop_rel] + ' @ ' + Time/Label[Time_rel];
+		// attribute<.>        FirstMoment     := min_index(Time_rel, Stop_rel)[Stop_rel];
+		// attribute<.>        NextMoment      := Stop_rel[id(.)+1] = Stop_rel ? id(.) + 1 : FirstMoment;
+		// attribute<bool>     points_unsorted := Values != sort(Values); // check to verify Values are orderd ascendingly (documented as such in online documentation)
+		attribute<uint32>   cumu_events_Stop:= cumulate(const(1,.,uint32), Stop_rel) - 1;
+		attribute<upoint>   unique_id       := point_xy(cumu_events_Stop, Stop_rel, upoint);
+		
+		attribute<uint32>   aantal_tijden_per_stop := pcount(Stop_rel)[Stop_rel];
+	}
 	
 	
 	unit<uint32> Routes := ReadFSS/Routes/read_domain/domain
