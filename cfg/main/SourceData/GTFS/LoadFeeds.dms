@@ -61,17 +61,12 @@ container LoadFeeds
 	{
 		attribute<float64>           stop_lat            := float64(ReadFSS/Stops/data/stop_lat);
 		attribute<float64>           stop_lon            := float64(ReadFSS/Stops/data/stop_lon);
-		// attribute<float64>           wheelchair_boarding := float64(ReadFSS/Stops/data/wheelchair_boarding);
 		attribute<string>            stop_id             := ReadFSS/Stops/data/stop_id;
 		attribute<string>            stop_name           := ReadFSS/Stops/data/stop_name;
 		attribute<dpoint>            point_wgs           := point_xy(float64(stop_lon), float64(stop_lat), wgs84_base);
 		attribute<rdc>               geometry            := LatLongWgs842RD(point_wgs[fpoint], rdc);
 		attribute<string>            Label               := stop_name;
 		attribute<bool>              StopUsed            := (any(protoStopTimes/SelToday, protoStopTimes/protoStop_rel) || any(protoStopTimes/SelYesterday, protoStopTimes/protoStop_rel));
-		// attribute<selection_polygon> StudyArea_rel       := point_in_polygon(geometry, selection_polygon/polygon);
-		// attribute<bool>              InStudyArea         := IsDefined(StudyArea_rel);
-		// attribute<bool>              InAnalysisPeriod     := any(protoStopTimes/SelToday || protoStopTimes/SelYesterday, protoStopTimes/protoStop_rel);
-		// attribute<bool>              TripInStudyArea     := any(protoStopTimes/TripInStudyArea && (protoStopTimes/SelToday || protoStopTimes/SelYesterday), protoStopTimes/protoStop_rel);
 	}
 	
 	unit<uint32> protoTrips  := ReadFSS/Trips/read_domain/domain
@@ -93,33 +88,19 @@ container LoadFeeds
 	unit<uint32> protoStopTimes := ReadFSS/Stop_times/read_domain/domain //StopTimes
 	, Descr = "Times that a vehicle arrives at and departs from stops for each trip."
 	{
-		// attribute<uint32>                  shape_id         := Trips/shape_id[protoTrip_rel];
 		attribute<protoTrips>              protoTrip_rel         := rlookup(ReadFSS/Stop_times/data/trip_id, protoTrips/trip_id);
 		attribute<bool>                    SelToday          := protoTrips/sel_today[protoTrip_rel];
 		attribute<bool>                    SelYesterday      := protoTrips/sel_yesterday[protoTrip_rel] && (Time/Day[departureTime/TimesVector/Time_rel] > 0);
 		attribute<protoStops>              protoStop_rel     := rlookup(ReadFSS/Stop_times/data/stop_id, protoStops/stop_id);
 		attribute<protoStops>              NextprotoStop_rel := protoStop_rel[NextStopId];
-		// attribute<bool>                    InAnalysisPeriod  := protoStops/InAnalysisPeriod[protoStop_rel];
-		// attribute<bool>                    TripInStudyArea  := protoTrips/inStudyArea[protoTrip_rel];
-		
-		// attribute<GTFS_Modes/Selectie>     Mode_rel         := Trips/Mode_rel[protoTrip_rel];
-		// attribute<GTFS_Modes/Selectie>     Mode_perstop     := modus(Mode_rel, Stop_rel)[Stop_rel];
-		
-		// attribute<string>                  stop_id          := ReadFSS/Stop_times/data/stop_id;
-		attribute<uint32>                  Stop_Sequence    := uint32(ReadFSS/Stop_times/data/stop_sequence);
+		attribute<uint32>                  Stop_Sequence     := uint32(ReadFSS/Stop_times/data/stop_sequence);
 		 
 		attribute<upoint>                  Trip_x_Ordinal   := point_xy(Stop_Sequence, protoTrip_rel, upoint);
 		attribute<Trips_x_order_uq>        txo_uq_rel       := rlookup(Trip_x_Ordinal, Trips_x_order_uq/Values);
 		attribute<uint32>                  ordered_ord      := txo_uq_rel - protoTrips/first_txo[protoTrip_rel];
-		
 		attribute<upoint>                  ThisStopUni      := point_xy(protoTrip_rel, ordered_ord, upoint);
 		attribute<upoint>                  NextStopUni      := point_xy(protoTrip_rel, ordered_ord+1, upoint);
-		// attribute<upoint>                  PrevStopUni      := point_xy(protoTrip_rel, ordered_ord-1, upoint);
 		attribute<.>                       NextStopId       := rlookup(NextStopUni, ThisStopUni);
-		// attribute<.>                       PrevStopId       := rlookup(PrevStopUni, ThisStopUni);
-		// attribute<rdc>                     FromPoint        := protoStops/geometry[protoStop_rel];
-		// attribute<rdc>                     NextPoint        := protoStops/geometry[protoStop_rel[NextStopId]];
-		// attribute<rdc>                     PrevPoint        := protoStops/geometry[protoStop_rel[PrevStopId]];
 		attribute<bool>                    EndPoint         := IsNull(NextStopId);
 		
 		container departureTime := Templates/GTFS_getTimes_T(.,ReadFSS/Stop_times/data/departure_time);
@@ -129,10 +110,10 @@ container LoadFeeds
 		{
 			unit<uint32> Links := select_with_org_rel(SelYesterday && !EndPoint)
 			{
-				attribute<rdc>         geometry     (arc) := points2sequence(GenLines/Points,GenLines/Seq,GenLines/Ord);
+				attribute<rdc>         geometry     (arc) := points2sequence(GenLines/Points,GenLines/Sequence_rel,GenLines/Ordinal);
 				attribute<rdc>         fromPoint          := protoStops/geometry[protoStopTimes/protoStop_rel[org_rel]];
 				attribute<protoStops>  From_protoStop_rel := .../protoStop_rel[org_rel];
-				attribute<rdc>         toPoint            := protoStops/geometry[protoStopTimes/NextprotoStop_rel[org_rel]];
+				attribute<rdc>         ToPoint            := protoStops/geometry[protoStopTimes/NextprotoStop_rel[org_rel]];
 				attribute<protoStops>  To_protoStop_rel   := .../protoStop_rel[.../NextStopId[org_rel]];
 				attribute<protoTrips>  protoTrip_rel      := .../protoTrip_rel[org_rel];
 				attribute<Time>        depTime            := sub_or_null(departureTime/TimesVector/Time_rel[org_rel],(24*60*60));
@@ -141,29 +122,29 @@ container LoadFeeds
 			
 			unit<uint32> GenLines := union_unit(Links, Links)
 			{
-				attribute<rdc>    Points := union_data(., Links/FromPoint, Links/toPoint);
-				attribute<Links>  Seq    := union_data(., id(Links), id(Links));
-				attribute<uint32> Ord    := union_data(., const(0,Links,uint32), const(1,Links,uint32));
+				attribute<rdc>    Points          := union_data(., Links/FromPoint, Links/toPoint);
+				attribute<Links>  Sequence_rel    := union_data(., id(Links), id(Links));
+				attribute<uint32> Ordinal         := union_data(., const(0,Links,uint32), const(1,Links,uint32));
 			}
 		}
 		container Today  
 		{
 			unit<uint32> Links := select_with_org_rel(SelToday && !EndPoint)
 			{
-				attribute<rdc>         geometry (arc) := points2sequence(GenLines/Points,GenLines/Seq,GenLines/Ord);
-				attribute<rdc>         fromPoint      := protoStops/geometry[protoStopTimes/protoStop_rel[org_rel]];
+				attribute<rdc>         geometry     (arc) := points2sequence(GenLines/Points,GenLines/Sequence_rel,GenLines/Ordinal);
+				attribute<rdc>         fromPoint          := protoStops/geometry[protoStopTimes/protoStop_rel[org_rel]];
 				attribute<protoStops>  From_protoStop_rel := .../protoStop_rel[org_rel];
-				attribute<rdc>         toPoint        := protoStops/geometry[protoStopTimes/NextprotoStop_rel[org_rel]];
+				attribute<rdc>         ToPoint            := protoStops/geometry[protoStopTimes/NextprotoStop_rel[org_rel]];
 				attribute<protoStops>  To_protoStop_rel   := .../protoStop_rel[.../NextStopId[org_rel]];
 				attribute<protoTrips>  protoTrip_rel      := .../protoTrip_rel[org_rel];
-				attribute<Time>        depTime        := departureTime/TimesVector/Time_rel[org_rel];
-				attribute<Time>        arrTime        := arrivalTime/TimesVector/Time_rel[.../NextStopId[org_rel]];
+				attribute<Time>        depTime            := departureTime/TimesVector/Time_rel[org_rel];
+				attribute<Time>        arrTime            := arrivalTime/TimesVector/Time_rel[.../NextStopId[org_rel]];
 			}
 			unit<uint32> GenLines := union_unit(Links, Links)
 			{
-				attribute<rdc>    Points := union_data(., Links/FromPoint, Links/toPoint);
-				attribute<Links>  Seq    := union_data(., id(Links), id(Links));
-				attribute<uint32> Ord    := union_data(., const(0,Links,uint32), const(1,Links,uint32));
+				attribute<rdc>    Points          := union_data(., Links/FromPoint, Links/ToPoint);
+				attribute<Links>  Sequence_rel    := union_data(., id(Links), id(Links));
+				attribute<uint32> Ordinal         := union_data(., const(0,Links,uint32), const(1,Links,uint32));
 			}
 		}
 	}

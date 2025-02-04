@@ -14,164 +14,296 @@ Template PublicTransport_T
 			// , float32
 		// );
 	
-	parameter<string>   PT_net_str        := 'SourceData/Infrastructuur/GTFS/PublicTransportNet';
-	unit<uint32>        PT_net            := =PT_net_str; //indirection, want dan kun je die later gebruiken in een select_with_attr_by_cond waarbij alle attributen worden opgehaald.
-	unit<uint32>        Stops             := PT_net/Stops
-	{
-			attribute<rdc> geometry := PT_net/Stops/geometry;
-	}
-	unit<uint32>        NodeSet           := PT_net/NodeSet;
-	unit<uint32>        Places            := PT_net/Places;
 	unit<uint32>        Routes            := PT_net/Routes;
+	unit<uint32>        NodeSet           := PTnet_RelevantWindow/NodeSet;
 	unit<uint32>        NS_Stations       := SourceData/Infrastructuur/OVprijzen/NS/NS_Stations;
 	unit<uint32>        Modes             := GTFS_Modes/Selectie;
 	unit<uint8>         PrijsTabel        := SourceData/Infrastructuur/OVprijzen/PrijsTabel;
 	unit<uint32>        Provincie         := SourceData/RegioIndelingen/Provincie;
 	unit<uint8>         Concessiegebied   := SourceData/RegioIndelingen/Concessiegebied;
-	
-	// unit<uint32>        Org2Stop_B_Tic    := ODConnections/CreateODconnections/Sparse_uitwerking_Org2StopIC_B/AB;
-	// unit<uint32>        Org2Stop_B_T      := ODConnections/CreateODconnections/Sparse_uitwerking_Org2StopT_B/AB;
-	// unit<uint32>        Org2Stop_B_TM     := ODConnections/CreateODconnections/Sparse_uitwerking_Org2StopTM_B/AB;
-	// unit<uint32>        Org2Stop_B_TMT    := ODConnections/CreateODconnections/Sparse_uitwerking_Org2StopTMT_B/AB;
-	// unit<uint32>        Org2Stop_W        := ODConnections/CreateODconnections/Sparse_uitwerking_Org2Stop_W/AB;
-	// unit<uint32>        Org2Stop_B        := ODConnections/CreateODconnections/Sparse_uitwerking_Org2Stop_B/AB;
-	// unit<uint32>        Stop2Dest_W       := ODConnections/CreateODconnections/Sparse_uitwerking_Stop2Dest_W/AB;
-	// unit<uint32>        Stop2Dest_B       := ODConnections/CreateODconnections/Sparse_uitwerking_Stop2Dest_B/AB;
-	
 	unit<uint64>        Combine_OrgDest   := combine_unit_uint64(Org, Dest);
-
-	// container TransitionTypes := 
-		// for_each_ne(
-			// ModelParameters/Advanced/TransitionType_list/Type
-			// , 'Transition_T(
-				// '+inTime_string+'/'+string(ModelParameters/Advanced/TransitionType_list/Type)+'
-				// , '+quote(ModelParameters/Advanced/TransitionType_list/Type)+'
-				// , '+quote(ModelParameters/Advanced/TransitionType_list/Type_shrt)+'
-				// , '+quote(ModelParameters/Advanced/TransitionType_list/Mode)+'
-				// , '+string(ModelParameters/Advanced/TransitionType_list/ModeMax)+'[min_f]
-				// , '+quote(ModelParameters/Advanced/TransitionType_list/OrgDest)+'
-			// )'
-		// );
 	
-	Template Transition_T
+	unit<uint32> Voortransport0 := TimeInvariantConnections/Org2Stops_Walking/Create_Routes/ODMatrix
 	{
-		unit<uint32>      OD_unit;
-		parameter<string> OD_unit_name;
-		parameter<string> Type_shrt;
-		parameter<string> Mode;
-		parameter<min_f>  ModeMax_min;
-		parameter<string> OrgDest;
-		///
-		parameter<Time>     ModeMax_sec := convert(ModeMax_min, s_f)[Time];
-		parameter<string>   Arrive_at_time_CalcStr     := replace('select_with_org_rel(UNIT/TPS_FromTime >= (inTime[Time] - convert(ModelParameters/MaxOVTime, s_f)[Time] - MM)
-																			&& UNIT/TPS_FromTime <= inTime[Time] 
-																			&& UNIT/TPS_FromTime <= inTime[Time] 
-																			&& UNIT/duration <= MM)'
-																				,'UNIT',OD_unit_name,'TPS',Type_shrt,'MM', string(ModeMax_sec));
-		
-		
-		parameter<string>   Departure_at_time_CalcStr  := replace('select_with_org_rel(UNIT/TPS_FromTime >= inTime[Time] 
-																			&& UNIT/TPS_ToTime >= inTime[Time] 
-																			&& UNIT/duration <= MM 
-																			&& UNIT/TPS_FromTime < (inTime[Time] + convert(ModelParameters/MaxOVTime, s_f)[Time] + MM))'
-																				,'UNIT',OD_unit_name,'TPS',Type_shrt,'MM', string(ModeMax_sec));
-		
-		
-		
-		parameter<string>   CalcStr  := ModelParameters/Advanced/Arrival_or_Departure_at_time == 'Arrival'
-																? Arrive_at_time_CalcStr
-																: Departure_at_time_CalcStr;
+		attribute<Places>  FromPlace_rel                      := =IsVoorTransport ? 'rlookup(FromPoint, Places/geometry)' : 'rlookup(ToPoint, Places/geometry)' ;
+		attribute<Places>  ToPlace_rel                        := =IsVoorTransport ? 'rlookup(ToPoint, Places/geometry)'   : 'rlookup(FromPoint, Places/geometry)';
 
-		unit<uint32> Transition := =CalcStr
-		{
-			attribute<Org>                        Origin_rel           := ='OD_unit/'+OrgDest+'_rel[org_rel]';
-			attribute<Dest>                       Dest_rel          := ='OD_unit/'+OrgDest+'_rel[org_rel]';
-			attribute<Stops>                      Stop_rel          := OD_unit/Stop_rel[org_rel];
-			attribute<Places>                     Place_rel         := OD_unit/Place_rel[org_rel];
-			attribute<rdc>                        geometry (arc)    := OD_unit/geometry[org_rel];
-			attribute<km>                         LengthKm          := OD_unit/LengthKm[org_rel];
-			attribute<Time>                       Duration          := Mode == 'Bike' ? OD_unit/Duration[org_rel] + convert(ModelParameters/FietsVoortransport_Penalty,s_f)[Time] : OD_unit/Duration[org_rel];
-			attribute<Time>                       FromTime          := ='OD_unit/'+Type_shrt+'_FromTime[org_rel]';
-			attribute<Time>                       toTime            := ='OD_unit/'+Type_shrt+'_ToTime[org_rel]';
-			attribute<string>                     Label             := OD_unit/Label[org_rel];
-			attribute<string>                     LabelText_ext     := ModelParameters/Advanced/WegingWachttijdThuisVoortransport == 1f && OrgDest == 'Org'
-																			? Label + ' ('+time/Label[FromTime]+' - '+time/Label[ToTime]+' and waiting at home from '+time/Label[InTime]+' to '+time/Label[FromTime]+')'
-																			: Label + ' ('+time/Label[FromTime]+' - '+time/Label[ToTime]+')';
-			attribute<upoint>                     MomentxPlace_O2S  := point_xy(toTime, Place_rel, upoint);
-			attribute<upoint>                     MomentxPlace_S2D  := point_xy(FromTime, Place_rel, upoint);
-			attribute<NodeSet>                    NodeRef_O2S       := rlookup(MomentxPlace_O2S, NodeSet/values);
-			attribute<NodeSet>                    NodeRef_S2D       := rlookup(MomentxPlace_S2D, NodeSet/values);
-			
-			// Omgaan met wachttijden via parameter instellingen:
-			// - WegingWachttijdThuisVoortransport (W): getal tussen 0 en 1. Hoe zwaar wil je de wachttijd laten wegen? 1=volledige wachttijd bij de duration optellen, 0=wachttijd telt niet helemaal niet mee.
-			// - OmitMaxWachttijdThuisVoortransportLinks (O): TURE or FALSE. Wil je links uit de analyse laten afvallen als je te lang moet wachten voor vertrek?
-			// - MaxWachttijdThuisVoortransport (M): getal in seconden. Hoelang mag iemand thuis wachten voor hij/zij vertrekt?
+	}
+	unit<uint32> Natransport0 := TimeInvariantConnections/Stops2Dest_Walking/Create_Routes/ODMatrix
+	{
+		attribute<Places>  FromPlace_rel                      := =IsVoorTransport ? 'rlookup(FromPoint, Places/geometry)' : 'rlookup(ToPoint, Places/geometry)' ;
+		attribute<Places>  ToPlace_rel                        := =IsVoorTransport ? 'rlookup(ToPoint, Places/geometry)'   : 'rlookup(FromPoint, Places/geometry)';
 
-			  // case( W=1, O=1, M=1, D+WT+24u )
-			  // case( W=1, O=1, M=0, D+WT )
-			  // case( W=1, O=0, M=0, D+WT )
-			  // case( W=1, O=0, M=1, D+WT )
-			  // case( W=0, O=1, M=1, D+24u )
-			  // case( W=0, O=1, M=0, D )
-			  // case( W=0, O=0, M=1, D )
-			  // case( W=0, O=0, M=0, D )
-			
-			  // case(    , O=1, M=1, D+24u )
-			  // case( W=1,    , M=0, D+WT )
-			  // else( D )
+	}
+	unit<uint32> Voortransport_subset_debug := join_equal_values_uint32(Voortransport0/ToPlace_rel, NodeSet/Place_rel) 
+	, Descr = "koppel eind-place looproute aan PT-netwerk"
+	{
+		attribute<string>                      Label             := Voortransport0/Label[OD_rel];
+		attribute<Places>                      FromPlace_rel     := Voortransport0/FromPlace_rel[OD_rel];
+		attribute<Places>                      ToPlace_rel       := X_rel;
+		attribute<Voortransport0>              OD_rel            := first_rel;
+		attribute<NodeSet>                     Node_rel          := second_rel;
+		attribute<c_Time_Places>               c_Time_Place_rel  := NodeSet/c_Time_Place_rel[Node_rel];
+		
+		attribute<Time>                        FromTime          := ToTime - Voortransport0/Duration[OD_rel];	//gegeven dat het voortransport is.
+		attribute<Time>                        ToTime            := NodeSet/Time_rel[Node_rel];				 	//gegeven dat het voortransport is.
+		attribute<s_f>                         Duration_seconds  := Voortransport0/Duration_seconds[OD_rel];
+		
+		attribute<Modes>                       Mode_rel          := ='const(Modes/v/Walking,.)';
+		attribute<Routes>                      Route_rel         := rlookup(const('Org2Stops_Walking', .), Routes/route_id);
+		attribute<rdc>                         geometry (arc)    := Voortransport0/geometry[OD_rel];
+		attribute<km>                          LengthKm          := Voortransport0/LengthKm[OD_rel];
+		
+		attribute<Org>                         Origin_rel        := Voortransport0/StartRef[OD_rel];
 
-			
-			parameter<bool>                       AddWaitingTimeToDuration       := ModelParameters/Advanced/WegingWachttijdThuisVoortransport  > 0f;  //FALSE
-			parameter<bool>                       OmitMaxWachttijdLinks          := ModelParameters/Advanced/OmitMaxWachttijdThuisVoortransportLinks;  //FALSE
-			attribute<bool>                       WachttijdLangerDanMaxWachttijd := WaitingTime > ModelParameters/Advanced/MaxWachttijdThuisVoortransport;
-			parameter<Time>                       ExtraLangeWachttijdPenalty     := 86400[Time];
-			
-			
-			attribute<Time>                       WaitingTime                    := FromTime - InTime;
-			attribute<Time>                       Duration_withWaitingAtOrg      := switch(
-			  case(    AddWaitingTimeToDuration  &&     OmitMaxWachttijdLinks  &&     WachttijdLangerDanMaxWachttijd , Duration + WaitingTime + ExtraLangeWachttijdPenalty)                 // wel wachttijd toevoegen aan duration, en die wachttijd is kort genoeg.
-			, case(    AddWaitingTimeToDuration  &&     OmitMaxWachttijdLinks  && NOT(WachttijdLangerDanMaxWachttijd), Duration + WaitingTime)                 // wel wachttijd toevoegen aan duration, en die wachttijd is kort genoeg.
-			, case(    AddWaitingTimeToDuration  && NOT(OmitMaxWachttijdLinks) && NOT(WachttijdLangerDanMaxWachttijd), Duration + WaitingTime)                 // wel wachttijd toevoegen aan duration, en die wachttijd is kort genoeg.
-			, case(    AddWaitingTimeToDuration  && NOT(OmitMaxWachttijdLinks) &&     WachttijdLangerDanMaxWachttijd , Duration + WaitingTime)                 // wel wachttijd toevoegen aan duration, en die wachttijd is kort genoeg.
-			, case(NOT(AddWaitingTimeToDuration) &&     OmitMaxWachttijdLinks  &&     WachttijdLangerDanMaxWachttijd , Duration + ExtraLangeWachttijdPenalty)                 // wel wachttijd toevoegen aan duration, en die wachttijd is kort genoeg.
-			, case(NOT(AddWaitingTimeToDuration) &&     OmitMaxWachttijdLinks  && NOT(WachttijdLangerDanMaxWachttijd), Duration)                 // wel wachttijd toevoegen aan duration, en die wachttijd is kort genoeg.
-			, case(NOT(AddWaitingTimeToDuration) && NOT(OmitMaxWachttijdLinks) &&     WachttijdLangerDanMaxWachttijd , Duration)                 // wel wachttijd toevoegen aan duration, en die wachttijd is kort genoeg.
-			, case(NOT(AddWaitingTimeToDuration) && NOT(OmitMaxWachttijdLinks) && NOT(WachttijdLangerDanMaxWachttijd), Duration)                 // wel wachttijd toevoegen aan duration, en die wachttijd is kort genoeg.
-			, null_u);
-		}
+		attribute<bool>   IsSub_from := FromTime >= inTime ;
+		attribute<bool>   IsSub_to   := ToTime   < (inTime + (convert(ModelParameters/MaxTravelTime, s_f)[Time]));
+		attribute<bool>   IsSub_dur  := duration_seconds <= convert(ModelParameters/MaxWalkingTime_Org2Stops, s_f);
 	}
 
-	container CreateODs
+	unit<uint32> Natransport_subset_debug := join_equal_values_uint32(Natransport0/ToPlace_rel, NodeSet/Place_rel) 
+	, Descr = "koppel PT-netwerk aan start-place looproute"
 	{
-		// append PTnet, voor en na transport, wachttijd thuis (waarin duration parameter afhankelijk is)
-	
-		unit<uint32> PTnet_subset_debug := =PT_net_str
-		{
-			attribute<bool>   IsSub_from := FromTime >= inTime ;
-			attribute<bool>   IsSub_to   := ToTime   < (inTime + (convert(ModelParameters/MaxTravelTime, s_f)[Time]));
-			attribute<bool>   IsSub_dur  := duration <= convert(ModelParameters/MaxTravelTime , s_f);
-		}
-	
-		unit<uint32> PTnet_subset := ='select_with_attr_by_cond('+PT_net_str+', PTnet_subset_debug/IsSub_from && PTnet_subset_debug/IsSub_to && PTnet_subset_debug/IsSub_dur)';
+		attribute<string>                      Label             := Natransport0/Label[OD_rel];
+		attribute<Places>                      FromPlace_rel     := Natransport0/FromPlace_rel[OD_rel];
+		attribute<Places>                      ToPlace_rel       := X_rel;
+		attribute<Natransport0>                OD_rel            := first_rel;
+		attribute<NodeSet>                     Node_rel          := second_rel;
+		attribute<c_Time_Places>               c_Time_Place_rel  := NodeSet/c_Time_Place_rel[Node_rel];
 		
-		//ad hoc debug
-		// unit<uint32> write_PTnet_subset := select_with_attr_by_cond(PT_net, PTnet_subset_debug/IsSub_from && PTnet_subset_debug/IsSub_to && PTnet_subset_debug/IsSub_dur)
-		// , StorageName = "%LocalDataProjDir%/Adhoc/PTnet.fss";
-		// unit<uint32> read_PTnet_subset
-		// : StorageName = "%LocalDataProjDir%/Adhoc/PTnet.fss"
-		// {
-			// attribute<rdc>                     geometry (arc);
-			// attribute<PT_net/Places>           FromPlace_rel;
-			// attribute<PT_net/Places>           ToPlace_rel;
-			// attribute<Time>                    FromTime;
-			// attribute<Time>                    toTime;
-			// attribute<s_f>                     Duration;
-			// attribute<NodeSet>                 F1;
-			// attribute<NodeSet>                 F2;
-			// attribute<km>                      Length;
-		// }
-		// unit<uint32> PTnet_subset := read_StaticNet_subset;
+		attribute<Time>                        FromTime          := NodeSet/Time_rel[Node_rel];				 	//gegeven dat het natransport is.
+		attribute<Time>                        ToTime            := FromTime + Natransport0/Duration[OD_rel];	//gegeven dat het natransport is.
+		attribute<s_f>                         Duration_seconds  := Natransport0/Duration_seconds[OD_rel];
+		
+		attribute<Modes>                       Mode_rel          := ='const(Modes/v/Walking,.)';
+		attribute<Routes>                      Route_rel         := rlookup(const('Stops2Dest_Walking', .), Routes/route_id);
+		attribute<rdc>                         geometry (arc)    := Natransport0/geometry[OD_rel];
+		attribute<km>                          LengthKm          := Natransport0/LengthKm[OD_rel];
+		
+		attribute<Dest>                        Dest_rel          := Natransport0/EindRef[OD_rel];
+		
+		attribute<bool>   IsSub_from := FromTime >= inTime ;
+		attribute<bool>   IsSub_to   := ToTime   < (inTime + (convert(ModelParameters/MaxTravelTime, s_f)[Time]));
+		attribute<bool>   IsSub_dur  := duration_seconds <= convert(ModelParameters/MaxWalkingTime_Stops2Dest, s_f);
+	}
+
+	unit<uint32> PTnet_subset_debug := =PT_net_str
+	{
+		attribute<bool>   IsSub_from := FromTime >= inTime ;
+		attribute<bool>   IsSub_to   := ToTime   < (inTime + (convert(ModelParameters/MaxTravelTime, s_f)[Time]));
+		attribute<bool>   IsSub_dur  := duration <= convert(ModelParameters/MaxTravelTime , s_f);
+	}
 	
+	unit<uint32> Voortransport        := select_with_attr_by_cond(Voortransport_subset_debug, Voortransport_subset_debug/IsSub_from && Voortransport_subset_debug/IsSub_to && Voortransport_subset_debug/IsSub_dur);
+	unit<uint32> Natransport          := select_with_attr_by_cond(Natransport_subset_debug, Natransport_subset_debug/IsSub_from && Natransport_subset_debug/IsSub_to && Natransport_subset_debug/IsSub_dur);
+
+	unit<uint32> PTnet_RelevantWindow := ='select_with_attr_by_cond('+PT_net_str+', PTnet_subset_debug/IsSub_from && PTnet_subset_debug/IsSub_to && PTnet_subset_debug/IsSub_dur)'
+	{
+		attribute<Places>        FromPlace_rel             := rlookup(FromPoint, Places/geometry);
+		attribute<Places>        ToPlace_rel               := rlookup(ToPoint, Places/geometry);
+		attribute<c_Time_Places> c_fromTime_Place_rel      := combine_data(c_Time_Places, FromTime, FromPlace_rel);
+		attribute<c_Time_Places> c_toTime_Place_rel        := combine_data(c_Time_Places, ToTime, ToPlace_rel);
+		
+		attribute<NodeSet>       F1                        := rlookup(c_fromTime_Place_rel, NodeSet/c_Time_Place_rel);
+		attribute<NodeSet>       F2                        := rlookup(c_toTime_Place_rel, NodeSet/c_Time_Place_rel);
+		
+		unit<uint32> doubledLinks := union_unit(., .)
+		, Descr = "in order to get a set of all time-place events"
+		{
+			attribute<Time>          Time_rel         := union_data(., fromTime, toTime);
+			attribute<rdc>           geometry         := union_data(., fromPoint, toPoint);
+			attribute<Places>        Place_rel        := rlookup(geometry, Places/geometry);
+			attribute<c_Time_Places> c_Time_Place_rel := combine_data(c_Time_Places, Time_rel, Place_rel);
+		}
+		
+		unit<uint32> NodeSet := unique(doubledLinks/c_Time_Place_rel)
+		{
+			attribute<c_Time_Places>    c_Time_Place_rel := values;
+			attribute<Time>             Time_rel         := value(c_Time_Place_rel / uint64(#Places), Time);
+			attribute<Places>           Place_rel        := value(c_Time_Place_rel % uint64(#Places), Places);
+			attribute<rdc>              geometry         := Places/geometry[Place_rel];
+			attribute<string>           Label            := Places/label[Place_rel] + ' @ ' + Time/Label[Time_rel];
+		}
+	}
+	
+	unit<uint64> OD_orgzones := 
+		impedance_matrix_od64('directed;startPoint(Node_rel,impedance,OrgZone_rel);endPoint(Node_rel,impedance,DstZone_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel,LinkSet'
+			, PTnet_RelevantWindow/Duration
+			, PTnet_RelevantWindow/F1
+			, PTnet_RelevantWindow/F2
+			
+			, Voortransport/Node_rel , Voortransport/Duration_seconds, Voortransport/Origin_rel     //sP node_rel, impedance, OrgZone_rel
+			, Natransport/Node_rel, Natransport/Duration_seconds , Natransport/Dest_rel      //eP node_rel, impedance, DstZone_rel
+			, convert(ModelParameters/MaxOVTime, s_f)
+			, PTnet_RelevantWindow/Length
+		)
+	{
+		attribute<rdc>    geometry (arc) := points2sequence(AfgelegdeReis/relevant_points/point, AfgelegdeReis/relevant_points/reis_rel, AfgelegdeReis/relevant_points/ordinal_new), Descr = "daadwerkelijk afgelegde route geometry";
+	
+		unit<uint32> AfgelegdeReis := sequence2points(LinkSet) //vertaling van LinkSet attribute (afgelegde route in OD), naar onderdelen van de reis
+		{
+			attribute<..>                      Reis_rel                := Sequence_rel;
+			attribute<rdc>                     geometry (arc)          := PTnet_RelevantWindow/geometry[point];
+			attribute<rdc>                     FromPoint               := PTnet_RelevantWindow/FromPoint[point];
+			attribute<rdc>                     ToPoint                 := PTnet_RelevantWindow/ToPoint[point];
+			attribute<Places>                  FromPlace_rel           := PTnet_RelevantWindow/FromPlace_rel[point];
+			attribute<Places>                  ToPlace_rel             := PTnet_RelevantWindow/ToPlace_rel[point];
+			attribute<Time>                    FromTime                := PTnet_RelevantWindow/FromTime[point];
+			attribute<Time>                    ToTime                  := PTnet_RelevantWindow/ToTime[point];
+			attribute<Modes>                   Mode_rel                := PTnet_RelevantWindow/Mode_rel[point];
+			attribute<min_f>                   reistijd_min            := ../impedance[reis_rel][min_f];
+			// attribute<LinkTypes>               LinkType                := PTnet_RelevantWindow/LinkType[point];
+			// attribute<Agencies>                Agency_rel              := PTnet_RelevantWindow/Agency_rel[point];
+			attribute<Stops>                   FromStop_rel            := Places/Stop_rel[FromPlace_rel];
+			attribute<Stops>                   ToStop_rel              := Places/Stop_rel[ToPlace_rel];
+			attribute<Routes>                  Route_rel               := PTnet_RelevantWindow/Route_rel[point];
+			attribute<upoint>                  Reis_Route_Identifier   := point_xy(Route_rel, uint32(Reis_rel));
+			attribute<uq_reis_route>           uq_reis_route_rel       := rlookup(Reis_Route_Identifier, uq_reis_route/values);
+			attribute<uint64>                  Reis_FromTime_Identifier := Reis_rel * value(1000000000, uint64) + value(FromTime, uint64);
+			attribute<uint64>                  Reis_ToTime_Identifier   := Reis_rel * value(1000000000, uint64) + value(ToTime, uint64);
+					
+			unit<uint32> seq2point   := sequence2points(geometry) //in omgekeerde volgorde
+			{
+				attribute<AfgelegdeReis> subreis_rel          := sequence_rel;
+				attribute<...>           reis_rel             := ../reis_rel[subreis_rel];
+			}
+			unit<uint32> relevant_points := select_with_attr_by_cond(seq2point, seq2point/ordinal == 0)
+			, Descr = "nodig om full trip geometry te bepalen."
+			{
+				attribute<uint32>        unity                := const(1,.);
+				attribute<uint32>        ordinal_src          := cumulate(unity, reis_rel) - 1;
+				attribute<uint32>        max_ordinal_per_reis := max(ordinal_src, reis_rel)[reis_rel];
+				attribute<uint32>        ordinal_new          := max_ordinal_per_reis - ordinal_src, Descr = "de ordinal uit de linkset is in gekeerde volgorde, dus moet omgedraaid worden.";
+			}
+	
+			unit<uint32> uq_reis_route := unique(Reis_Route_Identifier) 
+			, Descr = "indikking van reis/route combinaties. Transfers en wachten vallen eruit, net zoals de tussenliggende stations binnen een route."
+			{
+				attribute<Routes>        Route_rel                     := pointcol(values);
+				attribute<...>           Reis_rel                      := value(pointrow(values),...);
+				// attribute<Agencies>      Agency_rel                    := first(../Agency_rel, ../uq_reis_route_rel);
+				attribute<Modes>         Mode_rel                      := first(../Mode_rel, ../uq_reis_route_rel);
+				attribute<Time>          First_StopTime_Route          := min(../FromTime, ../uq_reis_route_rel);
+				attribute<Time>          Last_StopTime_Route           := max(../ToTime, ../uq_reis_route_rel);
+				attribute<uint64>        Reis_FirstTime_Identifier     := uint64(Reis_rel) * value(1000000000, uint64) + value(First_StopTime_Route, uint64);
+				// attribute<km>            Afgelegde_afstand_OV          := sum(../Length_OV, ../uq_reis_route_rel); //nodig tbv variabele prijs bepaling
+				attribute<.>             Reis_Time_Sort_Index          := index(Reis_FirstTime_Identifier);
+			}
+			
+			unit<uint32> uq_reis_route_sorted := unique(uq_reis_route/Reis_Time_Sort_Index) 
+			, Descr = "hack om het domein te sorteren op reis_rel en vertrektijden. Om zo in de prijsbepaling de volgende 'leg' te kunnen bepalen. En dus bus/trein onderbroken door overstappen samen te kunnen voegen."
+			{
+				attribute<Routes>        Route_rel                     := (uq_reis_route/Route_rel[uq_reis_route/Reis_Time_Sort_Index])[values];
+				attribute<...>           Reis_rel                      := (uq_reis_route/Reis_rel[uq_reis_route/Reis_Time_Sort_Index])[values];
+				// attribute<Agencies>      Agency_rel                    := (uq_reis_route/Agency_rel[uq_reis_route/Reis_Time_Sort_Index])[values];
+				
+				attribute<Time>          First_StopTime_Route          := (uq_reis_route/First_StopTime_Route[uq_reis_route/Reis_Time_Sort_Index])[values];
+				attribute<Time>          Last_StopTime_Route           := (uq_reis_route/Last_StopTime_Route[uq_reis_route/Reis_Time_Sort_Index])[values];
+				// attribute<km>            Afgelegde_afstand_OV          := (uq_reis_route/Afgelegde_afstand_OV[uq_reis_route/Reis_Time_Sort_Index])[values];
+				
+				attribute<Stops>         FromStop_rel                  := rjoin(impl/Reis_FirstTime_Identifier, ../Reis_FromTime_Identifier, ../FromStop_rel);
+				attribute<Stops>         ToStop_rel                    := rjoin(impl/Reis_LastTime_Identifier, ../Reis_ToTime_Identifier, ../ToStop_rel);
+				
+				unit<uint32> impl := uq_reis_route_sorted
+				{
+					attribute<Modes>         Mode_rel                      := (uq_reis_route/Mode_rel[uq_reis_route/Reis_Time_Sort_Index])[values];
+
+					attribute<uint64>        Reis_FirstTime_Identifier     := uint64(Reis_rel) * value(1000000000, uint64) + value(First_StopTime_Route, uint64);
+					attribute<uint64>        Reis_LastTime_Identifier      := uint64(Reis_rel) * value(1000000000, uint64) + value(Last_StopTime_Route, uint64);
+					attribute<string>        RouteName_short               := Routes/route_short_name[Route_rel];
+				}
+			}
+			
+			unit<uint32> VisualisatieTabel_AfgelegdeReis := uq_reis_route_sorted
+			{
+				attribute<...>           Reis_rel                      := uq_reis_route_sorted/Reis_rel;
+				attribute<Modes>         Mode_rel                      := uq_reis_route_sorted/impl/Mode_rel;
+				// attribute<Agencies>      Agency_rel                    := uq_reis_route_sorted/Agency_rel;
+				attribute<string>        RouteName                     := uq_reis_route_sorted/impl/RouteName_short;
+
+				attribute<Time>          First_StopTime_Route          := uq_reis_route_sorted/First_StopTime_Route;
+				attribute<Stops>         FromStop_rel                  := uq_reis_route_sorted/FromStop_rel;
+				attribute<Time>          Last_StopTime_Route           := uq_reis_route_sorted/Last_StopTime_Route;
+				attribute<Stops>         ToStop_rel                    := uq_reis_route_sorted/ToStop_rel;
+				attribute<min_f>         Reistijd                      := convert(float32((Last_StopTime_Route - First_StopTime_Route) /  1[Time]) * 1[s_f], min_f);
+				// attribute<Euro>          Price                         := uq_reis_route_sorted/Price;
+				// attribute<km>            Afgelegde_afstand_OV          := uq_reis_route_sorted/Afgelegde_afstand_OV;
+				
+				attribute<rdc>           geometry        (arc, ..) := ../geometry, Descr = "daadwerkelijk afgelegde route geometry";
+				
+			}
+		}
+	}
+	
+	
+	
+	
+/*	unit<uint32> voor_PT_na           := union_unit(Voortransport, PTnet_RelevantWindow, Natransport)
+	{
+		attribute<rdc>       geometry (arc) := union_data(., Voortransport/geometry, PTnet_RelevantWindow/geometry, Natransport/geometry);
+		attribute<s_f>       Duration       := union_data(., Voortransport/duration_seconds, PTnet_RelevantWindow/duration, Natransport/duration_seconds);
+		
+		attribute<c_Time_Places>        c_fromTime_Place_rel        := combine_data(c_Time_Places, FromTime, FromPlace_rel);
+		attribute<c_Time_Places>        c_toTime_Place_rel          := combine_data(c_Time_Places, ToTime, ToPlace_rel);
+		
+		attribute<NodeSet>   F1             := rlookup(c_fromTime_Place_rel, NodeSet/c_Time_Place_rel);
+		attribute<NodeSet>   F2             := rlookup(c_toTime_Place_rel, NodeSet/c_Time_Place_rel);
+		
+		// attribute<NodeSet>   F1             := rlookup(FromPoint, NodeSet/geometry);
+		// attribute<NodeSet>   F2             := rlookup(ToPoint, NodeSet/geometry);
+		attribute<km>        Length         := union_data(., Voortransport/LengthKm, PTnet_RelevantWindow/Length, Natransport/LengthKm);
+		attribute<rdc>       FromPoint      := union_data(., Voortransport/OrgOrDest_Point, PTnet_RelevantWindow/FromPoint, Natransport/Stop_Point);
+		attribute<rdc>       ToPoint        := union_data(., Voortransport/Stop_Point, PTnet_RelevantWindow/toPoint, Natransport/OrgOrDest_Point);
+		attribute<Time>      FromTime       := union_data(., Voortransport/FromTime, PTnet_RelevantWindow/FromTime, Natransport/FromTime);
+		attribute<Time>      ToTime         := union_data(., Voortransport/ToTime, PTnet_RelevantWindow/ToTime, Natransport/ToTime);
+		attribute<Modes>     Mode_rel       := union_data(., Voortransport/Mode_rel, PTnet_RelevantWindow/Mode_rel, Natransport/Mode_rel);
+		attribute<Routes>    Route_rel      := union_data(., Voortransport/Route_rel, PTnet_RelevantWindow/Route_rel, Natransport/Route_rel);
+			
+		attribute<Places>    FromPlace_rel  := union_data(., Voortransport/FromPlace_rel, PTnet_RelevantWindow/FromPlace_rel, Natransport/FromPlace_rel);
+		attribute<Places>    ToPlace_rel    := union_data(., Voortransport/ToPlace_rel, PTnet_RelevantWindow/ToPlace_rel, Natransport/ToPlace_rel);
+		
+		unit<uint32> protoNodeSet := union_unit(Voortransport/NodeSet, PT_net/NodeSet, Natransport/NodeSet)
+		{
+			attribute<c_Time_Places> c_Time_Place_rel    := combine_data(c_Time_Places, Time_rel, Place_rel);
+			attribute<Time>          Time_rel            := union_data(.,Voortransport/NodeSet/Time_rel, PT_net/NodeSet/Time_rel, Natransport/NodeSet/Time_rel);
+			attribute<Places>        Place_rel           := union_data(.,Voortransport/NodeSet/Place_rel, rlookup(PT_net/NodeSet/geometry, Places/geometry), Natransport/NodeSet/Place_rel);
+			attribute<rdc>           geometry            := union_data(.,Voortransport/NodeSet/geometry, PT_net/NodeSet/geometry, Natransport/NodeSet/geometry);
+			attribute<string>        Label               := union_data(.,Voortransport/NodeSet/Label, PT_net/NodeSet/Label, Natransport/NodeSet/Label);
+		}
+		
+		unit<uint32> NodeSet := unique(protoNodeSet/c_Time_Place_rel)
+		{
+			attribute<.>             OrgNode_rel  (org)  := rlookup(org/geometry, geometry);
+			attribute<.>             DestNode_rel (dest) := rlookup(dest/geometry, geometry);
+			attribute<string>        Label               := protoNodeSet/label[rlookup(geometry, protoNodeSet/geometry)];
+			attribute<c_Time_Places> c_Time_Place_rel    := values;
+			attribute<Time>          Time_rel            := value(c_Time_Place_rel / uint64(#Places), Time);
+			attribute<Places>        Place_rel           := value(c_Time_Place_rel % uint64(#Places), Places);
+			attribute<rdc>           geometry            := Places/geometry[Place_rel];
+			
+			// attribute<org>           OrgNode_rel         := rlookup(geometry, org/geometry);
+			// attribute<dest>          DestNode_rel        := rlookup(geometry, dest/geometry);
+			
+			// unit<uint32> startPoints := 
+		}
+	}
+*/
+
+	
+	// unit<uint64> Test_OD := 
+		// impedance_matrix_od64('directed;startPoint(Node_rel,OrgZone_rel);endPoint(Node_rel,DstZone_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel,LinkSet'
+			// , voor_PT_na/Duration
+			// , voor_PT_na/F1
+			// , voor_PT_na/F2
+			
+			// , voor_PT_na/NodeSet/c_Time_Place_rel, voor_PT_na/NodeSet/OrgNode_rel
+			// , voor_PT_na/NodeSet/c_Time_Place_rel, voor_PT_na/NodeSet/DestNode_rel 
+			// , convert(ModelParameters/MaxOVTime, s_f)
+			// , voor_PT_na/Length
+		// );
+
+/*	container CreateODs
+	{
 		//// CREATE OD FSS ////
 		
 		container OD_traveltime_WW     := OD_traveltime_PrivateTransport_T('WW');
@@ -748,4 +880,5 @@ Template PublicTransport_T
 				
 		}
 	}
+*/
 }

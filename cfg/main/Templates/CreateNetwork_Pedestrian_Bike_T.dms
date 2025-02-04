@@ -18,34 +18,36 @@ Template CreateNetwork_Pedestrian_Bike_T : using = "geometries"
 	attribute<s_f> impedance (LinkSet) := ='LinkSet/Impedance_per_ImpedanceType/max_'+NetworkType;
 	
 	unit<uint32> ODMatrix :=
-		impedance_matrix('bidirectional;startPoint(Node_rel):max_imp;endPoint(Node_rel);cut(OrgZone_max_imp);limit(OrgZone_max_mass,DstZone_mass);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel,LinkSet'
+		impedance_matrix('bidirectional;startPoint(Node_rel):max_imp;endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel,LinkSet'
 			, impedance
 			, LinkSet/F1
 			, LinkSet/F2
 			, NodeSet/OrgNode_rel
 			, NodeSet/DestNode_rel
 			, MaxDistSelectie_sec //cut impedance      
-			, ModelParameters/Advanced/MaxODconn, 1f //limit
 			, LinkSet/LengthKm //alt imp
 		)
 	{
 		attribute<Time>	   Duration                         := RoundUp(Impedance)[uint32][Time];
+		attribute<s_f>     Duration_seconds                 := Impedance;
 		attribute<float32> Duration_minutes                 := Impedance / 60f;
 		attribute<inStart> StartRef                         := OrgZone_rel; 
 		attribute<inEind>  EindRef                          := DstZone_rel; 
 		attribute<string>  StartName                        := inStart/name[StartRef];
 		attribute<string>  EindName                         := inEind/name[EindRef];
 		attribute<km>      LengthKm                         := alt_imp; 
-		attribute<rdc>     Start_point                      := inStart/geometry[StartRef];
-		attribute<rdc>     Eind_point                       := inEind/geometry[EindRef];
-		// attribute<Complete_Stops_Domain> Complete_Stops_rel := inEind/Stops_rel[EindRef]; 
+		attribute<rdc>     FromPoint                        := inStart/geometry[StartRef];
+		attribute<rdc>     ToPoint                          := inEind/geometry[EindRef];
 		attribute<rdc>     geometry (arc)                   := points2sequence(LinkPoints/geometry, LinkPoints/ODPathRel, LinkPoints/CumulOrdinal);
 		attribute<string>  Label                            := TravelMode+' path from: ' + StartName + ' to ' + EindName;
+
+		parameter<TimeInvariantTypes> Current_TimeInvariantTypes_rel := TimeInvariantTypes_rel;
+		parameter<bool>    IsVoorTransport                  := DestinationSet == 'Stops';
 
 		unit<uint32> LinkPoints := union_unit(., .)
 		{
 			attribute<..>                   ODPathRel    := union_data(., id(..), id(..));
-			attribute<rdc>                  geometry     := union_data(., ../Start_point, ../Eind_point);
+			attribute<rdc>                  geometry     := union_data(., ../FromPoint, ../ToPoint);
 			attribute<uint32>               CumulOrdinal := union_data(., const(0,..,uint32), const(1,..,uint32));
 		}
 		
@@ -66,7 +68,5 @@ Template CreateNetwork_Pedestrian_Bike_T : using = "geometries"
 				attribute<uint32>               Ordinal      := union_data(., const(0,..,uint32), const(1,..,uint32));
 			}
 		}
-		
-		unit<uint32> Complete_Stops_Domain := Stop;
 	}
 }

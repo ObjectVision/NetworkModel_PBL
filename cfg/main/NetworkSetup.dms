@@ -145,6 +145,33 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 					, 'Create_TimeInvariantConnection_T('+string(id(TimeInvariantTypes))+'[TimeInvariantTypes])'
 				);
 			
+			parameter<string>   PT_net_str            := 'SourceData/Infrastructuur/GTFS/PublicTransportNet';
+			parameter<string>   Voortransport_net_str := 'TimeInvariantConnections/Org2Stops_Walking/Sparse_uitwerking/AB';
+			parameter<string>   Natransport_net_str   := 'TimeInvariantConnections/Stops2Dest_Walking/Sparse_uitwerking/AB';
+			unit<uint32>        PT_net                := =PT_net_str; //indirection, want dan kun je die later gebruiken in een select_with_attr_by_cond waarbij alle attributen worden opgehaald.
+			unit<uint32>        Stops                 := PT_net/Stops
+			{
+					attribute<rdc>    geometry  := PT_net/Stops/geometry;
+					attribute<Places> Place_rel := rlookup(geometry, Places/geometry);
+			}
+			
+			unit<uint32>        AllPlaces                := union_unit(PT_net/PT_Places, org, dest)
+			, Descr = "All stops, orgs and dests"
+			{
+				attribute<rdc>    geometry := union_data(., PT_net/PT_Places/geometry, org/geometry, dest/geometry);
+				attribute<string> label    := union_data(., PT_net/PT_Places/label, org/label, dest/label);
+			}	
+			
+			unit<uint32>        Places                := unique(AllPlaces/geometry)
+			, Descr = "unique places"
+			{
+				attribute<rdc>    geometry := values;
+				attribute<string> label    := rjoin(geometry, AllPlaces/geometry, AllPlaces/label);
+				attribute<Stops>  Stop_rel := invert(Stops/place_rel);
+			}
+			
+			unit<uint64> c_Time_Places         := combine_unit_uint64(Time, Places);
+			
 			
 			Template Create_TimeInvariantConnection_T  : using = "/SourceData/Infrastructuur/GTFS/PublicTransportNet"
 			{
@@ -157,7 +184,9 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 				parameter<string> Mode_abbrev    := TimeInvariantTypes/Mode_abbrev[TimeInvariantTypes_rel];
 				parameter<string> NetworkType    := TimeInvariantTypes/NetworkType[TimeInvariantTypes_rel];
 				
-				unit<uint32> Stop                       := /SourceData/Infrastructuur/GTFS/PublicTransportNet/Stops;
+				unit<uint32> Stops                       := =regio_name+'/PublicTransport/Stops';
+				// unit<uint32> Places                     := /SourceData/Infrastructuur/GTFS/PublicTransportNet/Places;
+				unit<uint32> NodeSet                    := /SourceData/Infrastructuur/GTFS/PublicTransportNet/NodeSet;
 				// unit<uint32> Stops_ICstations            := SourceData/Infrastructuur/GTFS/StudyAreaFeeds/Stops_ICstation;
 				// unit<uint32> Stops_Trainstations         := SourceData/Infrastructuur/GTFS/StudyAreaFeeds/Stops_Trainstation;
 				// unit<uint32> Stops_TrainMetrostation     := SourceData/Infrastructuur/GTFS/StudyAreaFeeds/Stops_TrainMetrostation;
@@ -166,54 +195,75 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 				unit<uint32> Network := = 'SourceData/Infrastructuur/OSM/Network_'+NetworkType;
 				
 				container Create_Routes      := ='Templates/CreateNetwork_Pedestrian_Bike_T('+OriginSet+', '+DestinationSet+', Network, Mode, NetworkType, ConnectionType)';
-				container Sparse_uitwerking 
-				: Descr = "We koppelen hier time-invariant routes (bijvoorbeeld loop voortransport) aan time-variant routes (ScheduledSpaceTimeEvents). bijvoorbeeld "
-					"lopen org1 naar halte 1 om 9.00u en lopen org1 naar halt 1 om 9.10u. Zo worden deze looproutes efficient gedupliceerd. Sparse omdat niet alle "
-					"mogelijke opties worden uitwerkt maar alleen diegene die nodig zijn."
-				{
-					parameter<string> JoinStops_str := ConnectionType == 'Org2Stop'
-															? 'EindRef' 
-															: ConnectionType == 'Stop2Dest'
-																? 'StartRef'
-																: '';
-					unit<uint32> OD_path := Create_Routes/ODMatrix;
-					unit<uint32> OrgOrDest := = OriginSet == 'Stop' ? 'Dest' : 'Org';
+				// container Sparse_uitwerking 
+				// : Descr = "We koppelen hier time-invariant routes (bijvoorbeeld loop voortransport) aan time-variant routes (ScheduledSpaceTimeEvents). bijvoorbeeld "
+					// "lopen org1 naar halte 1 om 9.00u en lopen org1 naar halt 1 om 9.10u. Zo worden deze looproutes efficient gedupliceerd. Sparse omdat niet alle "
+					// "mogelijke opties worden uitwerkt maar alleen diegene die nodig zijn."
+				// {
+					// parameter<string> JoinStops_str := ConnectionType == 'Org2Stops'
+															// ? 'EindRef' 
+															// : ConnectionType == 'Stops2Dest'
+																// ? 'StartRef'
+																// : '';
+					// unit<uint32> OD_path := Create_Routes/ODMatrix;
+					// unit<uint32> OrgOrDest := = OriginSet == 'Stops' ? 'Dest' : 'Org';
 					
-					unit<uint32> AB := ='join_equal_values_uint32(OD_path/'+JoinStops_str+', ScheduledSpaceTimeEvents/Stop_rel)'
+/* 					unit<uint32> AB := ='join_equal_values_uint32(OD_path/'+JoinStops_str+', ScheduledSpaceTimeEvents/Stop_rel)'
 					{
+						attribute<string>                     Label             := OD_path/Label[OD_rel];
 						attribute<Stops>                      Stop_rel          := X_rel;
+						attribute<rdc>                        Stop_Point        := Stops/geometry[Stop_rel];
 						attribute<OD_path>                    OD_rel            := first_rel;
 						attribute<ScheduledSpaceTimeEvents>   SSTE_rel          := second_rel;
 						
+						attribute<Modes>                      Mode_rel          := ='const(Modes/v/'+Mode+',.)';
+						attribute<Routes>                     Route_rel         := rlookup(const(TimeInvariantTypes/name[TimeInvariantTypes_rel], .), Routes/route_id);
+						attribute<PT_Places>                  PT_Place_rel      := stops/PT_Place_rel[Stop_rel];
+						attribute<Org>                        Origin_rel        := OD_path/StartRef[OD_rel];
+						attribute<Dest>                       Dest_rel          := OD_path/EindRef[OD_rel];
+						attribute<OrgOrDest>                  OrgOrDest_rel     := =OriginSet == 'Stops' ? 'OD_path/EindRef[OD_rel]' : 'OD_path/StartRef[OD_rel]';
+						attribute<rdc>                        OrgOrDest_Point   := =OriginSet == 'Stops' ? 'dest/geometry[OrgOrDest_rel]' : 'org/geometry[OrgOrDest_rel]';
 						
+						attribute<rdc>                        FromPoint         := =OriginSet == 'Stops' ? 'PT_Places/geometry[PT_Place_rel]' : 'org/geometry[OrgOrDest_rel]';
+						attribute<rdc>                        ToPoint           := =OriginSet == 'Stops' ? 'dest/geometry[OrgOrDest_rel]' : 'PT_Places/geometry[PT_Place_rel]';
 						
-						attribute<allLinks/Places>            Place_rel         := stops/Place_rel[Stop_rel];
-						// attribute<Org>                        Origin_rel        := OD_path/StartRef[OD_rel];
-						// attribute<Dest>                       Dest_rel          := OD_path/EindRef[OD_rel];
-						attribute<OrgOrDest>                  OrgOrDest_rel     := =OriginSet == 'Stop' ? 'OD_path/EindRef[OD_rel]' : 'OD_path/StartRef[OD_rel]';
+						attribute<Places>                     FromPlace_rel     := rlookup(FromPoint, Places/geometry);
+						attribute<Places>                     ToPlace_rel       := rlookup(ToPoint, Places/geometry);
+
+						attribute<c_Time_Places>              c_fromTime_Place_rel        := combine_data(c_Time_Places, FromTime, FromPlace_rel);
+						attribute<c_Time_Places>              c_toTime_Place_rel          := combine_data(c_Time_Places, ToTime, ToPlace_rel);
 						
 						attribute<rdc>                        geometry (arc)    := OD_path/geometry[OD_rel];
+						
+						attribute<s_f>                        Duration_seconds  := OD_path/Duration_seconds[OD_rel];
 						attribute<Time>                       Duration          := OD_path/Duration[OD_rel] > #Time / 2
 																					? #Time / 2
 																					: OD_path/Duration[OD_rel];
 						
 						attribute<km>                         LengthKm          := OD_path/LengthKm[OD_rel];
-						attribute<Time>                       O2S_FromTime      := sub_or_null(O2S_toTime[int32],Duration[int32]) > 0i
-																					? sub_or_null(O2S_toTime,Duration) 
-																					: (sub_or_null(O2S_toTime[int32],Duration[int32]) + (#Time / 2)[int32])[uint32];
-						attribute<Time>                       O2S_toTime        := ScheduledSpaceTimeEvents/Time_rel[SSTE_rel];
-						attribute<Time>                       S2D_FromTime      := ScheduledSpaceTimeEvents/Time_rel[SSTE_rel];
-						attribute<Time>                       S2D_ToTime        := S2D_FromTime + Duration > #Time
-																					? sub_or_null(S2D_FromTime + Duration, #Time)
-																					: S2D_FromTime + Duration;
-						
-						attribute<string>                     Label             := OD_path/Label[OD_rel];
-						attribute<upoint>                     O2S_MomentxPlace  := point_xy(O2S_toTime, Place_rel, upoint);
-						attribute<upoint>                     S2D_MomentxPlace  := point_xy(S2D_FromTime, Place_rel, upoint);
-						attribute<allLinks/NodeSet>           O2S_NodeRef       := rlookup(O2S_MomentxPlace, allLinks/NodeSet/values);
-						attribute<allLinks/NodeSet>           S2D_NodeRef       := rlookup(S2D_MomentxPlace, allLinks/NodeSet/values);
+						attribute<Time>                       FromTime          := =OriginSet == 'Stops' 
+																					? 'impl/S2D_FromTime'
+																					: 'impl/O2S_FromTime';
+						attribute<Time>                       ToTime            := =OriginSet == 'Stops' 
+																					? 'impl/S2D_ToTime'
+																					: 'impl/O2S_toTime';
+						unit<uint32> impl := .
+						{
+							attribute<Time>                       O2S_FromTime      := sub_or_null(O2S_toTime[int32],Duration[int32]) > 0i
+																						? sub_or_null(O2S_toTime,Duration) 
+																						: (sub_or_null(O2S_toTime[int32],Duration[int32]) + (#Time / 2)[int32])[uint32];
+							attribute<Time>                       O2S_toTime        := ScheduledSpaceTimeEvents/Time_rel[SSTE_rel];
+							attribute<Time>                       S2D_FromTime      := ScheduledSpaceTimeEvents/Time_rel[SSTE_rel];
+							attribute<Time>                       S2D_ToTime        := S2D_FromTime + Duration > #Time
+																						? sub_or_null(S2D_FromTime + Duration, #Time)
+																						: S2D_FromTime + Duration;
+							
+							// attribute<upoint>                     O2S_MomentxPlace  := point_xy(O2S_toTime, Place_rel, upoint);
+							// attribute<upoint>                     S2D_MomentxPlace  := point_xy(S2D_FromTime, Place_rel, upoint);
+						}
 					}
-				}
+ */				
+				// }
 			}
 		}
 		
@@ -399,6 +449,6 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 			}
 		}
 		
-		#include<PublicTransport.dms>
+		#include<PublicTransport_T.dms>
 	}
 }
