@@ -1,4 +1,4 @@
-container OVprijzen
+container OVprijzen  
 {
 	unit<uint8> TariefTypeK : nrofrows = 2
 	{
@@ -7,7 +7,7 @@ container OVprijzen
 	}
 	
 	unit<uint32> Agencies          := Classifications/Agencies;
-	unit<uint32> Modes             := Classifications/GTFS_Modes/List_selectie;
+	unit<uint32> Modes             := Classifications/GTFS_Modes/Selectie;
 	// unit<uint32> Provincies        := SourceData/RegioIndelingen/Provincie;
 	unit<uint8>  Concessiegebieden := SourceData/RegioIndelingen/Concessiegebied;
 	
@@ -185,21 +185,21 @@ container OVprijzen
 		attribute<string>       Opmerking       := Elements/Text[value(UInt32(ID(.))* nrAttr + 7, Elements)];
 		
 		attribute<Modes>             Mode_rel               := rlookup(Mode, Modes/name);
-		attribute<Agencies>          Agency_rel             := rlookup(Vervoerder, Agencies/name);
+		attribute<Agencies>          Agency_rel             := rlookup(lowercase(Vervoerder), Agencies/name);
 		// attribute<Provincies>        Provincie_rel          := rlookup(Provincie, Provincies/name);
 		attribute<Concessiegebieden> Concessiegebieden_rel  := rlookup(Concessiegebied, Concessiegebieden/name);
 		
 		attribute<string>       Concessiegebied_str := AsItemName(Concessiegebied != '' ? ''+Concessiegebied : '');
 		attribute<string>       Lijn_str            := Lijn != '' ? '_'+Lijn : '';
 		
-		attribute<string>       Mode_Agency_CG_Lijn_identifier := Mode +'_'+ Vervoerder +'_'+ Concessiegebied_str + Lijn_str;
-		attribute<string>       Mode_Agency_CG_identifier      := Mode +'_'+ Vervoerder +'_'+ Concessiegebied_str;
-		attribute<string>       Mode_Agency_identifier         := Mode +'_'+ Vervoerder;
+		attribute<string>       Mode_Agency_CG_Lijn_identifier := Mode +'_'+ lowercase(Vervoerder) +'_'+ Concessiegebied_str + Lijn_str;
+		attribute<string>       Mode_Agency_CG_identifier      := Mode +'_'+ lowercase(Vervoerder) +'_'+ Concessiegebied_str;
+		attribute<string>       Mode_Agency_identifier         := Mode +'_'+ lowercase(Vervoerder);
 		attribute<string>       label                                 := Mode_Agency_CG_Lijn_identifier;
 
 		parameter<uint32> nrAttr := 8;
 	}
-
+	
 
 	// unit<uint32> TestOutputCSV
 	// : StorageName = "%ProjDir%/Data/OD test output.csv"
@@ -254,6 +254,7 @@ container OVprijzen
 			attribute<float32> Korting_20pr   := float32(_20_korting_incl_9_btw);
 			attribute<float32> Korting_40pr   := float32(_40_korting_incl_9_btw);
 		}
+				
 		unit<uint32> NS_tariefeenheden_matrix
 		: StorageName = "%ProjDir%/Data/NS_tariefnet.csv"
 		, StorageType = "gdal.vect"
@@ -267,6 +268,14 @@ container OVprijzen
 			attribute<rdc>         EndPoint       := NS_stations/geometry[EndPoint_rel];
 			attribute<uint32>      tariefeenheid  := uint32(unit2);
 			attribute<rdc>         geometry (arc) := points2sequence(LinkPoints/Point, LinkPoints/Sequence_rel, LinkPoints/Ordinal);
+
+			attribute<uint32> c_NS_start_end_rel := combine_data(c_NS_start_end, StartPoint_rel, EndPoint_rel);
+			
+			unit<uint32> c_NS_start_end := combine(NS_stations, NS_stations)
+			{
+				attribute<string> label         := NS_stations/code[first_rel] + '_' + NS_stations/code[second_rel];
+				attribute<uint32> Tariefeenheid := rjoin(id(.), c_NS_start_end_rel, NS_tariefeenheden_matrix/Tariefeenheid);
+			}
 
 			unit<uint32> OrgDest := select_with_org_rel(IsDefined(rlookup(NS_stations/geometry, StartPoint)) || IsDefined(rlookup(NS_stations/geometry, EndPoint)))
 			{
@@ -325,8 +334,7 @@ container OVprijzen
 					
 					attribute<NS_stations> Org_NS_station_rel  := OrgDest/org_rel[OrgZone_rel];
 					attribute<NS_stations> Dest_NS_station_rel := OrgDest/org_rel[DstZone_rel];
-																
-					attribute<upoint>  OrgDest_identifier := point_xy(Org_NS_station_rel, Dest_NS_station_rel, upoint);
+					attribute<uint32>  c_NS_start_end_rel := combine_data(c_NS_start_end, Org_NS_station_rel, Dest_NS_station_rel);
 				}
 			} 
 		}
@@ -343,7 +351,7 @@ container OVprijzen
 			attribute<rdc>    geometry := rjoin(code, lowercase(Infrastructuur/Read_NS_Stations_SHP/code), Infrastructuur/Read_NS_Stations_SHP/geometry_rd);
 			
 			attribute<bool>   LigtInNL                  := IsDefined(point_in_polygon(geometry, /SourceData/RegioIndelingen/NL/geometry));
-			attribute<bool>   StationZitNietInGTFSStops := IsNull(invert(/SourceData/Infrastructuur/GTFS/StudyAreaFeeds/Stops/NS_Stations_rel));
+			attribute<bool>   StationZitNietInGTFSStops := IsNull(invert(/SourceData/Infrastructuur/GTFS/PublicTransportNet/Stops/NS_Stations_rel));
 			
 			unit<uint32> NL := select_with_attr_by_cond(., LigtInNL);
 		}

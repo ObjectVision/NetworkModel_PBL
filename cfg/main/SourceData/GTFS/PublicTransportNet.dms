@@ -98,7 +98,42 @@ unit<uint32> PublicTransportNet := union_unit(AddTransfersToScheduledLinks, AddT
 	unit<uint32> Stops      := RelevantSelection/Stops
 	{
 		attribute<PT_Places> PT_Place_rel             := rlookup(geometry, PT_Places/geometry);
+		
+		attribute<m>                        Dist2_Trainstation       := rjoin(geometry, uq_points/values, Define_Stopgroups_Trainstations/dist);
+		attribute<string>                   Trainstations_code       := Dist2_Trainstation  < ModelParameters/Advanced/DistanceTrainStationsSelection ? rjoin(geometry, uq_points/values, Define_Stopgroups_Trainstations/station_code) : '';
+		attribute<OVprijzen/NS/NS_Stations> NS_Stations_rel          := rlookup(lowercase(Trainstations_code), OVprijzen/NS/NS_Stations/code);
+		attribute<bool>                     IsNSkortStation          := IsDefined(rlookup(Trainstations_code, /SourceData/Infrastructuur/Infrastructuur/Trainstations/uq/NS_kort_stations/code));
+		
+		
+		unit<uint32> uq_points := unique(geometry)
+		{
+			attribute<float32>  x           := PointCol(values);
+			attribute<float32>  y           := PointRow(values);
+		}
+		unit<uint32> Trainstations := SourceData/Infrastructuur/Infrastructuur/Trainstations/uq;
+		
+		container Define_Stopgroups_Trainstations := Define_Stopgroups_T(Trainstations);
+		
+		Template Define_Stopgroups_T
+		{
+			unit<uint32>                Station_dom;
+			///
+			attribute<rdc>              geometry  (Station_dom)      := Station_dom/Geometry;
+			attribute<float32>          x         (Station_dom)      := PointCol(geometry);
+			attribute<float32>          y         (Station_dom)      := PointRow(geometry);
+			
+			attribute<Station_dom>      stations_rel (uq_points)       := connect(geometry, uq_points/values);
+			attribute<string>           station_code (uq_points)       := Station_dom/code[stations_rel];
+
+			attribute<float32>          x_targetdomain (uq_points)  := PointCol(geometry)[stations_rel];
+			attribute<float32>          y_targetdomain (uq_points)  := PointRow(geometry)[stations_rel];
+			attribute<float32>          delta_x (uq_points)         := sqr(abs(x_targetdomain - uq_points/x));
+			attribute<float32>          delta_y (uq_points)         := sqr(abs(y_targetdomain - uq_points/y));
+
+			attribute<m>                dist (uq_points)            := sqrt(delta_x + delta_y)[m];
+		}
 	}
+	
 	unit<uint32> Routes  := RelevantSelection/Routes;
 	
 	attribute<rdc>                     geometry (arc)                 := union_data(., AddTransfersToScheduledLinks/geometry, AddTransfersToScheduledLinks/WaitingAtStop/geometry);
@@ -126,5 +161,10 @@ unit<uint32> PublicTransportNet := union_unit(AddTransfersToScheduledLinks, AddT
 	attribute<Agencies>                Agency_rel                     := union_data(., AddTransfersToScheduledLinks/Agency_rel, const(0/0, AddTransfersToScheduledLinks/WaitingAtStop));
 	attribute<Routes>                  Route_rel                      := union_data(., AddTransfersToScheduledLinks/Route_rel, const((0/0)[Routes], AddTransfersToScheduledLinks/WaitingAtStop));
 	attribute<string>                  RouteName                      := union_data(., AddTransfersToScheduledLinks/RouteName, const('Waiting', AddTransfersToScheduledLinks/WaitingAtStop));
-	attribute<string>                  RouteName_short                := union_data(., AddTransfersToScheduledLinks/RouteName_short, const('Waiting', AddTransfersToScheduledLinks/WaitingAtStop));
+	attribute<string>                  RouteName_short                := union_data(., AddTransfersToScheduledLinks/RouteName_short, const('Waiting', AddTransfersToScheduledLinks/WaitingAtStop)); 
+	 
+	attribute<bool>                    IsConnectedToNSkortStation     := Stops/IsNSkortStation[FromStop_rel] || Stops/IsNSkortStation[ToStop_rel];
+	attribute</SourceData/Infrastructuur/OVprijzen/NS/NS_stations>             NS_StartPoint_rel              := Stops/NS_Stations_rel[FromStop_rel];
+	attribute</SourceData/Infrastructuur/OVprijzen/NS/NS_stations>             NS_EndPoint_rel                := Stops/NS_Stations_rel[ToStop_rel];
+		
 }
