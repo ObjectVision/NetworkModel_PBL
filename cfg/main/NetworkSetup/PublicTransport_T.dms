@@ -30,53 +30,74 @@ Template PublicTransport_T
 		attribute<bool>   IsSub_dur  := duration <= convert(ModelParameters/MaxTravelTime , s_f);
 	}
 	
+	container Set_NonNS   := Get_Windowed_Agency_Set_T(' && '+PT_net_str+'/Agency_rel != Agencies/V/ns');
+	container Set_NS_lang := Get_Windowed_Agency_Set_T(' && '+PT_net_str+'/Agency_rel == Agencies/V/ns');
+	container Set_NS_kort := Get_Windowed_Agency_Set_T(' && '+PT_net_str+'/Agency_rel == Agencies/V/ns && '+PT_net_str+'/IsConnectedToNSkortStation');
 	
-	
-	unit<uint32>        Set_NS_kort       := ='select_with_attr_by_cond('+PT_net_str+',PTnet_prep/IsSub_from && PTnet_prep/IsSub_to && PTnet_prep/IsSub_dur && '+PT_net_str+'/Agency_rel == Agencies/V/ns && '+PT_net_str+'/IsConnectedToNSkortStation)'
+	Template Get_Windowed_Agency_Set_T
 	{
-		attribute<Places>        FromPlace_rel             := rlookup(FromPoint, Places/geometry);
-		attribute<Places>        ToPlace_rel               := rlookup(ToPoint, Places/geometry);
-		attribute<c_Time_Places> c_fromTime_Place_rel      := combine_data(c_Time_Places, FromTime, FromPlace_rel);
-		attribute<c_Time_Places> c_toTime_Place_rel        := combine_data(c_Time_Places, ToTime, ToPlace_rel);
-		attribute<NodeSet>       F1                        := rlookup(c_fromTime_Place_rel, NodeSet/c_Time_Place_rel);
-		attribute<NodeSet>       F2                        := rlookup(c_toTime_Place_rel, NodeSet/c_Time_Place_rel);
-		attribute<uint32>        tariefeenheden            := /SourceData/Infrastructuur/OVprijzen/NS/NS_tariefeenheden_matrix/c_NS_start_end/Tariefeenheid[c_NS_start_end_rel];
-		attribute<c_NS_start_end> c_NS_start_end_rel := combine_data(c_NS_start_end, NS_StartPoint_rel, NS_EndPoint_rel);
-
-		unit<uint32> doubledLinks := union_unit(., .)
-		, Descr = "in order to get a set of all time-place events"
-		{
-			attribute<Time>          Time_rel         := union_data(., fromTime, toTime);
-			attribute<rdc>           geometry         := union_data(., fromPoint, toPoint);
-			attribute<Places>        Place_rel        := rlookup(geometry, Places/geometry);
-			attribute<c_Time_Places> c_Time_Place_rel := combine_data(c_Time_Places, Time_rel, Place_rel);
-		}
+		parameter<string> selection_str;
+		///
 		
-		unit<uint32> NodeSet := unique(doubledLinks/c_Time_Place_rel)
+		unit<uint32>        Set       := ='select_with_attr_by_cond('+PT_net_str+',PTnet_prep/IsSub_from && PTnet_prep/IsSub_to && PTnet_prep/IsSub_dur'+selection_str+')'
 		{
-			attribute<c_Time_Places>    c_Time_Place_rel := values;
-			attribute<Time>             Time_rel         := value(c_Time_Place_rel / uint64(#Places), Time);
-			attribute<Places>           Place_rel        := value(c_Time_Place_rel % uint64(#Places), Places);
-			attribute<rdc>              geometry         := Places/geometry[Place_rel];
-			attribute<string>           Label            := Places/label[Place_rel] + ' @ ' + Time/Label[Time_rel];
+			attribute<Places>         FromPlace_rel             := rlookup(FromPoint, Places/geometry);
+			attribute<Places>         ToPlace_rel               := rlookup(ToPoint, Places/geometry);
+			attribute<c_Time_Places>  c_fromTime_Place_rel      := combine_data(c_Time_Places, FromTime, FromPlace_rel);
+			attribute<c_Time_Places>  c_toTime_Place_rel        := combine_data(c_Time_Places, ToTime, ToPlace_rel);
+			attribute<NodeSet>        F1                        := rlookup(c_fromTime_Place_rel, NodeSet/c_Time_Place_rel);
+			attribute<NodeSet>        F2                        := rlookup(c_toTime_Place_rel, NodeSet/c_Time_Place_rel);
+			attribute<uint32>         tariefeenheden            := /SourceData/Infrastructuur/OVprijzen/NS/NS_tariefeenheden_matrix/c_NS_start_end/Tariefeenheid[c_NS_start_end_rel];
+			attribute<c_NS_start_end> c_NS_start_end_rel := combine_data(c_NS_start_end, NS_StartPoint_rel, NS_EndPoint_rel);
+
+			unit<uint32> doubledLinks := union_unit(., .)
+			, Descr = "in order to get a set of all time-place events"
+			{
+				attribute<Time>          Time_rel         := union_data(., fromTime, toTime);
+				attribute<rdc>           geometry         := union_data(., fromPoint, toPoint);
+				attribute<Places>        Place_rel        := rlookup(geometry, Places/geometry);
+				attribute<c_Time_Places> c_Time_Place_rel := combine_data(c_Time_Places, Time_rel, Place_rel);
+			}
 			
-			attribute<.>                OrgNode_rel  (org)  := rlookup(org/geometry,  geometry);
-			attribute<.>                DestNode_rel (dest) := rlookup(dest/geometry, geometry);
-			attribute<NS_Stations>      NS_Stations_rel     := Places/NS_Stations_rel[Place_rel];
+			unit<uint32> NodeSet := unique(doubledLinks/c_Time_Place_rel)
+			{
+				attribute<c_Time_Places>    c_Time_Place_rel := values;
+				attribute<Time>             Time_rel         := value(c_Time_Place_rel / uint64(#Places), Time);
+				attribute<Places>           Place_rel        := value(c_Time_Place_rel % uint64(#Places), Places);
+				attribute<rdc>              geometry         := Places/geometry[Place_rel];
+				attribute<string>           Label            := Places/label[Place_rel] + ' @ ' + Time/Label[Time_rel];
+				
+				attribute<.>                OrgNode_rel  (org)  := rlookup(org/geometry,  geometry);
+				attribute<.>                DestNode_rel (dest) := rlookup(dest/geometry, geometry);
+				attribute<NS_Stations>      NS_Stations_rel     := Places/NS_Stations_rel[Place_rel];
+			}
 		}
 	}
 	
-	unit<uint64> OD_NS_kort0 := 
+	unit<uint64> OD_NS_lang := 
 		impedance_matrix_od64('directed;cut(OrgZone_max_imp);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel,LinkSet'
-			, Set_NS_kort/Duration
-			, Set_NS_kort/F1
-			, Set_NS_kort/F2
+			, Set_NS_lang/Set/Duration
+			, Set_NS_lang/Set/F1
+			, Set_NS_lang/Set/F2
 			
 			, convert(ModelParameters/MaxOVTime, s_f)
-			, Set_NS_kort/Length
+			, Set_NS_lang/Set/Length
 		)
 	{
-		attribute<c_NS_start_end> c_NS_start_end_rel := combine_data(c_NS_start_end, Set_NS_kort/NodeSet/NS_Stations_rel[OrgZone_rel], Set_NS_kort/NodeSet/NS_Stations_rel[DstZone_rel]);
+		attribute<c_NS_start_end> c_NS_start_end_rel := combine_data(c_NS_start_end, Set_NS_lang/Set/NodeSet/NS_Stations_rel[OrgZone_rel], Set_NS_lang/Set/NodeSet/NS_Stations_rel[DstZone_rel]);
+		attribute<uint32>         tariefeenheden     := rjoin(c_NS_start_end_rel, Infrastructuur/OVprijzen/NS/NS_tariefeenheden_matrix/ConnectedNetwork/ODMatrix/c_NS_start_end_rel, Infrastructuur/OVprijzen/NS/NS_tariefeenheden_matrix/ConnectedNetwork/ODMatrix/impedance);
+	}
+	unit<uint64> OD_NS_kort0 := 
+		impedance_matrix_od64('directed;cut(OrgZone_max_imp);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel,LinkSet'
+			, Set_NS_kort/Set/Duration
+			, Set_NS_kort/Set/F1
+			, Set_NS_kort/Set/F2
+			
+			, convert(ModelParameters/MaxOVTime, s_f)
+			, Set_NS_kort/Set/Length
+		)
+	{
+		attribute<c_NS_start_end> c_NS_start_end_rel := combine_data(c_NS_start_end, Set_NS_kort/Set/NodeSet/NS_Stations_rel[OrgZone_rel], Set_NS_kort/Set/NodeSet/NS_Stations_rel[DstZone_rel]);
 		attribute<uint32>         tariefeenheden     := rjoin(c_NS_start_end_rel, Infrastructuur/OVprijzen/NS/NS_tariefeenheden_matrix/ConnectedNetwork/ODMatrix/c_NS_start_end_rel, Infrastructuur/OVprijzen/NS/NS_tariefeenheden_matrix/ConnectedNetwork/ODMatrix/impedance);
 		
 		attribute<bool>           IsDaadwerkelijkNSkort := tariefeenheden < 9 && tariefeenheden > 0;
@@ -84,21 +105,49 @@ Template PublicTransport_T
 	
 	unit<uint64> OD_NS_kort := select_with_org_rel(OD_NS_kort0/IsDaadwerkelijkNSkort)
 	{ 
-		attribute<s_f>                 impedance   := org_rel -> impedance;
-		attribute<uint32>              LinkSet (arc)    := org_rel -> LinkSet;
-		attribute<km>                  alt_imp     := org_rel -> alt_imp;
-		attribute<Set_NS_kort/NodeSet> OrgZone_rel := org_rel -> OrgZone_rel;
-		attribute<Set_NS_kort/NodeSet> DstZone_rel := org_rel -> DstZone_rel;
+		attribute<s_f>                     impedance        := org_rel -> impedance;
+		attribute<uint32>                  LinkSet (arc)    := org_rel -> LinkSet;
+		attribute<km>                      alt_imp          := org_rel -> alt_imp;
+		attribute<Set_NS_kort/Set/NodeSet> OrgZone_rel      := org_rel -> OrgZone_rel;
+		attribute<Set_NS_kort/Set/NodeSet> DstZone_rel      := org_rel -> DstZone_rel;
+	}
+	
+	unit<uint64> OD_NonNS := 
+		impedance_matrix_od64('directed;cut(OrgZone_max_imp);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel,LinkSet'
+			, Set_NonNS/Set/Duration
+			, Set_NonNS/Set/F1
+			, Set_NonNS/Set/F2
+			
+			, convert(ModelParameters/MaxOVTime, s_f)
+			, Set_NonNS/Set/Length
+		)
+	{
 	}
 	
 	
-	// 'NS-kort'    , 'Rail'    ,'Nk',
-	// 'NS-lang'    , 'Rail'    ,'Nl',
-	// 'Niet-NS-OV' , ''        ,'R', //een groep waarin het opstaptarief blijft gelden bij overstappen (en je mits 30min overstapt). e.g. 1.08 euro voor bus betalen en daarna 'gratis' op de metro stappen.
-	// 'Transfer'   , 'Walking' ,'T',
-
 	
-	container W_OV_W := Calc_Single_Chain_T('Walking', PT_net, 'Walking');
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	// container W_OV_W := Calc_Single_Chain_T('Walking', PT_net, 'Walking');
 	
 	Template Calc_Single_Chain_T
 	{
