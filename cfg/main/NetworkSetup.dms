@@ -145,21 +145,21 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 					, 'Create_TimeInvariantConnection_T('+string(id(TimeInvariantTypes))+'[TimeInvariantTypes])'
 				);
 			
-			parameter<string>   PT_net_str            := 'SourceData/Infrastructuur/GTFS/PublicTransportNet';
-			parameter<string>   Voortransport_net_str := 'TimeInvariantConnections/Org2Stops_Walking/Sparse_uitwerking/AB';
-			parameter<string>   Natransport_net_str   := 'TimeInvariantConnections/Stops2Dest_Walking/Sparse_uitwerking/AB';
-			unit<uint32>        PT_net                := =PT_net_str; //indirection, want dan kun je die later gebruiken in een select_with_attr_by_cond waarbij alle attributen worden opgehaald.
-			unit<uint32>        Stops                 := PT_net/Stops
+			parameter<string>   PT_path_str            := 'SourceData/Infrastructuur/GTFS/PublicTransportNet'; 
+			// parameter<string>   Voortransport_net_str := 'TimeInvariantConnections/Org2Stops_Walking/Sparse_uitwerking/AB';
+			// parameter<string>   Natransport_net_str   := 'TimeInvariantConnections/Stops2Dest_Walking/Sparse_uitwerking/AB';
+			unit<uint32>        PT_net                := =PT_path_str+''; //indirection, want dan kun je die later gebruiken in een select_with_attr_by_cond waarbij alle attributen worden opgehaald.
+			unit<uint32>        Stops                 := =PT_path_str+'/Stops'
 			{
-					attribute<rdc>    geometry  := PT_net/Stops/geometry;
+					attribute<rdc>    geometry  := =PT_path_str+'/Stops/geometry';
 					attribute<Places> Place_rel := rlookup(geometry, Places/geometry);
 			}
 			
-			unit<uint32>        AllPlaces                := union_unit(PT_net/PT_Places, org, dest)
+			unit<uint32>        AllPlaces                := union_unit(PT_net/SL_Places, org, dest)
 			, Descr = "All stops, orgs and dests"
 			{
-				attribute<rdc>    geometry := union_data(., PT_net/PT_Places/geometry, org/geometry, dest/geometry);
-				attribute<string> label    := union_data(., PT_net/PT_Places/label, org/label, dest/label);
+				attribute<rdc>    geometry := union_data(., PT_net/SL_Places/geometry, org/geometry, dest/geometry);
+				attribute<string> label    := union_data(., PT_net/SL_Places/label, org/label, dest/label);
 			}	
 			
 			unit<uint32>        Places                := unique(AllPlaces/geometry)
@@ -171,10 +171,17 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 				attribute<Infrastructuur/OVprijzen/NS/NS_stations> NS_Stations_rel := Stops/NS_Stations_rel[Stop_rel];
 			}
 			
-			unit<uint64> c_Time_Places         := combine_unit_uint64(Time, Places);
+			// unit<uint64> c_Time_Places         := combine_unit_uint64(Time, Places) //zonder rels
+			unit<uint64> c_Time_Places         := combine_uint64(Time, Places)
+			{
+				attribute<string> Time_name  := Time/label[first_rel];
+				attribute<string> Place_name := Places/label[second_rel];
+				attribute<string> Label      := Place_name + ' @ ' + Time_name;
+			
+			}
 			
 			
-			Template Create_TimeInvariantConnection_T  : using = "/SourceData/Infrastructuur/GTFS/PublicTransportNet"
+			Template Create_TimeInvariantConnection_T  : using = "/SourceData/Infrastructuur/GTFS/RelevantSelection"
 			{
 				parameter<TimeInvariantTypes> TimeInvariantTypes_rel;
 				///
