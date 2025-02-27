@@ -1,5 +1,44 @@
 container NetworkSetup : using = "units;geometries;SourceData;Classifications;ModelParameters"
-{     
+{ 
+	container Prep
+	{
+		parameter<string> Org_domain        := rjoin(lowercase(ModelParameters/Orgset), lowercase(Advanced/org_domain_list/label), Advanced/org_domain_list/path);
+		parameter<string> Dest_domain       := rjoin(lowercase(ModelParameters/DestSet), lowercase(Advanced/dest_domain_list/label), Advanced/dest_domain_list/path);
+		
+		unit<uint32> org := =Org_domain
+		{
+			attribute<rdc>                   geometry       := =Org_domain+'/geometry';
+			attribute<string>                name           := =Org_domain+'/name';
+			// attribute<float32>               nr_inwoners    := =Org_domain+'/nr_inwoners[float32]';
+		}
+		
+		unit<uint32> dest := =Advanced/Create_Symmetric_fullOD ? 'org' : Dest_domain
+		{
+			// attribute<uint32>                nr_items_of_interest := =Dest_domain+'/'+Advanced/items_of_interest;
+			attribute<rdc>                   geometry             := =Dest_domain+'/geometry';
+			attribute<string>                name                 := =Dest_domain+'/name';
+			attribute<string>                label                := =Dest_domain+'/label';
+		}
+		
+		unit<uint32> Stops                       := SourceData/Infrastructuur/GTFS/StudyAreaFeeds/Stops;
+		unit<uint32> Stops_ICstations            := SourceData/Infrastructuur/GTFS/StudyAreaFeeds/Stops_ICstation;
+		unit<uint32> Stops_Trainstations         := SourceData/Infrastructuur/GTFS/StudyAreaFeeds/Stops_Trainstation;
+		unit<uint32> Stops_TrainMetrostation     := SourceData/Infrastructuur/GTFS/StudyAreaFeeds/Stops_TrainMetrostation;
+		unit<uint32> Stops_TrainMetroTramstation := SourceData/Infrastructuur/GTFS/StudyAreaFeeds/Stops_TrainMetroTramstation;
+		
+		container Create_Optimised_Network_Pedestrian  := Templates/CreateNetwork_Efficient_T(Org, Stops, SourceData/Infrastructuur/OSM/Network_Pedestrian, 'Pedestrian');
+		container Create_Optimised_Network_Bike        := Templates/CreateNetwork_Efficient_T(Org, Stops, SourceData/Infrastructuur/OSM/Network_Bike, 'Bike');
+		
+		container RoadNets_Org2Stop_W    := templates/CreateNetwork_Pedestrian_Bike_T(Org   ,Stops                       ,SourceData/Infrastructuur/OSM/Network_Pedestrian, 'Pedestrian', 'Org2Stop', Create_Optimised_Network_Pedestrian);
+		container RoadNets_Org2Stop_B    := templates/CreateNetwork_Pedestrian_Bike_T(Org   ,Stops                       ,SourceData/Infrastructuur/OSM/Network_Bike      , 'Bike'      , 'Org2Stop', Create_Optimised_Network_Bike);
+		container RoadNets_Org2StopIC_B  := templates/CreateNetwork_Pedestrian_Bike_T(Org   ,Stops_ICstations            ,SourceData/Infrastructuur/OSM/Network_Bike      , 'Bike'      , 'Org2Stop', Create_Optimised_Network_Bike);
+		container RoadNets_Org2StopT_B   := templates/CreateNetwork_Pedestrian_Bike_T(Org   ,Stops_Trainstations         ,SourceData/Infrastructuur/OSM/Network_Bike      , 'Bike'      , 'Org2Stop', Create_Optimised_Network_Bike);
+		container RoadNets_Org2StopTM_B  := templates/CreateNetwork_Pedestrian_Bike_T(Org   ,Stops_TrainMetrostation     ,SourceData/Infrastructuur/OSM/Network_Bike      , 'Bike'      , 'Org2Stop', Create_Optimised_Network_Bike);
+		container RoadNets_Org2StopTMT_B := templates/CreateNetwork_Pedestrian_Bike_T(Org   ,Stops_TrainMetroTramstation ,SourceData/Infrastructuur/OSM/Network_Bike      , 'Bike'      , 'Org2Stop', Create_Optimised_Network_Bike);
+		container RoadNets_Stop2Dest_W   := templates/CreateNetwork_Pedestrian_Bike_T(Stops ,Dest                        ,SourceData/Infrastructuur/OSM/Network_Pedestrian, 'Pedestrian', 'Stop2Dest', Create_Optimised_Network_Pedestrian);
+		container RoadNets_Stop2Dest_B   := templates/CreateNetwork_Pedestrian_Bike_T(Stops ,Dest                        ,SourceData/Infrastructuur/OSM/Network_Bike      , 'Bike'      , 'Stop2Dest', Create_Optimised_Network_Bike);
+	}
+
 	container ConfigurationPerRegio := 
 		for_each_ne(
 			Advanced/Regio/name
@@ -146,15 +185,15 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 				unit<uint32> Stops_TrainMetrostation     := SourceData/Infrastructuur/GTFS/StudyAreaFeeds/Stops_TrainMetrostation;
 				unit<uint32> Stops_TrainMetroTramstation := SourceData/Infrastructuur/GTFS/StudyAreaFeeds/Stops_TrainMetroTramstation;
 				
-				container RoadNets_Org2Stop_W    := templates/CreateNetwork_Pedestrian_Bike_T(Org   ,Stops                       ,SourceData/Infrastructuur/OSM/Network_Pedestrian, 'Pedestrian', 'Org2Stop');
-				container RoadNets_Org2Stop_B    := templates/CreateNetwork_Pedestrian_Bike_T(Org   ,Stops                       ,SourceData/Infrastructuur/OSM/Network_Bike      , 'Bike' , 'Org2Stop');
-				container RoadNets_Org2StopIC_B  := templates/CreateNetwork_Pedestrian_Bike_T(Org   ,Stops_ICstations            ,SourceData/Infrastructuur/OSM/Network_Bike      , 'Bike' , 'Org2Stop');
-				container RoadNets_Org2StopT_B   := templates/CreateNetwork_Pedestrian_Bike_T(Org   ,Stops_Trainstations         ,SourceData/Infrastructuur/OSM/Network_Bike      , 'Bike' , 'Org2Stop');
-				container RoadNets_Org2StopTM_B  := templates/CreateNetwork_Pedestrian_Bike_T(Org   ,Stops_TrainMetrostation     ,SourceData/Infrastructuur/OSM/Network_Bike      , 'Bike' , 'Org2Stop');
-				container RoadNets_Org2StopTMT_B := templates/CreateNetwork_Pedestrian_Bike_T(Org   ,Stops_TrainMetroTramstation ,SourceData/Infrastructuur/OSM/Network_Bike      , 'Bike' , 'Org2Stop');
+				// container RoadNets_Org2Stop_W    := templates/CreateNetwork_Pedestrian_Bike_T(Org   ,Stops                       ,SourceData/Infrastructuur/OSM/Network_Pedestrian, 'Pedestrian', 'Org2Stop');
+				// container RoadNets_Org2Stop_B    := templates/CreateNetwork_Pedestrian_Bike_T(Org   ,Stops                       ,SourceData/Infrastructuur/OSM/Network_Bike      , 'Bike' , 'Org2Stop');
+				// container RoadNets_Org2StopIC_B  := templates/CreateNetwork_Pedestrian_Bike_T(Org   ,Stops_ICstations            ,SourceData/Infrastructuur/OSM/Network_Bike      , 'Bike' , 'Org2Stop');
+				// container RoadNets_Org2StopT_B   := templates/CreateNetwork_Pedestrian_Bike_T(Org   ,Stops_Trainstations         ,SourceData/Infrastructuur/OSM/Network_Bike      , 'Bike' , 'Org2Stop');
+				// container RoadNets_Org2StopTM_B  := templates/CreateNetwork_Pedestrian_Bike_T(Org   ,Stops_TrainMetrostation     ,SourceData/Infrastructuur/OSM/Network_Bike      , 'Bike' , 'Org2Stop');
+				// container RoadNets_Org2StopTMT_B := templates/CreateNetwork_Pedestrian_Bike_T(Org   ,Stops_TrainMetroTramstation ,SourceData/Infrastructuur/OSM/Network_Bike      , 'Bike' , 'Org2Stop');
 				
-				container RoadNets_Stop2Dest_W   := templates/CreateNetwork_Pedestrian_Bike_T(Stops ,Dest                        ,SourceData/Infrastructuur/OSM/Network_Pedestrian, 'Pedestrian', 'Stop2Dest');
-				container RoadNets_Stop2Dest_B   := templates/CreateNetwork_Pedestrian_Bike_T(Stops ,Dest                        ,SourceData/Infrastructuur/OSM/Network_Bike      , 'Bike' , 'Stop2Dest');
+				// container RoadNets_Stop2Dest_W   := templates/CreateNetwork_Pedestrian_Bike_T(Stops ,Dest                        ,SourceData/Infrastructuur/OSM/Network_Pedestrian, 'Pedestrian', 'Stop2Dest');
+				// container RoadNets_Stop2Dest_B   := templates/CreateNetwork_Pedestrian_Bike_T(Stops ,Dest                        ,SourceData/Infrastructuur/OSM/Network_Bike      , 'Bike' , 'Stop2Dest');
 				
 				container CreateODconnections : using = "/SourceData/Infrastructuur/GTFS/StaticNets"
 				{
@@ -178,23 +217,30 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 																: VoorOfNaTransport == 'Stop2Dest' && AltStartHalte == ''
 																	? 'StartRef'
 																	: 'Complete_Stops_rel';
-						unit<uint32> OD_path := ='RoadNets_'+VoorOfNaTransport+''+AltStartHalte+'_'+Mode_Short+'/ODMatrix';
+						parameter<string> OD_path_str := 'Prep/RoadNets_'+VoorOfNaTransport+''+AltStartHalte+'_'+Mode_Short+'/ODMatrix';
+						unit<uint32> OD_path := =OD_path_str;
 						
-						unit<uint32> AB := ='join_equal_values_uint32(OD_path/'+JoinStops_str+', ScheduledSpaceTimeEvents/Stop_rel)'
+						parameter<string> condition := VoorOfNaTransport == 'Org2Stop' ? 'IsDefined(rlookup(OD_path/OrgZone_rel, org/org_rel))' : 'const(TRUE, '+OD_path_str+')';
+						
+						unit<uint32> OD := ='select_with_org_rel_with_attr_by_cond('+OD_path_str+', '+condition+')'
+						{
+						}
+						
+						unit<uint32> AB := ='join_equal_values_uint32(OD/'+JoinStops_str+', ScheduledSpaceTimeEvents/Stop_rel)'
 						{
 							attribute<Stops>                      Stop_rel          := X_rel;
-							attribute<OD_path>                    OD_rel            := first_rel;
+							attribute<OD>                         OD_rel            := first_rel;
 							attribute<ScheduledSpaceTimeEvents>   SSTE_rel          := second_rel;
 							
 							attribute<allLinks/Places>            Place_rel         := stops/PlaceRef[Stop_rel];
-							attribute<Org>                        Origin_rel        := OD_path/StartRef[OD_rel];
-							attribute<Dest>                       Dest_rel          := OD_path/EindRef[OD_rel];
-							attribute<rdc>                        geometry (arc)    := OD_path/geometry[OD_rel];
-							attribute<Time>                       Duration          := OD_path/Duration[OD_rel] > #Time / 2
+							attribute<Org>                        Origin_rel        := =ModelParameters/Advanced/Getiled_berekenen ? 'invert(org/org_rel)[OD/StartRef[OD_rel]]' : 'OD/StartRef[OD_rel]';
+							attribute<Dest>                       Dest_rel          := OD/EindRef[OD_rel];
+							attribute<rdc>                        geometry (arc)    := OD/geometry[OD_rel];
+							attribute<Time>                       Duration          := OD/Duration[OD_rel] > #Time / 2
 																						? #Time / 2
-																						: OD_path/Duration[OD_rel];
+																						: OD/Duration[OD_rel];
 							
-							attribute<km>                         LengthKm          := OD_path/LengthKm[OD_rel];
+							attribute<km>                         LengthKm          := OD/LengthKm[OD_rel];
 							attribute<Time>                       O2S_FromTime      := sub_or_null(O2S_toTime[int32],Duration[int32]) > 0i
 																						? sub_or_null(O2S_toTime,Duration) 
 																						: (sub_or_null(O2S_toTime[int32],Duration[int32]) + (#Time / 2)[int32])[uint32];
@@ -204,16 +250,11 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 																						? sub_or_null(S2D_FromTime + Duration, #Time)
 																						: S2D_FromTime + Duration;
 							
-							attribute<string>                     Label             := OD_path/Label[OD_rel];
+							attribute<string>                     Label             := OD/Label[OD_rel];
 							attribute<upoint>                     O2S_MomentxPlace  := point_xy(O2S_toTime, Place_rel, upoint);
 							attribute<upoint>                     S2D_MomentxPlace  := point_xy(S2D_FromTime, Place_rel, upoint);
 							attribute<allLinks/NodeSet>           O2S_NodeRef       := rlookup(O2S_MomentxPlace, allLinks/NodeSet/values);
 							attribute<allLinks/NodeSet>           S2D_NodeRef       := rlookup(S2D_MomentxPlace, allLinks/NodeSet/values);
-							
-							// unit<uint32> uq_stops := unique(Place_rel)
-							// {
-								// attribute<allLinks/Places> UsedStops := values;
-							// }
 						}
 					}
 				}
@@ -244,7 +285,11 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 				container Create_Optimised_Network  := Templates/CreateNetwork_Efficient_T(org, dest, SourceData/Infrastructuur/OSM/Network_Pedestrian/IsVerbonden, 'Pedestrian');
 				
 				unit<uint32> LinkSet := Create_Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet;
-				unit<uint32> NodeSet := Create_Optimised_Network/CreateMoreEfficientNetwork/FinalNodeSet;
+				unit<uint32> NodeSet := Create_Optimised_Network/CreateMoreEfficientNetwork/FinalNodeSet
+				{
+					attribute<.>   OrgNode_rel  (org)  := rlookup(org/geometry,  geometry);
+					attribute<.>   DestNode_rel (dest)   := rlookup(dest/geometry, geometry);	
+				}
 				container Calc_Traveltimes_maxspeed_pedestrian := Calc_Traveltimes_T(LinkSet, NodeSet, LinkSet/Impedance_per_ImpedanceType/max_pedestrian, ModelParameters/MaxPedestrianTime_Org2Dest);
 				
 				unit<uint64> ExportTable_Traveltimes := Calc_Traveltimes_maxspeed_pedestrian/Traveltimes
@@ -277,12 +322,20 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 				container Create_Optimised_Network_EBike   := Templates/CreateNetwork_Efficient_T(org, dest, SourceData/Infrastructuur/OSM/Network_Bike/IsVerbonden, 'E_Bike');
 
 				unit<uint32> LinkSet_bike := Create_Optimised_Network_Bike/CreateMoreEfficientNetwork/FinalLinkSet;
-				unit<uint32> NodeSet_bike := Create_Optimised_Network_Bike/CreateMoreEfficientNetwork/FinalNodeSet;
+				unit<uint32> NodeSet_bike := Create_Optimised_Network_Bike/CreateMoreEfficientNetwork/FinalNodeSet
+				{
+					attribute<.>   OrgNode_rel   (org) := rlookup(org/geometry,  geometry);
+					attribute<.>   DestNode_rel (dest) := rlookup(dest/geometry, geometry);	
+				}
 				container Calc_Traveltimes_maxspeed_bike  := Calc_Traveltimes_T(LinkSet_bike, NodeSet_bike, LinkSet_bike/Impedance_per_ImpedanceType/max_bike, ModelParameters/MaxBikeTime_Org2Dest);
 				container Calc_Traveltimes_congested_bike := Calc_Traveltimes_T(LinkSet_bike, NodeSet_bike, LinkSet_bike/Impedance_per_ImpedanceType/congested_bike, ModelParameters/MaxBikeTime_Org2Dest);
 				
 				unit<uint32> LinkSet_e_bike := Create_Optimised_Network_EBike/CreateMoreEfficientNetwork/FinalLinkSet;
-				unit<uint32> NodeSet_e_bike := Create_Optimised_Network_EBike/CreateMoreEfficientNetwork/FinalNodeSet;
+				unit<uint32> NodeSet_e_bike := Create_Optimised_Network_EBike/CreateMoreEfficientNetwork/FinalNodeSet
+				{
+					attribute<.>   OrgNode_rel   (org) := rlookup(org/geometry,  geometry);
+					attribute<.>   DestNode_rel (dest) := rlookup(dest/geometry, geometry);	
+				}
 				container Calc_Traveltimes_maxspeed_e_bike := Calc_Traveltimes_T(LinkSet_e_bike, NodeSet_e_bike, LinkSet_e_bike/Impedance_per_ImpedanceType/max_e_bike, ModelParameters/MaxBikeTime_Org2Dest);
 				container Calc_Traveltimes_congested_e_bike := Calc_Traveltimes_T(LinkSet_e_bike, NodeSet_e_bike, LinkSet_e_bike/Impedance_per_ImpedanceType/congested_e_bike, ModelParameters/MaxBikeTime_Org2Dest);
 				
