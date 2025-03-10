@@ -7,21 +7,35 @@ Template CreateNetwork_Pedestrian_Bike_T : using = "geometries"
 	parameter<string> Direction;
 	container         Optimised_Network;
 	////
+	
 	parameter<min_f> MaxDistSelectie_min := ='ModelParameters/Max'+TravelMode+'Time_'+Direction;
 	parameter<s_f>   MaxDistSelectie_sec := convert(MaxDistSelectie_min, s_f);
 	
+	parameter<bool>  Is2DestSet := Direction == 'Stop2Dest';
 	
-	// container Create_Optimised_Network  := ='Templates/CreateNetwork_Efficient_T(inStart, inEind, Roads, TravelMode)';
-	// unit<uint32> LinkSet := Create_Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet;
-	// unit<uint32> NodeSet := Create_Optimised_Network/CreateMoreEfficientNetwork/FinalNodeSet;
-	unit<uint32> LinkSet := Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet;
-	unit<uint32> NodeSet := Optimised_Network/CreateMoreEfficientNetwork/FinalNodeSet
+	unit<uint32> LinkSet0 := Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet
 	{
-		attribute<.>   OrgNode_rel  (inStart)  := rlookup(inStart/geometry,  geometry);
-		attribute<.>   DestNode_rel (inEind)   := rlookup(inEind/geometry, geometry);	
+		// attribute<NodeSet> F1                   := invert(NodeSet/org_rel)[Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet/F1];
+		// attribute<NodeSet> F2                   := invert(NodeSet/org_rel)[Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet/F2];
+	}
+	unit<uint32> LinkSet := select_with_org_rel(IsDefined(LinkSet0/F1) && IsDefined(LinkSet0/F2))
+	{
+		attribute<NodeSet> F1                   := LinkSet0/F1[org_rel];
+		attribute<NodeSet> F2                   := LinkSet0/F2[org_rel];
+		attribute<Km>      LengthKm             := LinkSet0/LengthKm[org_rel];
 	}
 	
-	attribute<s_f> impedance (LinkSet) := ='LinkSet/Impedance_per_ImpedanceType/max_'+TravelMode;
+	unit<uint32> NodeSet := Optimised_Network/CreateMoreEfficientNetwork/FinalNodeSet
+	{
+		// attribute<rdc> geometry                  := NodeSet0/geometry[org_rel];
+		attribute<.>   OrgNode_rel  (inStart)    := rlookup(inStart/geometry, geometry);
+		attribute<.>   DestNode_rel (inEind)     := rlookup(inEind/geometry, geometry);
+	}
+	// unit<uint32> NodeSet  := select_with_org_rel(IsDefined(rlookup(NodeSet0/geometry, inStart/geometry)) || IsDefined(rlookup(NodeSet0/geometry, inEind/geometry)))
+	// {
+	// }
+	
+	attribute<s_f> impedance (LinkSet) := ='LinkSet0/Impedance_per_ImpedanceType/max_'+TravelMode+'[LinkSet/org_rel]';
 	
 	unit<uint32> ODMatrix :=
 		impedance_matrix('bidirectional;startPoint(Node_rel):max_imp;endPoint(Node_rel);cut(OrgZone_max_imp);limit(OrgZone_max_mass,DstZone_mass);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel,LinkSet'
@@ -57,9 +71,6 @@ Template CreateNetwork_Pedestrian_Bike_T : using = "geometries"
 		
 		unit<uint32> AfgelegdeReis := sequence2points(LinkSet) //vertaling van LinkSet attribute (afgelegde route in OD), naar onderdelen van de reis
 		{
-			unit<uint32> LinkSet := Create_Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet;
-			unit<uint32> NodeSet := Create_Optimised_Network/CreateMoreEfficientNetwork/FinalNodeSet;
-
 			// voor visuaisatie
 			attribute<rdc>         Route (arc) := points2sequence(LinkPoints/Point, LinkPoints/Sequence_rel, LinkPoints/Ordinal);
 			attribute<rdc>         FromPoint   := LinkSet/FirstPoint[point];

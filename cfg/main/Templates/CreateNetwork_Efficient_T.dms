@@ -6,22 +6,29 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 	unit<uint32> DestDomain;
 	unit<uint32> RoadDomain;
 	parameter<string> NetworkType;
+	parameter<bool> IsVoorNaTransport;
 	// end case parameters
 	container root := .;
 	
-	unit<uint32> Locations := union_unit(orgDomain, destDomain)
+	unit<uint32> Locations_wStops := union_unit(orgDomain, Stops, destDomain)
+	{
+		attribute<rdc>                             geometry                       := union_data(.,orgDomain/geometry, Stops/geometry, destDomain/geometry);
+		attribute<bool>                            IsOrg                          := union_data(.,const(TRUE , OrgDomain),const(FALSE, Stops), const(FALSE,DestDomain));
+		attribute<bool>                            IsDest                         := union_data(.,const(FALSE, OrgDomain),const(FALSE, Stops), const(TRUE ,DestDomain));
+	}
+	unit<uint32> Locations_woStops := union_unit(orgDomain, destDomain)
 	{
 		attribute<rdc>                             geometry                       := union_data(.,orgDomain/geometry, destDomain/geometry);
 		attribute<bool>                            IsOrg                          := union_data(.,const(TRUE , OrgDomain), const(FALSE,DestDomain));
 		attribute<bool>                            IsDest                         := union_data(.,const(FALSE, OrgDomain), const(TRUE ,DestDomain));
 	}
 	
-	unit<uint32> UniqueLocations    := unique(Locations/geometry) 
+	unit<uint32> UniqueLocations    := =IsVoorNaTransport ? 'unique(Locations_wStops/geometry)' : 'unique(Locations_woStops/geometry)'
 	{ 
 		attribute<rdc>                          geometry       := values;
-		attribute<Locations>                    Locations_rel  := rlookup(geometry, Locations/geometry);
+		// attribute<Locations>                    Locations_rel  := rlookup(geometry, Locations/geometry);
 		attribute<OrgDomain>                    OrgDomain_rel  := rlookup(geometry, orgDomain/geometry);
-		attribute<bool>                         IsOrg          := rjoin(geometry, Locations/geometry, Locations/IsOrg);
+		// attribute<bool>                         IsOrg          := rjoin(geometry, Locations/geometry, Locations/IsOrg);
 	}
 	
 	container CreateInitialWorkingNetwork
@@ -181,8 +188,6 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 		unit<uint32> FinalNodeSet := select_with_org_rel(pcount(LastLinkSet/F1)+pcount(LastLinkSet/F2) > 0)
 		{
 			attribute<rdc> geometry                  := org_rel -> values;
-			// attribute<.>   OrgNode_rel  (OrgDomain)  := rlookup(OrgDomain/geometry,  geometry);
-			// attribute<.>   DestNode_rel (DestDomain) := rlookup(DestDomain/geometry, geometry);	
 		}
 		
 		unit<uint32> LastLinkSet := OptimiseNetwork/LastIter/IntermediateLinkSet;
