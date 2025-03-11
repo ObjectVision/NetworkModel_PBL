@@ -1,5 +1,5 @@
 container RegioIndelingen : using = "geometries"
-{ 
+{  
 	parameter<string> Regio_jaar          := ModelParameters/Advanced/RegioIndelingen_jaar;
 	
 	unit<uint32> Gebiedsindelingen_jaren := range(uint32, 2000, 2024)
@@ -195,6 +195,7 @@ container RegioIndelingen : using = "geometries"
 	}
 	
 	unit<uint32>  Gemeente := ='Gebiedsindelingen/y'+Regio_jaar+'/gpkg/'+replace(rjoin(Regio_jaar, string(Gebiedsindelingen_jaren/jaar), Gebiedsindelingen_jaren/Pad_str), '@R@', 'gemeente')
+	, KeepData = "true"
 	{
 		attribute<rdc>       geometry (poly)         := ='Gebiedsindelingen/y'+Regio_jaar+'/gpkg/'+replace(rjoin(Regio_jaar, string(Gebiedsindelingen_jaren/jaar), Gebiedsindelingen_jaren/Pad_str), '@R@', 'gemeente')+'/geometry';
 		attribute<string>    statcode                := ='Gebiedsindelingen/y'+Regio_jaar+'/gpkg/'+replace(rjoin(Regio_jaar, string(Gebiedsindelingen_jaren/jaar), Gebiedsindelingen_jaren/Pad_str), '@R@', 'gemeente')+'/statcode';
@@ -235,7 +236,7 @@ container RegioIndelingen : using = "geometries"
 				attribute<float32> pop       := nr_inwoners[float32];
 				
 			}
-		}
+		} 
 		
 		unit<uint32> centroiden := unique(centroid)
 		{
@@ -265,10 +266,26 @@ container RegioIndelingen : using = "geometries"
 	}
 	
 	unit<uint32>  Corop := ='Gebiedsindelingen/y'+Regio_jaar+'/gpkg/'+replace(rjoin(Regio_jaar, string(Gebiedsindelingen_jaren/jaar), Gebiedsindelingen_jaren/Pad_Gegen_str), '@R@', 'coropgebied')+'' 
+	, KeepData = "true"
 	{
 		attribute<rdc>       geometry (poly)         := ='Gebiedsindelingen/y'+Regio_jaar+'/gpkg/'+replace(rjoin(Regio_jaar, string(Gebiedsindelingen_jaren/jaar), Gebiedsindelingen_jaren/Pad_Gegen_str), '@R@', 'coropgebied')+'/geometry';
 		attribute<string>    statcode                := ='Gebiedsindelingen/y'+Regio_jaar+'/gpkg/'+replace(rjoin(Regio_jaar, string(Gebiedsindelingen_jaren/jaar), Gebiedsindelingen_jaren/Pad_Gegen_str), '@R@', 'coropgebied')+'/statcode';
 		attribute<string>    statnaam                := ='Gebiedsindelingen/y'+Regio_jaar+'/gpkg/'+replace(rjoin(Regio_jaar, string(Gebiedsindelingen_jaren/jaar), Gebiedsindelingen_jaren/Pad_Gegen_str), '@R@', 'coropgebied')+'/statnaam';
+		attribute<string>    name                    := AsItemName(statnaam);
+		attribute<string>    label                   := statnaam;
+		attribute<.>         per_rdc_100m (rdc_100m) := poly2grid(Geometry, rdc_100m);
+		attribute<uint32>    nr_Inwoners             := sum(/SourceData/Locaties/Inwoners/nr_inwoners,point_in_polygon(/SourceData/Locaties/Inwoners/centroid, geometry));
+		attribute<uint32>    nr_banen                := ='sum(uint32(/SourceData/Locaties/LISA/ReadFSS/y'+/ModelParameters/Advanced/LISA_jaar+'/PerYear/banen), point_in_polygon(/SourceData/Locaties/LISA/ReadFSS/y'+/ModelParameters/Advanced/LISA_jaar+'/PerYear/Geometry, geometry))';
+
+		container V := for_each_nedv(name, 'value('+string(id(.))+', ..)', void, .);
+	}
+	
+	unit<uint32>  CoropP := ='Gebiedsindelingen/y'+Regio_jaar+'/gpkg/'+replace(rjoin(Regio_jaar, string(Gebiedsindelingen_jaren/jaar), Gebiedsindelingen_jaren/Pad_Gegen_str), '@R@', 'coropplusgebied')+'' 
+	, KeepData = "true"
+	{
+		attribute<rdc>       geometry (poly)         := ='Gebiedsindelingen/y'+Regio_jaar+'/gpkg/'+replace(rjoin(Regio_jaar, string(Gebiedsindelingen_jaren/jaar), Gebiedsindelingen_jaren/Pad_Gegen_str), '@R@', 'coropplusgebied')+'/geometry';
+		attribute<string>    statcode                := ='Gebiedsindelingen/y'+Regio_jaar+'/gpkg/'+replace(rjoin(Regio_jaar, string(Gebiedsindelingen_jaren/jaar), Gebiedsindelingen_jaren/Pad_Gegen_str), '@R@', 'coropplusgebied')+'/statcode';
+		attribute<string>    statnaam                := ='Gebiedsindelingen/y'+Regio_jaar+'/gpkg/'+replace(rjoin(Regio_jaar, string(Gebiedsindelingen_jaren/jaar), Gebiedsindelingen_jaren/Pad_Gegen_str), '@R@', 'coropplusgebied')+'/statnaam';
 		attribute<string>    name                    := AsItemName(statnaam);
 		attribute<string>    label                   := statnaam;
 		attribute<.>         per_rdc_100m (rdc_100m) := poly2grid(Geometry, rdc_100m);
@@ -416,23 +433,31 @@ container RegioIndelingen : using = "geometries"
 		,	StorageType     = "gdal.vect"
 		,	StorageReadOnly = "True"
 		,	DialogData = "geometries/rdc"
+		, KeepData = "true"
 		{
 			attribute<Provincie>        prov_rel     := point_in_polygon(geometry, Provincie/geometry);
 			attribute<Corop>            corop_rel    := point_in_polygon(geometry, Corop/geometry);
+			attribute<CoropP>           coropP_rel   := point_in_polygon(geometry, CoropP/geometry);
+			attribute<Gemeente>         Gemeente_rel := point_in_polygon(geometry, Gemeente/geometry);
 			attribute<string>           Name         := string(PC6);
 			attribute<string>           label        := string(PC6);
 			
 			unit<uint32> sub:= select_with_attr_by_cond(.,PC6 == "2804VM");
 			
+			container Per_Gemeente := 
+				for_each_ne(
+					Gemeente/name
+					, 'Per_Gemeente_T('+string(id(Gemeente))+', ..)'
+				);
 			container Per_Prov := 
 				for_each_ne(
 					provincie/name
 					, 'Per_Prov_T('+string(id(provincie))+', ..)'
 				);
-			container Per_COROP := 
+			container Per_CoropP := 
 				for_each_ne(
-					COROP/name
-					, 'Per_COROP_T('+string(id(COROP))+', ..)'
+					CoropP/name
+					, 'Per_CoropP_T('+string(id(CoropP))+', ..)'
 				);
 			
 			
@@ -442,6 +467,7 @@ container RegioIndelingen : using = "geometries"
 		,	StorageType     = "gdal.vect"
 		,	StorageReadOnly = "True"
 		,	DialogData = "geometries/rdc"
+		, KeepData = "true"
 		{
 			attribute<string>           Name         := string(PC6);
 			attribute<string>           label        := string(PC6);
@@ -816,6 +842,34 @@ container RegioIndelingen : using = "geometries"
 			attribute<string> label       := domain/label[org_rel];
 			attribute<uint32> nr_banen    := domain/nr_banen[org_rel];
 			attribute<uint32> nr_inwoners := domain/nr_inwoners[org_rel];
+		}
+	}
+	Template Per_CoropP_T
+	{
+		parameter<uint32> CoropP_id;
+		unit<uint32> domain;
+		//
+		unit<uint32> sub := ='select_with_org_rel(domain/CoropP_rel == '+string(CoropP_id)+')'
+		{
+			attribute<rdc>    geometry    := domain/geometry[org_rel];
+			attribute<string> name        := domain/name[org_rel];
+			attribute<string> label       := domain/label[org_rel];
+			attribute<uint32> nr_banen    := domain/nr_banen[org_rel];
+			attribute<uint32> nr_inwoners := domain/nr_inwoners[org_rel];
+		}
+	}
+	Template Per_Gemeente_T
+	{
+		parameter<uint32> Gemeente_id;
+		unit<uint32> domain;
+		//
+		unit<uint32> sub := ='select_with_org_rel(domain/gemeente_rel == '+string(Gemeente_id)+')'
+		{
+			attribute<rdc>    geometry    := domain/geometry[org_rel];
+			attribute<string> name        := domain/name[org_rel];
+			attribute<string> label       := domain/label[org_rel];
+			// attribute<uint32> nr_banen    := domain/nr_banen[org_rel];
+			// attribute<uint32> nr_inwoners := domain/nr_inwoners[org_rel];
 		}
 	}
 }
