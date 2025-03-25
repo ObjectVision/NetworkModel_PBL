@@ -27,21 +27,147 @@ container Classifications: Using = "Units"
 		
 		attribute<string>               Label         := Matrix/Values[value(id(.)* nrAttr + 0, Matrix)];
 		attribute<string>               Mode          := Matrix/Values[value(id(.)* nrAttr + 1, Matrix)];
-		attribute<GTFS_Modes/Selectie>  Mode_rel      := rlookup(Mode, GTFS_Modes/Selectie/name);
+		// attribute<GTFS_Modes/Selectie>  Mode_rel      := rlookup(Mode, GTFS_Modes/Selectie/name);
 		attribute<string>               Name          := AsItemName(label);
 		
 		container V := for_each_nedv(Name, String(ID(.))+'[..]', void, .);
 		parameter<uint32> nrAttr := 3;
 	}
 	
-	unit<uint32> ToegestaneKetens 
+	container Ketens
 	{
+		parameter<uint32> max_NS_transfers := 3;
+		parameter<uint32> max_R_transfers  := 3;
+		parameter<uint32> max_OV_ketens    := 3;
+		parameter<uint32> max_overstappen  := 3;
+		
+		unit<uint32> V := range(0,2), Descr = "voortransport"
+		{
+			attribute<string> name : ['w', 'c']; 
+		}
+		unit<uint32> N := range(0,2), Descr = "natransport"
+		{
+			attribute<string> name : ['w', 'c'];
+		}
+		
+		unit<uint32> V_en_N := combine(V, N) 
+		{
+			attribute<string> name := V/name[first_rel] + N/name[second_rel]; 
+		}
+		
+		unit<uint32> NS_keten := range(0,max_NS_transfers+2), Descr = "k | l + (l)*"
+		{
+			attribute<string> name := id(.) == 0 ? 'k' : repeat('l',id(.));
+		}
+		unit<uint32> R_keten := range(0,max_R_transfers+1), Descr = "r + (r)*"
+		{
+			attribute<string> name := repeat('r',id(.)+1);
+		}
+		
+		unit<uint32> OV_keten_range := range(0, max_OV_ketens)
+		{
+			attribute<string> name      := 'k'+string(id(.));
+			attribute<string> prev_name := MakeDefined(name[sub_or_null(id(.),1)]+'/next','Start_Ketens');
+		}
+		container Generate_OV_keten_reeks := 
+			for_each_ne(
+				OV_keten_range/name
+				, 'OV_keten_T('+OV_keten_range/prev_name+')'
+			)
+		{
+			container Last := =last(OV_keten_range/name);
+			
+			container Start_Ketens
+			{
+				unit<uint32> leeg := range(0,1)
+				{
+					attribute<string> name : [''];
+				}
+				unit<uint32> NS_first  := leeg;
+				unit<uint32> R_first   := leeg;
+				unit<uint32> OV_keten  := leeg;
+			}
+			
+			unit<uint32> NS_en_R := combine(NS_Keten, R_Keten) 
+			{
+				attribute<string> name := NS_Keten/name[first_rel] + R_keten/name[second_rel]; 
+			}
+			unit<uint32> R_en_NS := combine(R_Keten, NS_Keten) { attribute<string> name := R_Keten/name[first_rel]+NS_keten/name[second_rel]; }
+		}
+		
+		
+		Template OV_keten_T
+		{
+			container Prev;
+			///
+
+			unit<uint32> OV_keten1 := combine(R_keten, Prev/NS_first), Descr = "R-keten + (NS-keten + R-keten)*"
+			{
+				attribute<string> name := R_Keten/name[first_rel] + Prev/NS_first/Name[second_rel];
+			}
+			unit<uint32> OV_keten2 := combine(OV_keten1, NS_keten), Descr = "R-keten + (NS-keten + R-keten)* + NS-keten"
+			{
+				attribute<string> name := OV_keten1/name[first_rel] + NS_keten/Name[second_rel];
+			}
+			unit<uint32> OV_keten3 := combine(NS_keten, Prev/R_first), Descr = "NS-keten + (R-keten + NS-keten)*"
+			{
+				attribute<string> name := NS_Keten/name[first_rel] + Prev/R_first/Name[second_rel];
+			}
+			unit<uint32> OV_keten4 := combine(OV_Keten3, R_Keten), Descr = "NS-keten + (R-keten + NS-keten)* + R-keten"
+			{
+				attribute<string> name := OV_Keten3/name[first_rel] + R_keten/Name[second_rel];
+			}
+			unit<uint32> OV_keten_unioned := union_unit(OV_keten1,OV_keten2,OV_keten3,OV_keten4), Descr = "1 | 2 | 3 | 4"
+			{
+				attribute<string> name := union_data(., OV_keten1/name,OV_keten2/name,OV_keten3/name,OV_keten4/name);
+			}
+			container Next
+			{
+				unit<uint32> NS_first := combine(Prev/NS_first, NS_en_R)
+				{
+					attribute<string> name := Prev/NS_first/name[first_rel] + NS_en_R/name[second_rel];
+				}
+				unit<uint32> R_first := combine(Prev/R_first, R_en_NS)
+				{
+					attribute<string> name := Prev/R_first/name[first_rel] + R_en_NS/name[second_rel];
+				}
+				unit<uint32> OV_keten := union_unit(Prev/OV_keten,../OV_keten_unioned), Descr = ""
+				{
+					attribute<string> name := union_data(., Prev/OV_keten/name,.../OV_keten_unioned/name);
+				}
+			}
+		}
+			
+		unit<uint32> OV_keten := Generate_OV_keten_reeks/Last/next/OV_keten, Descr = "1 | 2 | 3 | 4"
+		{
+			attribute<uint32> aantal_overstappen := strlen(name);
+		}
+		
+		// unit<uint32> V_en_OV := combine(V, OV_keten) 
+		// {
+			// attribute<string> name := V/name[first_rel] + OV_keten/name[second_rel]; 
+		// }
+		
+		// unit<uint32> Combinatie_keten := combine(V_en_OV, N), Descr = "voortransport + OV-keten + natransport"
+		// {
+			// attribute<string> name := V_en_OV/name[first_rel] + N/name[second_rel]; 
+		// }
+		// unit<uint32> Keten := union_unit(V, Combinatie_keten), Descr = "zonder-OV-keten | comb-keten"
+		// {
+			// attribute<string> name := union_data(., V/name, Combinatie_keten/name);
+			// attribute<uint32> aantal_overstappen := strlen(name);
+		// }
+
 	
-	
+		unit<uint32> Toegestane_OV_Ketens := select_with_org_rel(
+											OV_keten/aantal_overstappen <= max_overstappen + 1
+											&& OV_keten/name != ''
+											)
+		{
+			attribute<string> name   := org_rel -> name;
+			attribute<uint32> check  := strcount(name, 'kk') + strcount(name, 'kl') + strcount(name, 'lk'); //niet toegestande opties
+		}
 	}
-	
-	
-	
 	
 	
 	unit<uint8> TimeInvariantTypes := combine_uint8(TimeInvariant_ConnectionTypes, TimeInvariant_Modes)
@@ -75,9 +201,9 @@ container Classifications: Using = "Units"
 	}
 
 	#include<modes.dms>
-	#include<lisa.dms>
+	// #include<lisa.dms>
 	#include<osm.dms>
-	#include<LandUse.dms>
+	// #include<LandUse.dms>
 	
 	unit<uint32> Directions_TomTom : NrOfRows = 4
 	{
@@ -112,7 +238,7 @@ container Classifications: Using = "Units"
 		container v := for_each_nedv(Name, string(id(.)), void, .);
 	}
 	
-	unit<uint32> Agencies := unique(lowercase(SourceData/Infrastructuur/GTFS/LoadFeeds/ReadFSS/Agency/data/agency_name))
+ 	unit<uint32> Agencies := unique(lowercase(SourceData/Infrastructuur/GTFS/LoadFeeds/ReadFSS/Agency/data/agency_name))
 	{
 		attribute<string> name  := AsItemName(values);
 		attribute<string> label := values;
@@ -123,7 +249,7 @@ container Classifications: Using = "Units"
 		attribute<bool>   IsNS := name == 'ns' || name == 'db'  || name == 'eurobahn' || name == 'ns_international' || name == 'eu_sleeper';
 		container V := for_each_nedv(Name, string(id(.)), void, .);
 	}
-	
+ 
 	unit<uint8> ImpedanceTypes : nrofrows = 10
 	{
 		attribute<string> name : ['max_pedestrian','max_bike','max_e_bike','max_car','max_limit_car','congested_morning_car','congested_noon_car','congested_late_car','congested_bike','congested_e_bike'];

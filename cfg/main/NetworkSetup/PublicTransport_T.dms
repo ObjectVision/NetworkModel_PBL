@@ -34,7 +34,7 @@ Template PublicTransport_T
 		attribute<bool>   IsSub_dur  := duration <= convert(ModelParameters/MaxTravelTime , s_f);
 	}
 	
-	container Set_NonNS   := Get_Windowed_Agency_Set_T(' && '+impl/PT_path_str+'/Agency_rel != Agencies/V/ns && '+impl/PT_path_str+'/Duration > 0f');
+	container Set_NonNS   := Get_Windowed_Agency_Set_T(' && '+impl/PT_path_str+'/Agency_rel != Agencies/V/ns && '+impl/PT_path_str+'/Duration > 0f'), Descr = "subset of public transport net for the relevant time windows and agency-set.";
 	container Set_NS_lang := Get_Windowed_Agency_Set_T(' && ('+impl/PT_path_str+'/Agency_rel == Agencies/V/ns || ('+impl/PT_path_str+'/Mode_rel == Modes/V/Waiting && IsDefined('+impl/PT_path_str+'/c_NS_start_end_rel))) && '+impl/PT_path_str+'/Duration > 0f');
 	container Set_NS_kort := Get_Windowed_Agency_Set_T(' && ('+impl/PT_path_str+'/Agency_rel == Agencies/V/ns || ('+impl/PT_path_str+'/Mode_rel == Modes/V/Waiting && IsDefined('+impl/PT_path_str+'/c_NS_start_end_rel))) && '+impl/PT_path_str+'/Duration > 0f && '+impl/PT_path_str+'/IsConnectedToNSkortStation');
 	
@@ -51,7 +51,6 @@ Template PublicTransport_T
 			attribute<c_Time_Places>  c_toTime_Place_rel        := combine_data(c_Time_Places, ToTime_rel, ToPlace_rel);
 			attribute<NodeSet>        F1                        := rlookup(c_fromTime_Place_rel, NodeSet/c_Time_Place_rel);
 			attribute<NodeSet>        F2                        := rlookup(c_toTime_Place_rel, NodeSet/c_Time_Place_rel);
-			// attribute<uint32>         tariefeenheden            := /SourceData/Infrastructuur/OVprijzen/NS/NS_tariefeenheden_matrix/c_NS_start_end/Tariefeenheid[c_NS_start_end_rel];
 
 			unit<uint32> doubledLinks := union_unit(., .)
 			, Descr = "in order to get a set of all time-place events"
@@ -94,19 +93,12 @@ Template PublicTransport_T
 		container                 AfgelegdeReis            := Get_AfgelegdeReis_T(LinkSet, .,Set_NS_lang/Set);
 		unit<uint64>              Result                   := select_with_org_rel_with_attr_by_cond(., IsLastReisdeelWaiting)
 		{
-			// attribute<c_NS_start_end> c_NS_start_end_rel := combine_data(c_NS_start_end, ThisSet/NodeSet/NS_Stations_rel[OrgZone_rel], ThisSet/NodeSet/NS_Stations_rel[DstZone_rel]);
-			// attribute<uint32>         tariefeenheden     := rjoin(c_NS_start_end_rel, TariefEenhedenMatrix/c_NS_start_end_rel, TariefEenhedenMatrix/impedance);
-			
 			attribute<Euro>             Prijs_per_reis                                  := sum(
 																								AfgelegdeReis/uq_reis_route_sorted/Price
 																								, AfgelegdeReis/uq_reis_route_sorted/Reis_rel
 																							)[org_rel];
 			attribute<Places>           Last_Place_rel              := ThisSet/NodeSet/Place_rel[DstZone_rel];
 		}
-		
-		
-		// attribute<c_Time_Places>  c_Time_Place_rel   := values;
-	
 	}
 	unit<uint64> OD_NS_kort := 
 		impedance_matrix_od64('directed;cut(OrgZone_max_imp);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel,LinkSet'
@@ -127,7 +119,6 @@ Template PublicTransport_T
 		container                 AfgelegdeReis            := Get_AfgelegdeReis_T(LinkSet, .,ThisSet);
 		unit<uint64>              Result                   := select_with_attr_by_cond(., !IsLastReisdeelWaiting && IsDaadwerkelijkNSkort)
 		{
-		
 		}
 	}
 	
@@ -150,176 +141,77 @@ Template PublicTransport_T
 	
 	// unit<uint32> Combine_NS_kortlang := join_equal_values_uint32(OD_NS_kort/, OD_NS_lang)
 	
-	container GetTransfers := CreateTransfersSet_T(OD_NS_lang/Result, PTnet/ScheduledSpaceTimeEvents);
-	
-	// unit<uint32> AddTransfersToScheduledLinks := union_unit(PTnet, GetTransfers/TransferLinks)
-	// , Descr = "scheduled links + transfer links"
-	// {
-		// attribute<rdc>                     geometry      (arc) := union_data(., PTnet/geometry, GetTransfers/TransferLinks/geometry); 
-		// attribute<Time>                    FromTime_rel        := union_data(., PTnet/fromTime_rel, GetTransfers/TransferLinks/fromTime_rel); 
-		// attribute<Time>                    ToTime_rel          := union_data(., PTnet/ToTime_rel, GetTransfers/TransferLinks/ToTime_rel); 
-		// attribute<s_f>                     Duration            := union_data(., PTnet/Duration, GetTransfers/TransferLinks/Duration); 
-		// attribute<string>                  Label               := union_data(., PTnet/Label, GetTransfers/TransferLinks/Label), DialogType = "LabelText";
-		// attribute<Trips>                   Trip_rel            := union_data(., PTnet/Trip_rel, const(0/0,GetTransfers/TransferLinks));
-		// attribute<Routes>                  Route_rel           := union_data(., PTnet/Route_rel, const((0/0)[Routes],GetTransfers/TransferLinks));
-		// attribute<string>                  RouteName           := union_data(., PTnet/RouteName, const('Walking',GetTransfers/TransferLinks));
-		// attribute<string>                  RouteName_short     := union_data(., PTnet/RouteName_short, const('Walking',GetTransfers/TransferLinks));
-		// attribute<Agencies>                Agency_rel          := union_data(., PTnet/Agency_rel, const(0/0,GetTransfers/TransferLinks));
-		// attribute<Modes>                   Mode_rel            := union_data(., PTnet/Mode_rel, const(Modes/V/Walking, GetTransfers/TransferLinks, Modes));
-		// attribute<LinkTypes>               LinkType_rel        := union_data(., const(LinkTypes/V/Scheduled,PTnet,LinkTypes), const(LinkTypes/V/Transfer,GetTransfers/TransferLinks,LinkTypes));
-		// attribute<Stops>                   FromStop_rel        := union_data(., PTnet/FromStop_rel, GetTransfers/TransferLinks/FromStop_rel); 
-		// attribute<Stops>                   ToStop_rel          := union_data(., PTnet/ToStop_rel, GetTransfers/TransferLinks/ToStop_rel); 
-		// attribute<rdc>                     fromPoint           := first_point(geometry);
-		// attribute<rdc>                     toPoint             := last_point(geometry);
-		// attribute<PT_Places>               FromPT_Place_rel    := rlookup(fromPoint, PT_Places/Values);
-		// attribute<string>                  FromPT_Place_name   := PT_Places/Stop_name[FromPT_Place_rel];
-		// attribute<PT_Places>               ToPT_Place_rel      := rlookup(toPoint, PT_Places/Values);
-		// attribute<string>                  ToPT_Place_name     := PT_Places/Stop_name[ToPT_Place_rel];
-		// attribute<bool>                    IsIntraModeTransfer := union_data(., const(FALSE, PTnet), GetTransfers/TransferLinks/IsIntraModeTransfer); 
-	// }
-	
-	// container GetWaitingAtStop := CreateWaitingAtStopSet_T(AddTransfersToScheduledLinks, SubStops);
-	
+	container Transfers_NS_lang := CreateTransfersSet_T(OD_NS_lang/Result, Set_NS_lang/Set);
 	
  	Template CreateTransfersSet_T // : using = "RelevantSelection"
 	{
 		unit<uint64> OD;
-		unit<uint32> ScheduledSpaceTimeEvents;
+		unit<uint32> SubPTnet;
 		///
-	
-		attribute<Places> Last_Place_rel (OD) := OD/Last_Place_rel;
-		
-		unit<uint32> Stops := RelevantSelection/Stops
+		unit<uint32> uq_TimeStop := PTnet_prep/uq_TimeStop;
+		unit<uint32> Stops := ../Stops
 		{
-			attribute<bool> IsRelevantStop := IsDefined(rlookup(id(.), PTnet/doubledLinks/Stop_rel));
+			attribute<bool> IsRelevantStop := IsDefined(rlookup(id(.), Places/Stop_rel[SubPTnet/doubledLinks/Place_rel]));
 		}
 	
-		unit<uint32> SubStops       := select_with_org_rel_with_attr_by_cond(RelevantSelection/Stops, Stops/IsRelevantStop)
-		{
-			attribute<StopsGrid> StopsGrid_rel         := geometry[StopsGrid];
-			attribute<uint32>    StopsGrid_id          := StopsGrid/id[StopsGrid_rel];
-			attribute<uint32>    CumulateStop_in_grid  := cumulate(const(1,.,uint32), StopsGrid_rel) - 1;
-			attribute<upoint>    Unique_id             := point_xy(CumulateStop_in_grid, StopsGrid_id, upoint);
-			attribute<uint32>    nTransfers            := StopsGrid/nTransfers[StopsGrid_rel];
-			  
-			unit<spoint> StopsGrid := ='rdc_'+string(ModelParameters/Advanced/MaxTransferDistKm)+'m'
-			, Descr = "prepare grid with nStops and nTransfers for later use in determining transfers."
-			{
-				attribute<uint32> nStops     := pcount(StopsGrid_rel);
-				attribute<uint32> nTransfers := nTop + nRight + nBottom + nLeft + (sub_or_null(nStops,1));
-				attribute<uint32> nTop       := potential(float32(nStops), float32(Templates/Neighbourhood/Top))[uint32];
-				attribute<uint32> nRight     := potential(float32(nStops), float32(Templates/Neighbourhood/Right))[uint32];
-				attribute<uint32> nBottom    := potential(float32(nStops), float32(Templates/Neighbourhood/Bottom))[uint32];
-				attribute<uint32> nLeft      := potential(float32(nStops), float32(Templates/Neighbourhood/Left))[uint32];
-				attribute<uint32> id         := cumulate(const(1,.,uint32))-1;
-			}
-		
-		}
-	
-		unit<uint32> TransferStops := select_with_org_rel(Stops/nTransfers > 0)
+		unit<uint32> SubStops       := select_with_org_rel(Stops/IsRelevantStop)
 		, Descr = "Set met stops van waar een transfer link gegenereerd moet gaan worden"
 		{
-			attribute<rdc>       geometry       := Stops/geometry[org_rel];
-			attribute<uint32>    nTransfers     := Stops/nTransfers[org_rel];
-			attribute<string>    Label          := Stops/Label[org_rel];
-			attribute<upoint>    unique_id      := Stops/unique_id[org_rel];
-			attribute<uint32>    first_transfer := cumulate(nTransfers) - nTransfers;
-			attribute<Modes>     Mode_rel       := Stops/Mode_rel[org_rel];
+			attribute<rdc> geometry := stops/geometry[org_rel];
 		}
-		
-		unit<spoint> StopsGrid := Stops/StopsGrid;
-		
-		unit<uint32> TransferPaths := range(uint32, 0, sum(TransferStops/nTransfers))
-		, Descr = "Set met alle transfer link vanaf relevante stops"
+	
+		unit<uint32> TransferLinks := join_near_values(SubStops/geometry, SubStops/geometry, float64(ModelParameters/Advanced/MaxTransferDist))
+		, Descr = "Set met alle transfer links vanaf relevante stops"
 		{
-			attribute<TransferStops>       first_from_stop     := rlookup(id(.), TransferStops/first_transfer);
-			attribute<TransferStops>       from_trans_Stop_rel := cumulate(uint32(IsDefined(first_from_stop))) - 1;
-			attribute<Stops>               from_Stop_rel       := TransferStops/org_rel[from_trans_Stop_rel];
-			attribute<Modes>               from_Mode           := TransferStops/Mode_rel[from_trans_Stop_rel];
-			attribute<Modes>               to_Mode             := Stops/Mode_rel[to_Stop_rel];
-			
-			attribute<bool>                IsIntraModeTransfer := from_Mode == to_Mode;
-			
-			attribute<bool>                NeedsTranferTimePenalty := Modes/IsGelijkvloers[from_Mode] == 1b && Modes/IsGelijkvloers[to_Mode] == 1b //van: bus, tram, walk    to bus, tram, walk  --> niks
+			attribute<Stops>  from_Stop_rel           := SubStops/org_rel[first_rel];
+			attribute<Stops>  to_Stop_rel             := SubStops/org_rel[second_rel];
+			attribute<Modes>  from_Mode_rel           := Stops/Mode_rel[from_Stop_rel];
+			attribute<Modes>  to_Mode_rel             := Stops/Mode_rel[to_Stop_rel];
+			attribute<bool>   IsIntraModeTransfer     := from_Mode_rel == to_Mode_rel;
+			attribute<uint32> nEvents                 := pcount(PTnet_prep/uq_TimeStop/Stop_rel)[from_Stop_rel];
+			attribute<uint32> first_transfer_event    := cumulate(nEvents) - nEvents;
+			attribute<bool>   NeedsTranferTimePenalty := Modes/IsGelijkvloers[from_Mode_rel] == 1b && Modes/IsGelijkvloers[to_Mode_rel] == 1b //van: bus, tram, walk    to bus, tram, walk  --> niks
 										 								? False
-																		: Modes/IsGelijkvloers[from_Mode] == 1b && Modes/IsGelijkvloers[to_Mode] == 0b //van: bus, tram, walk to metro, rail, ferry --> penalty
+																		: Modes/IsGelijkvloers[from_Mode_rel] == 1b && Modes/IsGelijkvloers[to_Mode_rel] == 0b //van: bus, tram, walk to metro, rail, ferry --> penalty
 																			? TRUE
-																			: Modes/IsGelijkvloers[from_Mode] == 0b && Modes/IsGelijkvloers[to_Mode] == 0b //van: metro, rail, ferry to metro, rail, ferry --> penalty
+																			: Modes/IsGelijkvloers[from_Mode_rel] == 0b && Modes/IsGelijkvloers[to_Mode_rel] == 0b //van: metro, rail, ferry to metro, rail, ferry --> penalty
 																				? TRUE
-																				: Modes/IsGelijkvloers[from_Mode] == 0b && Modes/IsGelijkvloers[to_Mode] == 1b //van: metro, rail, ferry to bus, tram, walk --> penalty
+																				: Modes/IsGelijkvloers[from_Mode_rel] == 0b && Modes/IsGelijkvloers[to_Mode_rel] == 1b //van: metro, rail, ferry to bus, tram, walk --> penalty
 																					? TRUE
 																					: (0/0)[bool];
+			
+			attribute<string> Label               := 'Transfer from ' + Stops/Label[from_Stop_rel] + ' to ' + Stops/Label[to_Stop_rel];
+			attribute<rdc>    geometry      (arc) := points2sequence(GenLines/Points,GenLines/Seq,GenLines/Ord);
+			attribute<m>      Distance            := arc_length(geometry, m);
+			attribute<s_f>    minTransferTime     := Distance / ModelParameters/Advanced/TransferEffectiveSpeed;
 
-			attribute<uint32>              nEvents            := pcount(ScheduledSpaceTimeEvents/SubStop_rel)[from_Stop_rel];
-			attribute<uint32>              first_transfer_event  := cumulate(nEvents) - nEvents;
-			attribute<upoint>              from_unique_id     := Stops/Unique_id[from_Stop_rel];
-			attribute<StopsGrid>           from_StopsGrid_rel := Stops/StopsGrid_rel[from_Stop_rel];
-			attribute<uint32>              nTop               := StopsGrid/nTop[from_StopsGrid_rel];
-			attribute<uint32>              nRight             := StopsGrid/nRight[from_StopsGrid_rel];
-			attribute<uint32>              nBottom            := StopsGrid/nBottom[from_StopsGrid_rel];
-			attribute<uint32>              nLeft              := StopsGrid/nLeft[from_StopsGrid_rel];
-			attribute<uint32>              first_transfer        := TransferStops/first_transfer[from_trans_Stop_rel];
- 
-			attribute<Transfer_Directions>         quad               := switch( //top, right, bottom, left, middle
-																	 case(nTop > 0   	&& nTop    > (sub_or_null(id(.), first_transfer)), 0) 
-																	,case(nRight > 0 	&& nRight  > (sub_or_null(id(.),(first_transfer + nTop))), 1)
-																	,case(nBottom > 0 	&& nBottom > (sub_or_null(id(.),(first_transfer + nRight + nTop))), 2)
-																	,case(nLeft > 0 	&& nLeft   > (sub_or_null(id(.),(first_transfer + nBottom + nRight + nTop))), 3) 
-																	,4
-																)[Transfer_Directions];
-																
-			attribute<StopsGrid>          to_StopsGrid_rel    := (spoint(from_StopsGrid_rel) + Transfer_Directions/geometry[quad])[StopsGrid];
-			attribute<uint32>             to_StopsGrid_id     := StopsGrid/id[to_StopsGrid_rel];
-			attribute<upoint>             to_unique_id        := point_xy(seq2, to_StopsGrid_id, upoint);
-			attribute<Stops>              to_Stop_rel         := rlookup(to_unique_id, Stops/unique_id);
-				
-			attribute<uint32>             seq1                := id(.) 
-																	- switch(
-																		case(quad = 0, first_transfer)
-																		, case(quad = 1, first_transfer + nTop)
-																		, case(quad = 2, first_transfer + nTop + nRight)
-																		, case(quad = 3, first_transfer + nTop + nRight + nBottom)
-																		, first_transfer + nTop + nRight + nBottom + nLeft
-																	);
-			attribute<uint32>             seq2                := quad = 4 && seq1 >= Stops/CumulateStop_in_grid[from_Stop_rel] ? seq1 + 1 : seq1;
-			
-			attribute<string>             Label               := 'Transfer from ' + Stops/Label[from_Stop_rel] + ' to ' + Stops/Label[to_Stop_rel];
-			attribute<rdc>                geometry      (arc) := points2sequence(GenLines/Points,GenLines/Seq,GenLines/Ord);
-			attribute<m>                  Distance            := arc_length(geometry, m);
-			attribute<s_f>                minTransferTime     := Distance / ModelParameters/Advanced/TransferEffectiveSpeed;
-			
-			unit<uint32> GenLines:= union_unit(TransferPaths, TransferPaths)
+			unit<uint32> GenLines:= union_unit(., .)
 			{
 				attribute<rdc>              Points := union_data(., Stops/geometry[from_Stop_rel], Stops/geometry[to_Stop_rel]);
-				attribute<TransferPaths>    Seq    := union_data(., id(TransferPaths), id(TransferPaths));
-				attribute<uint32>           Ord    := union_data(., const(0,TransferPaths,uint32), const(1,TransferPaths,uint32));
+				attribute<..>               Seq    := union_data(., id(..), id(..));
+				attribute<uint32>           Ord    := union_data(., const(0,..,uint32), const(1,..,uint32));
 			}
 		}
-		unit<uint32> TransferLinks := range(uint32, 0, sum(TransferPaths/nEvents))
+	
+		unit<uint32> TimedTransferLinks := range(uint32, 0, sum(TransferLinks/nEvents))
 		{
-			attribute<TransferPaths>            first_TransferPath      := rlookup(id(.), TransferPaths/first_transfer_event);
-			attribute<TransferPaths>            TransferPath_rel        := cumulate(uint32(IsDefined(first_TransferPath))) - 1;
-			attribute<rdc>                      geometry (arc)          := TransferPaths/geometry[TransferPath_rel];
-			attribute<Stops>                    fromStop_rel            := TransferPaths/from_Stop_rel[TransferPath_rel];
-			attribute<Stops>                    toStop_rel              := TransferPaths/to_Stop_rel[TransferPath_rel];
-			attribute<bool>                     NeedsTranferTimePenalty := TransferPaths/NeedsTranferTimePenalty[TransferPath_rel];
-			attribute<uint32>                   cumu_events             := cumulate(const(1,.,uint32), TransferPath_rel) - 1;
-			attribute<ScheduledSpaceTimeEvents> SSTE_rel                := rlookup(point_xy(cumu_events, fromStop_rel, upoint), ScheduledSpaceTimeEvents/unique_id);
-			attribute<Time>                     fromTime_rel                := ScheduledSpaceTimeEvents/Time_rel[SSTE_rel];
-			attribute<s_f>                      Duration                := NeedsTranferTimePenalty ? TransferPaths/minTransferTime[TransferPath_rel] + convert(ModelParameters/OngelijkvloersPenalty, s_f) : TransferPaths/minTransferTime[TransferPath_rel];
+			attribute<TransferLinks>            first_TransferLink      := rlookup(id(.), TransferLinks/first_transfer_event);
+			attribute<TransferLinks>            TransferLink_rel        := cumulate(uint32(IsDefined(first_TransferLink))) - 1;
+			attribute<rdc>                      geometry (arc)          := TransferLinks/geometry[TransferLink_rel];
+			attribute<Stops>                    fromStop_rel            := TransferLinks/from_Stop_rel[TransferLink_rel];
+			attribute<Stops>                    toStop_rel              := TransferLinks/to_Stop_rel[TransferLink_rel];
+			attribute<bool>                     NeedsTranferTimePenalty := TransferLinks/NeedsTranferTimePenalty[TransferLink_rel];
+			attribute<uint32>                   cumu_events             := cumulate(const(1,.,uint32), TransferLink_rel) - 1;
+			attribute<uq_TimeStop>              uq_TimeStop_rel                := rlookup(point_xy(cumu_events, fromStop_rel, upoint), uq_TimeStop/unique_id);
+			attribute<Time>                     fromTime_rel            := uq_TimeStop/Time_rel[uq_TimeStop_rel];
+			attribute<s_f>                      Duration                := NeedsTranferTimePenalty ? TransferLinks/minTransferTime[TransferLink_rel] + convert(ModelParameters/OngelijkvloersPenalty, s_f) : TransferLinks/minTransferTime[TransferLink_rel];
 			attribute<Time>                     ToTime_rel                  := fromTime_rel + Duration[Time] < #Time 
 																				? fromTime_rel + Duration[Time] 
 																				: sub_or_null(fromTime_rel + Duration[Time],#Time);
 			attribute<string>                   Label                   := 'Transfer: ' + Time/Label[fromTime_rel] + ' @ ' + Stops/Name[fromStop_rel] + ' to ' + Time/Label[ToTime_rel] + ' @ ' + Stops/Name[toStop_rel], DialogType = "LabelText";
-			
-			attribute<bool>                     IsIntraModeTransfer     := TransferPaths/IsIntraModeTransfer[TransferPath_rel];
-			
+			attribute<bool>                     IsIntraModeTransfer     := TransferLinks/IsIntraModeTransfer[TransferLink_rel];
 		}
 	}
-
-	
-	
-	
 	
 	Template Get_AfgelegdeReis_T
 	{

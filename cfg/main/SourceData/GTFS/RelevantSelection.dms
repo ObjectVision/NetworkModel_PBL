@@ -118,15 +118,15 @@ container RelevantSelection : using = "LoadFeeds"
 		attribute</SourceData/Infrastructuur/OVprijzen/NS/NS_stations>             NS_StartPoint_rel              := Stops/NS_Stations_rel[FromStop_rel];
 		attribute</SourceData/Infrastructuur/OVprijzen/NS/NS_stations>             NS_EndPoint_rel                := Stops/NS_Stations_rel[ToStop_rel];
 		
-		// attribute<c_Time_Stops> c_FromTime_Stop_rel := combine_data(c_Time_Stops, fromTime_rel, FromStop_rel);
-		// attribute<c_Time_Stops> c_ToTime_Stop_rel   := combine_data(c_Time_Stops, toTime_rel, ToStop_rel);
+		attribute<c_Time_Stops> c_FromTime_Stop_rel := combine_data(c_Time_Stops, fromTime_rel, FromStop_rel);
+		attribute<c_Time_Stops> c_ToTime_Stop_rel   := combine_data(c_Time_Stops, toTime_rel, ToStop_rel);
 		
 		unit<uint32> findUniqueSpaceTimeEvents := union_unit(., .)
 		, Descr = "in order to get a set of all time-place events"
 		{
-			// attribute<c_Time_Stops> c_Time_Stops_rel   := union_data(., ../c_FromTime_Stop_rel, ../c_ToTime_Stop_rel);
-			// attribute<Time>         Time_rel           := value(c_Time_Stops_rel / uint64(#Stops), Time);
-			// attribute<Stops>        Stop_rel           := value(c_Time_Stops_rel % uint64(#Stops), Stops);
+			attribute<c_Time_Stops> c_Time_Stops_rel   := union_data(., ../c_FromTime_Stop_rel, ../c_ToTime_Stop_rel);
+			attribute<Time>         Time_rel           := value(c_Time_Stops_rel / uint64(#Stops), Time);
+			attribute<Stops>        Stop_rel           := value(c_Time_Stops_rel % uint64(#Stops), Stops);
 			attribute<rdc>          geometry           := union_data(., ../fromPoint, ../toPoint);
 			
 			// attribute<SL_Places> SL_Place_rel   := rlookup(geometry, SL_Places/geometry);
@@ -164,19 +164,20 @@ container RelevantSelection : using = "LoadFeeds"
 		// attribute<bool>          HasPriceRelation              := IsForeign || IsDefined(PrijsTabel_rel) && IsDomestic;
 		
 		// unit<uint32> HasNoPriceRelation := select_with_org_rel_with_attr_by_cond(.,NOT(HasPriceRelation));
+
+		unit<uint32> uq_TimeStop := unique(ScheduledLinks/findUniqueSpaceTimeEvents/c_Time_Stops_rel)
+		, Descr = "aka SSTE aka ScheduledSpaceTimeEvents"
+		{
+			attribute<c_Time_Stops> c_Time_Stops_rel       := values;
+			attribute<Time>         Time_rel               := value(c_Time_Stops_rel / uint64(#Stops), Time);
+			attribute<Stops>        Stop_rel               := value(c_Time_Stops_rel % uint64(#Stops), Stops);
+			attribute<string>       Label                  := Stops/Name[Stop_rel] + ' @ ' + Time/Label[Time_rel];
+			attribute<uint32>       cumu_events_Stop       := cumulate(const(1,.,uint32), Stop_rel) - 1;
+			attribute<upoint>       unique_id              := point_xy(cumu_events_Stop, Stop_rel, upoint);
+			attribute<uint32>       aantal_tijden_per_stop := pcount(Stop_rel)[Stop_rel];
+		}
 	}
 
-	// unit<uint32> ScheduledSpaceTimeEvents := unique(ScheduledLinks/findUniqueSpaceTimeEvents/c_Time_Stops_rel)
-	// , Descr = "aka SSTE"
-	// {
-		// attribute<c_Time_Stops> c_Time_Stops_rel       := values;
-		// attribute<Time>         Time_rel               := value(c_Time_Stops_rel / uint64(#Stops), Time);
-		// attribute<Stops>        Stop_rel               := value(c_Time_Stops_rel % uint64(#Stops), Stops);
-		// attribute<string>       Label                  := Stops/Name[Stop_rel] + ' @ ' + Time/Label[Time_rel];
-		// attribute<uint32>       cumu_events_Stop       := cumulate(const(1,.,uint32), Stop_rel) - 1;
-		// attribute<upoint>       unique_id              := point_xy(cumu_events_Stop, Stop_rel, upoint);
-		// attribute<uint32>       aantal_tijden_per_stop := pcount(Stop_rel)[Stop_rel];
-	// }
 	
 	unit<uint32> Routes := union_unit(ReadFSS/Routes/read_domain/domain, Classifications/TimeInvariantTypes)
 	, Descr = "Transit routes. A route is a group of trips that are displayed to riders as a single service. Plus voor- en natransport."
