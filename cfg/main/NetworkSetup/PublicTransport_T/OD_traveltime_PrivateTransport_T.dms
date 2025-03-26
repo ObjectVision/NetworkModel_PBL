@@ -1,0 +1,58 @@
+Template OD_traveltime_PrivateTransport_T
+{
+	parameter<string> name;
+	////
+	parameter<string> network_type   := name == 'WW' ? 'Pedestrian' : name == 'BB' ? 'Bike' : '';
+	parameter<string> transport_type := name == 'WW' ? 'Walking' : name == 'BB' ? 'Cycling' : '';
+	
+	unit<uint64> OD := ='NetworkSetup/ConfigurationPerRegio/'+Regio_Name+'/PrivateTransport/'+network_type+'/Calc_Traveltimes_maxspeed_'+network_type+'/Traveltimes_with_Linkset'  
+	{
+		// attribute<rdc>              geometry (arc)                                  := geometry;
+		attribute<Min_f>            reistijd_min                                    := impedance;
+		attribute<Km>               afgelegde_afstand_km                            := alt_imp;
+		attribute<Combine_OrgDest>  OD_nummer                                       := combine_data(Combine_OrgDest, OrgZone_rel, DstZone_rel);
+		
+		attribute<float32>          nr_items_of_interest                            := dest/nr_items_of_interest[float32][DstZone_rel];
+		attribute<float32>          decay_function                                  := reistijd_min == 0f ? 1f : 1f / (1f + exp(ModelParameters/Advanced/Distance_decay/ov_a + ModelParameters/Advanced/Distance_decay/ov_b*log(reistijd_min / 1[min_f]) + ModelParameters/Advanced/Distance_decay/ov_c*reistijd_min / 1[min_f]));
+		attribute<float32>          nr_items_of_interest_decayed                    := MakeDefined(nr_items_of_interest * decay_function,0f);
+		attribute<float32>          nr_items_of_interest_bereikbaar_decayed (Org)   := sum(UniqueOD/Best_nr_items_of_interest_decayed, value(UniqueOD/OD_nummer / uint64(#dest), org));
+		attribute<float32>          nr_items_of_interest_bereikbaar (Org)           := sum(UniqueOD/Best_nr_items_of_interest, value(UniqueOD/OD_nummer / uint64(#dest), org));
+
+		parameter<string>           MaxDuration_Org2Dest_str                        := ='string(ModelParameters/Max'+transport_type+'Time_Org2Dest) + ''min''';
+		attribute<string>           ModeUsed                                        := const(name,.);
+		attribute<Euro>             Prijs_per_reis                                  := const(0[Euro],.);
+
+		unit<uint32> AfgelegdeReis := sequence2points(LinkSet) //vertaling van LinkSet attribute (afgelegde route in OD), naar onderdelen van de reis
+		{
+			unit<uint32> LinkSet_dom := PrivateTransport/Pedestrian/Calc_Traveltimes_maxspeed_pedestrian/LinkSet_dom;
+			unit<uint32> NodeSet_dom := PrivateTransport/Pedestrian/Calc_Traveltimes_maxspeed_pedestrian/NodeSet_dom;
+
+			// voor visuaisatie
+			attribute<rdc>         Route (arc) := points2sequence(LinkPoints/Point, LinkPoints/Sequence_rel, LinkPoints/Ordinal);
+			attribute<rdc>         FromPoint   := LinkSet_dom/FirstPoint[point];
+			attribute<rdc>         ToPoint     := LinkSet_dom/LastPoint[point];
+
+			unit<uint32> LinkPoints := union_unit(., .)
+			{
+				attribute<rdc>                  Point        := union_data(., FromPoint, ToPoint);
+				attribute<..>                   Sequence_rel := union_data(., id(..), id(..));
+				attribute<uint32>               Ordinal      := union_data(., const(0,..,uint32), const(1,..,uint32));
+			}
+		}
+		
+		unit<uint64> UniqueOD := select_with_org_rel(IsDefined(OD_nummer))
+		{
+			attribute<float32>          Best_nr_items_of_interest_decayed   := ../nr_items_of_interest_decayed[org_rel];
+			attribute<float32>          Best_nr_items_of_interest           := ../nr_items_of_interest[org_rel];
+			attribute<float32>          ShortestTraveltime                  := ../reistijd_min[org_rel];
+			attribute<Euro>             Prijs_van_snelste_reis              := const(0[Euro],.);
+			attribute<string>           ModeUsed                            := ../ModeUsed[org_rel];
+			attribute<Combine_OrgDest>  OD_nummer                           := ../OD_nummer[org_rel];
+			attribute<Combine_OrgDest>  values                              := OD_nummer;
+			attribute<string>           OrgName                             := Org/name[Origin_rel];
+			attribute<string>           DestName                            := Dest/name[Dest_rel];
+			attribute<org>              Origin_rel                           := value(OD_nummer / uint64(#Dest), org);
+			attribute<dest>             Dest_rel                             := value(OD_nummer % uint64(#Dest), Dest);
+		}
+	}
+}		

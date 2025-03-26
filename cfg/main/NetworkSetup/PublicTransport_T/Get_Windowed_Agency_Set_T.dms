@@ -1,0 +1,40 @@
+Template Get_Windowed_Agency_Set_T
+{
+	parameter<string> selection_str;
+	///
+	
+	unit<uint32>        Set       := ='select_with_attr_by_cond('+impl/PT_path_str+',PTnet_prep/IsSub_from && PTnet_prep/IsSub_to && PTnet_prep/IsSub_dur'+selection_str+')'
+	{
+		attribute<Places>         From_Place_rel             := rlookup(From_Point, Places/geometry);
+		attribute<Places>         To_Place_rel               := rlookup(To_Point, Places/geometry);
+		attribute<c_Time_Places>  c_fromTime_Place_rel      := combine_data(c_Time_Places, From_Time_rel, From_Place_rel);
+		attribute<c_Time_Places>  c_toTime_Place_rel        := combine_data(c_Time_Places, To_Time_rel, To_Place_rel);
+		attribute<NodeSet>        F1                        := rlookup(c_fromTime_Place_rel, NodeSet/c_Time_Place_rel);
+		attribute<NodeSet>        F2                        := rlookup(c_toTime_Place_rel, NodeSet/c_Time_Place_rel);
+
+		unit<uint32> doubledLinks := union_unit(., .)
+		, Descr = "in order to get a set of all time-place events"
+		{
+			attribute<Time>          Time_rel         := union_data(., from_Time_rel, to_Time_rel);
+			attribute<rdc>           geometry         := union_data(., from_Point, to_Point);
+			attribute<Places>        Place_rel        := rlookup(geometry, Places/geometry);
+			attribute<c_Time_Places> c_Time_Place_rel := combine_data(c_Time_Places, Time_rel, Place_rel);
+		}
+		
+		unit<uint32> NodeSet := unique(doubledLinks/c_Time_Place_rel)
+		{
+			attribute<c_Time_Places>    c_Time_Place_rel := values;
+			attribute<Time>             Time_rel         := value(c_Time_Place_rel / uint64(#Places), Time);
+			attribute<Places>           Place_rel        := value(c_Time_Place_rel % uint64(#Places), Places);
+			attribute<Stops>            Stop_rel         := Places/Stop_rel[Place_rel];
+			attribute<rdc>              geometry         := Places/geometry[Place_rel];
+			attribute<string>           Label            := Places/label[Place_rel] + ' @ ' + Time/Label[Time_rel];
+			
+			attribute<.>                OrgNode_rel  (org)  := rlookup(org/geometry,  geometry);
+			attribute<.>                DestNode_rel (dest) := rlookup(dest/geometry, geometry);
+			attribute<NS_Stations>      NS_Stations_rel     := Places/NS_Stations_rel[Place_rel];
+		}
+		
+		unit<uint64> c_NodeSet := combine_unit_uint64(NodeSet, NodeSet); 
+	}
+}
