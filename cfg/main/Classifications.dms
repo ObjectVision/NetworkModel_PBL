@@ -39,6 +39,7 @@ container Classifications: Using = "Units"
 		parameter<uint32> max_NS_transfers := 3;
 		parameter<uint32> max_R_transfers  := 3;
 		parameter<uint32> max_OV_ketens    := 3;
+		parameter<uint32> max_R_ketens     := 3;
 		parameter<uint32> max_overstappen  := 3;
 		
 		unit<uint32> V := range(0,2), Descr = "voortransport"
@@ -59,16 +60,57 @@ container Classifications: Using = "Units"
 		{
 			attribute<string> name := id(.) == 0 ? 'k' : repeat('l',id(.));
 		}
-		unit<uint32> R_keten := range(0,max_R_transfers+1), Descr = "r + (r)*"
-		{
-			attribute<string> name := repeat('r',id(.)+1);
-		}
+		unit<uint32> R_keten :=Generate_R_keten_reeks/last;
 		
 		unit<uint32> OV_keten_range := range(0, max_OV_ketens)
 		{
 			attribute<string> name      := 'k'+string(id(.));
 			attribute<string> prev_name := MakeDefined(name[sub_or_null(id(.),1)]+'/next','Start_Ketens');
 		}
+		
+		unit<uint32> R_keten_range := range(0, max_R_ketens)
+		{
+			attribute<string> name      := 'r'+string(id(.));
+			attribute<string> prev_name := MakeDefined(name[sub_or_null(id(.),1)]+'/Next','Start_R_keten_set');
+		}
+		
+		
+		unit<uint32> Start_R_keten_set := range(0, 2)
+		{
+			attribute<string> name      : ['r', 'o'];
+		}
+
+		
+		
+		container Generate_R_keten_reeks := 
+			for_each_ne(
+				R_keten_range/name
+				, 'R_keten_T('+R_keten_range/prev_name+')'
+			)
+		{
+			unit<uint32> Last := ='union_unit('+AsList(R_keten_range/name+'/Next', ',')+')'
+			{
+				attribute<string> name := ='union_data(.,'+AsList(R_keten_range/name+'/Next/name', ',')+')';
+				attribute<string> left := ='union_data(.,'+AsList(R_keten_range/name+'/Next/left', ',')+')';
+				attribute<string> right := ='union_data(.,'+AsList(R_keten_range/name+'/Next/right', ',')+')';
+			}
+
+		}
+		
+		Template R_keten_T
+		{
+			unit<uint32> Prev;
+			///
+
+			unit<uint32> Next := combine(Prev, Start_R_keten_set), Descr = "*"
+			{
+				attribute<string> name  :=  Prev/name[first_rel] + Start_R_keten_set/Name[second_rel];
+				attribute<string> left  :=  Prev/name[first_rel];
+				attribute<string> right :=  Start_R_keten_set/name[second_rel];
+			}
+		}
+		
+		
 		container Generate_OV_keten_reeks := 
 			for_each_ne(
 				OV_keten_range/name
@@ -81,7 +123,9 @@ container Classifications: Using = "Units"
 			{
 				unit<uint32> leeg := range(0,1)
 				{
-					attribute<string> name : [''];
+					attribute<string> name  : [''];
+					// attribute<string> left  : [''];
+					// attribute<string> right : [''];
 				}
 				unit<uint32> NS_first  := leeg;
 				unit<uint32> R_first   := leeg;
@@ -96,6 +140,8 @@ container Classifications: Using = "Units"
 		}
 		
 		
+		
+		
 		Template OV_keten_T
 		{
 			container Prev;
@@ -103,23 +149,30 @@ container Classifications: Using = "Units"
 
 			unit<uint32> OV_keten1 := combine(R_keten, Prev/NS_first), Descr = "R-keten + (NS-keten + R-keten)*"
 			{
-				attribute<string> name := R_Keten/name[first_rel] + Prev/NS_first/Name[second_rel];
+				attribute<string> left  := R_Keten/name[first_rel];
+				attribute<string> right := Prev/NS_first/Name[second_rel];
+				attribute<string> name  := left + right;
 			}
 			unit<uint32> OV_keten2 := combine(OV_keten1, NS_keten), Descr = "R-keten + (NS-keten + R-keten)* + NS-keten"
 			{
-				attribute<string> name := OV_keten1/name[first_rel] + NS_keten/Name[second_rel];
+				attribute<string> left  := OV_keten1/name[first_rel];
+				attribute<string> right := NS_keten/Name[second_rel];
 			}
 			unit<uint32> OV_keten3 := combine(NS_keten, Prev/R_first), Descr = "NS-keten + (R-keten + NS-keten)*"
 			{
-				attribute<string> name := NS_Keten/name[first_rel] + Prev/R_first/Name[second_rel];
+				attribute<string> left  := NS_keten/name[first_rel];
+				attribute<string> right := Prev/R_first/Name[second_rel];
+				attribute<string> name  := left + right;
 			}
 			unit<uint32> OV_keten4 := combine(OV_Keten3, R_Keten), Descr = "NS-keten + (R-keten + NS-keten)* + R-keten"
 			{
-				attribute<string> name := OV_Keten3/name[first_rel] + R_keten/Name[second_rel];
+				attribute<string> left  := OV_Keten3/name[first_rel];
+				attribute<string> right := R_keten/Name[second_rel];
 			}
 			unit<uint32> OV_keten_unioned := union_unit(OV_keten1,OV_keten2,OV_keten3,OV_keten4), Descr = "1 | 2 | 3 | 4"
 			{
-				attribute<string> name := union_data(., OV_keten1/name,OV_keten2/name,OV_keten3/name,OV_keten4/name);
+				attribute<string> left  := union_data(., OV_keten1/left,OV_keten2/left,OV_keten3/left,OV_keten4/left);
+				attribute<string> right := union_data(., OV_keten1/right,OV_keten2/right,OV_keten3/right,OV_keten4/right);
 			}
 			container Next
 			{
@@ -133,14 +186,16 @@ container Classifications: Using = "Units"
 				}
 				unit<uint32> OV_keten := union_unit(Prev/OV_keten,../OV_keten_unioned), Descr = ""
 				{
-					attribute<string> name := union_data(., Prev/OV_keten/name,.../OV_keten_unioned/name);
+					attribute<string> left  := union_data(., Prev/OV_keten/left,.../OV_keten_unioned/left);
+					attribute<string> right := union_data(., Prev/OV_keten/right,.../OV_keten_unioned/right);
 				}
 			}
 		}
 			
 		unit<uint32> OV_keten := Generate_OV_keten_reeks/Last/next/OV_keten, Descr = "1 | 2 | 3 | 4"
 		{
-			attribute<uint32> aantal_overstappen := strlen(name);
+			attribute<uint32> aantal_overstappen := sub_or_null(strlen(name),1);
+			attribute<string> name               := left + right;
 		}
 		
 		// unit<uint32> V_en_OV := combine(V, OV_keten) 
@@ -160,12 +215,15 @@ container Classifications: Using = "Units"
 
 	
 		unit<uint32> Toegestane_OV_Ketens := select_with_org_rel(
-											OV_keten/aantal_overstappen <= max_overstappen + 1
+											OV_keten/aantal_overstappen <= max_overstappen
 											&& OV_keten/name != ''
 											)
 		{
-			attribute<string> name   := org_rel -> name;
-			attribute<uint32> check  := strcount(name, 'kk') + strcount(name, 'kl') + strcount(name, 'lk'); //niet toegestande opties
+			attribute<string> name          := OV_keten/name[org_rel];
+			attribute<string> left          := OV_keten/left[org_rel];
+			attribute<string> right         := OV_keten/right[org_rel];
+			attribute<uint32> check         := strcount(name, 'kk') + strcount(name, 'kl') + strcount(name, 'lk'); //niet toegestande opties
+			attribute<bool>   IsEnkelvoudig := strlen(name) == 1;
 		}
 	}
 	
