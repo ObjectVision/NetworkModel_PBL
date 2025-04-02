@@ -36,201 +36,96 @@ container Classifications: Using = "Units"
 	
 	container Ketens
 	{
-		parameter<uint32> max_NS_transfers := 3;
-		parameter<uint32> max_R_transfers  := 3;
-		parameter<uint32> max_OV_ketens    := 2;
-		parameter<uint32> max_R_ketens     := 3;
-		parameter<uint32> max_overstappen  := 2;
+		parameter<uint32> max_ketens       := max_overstappen + 1;
+		parameter<uint32> max_overstappen  := 3;
 		
-		unit<uint32> V := range(0,2), Descr = "voortransport"
-		{
-			attribute<string> name : ['w', 'c']; 
-		}
-		unit<uint32> N := range(0,2), Descr = "natransport"
-		{
-			attribute<string> name : ['w', 'c'];
-		}
 		
-		unit<uint32> V_en_N := combine(V, N) 
-		{
-			attribute<string> name := V/name[first_rel] + N/name[second_rel]; 
-		}
+		// unit<uint32> V := range(0,2), Descr = "voortransport"
+		// {
+			// attribute<string> name : ['w', 'c']; 
+		// }
+		// unit<uint32> N := range(0,2), Descr = "natransport"
+		// {
+			// attribute<string> name : ['w', 'c'];
+		// }
 		
-		unit<uint32> NS_keten := range(0,max_NS_transfers+2), Descr = "k | l + (l)*"
-		{
-			attribute<string> name          := id(.) == 0 ? 'k' : repeat('l',id(.));
-			attribute<string> left          := strlen(name) == 1 ? name : left(name, strlen(name)-1);
-			attribute<string> right         := strlen(name) == 1 ? '' : right(name, 1);
-			attribute<string> transfer_name := 'Transfers_'+right(left, 1)+'_'+right;
-		}
-		unit<uint32> R_keten :=Generate_R_keten_reeks/last;
+		// unit<uint32> V_en_N := combine(V, N) 
+		// {
+			// attribute<string> name := V/name[first_rel] + N/name[second_rel]; 
+		// }
 		
-		unit<uint32> OV_keten_range := range(0, max_OV_ketens)
+		unit<uint32> Keten_range := range(0, max_overstappen)
 		{
-			attribute<string> name      := 'k'+string(id(.));
-			attribute<string> prev_name := MakeDefined(name[sub_or_null(id(.),1)]+'/next','Start_Ketens');
+			attribute<string> name      := 'r'+string(id(.)+1);
+			attribute<string> prev_name := MakeDefined(name[sub_or_null(id(.),1)]+'/Result','TariefGroep');
 		}
 		
-		unit<uint32> R_keten_range := range(0, max_R_ketens)
+		unit<uint32> TariefGroep := range(0, 4)
 		{
-			attribute<string> name      := 'r'+string(id(.));
-			attribute<string> prev_name := MakeDefined(name[sub_or_null(id(.),1)]+'/Next','Start_R_keten_set');
-		}
-		
-		
-		unit<uint32> Start_R_keten_set := range(0, 2)
-		{
-			attribute<string> name          : ['r', 'o'];
+			attribute<string> name          : ['r', 'o', 'l', 'k'];
 			attribute<string> left          := name;
-			attribute<string> right         : ['', ''];
-			attribute<string> transfer_name : ['xxx','xxx'];
+			attribute<string> right         : ['', '', '', ''];
+			attribute<string> transfer_name : ['xxx','xxx','xxx','xxx'];
 		}
 
-		
-		
-		container Generate_R_keten_reeks := 
+		container Generate_keten_reeks := 
 			for_each_ne(
-				R_keten_range/name
-				, 'R_keten_T('+R_keten_range/prev_name+')'
+				Keten_range/name
+				, 'Keten_T('+Keten_range/prev_name+')'
 			)
 		{
-			unit<uint32> Last := ='union_unit(Start_R_keten_set, '+AsList(R_keten_range/name+'/Next', ',')+')'
+			container r0
 			{
-				attribute<string> name          := ='union_data(.,Start_R_keten_set/name, '+AsList(R_keten_range/name+'/Next/name', ',')+')';
-				attribute<string> left          := ='union_data(.,Start_R_keten_set/left, '+AsList(R_keten_range/name+'/Next/left', ',')+')';
-				attribute<string> right         := ='union_data(.,Start_R_keten_set/right, '+AsList(R_keten_range/name+'/Next/right', ',')+')';
-				attribute<string> transfer_name := ='union_data(.,Start_R_keten_set/transfer_name, '+AsList(R_keten_range/name+'/Next/transfer_name', ',')+')';
+				unit<uint32> Result := TariefGroep;
 			}
 		}
 		
-		Template R_keten_T
+		Template Keten_T
 		{
 			unit<uint32> Prev;
 			///
+			unit<uint32> Result := combine(Prev, TariefGroep), Descr = "*"
+			{
+				attribute<string> name  :=  Prev/name[first_rel] + TariefGroep/Name[second_rel];
+			}
+		}
+		
+		unit<uint32> Keten := ='union_unit(TariefGroep, '+AsList('Generate_keten_reeks/'+Keten_range/name+'/Result', ',')+')'
+		{
+			attribute<string> name                 := ='union_data(.,TariefGroep/name, '+AsList('Generate_keten_reeks/'+Keten_range/name+'/Result/name', ',')+')';
+			attribute<uint32> keten_breakpoint_pos := strlen(name) <= 2 ? 1 : sub_or_null(strlen(name),2); // vanaf links
+			
+			attribute<string> left                 := left(name, keten_breakpoint_pos);
+			attribute<string> right                := right(name, strlen(name) - keten_breakpoint_pos);
+			attribute<string> transfer_name        := 'Transfers_'+right(left, 1)+'_'+left(right, 1);
+			
+			attribute<uint32> pos_first_r := strpos(name, 'r');
+			attribute<uint32> pos_first_o := strpos(name, 'o');
+			attribute<bool>   cond_ro     := IsDefined(pos_first_o) ? pos_first_r < pos_first_o : TRUE; // als er een o in zit, moet er een r voor zitten.
+			
+			attribute<bool>   IsToegestaan  :=     NOT(IsDefined(strpos(Keten/name, 'kk'))) 
+												&& NOT(IsDefined(strpos(Keten/name, 'kl')))
+												&& NOT(IsDefined(strpos(Keten/name, 'lk')))
+												// && NOT(IsDefined(strpos(Keten/name, 'rr'))) //rr mag niet, dan zou de tweede altijd een o moeten zijn. EDIT: niet waar, je zou > 35min kunnen wachten.
+												// && NOT(IsDefined(strpos(Keten/name, 'or'))) //een r mag niet volgen direct na een o. EDIT: niet waar, je zou > 35min kunnen wachten.
+												// && NOT(left(Keten/name, 1) == 'o') //keten mag nooit beginnen met een o, je moet immers eerst betalen voor r; overbodig door cond_ro?
+												&& cond_ro;
+			
+			unit<uint32> Toegestaan := select_with_attr_by_cond(.,IsToegestaan);
 
-			unit<uint32> Next := combine(Prev, Start_R_keten_set), Descr = "*"
-			{
-				attribute<string> name  :=  Prev/name[first_rel] + Start_R_keten_set/Name[second_rel];
-				attribute<string> left  :=  Prev/name[first_rel];
-				attribute<string> right :=  Start_R_keten_set/name[second_rel];
-				attribute<string> transfer_name := 'Transfers_R_'+right;
-			}
 		}
-		unit<uint32> NS_en_R := combine(NS_Keten, R_Keten) 
+		
+		//NOTE: this could later fail due to missing indirect calculated needs. 
+		unit<uint32> ToBeCalculated_Keten := select_with_org_rel(
+													   Keten/IsToegestaan
+													|| IsDefined(rlookup(Keten/name, Keten/Toegestaan/right)) // je wilt evt een 'oo' wel toestaan als deze een subketen is.
+													|| IsDefined(rlookup(Keten/name, Keten/Toegestaan/left))  // je wilt evt een 'oo' wel toestaan als deze een subketen is.
+											)
 		{
-			attribute<string> name          := NS_Keten/name[first_rel] + R_keten/name[second_rel]; 
-			attribute<string> left          := NS_Keten/name[first_rel];
-			attribute<string> right         := R_keten/Name[second_rel];
-			attribute<string> transfer_name := 'Transfers_'+right(left, 1)+'_'+left(right, 1);
-		}
-		unit<uint32> R_en_NS := combine(R_Keten, NS_Keten) 
-		{ 
-			attribute<string> name          := R_Keten/name[first_rel]+NS_keten/name[second_rel]; 
-			attribute<string> left          := R_Keten/name[first_rel];
-			attribute<string> right         := NS_keten/Name[second_rel];
-			attribute<string> transfer_name := 'Transfers_'+right(left, 1)+'_'+left(right, 1);
-		}
-		
-		container Generate_OV_keten_reeks := 
-			for_each_ne(
-				OV_keten_range/name
-				, 'OV_keten_T('+OV_keten_range/prev_name+')'
-			)
-		{
-			container Last := =last(OV_keten_range/name);
-			
-			container Start_Ketens
-			{
-				unit<uint32> leeg := range(0,1)
-				{
-					attribute<string> name  : [''];
-				}
-				unit<uint32> NS_first  := NS_en_R;
-				unit<uint32> R_first   := R_en_NS;
-				// unit<uint32> OV_keten  := leeg;
-			}
-			
-		}
-		
-		Template OV_keten_T
-		{
-			container Prev;
-			///
-
-			unit<uint32> OV_keten1 := combine(R_keten, Prev/NS_first), Descr = "R-keten + (NS-keten + R-keten)*"
-			{
-				attribute<string> left  := R_Keten/name[first_rel];
-				attribute<string> right := Prev/NS_first/Name[second_rel];
-				attribute<string> name  := left + right;
-				attribute<string> transfer_name := 'Transfers_R_'+left(right,1);
-			}
-			unit<uint32> OV_keten2 := combine(OV_keten1, NS_keten), Descr = "R-keten + (NS-keten + R-keten)* + NS-keten"
-			{
-				attribute<string> left          := OV_keten1/name[first_rel];
-				attribute<string> right         := NS_keten/Name[second_rel];
-				attribute<string> transfer_name := 'Transfers_R_'+left(right,1);
-			}
-			unit<uint32> OV_keten3 := combine(NS_keten, Prev/R_first), Descr = "NS-keten + (R-keten + NS-keten)*"
-			{
-				attribute<string> left          := NS_keten/name[first_rel];
-				attribute<string> right         := Prev/R_first/Name[second_rel];
-				attribute<string> name          := left + right;
-				attribute<string> transfer_name := 'Transfers_'+right(left, 1)+'_'+left(right, 1);
-			}
-			unit<uint32> OV_keten4 := combine(OV_Keten3, R_Keten), Descr = "NS-keten + (R-keten + NS-keten)* + R-keten"
-			{
-				attribute<string> left          := OV_Keten3/name[first_rel];
-				attribute<string> right         := R_keten/Name[second_rel];
-				attribute<string> transfer_name := 'Transfers_'+right(left, 1)+'_'+left(right, 1);
-			}
-			unit<uint32> OV_keten_unioned := union_unit(OV_keten1,OV_keten2,OV_keten3,OV_keten4), Descr = "1 | 2 | 3 | 4"
-			{
-				attribute<string> name          := left + right;
-				attribute<string> left          := union_data(., OV_keten1/left,OV_keten2/left,OV_keten3/left,OV_keten4/left);
-				attribute<string> right         := union_data(., OV_keten1/right,OV_keten2/right,OV_keten3/right,OV_keten4/right);
-				attribute<string> transfer_name := union_data(., OV_keten1/transfer_name,OV_keten2/transfer_name,OV_keten3/transfer_name,OV_keten4/transfer_name);
-			}
-			container Next
-			{
-				unit<uint32> NS_first := combine(Prev/NS_first, NS_en_R)
-				{
-					attribute<string> name := Prev/NS_first/name[first_rel] + NS_en_R/name[second_rel];
-				}
-				unit<uint32> R_first := combine(Prev/R_first, R_en_NS)
-				{
-					attribute<string> name := Prev/R_first/name[first_rel] + R_en_NS/name[second_rel];
-				}
-			}
-		}
-		
-		unit<uint32> Multi_OV_keten := ='union_unit(NS_en_R, R_en_NS, '+AsList('Generate_OV_keten_reeks/'+OV_keten_range/name+'/OV_keten_unioned', ',')+')', Descr = ""
-		{
-			attribute<string> name          := ='union_data(.,NS_en_R/name, R_en_NS/name, '+AsList('Generate_OV_keten_reeks/'+OV_keten_range/name+'/OV_keten_unioned/name', ',')+')';
-			attribute<string> left          := ='union_data(.,NS_en_R/left, R_en_NS/left,  '+AsList('Generate_OV_keten_reeks/'+OV_keten_range/name+'/OV_keten_unioned/left', ',')+')';
-			attribute<string> right         := ='union_data(.,NS_en_R/right, R_en_NS/right,  '+AsList('Generate_OV_keten_reeks/'+OV_keten_range/name+'/OV_keten_unioned/right', ',')+')';
-			attribute<string> transfer_name := ='union_data(.,NS_en_R/transfer_name, R_en_NS/transfer_name,  '+AsList('Generate_OV_keten_reeks/'+OV_keten_range/name+'/OV_keten_unioned/transfer_name', ',')+')';
-			
-			attribute<uint32> aantal_overstappen := sub_or_null(strlen(name),1);
-		}
-		
-		unit<uint32> OV_Keten := union_unit(NS_keten, R_Keten, Multi_OV_keten), Descr = ""
-		{
-			attribute<string> name          := union_data(.,NS_keten/name, R_Keten/name, Multi_OV_keten/name);
-			attribute<string> left          := union_data(.,NS_keten/left, R_Keten/left, Multi_OV_keten/left);
-			attribute<string> right         := union_data(.,NS_keten/right, R_Keten/right, Multi_OV_keten/right);
-			attribute<string> transfer_name := union_data(.,NS_keten/transfer_name, R_Keten/transfer_name, Multi_OV_keten/transfer_name);
-			
-			attribute<uint32> aantal_overstappen := sub_or_null(strlen(name),1);
-		}
-		
-		
-		
-		unit<uint32> Toegestane_OV_Ketens := select_with_org_rel(OV_Keten/aantal_overstappen <= max_overstappen)
-		{
-			attribute<string> name          := OV_Keten/name[org_rel];
-			attribute<string> left          := OV_Keten/left[org_rel];
-			attribute<string> right         := OV_Keten/right[org_rel];
-			attribute<string> transfer_name := OV_Keten/transfer_name[org_rel];
+			attribute<string> name          := Keten/name[org_rel];
+			attribute<string> left          := Keten/left[org_rel];
+			attribute<string> right         := Keten/right[org_rel];
+			attribute<string> transfer_name := Keten/transfer_name[org_rel];
 		}
 	}
 	
