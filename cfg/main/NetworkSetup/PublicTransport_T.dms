@@ -190,11 +190,10 @@ Template PublicTransport_T
 	////==============================================================================////
 	
 	container Keten_Generatie := 
-		for_each_ne(
-			Ketens/name
-			, iif(Ketens/right == ''
-				, 'OD_'+Ketens/left
-				, 'KetenRijger_T('+Ketens/left+'/Result,'+Ketens/right+'/Result,'+Ketens/transfer_name+'/Result)' //e.g. er is een right 
+		for_each_ne(Ketens/name
+		, 	iif(Ketens/right == ''
+			, 'OD_'+Ketens/left
+			, 'KetenRijger_T('+Ketens/left+'/Result,'+Ketens/right+'/Result,'+Ketens/transfer_name+'/Result, '+Quote(Ketens/Left)+','+Quote(Ketens/Right)+')' //e.g. er is een right 
 			) 
 		);
 	attribute<uint64> keten_od_telling (Ketens) := ='union_data(Ketens, '+AsItemList('#Keten_Generatie/'+Ketens/name+'/Result')+')';
@@ -204,7 +203,10 @@ Template PublicTransport_T
 		unit<uint64> Left;
 		unit<uint64> Right;
 		unit<uint64> Tranfers;
-		///
+		
+		parameter<string> LeftStr;
+		parameter<string> RightStr;
+		
 		unit<uint64> Join_Left_Transf   := join_equal_values_uint64(Left/uq_c_ToTime_Place_rel, Tranfers/from_rel_in_UqFirstDom), Descr = "join left To_rel met de de transfer from_rel"
 		{
 			attribute<Euro>             Left_price                 := first_rel -> Price;
@@ -229,32 +231,34 @@ Template PublicTransport_T
 			
 			attribute<Left>             Left_rel                   := Join_Left_Transf/first_rel[first_rel];
 			attribute<Right>            Right_rel                  := second_rel;
-			attribute<Result>           Result_rel                 := rlookup(c_FromTP_ToTP/OD_pair_rel, Result/values);
+			attribute<CALC/Result>      Result_rel                 := rlookup(c_FromTP_ToTP/OD_pair_rel, CALC/Result/values);
 		}
 		
 		unit<uint64> c_FromTP_ToTP := combine_unit_uint64(Left/uq_c_FromTime_Place, Right/uq_c_ToTime_Place)
 		{
 			attribute<.> OD_pair_rel (Join_LeftT_Right) := combine_data(.,Left/uq_c_FromTime_Place_rel[Join_LeftT_Right/left_rel], Right/uq_c_ToTime_Place_rel[Join_LeftT_Right/right_rel]);
 		}
-		
-		unit<uint64> Result := unique_uint64(c_FromTP_ToTP/OD_pair_rel)
-		, Descr = "Geaggregeerde set naar 'OD-paren' om minimalisatie criterium op toe te passen"
-		{
-			unit<uint64> uq_c_FromTime_Place := Left/uq_c_FromTime_Place;
-			unit<uint64> uq_c_ToTime_Place   := Right/uq_c_ToTime_Place;
-			
-			attribute<uq_c_FromTime_Place>  uq_c_FromTime_Place_rel     := value(values / #Right/uq_c_ToTime_Place, Left/uq_c_FromTime_Place);
-			attribute<uq_c_ToTime_Place>    uq_c_ToTime_Place_rel       := value(values % #Right/uq_c_ToTime_Place, Right/uq_c_ToTime_Place);
-			
-			attribute<Join_LeftT_Right>     Min_Index                   := ='min_index(Join_LeftT_Right/'+ModelParameters/MinimiseCriterium+', Join_LeftT_Right/Result_rel)';
-			attribute<Euro>                 Price                       := Min_Index -> Price;
-			attribute<s_f>                  Traveltime                  := Min_Index -> Traveltime;
+
+		// hack to avoid not having Fenced Units.
+		container CALC {
+			unit<uint64> Result := unique_uint64(c_FromTP_ToTP/OD_pair_rel)
+			, Descr = "Geaggregeerde set naar 'OD-paren' om minimalisatie criterium op toe te passen"
+			{
+				unit<uint64> uq_c_FromTime_Place := Left/uq_c_FromTime_Place;
+				unit<uint64> uq_c_ToTime_Place   := Right/uq_c_ToTime_Place;
+				
+				attribute<uq_c_FromTime_Place>  uq_c_FromTime_Place_rel     := value(values / #Right/uq_c_ToTime_Place, Left/uq_c_FromTime_Place);
+				attribute<uq_c_ToTime_Place>    uq_c_ToTime_Place_rel       := value(values % #Right/uq_c_ToTime_Place, Right/uq_c_ToTime_Place);
+				
+				attribute<Join_LeftT_Right>     Min_Index                   := ='min_index(Join_LeftT_Right/'+ModelParameters/MinimiseCriterium+', Join_LeftT_Right/Result_rel)';
+				attribute<Euro>                 Price                       := Min_Index -> Price;
+				attribute<s_f>                  Traveltime                  := Min_Index -> Traveltime;
+			}
 		}
+		container FENCE := FenceContainer(CALC, 'calculated '+string(#CALC/Result)+' od pairs for '+LeftStr+ ' to '+RightStr);
+//		unit<uint64> Result := CALC/Result;
+		unit<uint64> Result := FENCE/Result;
 	}
-	
-	
-	
-	
 	
 	Template CreateTransfers_T
 	{
