@@ -101,20 +101,32 @@ Template PublicTransport_T
 		unit<uint32> ThisSet := Set_R/Set;
 
 		attribute<bool>           IsLastReisdeelWaiting    := AfgelegdeReis/DecomposeLinkSet/IsLastReisdeelWaiting[invert(AfgelegdeReis/DecomposeLinkSet/Reis_rel)];  //omit these OD-connections, since the ones without the 'dangling' waiting at stop is always faster and preferable. 
+		attribute<bool>           IsTravelToItself         := c_fromTime_Place_rel == c_ToTime_Place_rel;
 		container                 AfgelegdeReis            := Get_AfgelegdeReis_T(LinkSet, ., ThisSet);
 		
 		#include<OD_extra_attributen.dms>
 		
-		unit<uint64>              Result                   := select_with_org_rel_with_attr_by_cond(., !IsLastReisdeelWaiting)
+		unit<uint64>              Result                   := select_with_org_rel_with_attr_by_cond(., !IsLastReisdeelWaiting && !IsTravelToItself)
 		{
-			attribute<Euro>             Price                                  := sum(
+			attribute<Euro>             Price                                    := Price_R;
+			attribute<Euro>             Price_R                                  := sum(
+																								AfgelegdeReis/uq_reis_route_sorted/Price
+																								, AfgelegdeReis/uq_reis_route_sorted/Reis_rel
+																							)[org_rel];
+			attribute<Euro>             Price_O                                  := sum(
 																								AfgelegdeReis/uq_reis_route_sorted/Price_R_variabel
 																								, AfgelegdeReis/uq_reis_route_sorted/Reis_rel
 																							)[org_rel];
 			#include<OD_uq_attributen.dms>
 		}
 	}
-	unit<uint64> OD_O := OD_R; 
+	unit<uint64> OD_O := OD_R
+	{
+		unit<uint64> Result := OD_R/Result
+		{
+			attribute<Euro>             Price                                    := Price_O;
+		}
+	}
 	////==============================================================================////
 	////==============================================================================////
 	////==============================================================================////
@@ -128,6 +140,8 @@ Template PublicTransport_T
 			attribute<s_f>                         WaitingAtStop_time       := org_rel -> WaitingAtStop_time;
 			attribute<s_f>                         Walking_time             := org_rel -> Walking_time;
 			attribute<s_f>                         Transfer_time            := org_rel -> Transfer_time;
+			attribute<min_f>                         Transfer_time_min        := Transfer_time[min_f]; //adhoc
+			attribute<c_Time_Places>               c_FromTime_Place_rel     := org_rel -> c_FromTime_Place_rel; //adhoc 
 			attribute<c_Time_Places>               c_ToTime_Place_rel       := org_rel -> c_ToTime_Place_rel;
 		}
 	}
@@ -226,16 +240,16 @@ Template PublicTransport_T
 			attribute<s_f>               Traveltime                  := Min_Index -> Traveltime;
 			attribute<Toegestane_Ketens> Toegestane_Keten_rel        := Min_Index -> Toegestane_Keten_rel;
 			
-			attribute<uq_c_FromTime_Place>  uq_c_FromTime_Place_rel  := value(uq_OD_key/values / #uq_c_FromTime_Place, uq_c_FromTime_Place);
-			attribute<uq_c_ToTime_Place>    uq_c_ToTime_Place_rel    := value(uq_OD_key/values % #uq_c_FromTime_Place, uq_c_ToTime_Place);
+			attribute<uq_c_FromTime_Place>  uq_c_FromTime_Place_rel  := value(uq_OD_key/values / #uq_c_ToTime_Place, uq_c_FromTime_Place);
+			attribute<uq_c_ToTime_Place>    uq_c_ToTime_Place_rel    := value(uq_OD_key/values % #uq_c_ToTime_Place, uq_c_ToTime_Place);
 			attribute<c_Time_Places>        c_FromTime_Place_rel     := uq_c_FromTime_Place/c_FromTime_Place_rel[uq_c_FromTime_Place_rel];
 			attribute<c_Time_Places>        c_ToTime_Place_rel       := uq_c_ToTime_Place/c_ToTime_Place_rel[uq_c_ToTime_Place_rel];
 			attribute<Time>                 From_Time_rel            := value(c_FromTime_Place_rel / uint64(#Places), Time);
 			attribute<Places>               From_Place_rel           := value(c_FromTime_Place_rel % uint64(#Places), Places);
 			attribute<Time>                 To_Time_rel              := value(c_ToTime_Place_rel / uint64(#Places), Time);
-			attribute<Places>               To_Place_rel             := value(c_ToTime_Place_rel % uint64(#Places), Places);
+			attribute<Places>               To_Place_rel             := value(c_ToTime_Place_rel % uint64(#Places), Places); 
 		}
-	}
+	} 
 	
 	unit<uint64> Options_Within_VoortransportWacht_Window := select_with_org_rel(Union_ToegestaneKetens/Result/From_Time_rel <= inTime + convert(ModelParameters/MaxWalkingTime_Org2Stops, s_f)[Time] + ModelParameters/Advanced/MaxWachttijdThuisVoortransport)
 	{
@@ -255,12 +269,16 @@ Template PublicTransport_T
 		
 		unit<uint64> Join_Left_Transf   := join_equal_values_uint64(Left/uq_c_ToTime_Place_rel, Tranfers/from_rel_in_UqFirstDom), Descr = "join left To_rel met de de transfer from_rel"
 		{
+			attribute<Left>             Left_rel                   := first_rel; //debug
+			attribute<Tranfers>         Tranfers_rel               := second_rel; //debug
+			
 			attribute<Euro>             Left_price                 := first_rel -> Price;
 			attribute<s_f>              Left_traveltime            := first_rel -> Traveltime;
 			attribute<s_f>              Transfer_time              := second_rel -> Transfer_time;
 			attribute<s_f>              WaitingAtStop_time         := second_rel -> WaitingAtStop_time;
-			attribute<s_f>              Traveltime                 := Left_traveltime + Transfer_time + WaitingAtStop_time;
+			attribute<s_f>              Traveltime                 := Left_traveltime + Transfer_time, Descr = "ÖV-time + waiting at stop + transfer walking time";
 			
+			attribute<c_Time_Places>    LeftT_c_FromTime_Place_rel := second_rel -> c_FromTime_Place_rel, Descr = "de to_rel van de transfers";  //adhoc
 			attribute<c_Time_Places>    LeftT_c_toTime_Place_rel   := second_rel -> c_toTime_Place_rel, Descr = "de to_rel van de transfers"; 
 			unit<uint64>                NextJoinFromDom            := Right/uq_c_FromTime_Place;
 			attribute<NextJoinFromDom>  to_rel_inNextJoinFromDom   := rlookup(LeftT_c_toTime_Place_rel, NextJoinFromDom/values), Descr = "de transfer to-rel in right from-rel values"; 
@@ -275,6 +293,7 @@ Template PublicTransport_T
 			attribute<Euro>             Price                      := Left_price + Right_price;
 			attribute<s_f>              Traveltime                 := Left_traveltime + Right_traveltime;
 			
+			attribute<Join_Left_Transf> Join_Left_Transf_rel       := first_rel; //debug
 			attribute<Left>             Left_rel                   := Join_Left_Transf/first_rel[first_rel];
 			attribute<Right>            Right_rel                  := second_rel;
 			attribute<CALC>             Result_rel                 := rlookup(c_FromTP_ToTP/OD_pair_rel, CALC/values);
@@ -300,8 +319,17 @@ Template PublicTransport_T
 			attribute<Join_LeftT_Right>     Min_Index                   := ='min_index(Join_LeftT_Right/'+ModelParameters/MinimiseCriterium+', Join_LeftT_Right/Result_rel)';
 			attribute<Euro>                 Price                       := Min_Index -> Price;
 			attribute<s_f>                  Traveltime                  := Min_Index -> Traveltime;
+			attribute<min_f>                Traveltime_min              := Traveltime[min_f];
 			
+			attribute<bool>                 IsValid                     := Traveltime_min <= ModelParameters/MaxTravelTime;
 			// attribute voor laatste uitcheck tijd van R of O.
+			
+			
+			//adhoc debug
+			attribute<Time>          From_Time_rel            := value(c_FromTime_Place_rel / uint64(#Places), Time);
+			attribute<Places>        From_Place_rel           := value(c_FromTime_Place_rel % uint64(#Places), Places);
+			attribute<Time>          To_Time_rel              := value(c_ToTime_Place_rel / uint64(#Places), Time);
+			attribute<Places>        To_Place_rel             := value(c_ToTime_Place_rel % uint64(#Places), Places);
 			
 		}
 		unit<uint64> FENCE := FenceContainer(CALC, 'calculated '+string(#CALC)+' od pairs for '+LeftStr+ ' to '+RightStr);
