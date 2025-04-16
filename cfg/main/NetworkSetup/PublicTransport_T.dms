@@ -138,6 +138,7 @@ Template PublicTransport_T
 			attribute<Euro>             Price                                    := Price_O;
 		}
 	}
+	
 	////==============================================================================////
 	////==============================================================================////
 	////==============================================================================////
@@ -270,14 +271,121 @@ Template PublicTransport_T
 		
 		attribute<c_Time_Places>     c_FromTime_Place_rel        := org_rel -> Result/c_FromTime_Place_rel;
 		attribute<c_Time_Places>     c_ToTime_Place_rel          := org_rel -> Result/c_ToTime_Place_rel;
-		attribute<Time>              From_Time_rel               := value(c_FromTime_Place_rel / uint64(#Places), Time);
 		attribute<Places>            From_Place_rel              := value(c_FromTime_Place_rel % uint64(#Places), Places);
-		attribute<Time>              To_Time_rel                 := value(c_ToTime_Place_rel / uint64(#Places), Time);
-		attribute<Places>            To_Place_rel                := value(c_ToTime_Place_rel % uint64(#Places), Places); 
-		
-		
-		
 	}
+	
+	unit<uint64> Voortransport := TimeInvariantConnections/Org2Stops_Walking/Create_Routes/ODMatrix
+	{
+		attribute<string>         Mode                      := const(Mode_abbr,.);
+		attribute<Time>           Voortransport_Time_rel    := impedance[Time];
+		attribute<Time>           From_Time_rel             := const(inTime[Time],.);
+		attribute<Time>           To_Time_rel               := From_Time_rel + Voortransport_Time_rel;
+		attribute<Places>         From_Place_rel            := rlookup(StartRef, Places/origin_rel);
+		attribute<Places>         To_Place_rel              := rlookup(EindRef, Places/Stop_rel);
+		
+		attribute<c_Time_Places>  c_fromTime_Place_rel      := combine_data(c_Time_Places, From_Time_rel, From_Place_rel);
+		attribute<c_Time_Places>  c_toTime_Place_rel        := combine_data(c_Time_Places, To_Time_rel, To_Place_rel);
+	}
+	
+	unit<uint64> Natransport := TimeInvariantConnections/Stops2Dest_Walking/Create_Routes/ODMatrix
+	{
+		attribute<string>         Mode                      := const(Mode_abbr,.);
+		attribute<Places>         From_Place_rel            := rlookup(StartRef, Places/Stop_rel);
+		attribute<Places>         To_Place_rel              := rlookup(EindRef, Places/Dest_rel);
+	}
+
+	unit<uint64> Add_Voortransport   := join_equal_values_uint64(Voortransport/To_Place_rel, Options_Within_VoortransportWacht_Window/From_Place_rel)
+	{
+		attribute<Voortransport>                               Voortransport_rel                := first_rel; //debug
+		attribute<Options_Within_VoortransportWacht_Window>    PT_rel                           := second_rel; //debug
+		attribute<Places>                                      Place_rel                        := X_rel; //debug
+		
+		attribute<c_Time_Places>                               V_c_fromTime_Place_rel           := Voortransport/c_fromTime_Place_rel[Voortransport_rel];
+		attribute<c_Time_Places>                               V_c_toTime_Place_rel             := Voortransport/c_toTime_Place_rel[Voortransport_rel];
+		attribute<c_Time_Places>                               PT_c_fromTime_Place_rel          := Options_Within_VoortransportWacht_Window/c_fromTime_Place_rel[PT_rel];
+		attribute<c_Time_Places>                               PT_c_toTime_Place_rel            := Options_Within_VoortransportWacht_Window/c_toTime_Place_rel[PT_rel];
+		
+		attribute<Time>                                        StartWacht_Time_rel              := value(V_c_toTime_Place_rel / uint64(#Places), Time);
+		attribute<Time>                                        EindWacht_Time_rel               := value(PT_c_fromTime_Place_rel / uint64(#Places), Time);
+		
+		attribute<s_f>                                         V_time                           := Voortransport/impedance[Voortransport_rel];
+		attribute<string>                                      V_mode                           := Voortransport/Mode[Voortransport_rel];
+		attribute<Time>                                        Wachttijd_Time_rel               := sub_or_null(EindWacht_Time_rel, StartWacht_Time_rel);
+		attribute<s_f>                                         W_time                           := Wachttijd_Time_rel[s_f];
+		
+		attribute<bool>                                        IsValid                          := Wachttijd_Time_rel <= ModelParameters_base/Advanced/MaxWachttijdThuisVoortransport;
+		
+		attribute<c_Time_Places>                               c_fromTime_Place_rel             := V_c_fromTime_Place_rel;
+		attribute<c_Time_Places>                               c_toTime_Place_rel               := PT_c_toTime_Place_rel;
+		
+		attribute<Euro>                                        Price                            := Options_Within_VoortransportWacht_Window/Price[PT_rel];
+		attribute<s_f>                                         PT_time                          := Options_Within_VoortransportWacht_Window/Traveltime[PT_rel];
+		attribute<Toegestane_Ketens>                           Toegestane_Keten_rel             := Options_Within_VoortransportWacht_Window/Toegestane_Keten_rel[PT_rel];
+		attribute<s_f>                                         Traveltime                       := W_time + V_time + PT_time;
+		
+		unit<uint64> Result := select_with_org_rel(IsValid)
+		{
+			attribute<c_Time_Places>               c_fromTime_Place_rel             := org_rel -> c_fromTime_Place_rel;
+			attribute<c_Time_Places>               c_toTime_Place_rel               := org_rel -> c_toTime_Place_rel;
+		
+			attribute<s_f>                         W_time                           := org_rel -> W_time;
+			attribute<s_f>                         V_time                           := org_rel -> V_time;
+			attribute<string>                      V_mode                           := org_rel -> V_mode;
+			
+			attribute<Euro>                        Price                            := org_rel -> Price;
+			attribute<s_f>                         PT_time                          := org_rel -> PT_time;
+			attribute<Toegestane_Ketens>           Toegestane_Keten_rel             := org_rel -> Toegestane_Keten_rel;
+			attribute<s_f>                         Traveltime                       := org_rel -> Traveltime;
+			attribute<Places>                      To_Place_rel                     := value(c_ToTime_Place_rel % uint64(#Places), Places); 
+		}
+	}
+	unit<uint64> Add_Natransport   := join_equal_values_uint64(Add_Voortransport/Result/To_Place_rel, Natransport/From_Place_rel)
+	{
+		attribute<Add_Voortransport/Result>                    PT_rel                           := first_rel; //debug
+		attribute<Natransport>                                 Natransport_rel                  := second_rel; //debug
+		attribute<Places>                                      Place_rel                        := X_rel; //debug
+		
+		attribute<c_Time_Places>                               PT_c_fromTime_Place_rel          := Add_Voortransport/Result/c_fromTime_Place_rel[PT_rel];
+		attribute<c_Time_Places>                               PT_c_toTime_Place_rel            := Add_Voortransport/Result/c_toTime_Place_rel[PT_rel];
+		attribute<Time>                                        PT_To_Time_rel                   := value(PT_c_toTime_Place_rel / uint64(#Places), Time);
+		attribute<Time>                                        N_To_Time_rel                    := PT_To_Time_rel + N_time[Time];
+		attribute<Places>                                      N_to_Place_rel                   := Natransport/To_Place_rel[Natransport_rel];
+		attribute<s_f>                                         N_time                           := Natransport/impedance[Natransport_rel];
+		attribute<string>                                      N_mode                           := Natransport/Mode[Natransport_rel];
+		
+		attribute<c_Time_Places>                               c_fromTime_Place_rel             := PT_c_fromTime_Place_rel;
+		attribute<c_Time_Places>                               c_toTime_Place_rel               := combine_data(c_Time_Places, N_To_Time_rel, N_to_Place_rel);
+		
+		attribute<Euro>                                        Price                            := Add_Voortransport/Result/Price[PT_rel];
+		attribute<Toegestane_Ketens>                           Toegestane_Keten_rel             := Add_Voortransport/Result/Toegestane_Keten_rel[PT_rel];
+		attribute<s_f>                                         Traveltime                       := Add_Voortransport/Result/Traveltime[PT_rel] + N_time;
+		attribute<s_f>                                         W_time                           := Add_Voortransport/Result/W_time[PT_rel];
+		attribute<s_f>                                         V_time                           := Add_Voortransport/Result/V_time[PT_rel];
+		attribute<s_f>                                         PT_time                          := Add_Voortransport/Result/PT_time[PT_rel];
+		attribute<string>                                      V_mode                           := Add_Voortransport/Result/V_Mode[PT_rel];
+		
+		attribute<bool>                                        IsValid                          := Traveltime <= /ModelParameters/MaxTravelTime[s_f];
+	}
+	
+	unit<uint64> Result := select_with_org_rel(Add_Natransport/IsValid)
+	{
+		attribute<c_Time_Places>               c_fromTime_Place_rel             := org_rel -> c_fromTime_Place_rel;
+		attribute<c_Time_Places>               c_toTime_Place_rel               := org_rel -> c_toTime_Place_rel;
+	
+		attribute<s_f>                         W_time                           := org_rel -> W_time, Descr = "Waiting at home";
+		attribute<s_f>                         V_time                           := org_rel -> V_time;
+		attribute<s_f>                         PT_time                          := org_rel -> PT_time;
+		attribute<s_f>                         N_time                           := org_rel -> N_time;
+		
+		attribute<Euro>                        Price                            := org_rel -> Price;
+		attribute<s_f>                         Traveltime                       := org_rel -> Traveltime;
+		attribute<Toegestane_Ketens>           Toegestane_Keten_rel             := org_rel -> Toegestane_Keten_rel;
+		attribute<string>                      V_mode                           := org_rel -> V_mode;
+		attribute<string>                      N_mode                           := org_rel -> N_mode;
+	}
+	
+	
+	
 	
 	Template KetenRijger_T
 	{
@@ -375,15 +483,12 @@ Template PublicTransport_T
 			attribute<Places>        To_Place_rel             := value(c_ToTime_Place_rel % uint64(#Places), Places);
 		}
 		
-		//adhoc debug
-		// unit<uint64> subset := select_with_attr_by_cond(CALC, Calc/From_Place_rel == 31207); //31207 = almere
-		
-		
 		unit<uint64> FENCE := FenceContainer(CALC, 'calculated '+string(#CALC)+' od pairs for '+LeftStr+ ' to '+RightStr);
 		
 		// unit<uint64> Result := FENCE;
 		unit<uint64> Result := CALC;
 	}
+	
 	
 	Template CreateTransfers_T
 	{
