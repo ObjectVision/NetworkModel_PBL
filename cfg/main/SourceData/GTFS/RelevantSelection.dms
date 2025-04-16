@@ -1,9 +1,7 @@
 container RelevantSelection : using = "LoadFeeds"
 , Descr = "Subset of GTFS-schedule relevant for the analysis."
 {
-	// unit<uint8>  PrijsTabel               := OVprijzen/PrijsTabel;
 	unit<uint32> Modes                    := GTFS_Modes/Selectie;
-	// unit<uint8>  Concessiegebied          := /SourceData/Infrastructuur/OVprijzen/Concessiegebieden;
 		
 	unit<uint32> StopTimes := protoStopTimes
 	, Descr = "Times that a vehicle arrives at and departs from stops for each trip."
@@ -25,50 +23,6 @@ container RelevantSelection : using = "LoadFeeds"
 		attribute<uint32>                    feedId                   := const(0, ., uint32);
 		attribute<upoint>                    uni_StopId               := point_xy(feedId, orgStopId, upoint);
 		attribute<string>                    Name                     := Label;
-		
-		attribute<m>                        Dist2_Trainstation       := rjoin(geometry, uq_points/values, Define_Stopgroups_Trainstations/dist);
-		attribute<string>                   Trainstations_code       := Dist2_Trainstation  < ModelParameters/Advanced/DistanceTrainStationsSelection ? rjoin(geometry, uq_points/values, Define_Stopgroups_Trainstations/station_code) : '';
-		attribute<OVprijzen/NS/NS_Stations> NS_Stations_rel          := rlookup(lowercase(Trainstations_code), OVprijzen/NS/NS_Stations/code);
-		attribute<bool>                     IsNSkortStation          := IsDefined(rlookup(Trainstations_code, /SourceData/Infrastructuur/Infrastructuur/Trainstations/uq/NS_kort_stations/code));
-		
-		unit<uint32> uq_points := unique(geometry)
-		{
-			attribute<float32>  x           := PointCol(values);
-			attribute<float32>  y           := PointRow(values);
-		}
-		
-		container Define_Stopgroups_Trainstations := Define_Stopgroups_T(SourceData/Infrastructuur/Infrastructuur/Trainstations/uq);
-		
-		Template Define_Stopgroups_T
-		{
-			unit<uint32>                Station_dom;
-			///
-			attribute<rdc>              geometry  (Station_dom)      := Station_dom/Geometry;
-			attribute<float32>          x         (Station_dom)      := PointCol(geometry);
-			attribute<float32>          y         (Station_dom)      := PointRow(geometry);
-			
-			attribute<Station_dom>      stations_rel (uq_points)       := connect(geometry, uq_points/values);
-			attribute<string>           station_code (uq_points)       := Station_dom/code[stations_rel];
-
-			attribute<float32>          x_targetdomain (uq_points)  := PointCol(geometry)[stations_rel];
-			attribute<float32>          y_targetdomain (uq_points)  := PointRow(geometry)[stations_rel];
-			attribute<float32>          delta_x (uq_points)         := sqr(abs(x_targetdomain - uq_points/x));
-			attribute<float32>          delta_y (uq_points)         := sqr(abs(y_targetdomain - uq_points/y));
-
-			attribute<m>                dist (uq_points)            := sqrt(delta_x + delta_y)[m];
-		}
-		
-		// container ModesServed := 
-			// for_each_nedv(
-				// AvailableModes/Name
-				// , 'sum(uint32(ScheduledLinks/Mode_rel = '+string(AvailableModes/Values)+'), ScheduledLinks/FromStop) + sum(uint32(ScheduledLinks/Mode_rel = '+string(AvailableModes/Values)+'), ScheduledLinks/ToStop)'
-				// , Stops
-				// , uint32
-			// )
-		// {
-			// attribute<uint32> Total (Stops) := ='add('+AsItemList(AvailableModes/Name)+')';
-		// }
-		
 	}
 	
 	unit<uint32> Trips  := ReadFSS/Trips/read_domain/domain
@@ -87,8 +41,6 @@ container RelevantSelection : using = "LoadFeeds"
 		attribute<Services>                Services_rel     := rlookup(service_id, Services/Values);
 		attribute<bool>                    sel_today       := Services/Today_exc[Services_rel] = 1;
 		attribute<bool>                    sel_yesterday   := Services/Yesterday_exc[Services_rel] = 1;
-		// attribute<bool>                    inStudyArea     := any(StopTimes/StopinStudyArea, StopTimes/Trip_rel);
-		// attribute<Trips_x_order_uq>        first_txo       := min_index(Trips_x_order_uq/ord, Trips_x_order_uq/trip_rel);
 		attribute<string>                  label           := RouteName;
 	}
 	
@@ -128,11 +80,6 @@ container RelevantSelection : using = "LoadFeeds"
 			attribute<Time>         Time_rel           := value(c_Time_Stops_rel / uint64(#Stops), Time);
 			attribute<Stops>        Stop_rel           := value(c_Time_Stops_rel % uint64(#Stops), Stops);
 			attribute<rdc>          geometry           := union_data(., ../fromPoint, ../toPoint);
-			
-			// attribute<SL_Places> SL_Place_rel   := rlookup(geometry, SL_Places/geometry);
-			
-			// attribute<c_Time_SL_Places> c_Time_SL_Place_rel := combine_data(c_Time_SL_Places, Time_rel, SL_Place_rel);
-			// attribute<c_Time_Stops>     c_Time_Stop_rel     := combine_data(c_Time_Stops, Time_rel, Stop_rel);
 		}
 		
 		unit<uint32> SL_Places := unique(findUniqueSpaceTimeEvents/geometry)
@@ -143,27 +90,6 @@ container RelevantSelection : using = "LoadFeeds"
 			attribute<string>  Label       := Stop_name;
 			attribute<rdc>     geometry    := values;
 		}
-		
-		// attribute<Concessiegebied>         Start_Concessiegebied_rel      := point_in_polygon(Stops/geometry[FromStop_rel], Concessiegebied/geometry);
-		// attribute<string>                  Mode_Agency_CG_Lijn_identifier := Modes/name[Mode_rel] +'_'+ Agencies/name[Agency_rel] +'_'+ Concessiegebied/name[Start_Concessiegebied_rel] + '_' + RouteName_short;
-		// attribute<string>                  Mode_Agency_CG_identifier      := Modes/name[Mode_rel] +'_'+ Agencies/name[Agency_rel] +'_'+ Concessiegebied/name[Start_Concessiegebied_rel];
-		// attribute<string>                  Mode_Agency_identifier         := Modes/name[Mode_rel] +'_'+ Agencies/name[Agency_rel];
-		
-		// attribute<bool>                    IsForeign  := Agencies/IsForeign[Agency_rel];
-		// attribute<bool>                    IsDomestic := NOT(IsForeign);
-		
-		// attribute<PrijsTabel>    PrijsTabel_rel_initial        := rlookup(Mode_Agency_CG_Lijn_identifier, PrijsTabel/Mode_Agency_CG_Lijn_identifier);
-		// attribute<PrijsTabel>    PrijsTabel_rel_augmented1     := rlookup(Mode_Agency_CG_identifier, PrijsTabel/Mode_Agency_CG_Lijn_identifier);
-		// attribute<PrijsTabel>    PrijsTabel_rel_augmented2     := rlookup(Mode_Agency_identifier, PrijsTabel/Mode_Agency_CG_Lijn_identifier);
-		// attribute<PrijsTabel>    PrijsTabel_rel_augmentation   := MakeDefined(PrijsTabel_rel_augmented1, PrijsTabel_rel_augmented2);
-		// attribute<PrijsTabel>    PrijsTabel_rel_augmented_rev1 := rlookup(Mode_Agency_CG_identifier, PrijsTabel/Mode_Agency_CG_identifier);
-		// attribute<PrijsTabel>    PrijsTabel_rel_augmented_rev2 := rlookup(Mode_Agency_identifier, PrijsTabel/Mode_Agency_identifier);
-		// attribute<PrijsTabel>    PrijsTabel_rel_augmented_rev  := MakeDefined(PrijsTabel_rel_augmented_rev1, PrijsTabel_rel_augmented_rev2);
-		// attribute<PrijsTabel>    PrijsTabel_rel_augmented      := MakeDefined(PrijsTabel_rel_augmentation, PrijsTabel_rel_augmented_rev);
-		// attribute<PrijsTabel>    PrijsTabel_rel                := MakeDefined(PrijsTabel_rel_initial, PrijsTabel_rel_augmented);
-		// attribute<bool>          HasPriceRelation              := IsForeign || IsDefined(PrijsTabel_rel) && IsDomestic;
-		
-		// unit<uint32> HasNoPriceRelation := select_with_org_rel_with_attr_by_cond(.,NOT(HasPriceRelation));
 
 		unit<uint32> uq_TimeStop := unique(ScheduledLinks/findUniqueSpaceTimeEvents/c_Time_Stops_rel)
 		, Descr = "aka SSTE aka ScheduledSpaceTimeEvents"
@@ -192,9 +118,4 @@ container RelevantSelection : using = "LoadFeeds"
 		attribute<string>   route_name       := route_short_name+ ' ' +route_long_name;
 		attribute<string>   label            := route_name;
 	}
-	
-	// unit<uint32> AvailableModes := unique(ScheduledLinks/Mode_rel)
-	// {
-		// attribute<string>  Name    := GTFS_Modes/Selectie/Name[Values];
-	// }
 }
