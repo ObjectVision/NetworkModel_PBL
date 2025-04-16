@@ -1,0 +1,63 @@
+Template CreateTransfers_T
+{
+	unit<uint64> FromDomain : Descr = "aka uq_c_ToTime_Place domain of the first domain";
+	unit<uint64> ToDomain   : Descr = "aka uq_c_FromTime_Place domain of the second domain";
+	///
+
+	unit<uint64> Transfers := join_near_values_uint64(FromDomain/To_Point, ToDomain/From_Point, float64(ModelParameters/Advanced/MaxTransferDist))
+	{
+		attribute<c_Time_Places> c_FromTime_Place_rel     := FromDomain/values[first_rel]; //c_toTime_Place_rel
+		attribute<Time>          From_Time_rel            := value(c_FromTime_Place_rel / uint64(#Places), Time);
+		attribute<Places>        From_Place_rel           := value(c_FromTime_Place_rel % uint64(#Places), Places);
+		attribute<rdc >          From_Point               := Places/geometry[From_Place_rel];
+		attribute<Stops>         From_Stop_rel            := Places/Stop_rel[From_Place_rel];
+		
+		
+		attribute<c_Time_Places> c_ToTime_Place_rel       := ToDomain/values[second_rel]; //c_fromTime_Place_rel
+		attribute<Time>          To_Time_rel              := value(c_ToTime_Place_rel / uint64(#Places), Time);
+		attribute<Places>        To_Place_rel             := value(c_ToTime_Place_rel % uint64(#Places), Places);
+		attribute<rdc >          To_Point                 := Places/geometry[To_Place_rel];
+		attribute<Stops>         To_Stop_rel              := Places/Stop_rel[To_Place_rel];
+		
+		attribute<rdc>           geometry           (arc) := points2sequence(GenLines/Points,GenLines/Seq,GenLines/Ord);
+		attribute<Time>          Walking_Time_rel         := (arc_length(geometry, m) / ModelParameters/Advanced/TransferEffectiveSpeed)[Time];
+		attribute<Time>          WaitingAtStop_Time_rel   := sub_or_null(Transfer_Time_rel, Walking_Time_rel);
+		attribute<Time>          Transfer_Time_rel        := sub_or_null(To_Time_rel, from_Time_rel);
+		attribute<bool>          IsValidTransfer          := Transfer_Time_rel >= Walking_Time_rel && To_Time_rel > From_Time_rel && Transfer_Time_rel > 0[Time];
+
+		unit<uint32> GenLines:= union_unit(., .)
+		{
+			attribute<rdc>              Points := union_data(., Stops/geometry[from_Stop_rel], Stops/geometry[to_Stop_rel]);
+			attribute<..>               Seq    := union_data(., id(..), id(..));
+			attribute<uint32>           Ord    := union_data(., const(0,..,uint32), const(1,..,uint32));
+		}
+		
+		unit<uint64> ValidTransfers := select_with_org_rel(IsValidTransfer)
+		{
+			attribute<rdc >          From_Point               := org_rel -> From_Point;
+			attribute<Places>        From_Place_rel           := org_rel -> From_Place_rel;
+			attribute<c_Time_Places> c_FromTime_Place_rel     := org_rel -> c_FromTime_Place_rel;
+			attribute<Stops>         From_Stop_rel            := org_rel -> From_Stop_rel;
+			attribute<Time>          From_Time_rel            := org_rel -> From_Time_rel;
+			
+			attribute<rdc >          To_Point                 := org_rel -> To_Point;
+			attribute<Places>        To_Place_rel             := org_rel -> To_Place_rel;
+			attribute<c_Time_Places> c_ToTime_Place_rel       := org_rel -> c_ToTime_Place_rel;
+			attribute<Stops>         To_Stop_rel              := org_rel -> To_Stop_rel;
+			attribute<Time>          To_Time_rel              := org_rel -> To_Time_rel;
+			
+			attribute<rdc>           geometry           (arc) := org_rel -> geometry;
+			attribute<Time>          Transfer_Time_rel        := org_rel -> Transfer_Time_rel;
+			attribute<Time>          WaitingAtStop_Time_rel   := org_rel -> WaitingAtStop_Time_rel;
+			attribute<Time>          Walking_Time_rel         := org_rel -> Walking_Time_rel;
+			
+			attribute<s_f>           WaitingAtStop_time       := WaitingAtStop_Time_rel[s_f];
+			attribute<s_f>           Walking_time             := Walking_Time_rel[s_f];
+			attribute<s_f>           Transfer_time            := Transfer_Time_rel[s_f];
+			attribute<string>        Label                    := 'Transfer: ' + Time/Label[from_Time_rel] + ' @ ' + Stops/Name[from_Stop_rel] + ' to ' + Time/Label[To_Time_rel] + ' @ ' + Stops/Name[to_Stop_rel], DialogType = "LabelText";
+			
+			attribute<FromDomain>    from_rel_in_UqFirstDom   := rlookup(c_FromTime_Place_rel, FromDomain/values), Descr = "transfer from-rel in First-to-rel values";
+		}
+	}
+	unit<uint64> Result := Transfers/ValidTransfers;
+}

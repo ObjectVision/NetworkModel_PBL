@@ -1,0 +1,102 @@
+Template KetenRijger_T
+{
+	unit<uint64> Left; //11191
+	unit<uint64> Right;
+	unit<uint64> Tranfers;
+	
+	parameter<string> LeftStr;
+	parameter<string> RightStr;
+	parameter<bool>   IsRight_RO := left(RightStr, 1) == 'r' || left(RightStr, 1) == 'o';
+	
+	unit<uint64> Join_Left_Transf   := join_equal_values_uint64(Left/uq_c_ToTime_Place_rel, Tranfers/from_rel_in_UqFirstDom), Descr = "join left To_rel met de de transfer from_rel"
+	{
+		attribute<Left>             Left_rel                   := first_rel; //debug
+		attribute<Tranfers>         Tranfers_rel               := second_rel; //debug
+		
+		attribute<Euro>             Left_price                 := first_rel -> Price;
+		attribute<s_f>              Left_traveltime            := first_rel -> Traveltime;
+		attribute<s_f>              Transfer_time              := second_rel -> Transfer_time;
+		attribute<s_f>              WaitingAtStop_time         := second_rel -> WaitingAtStop_time;
+		attribute<s_f>              Walking_time               := second_rel -> Walking_Time;
+		
+		attribute<euro>             Transfer_Walking_Time_cost := Walking_Time[min_f] * ModelParameters/Transfer_Walking_Time_Costs;
+		attribute<euro>             Transfer_Waiting_Time_cost := WaitingAtStop_time[min_f] * ModelParameters/Transfer_Waiting_Time_Costs;
+		
+		attribute<s_f>              Traveltime                 := Left_traveltime + Transfer_time, Descr = "ÖV-time + waiting at stop + transfer walking time";
+		attribute<Euro>             Price_augm                 := Left_price + Transfer_Walking_Time_cost + Transfer_Waiting_Time_cost, Descr = "ÖV-price + waiting at stop costs+ transfer walking time costs";
+		
+		attribute<c_Time_Places>    LeftT_c_FromTime_Place_rel := second_rel -> c_FromTime_Place_rel, Descr = "de to_rel van de transfers";  //adhoc
+		attribute<c_Time_Places>    LeftT_c_toTime_Place_rel   := second_rel -> c_toTime_Place_rel, Descr = "de to_rel van de transfers"; 
+		unit<uint64>                NextJoinFromDom            := Right/uq_c_FromTime_Place;
+		attribute<NextJoinFromDom>  to_rel_inNextJoinFromDom   := rlookup(LeftT_c_toTime_Place_rel, NextJoinFromDom/values), Descr = "de transfer to-rel in right from-rel values"; 
+		
+		attribute<Time>             Laatste_RO_Uitstap_Tijd    := first_rel -> Laatste_RO_Uitstap_Tijd, Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
+	}
+	unit<uint64> Join_LeftT_Right   := join_equal_values_uint64(Join_Left_Transf/to_rel_inNextJoinFromDom, Right/uq_c_FromTime_Place_rel), Descr = "join Left+Transfer To_rel met de de Right from_rel"
+	, Descr = "deze set bevat alle mogelijke 'paden' en kan dus later geaggregeerd worden door group-by OD. En dus per OD-pair het kortste/goedkoopste pad te kiezen."
+	{
+		attribute<Euro>             Left_price                 := first_rel -> Left_price;
+		attribute<Euro>             Left_price_augm            := first_rel -> Price_augm;
+		attribute<s_f>              Left_traveltime            := first_rel -> Traveltime;
+		attribute<s_f>              Left_WaitingAtStop_time    := first_rel -> WaitingAtStop_time;
+		attribute<s_f>              Left_Walking_time          := first_rel -> Walking_time;
+		attribute<Euro>             Right_price                := second_rel -> Price;
+		attribute<s_f>              Right_traveltime           := second_rel -> Traveltime;
+		attribute<Euro>             Price                      := Left_price + Right_price;
+		attribute<Euro>             Price_augm                 := Left_price_augm + Right_price;
+		attribute<s_f>              Traveltime                 := Left_traveltime + Right_traveltime;
+		
+		attribute<uint32>           PriceTime_Score            := =ModelParameters/MinimiseCriterium == 'Price'
+																	? 'value(Price_augm * 100f, uint32) * value(ModelParameters/MaxTravelTime[s_f], uint32) + value(Traveltime, uint32)'
+																	: 'value(Traveltime * 10000f, uint32) + value(Price_augm * 100f, uint32)';
+		
+		attribute<Join_Left_Transf> Join_Left_Transf_rel       := first_rel; //debug
+		attribute<Left>             Left_rel                   := Join_Left_Transf/first_rel[first_rel];
+		attribute<Right>            Right_rel                  := second_rel;
+		attribute<CALC>             Result_rel                 := rlookup(c_FromTP_ToTP/OD_pair_rel, CALC/values);
+		
+		
+		attribute<Time>             Left_Laatste_RO_Uitstap_Tijd := first_rel -> Laatste_RO_Uitstap_Tijd, Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
+		attribute<Time>             Right_uitstap_tijd           := second_rel -> To_Time_rel, Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
+		attribute<Time>             Laatste_RO_Uitstap_Tijd      := =IsRight_RO ? 'Right_uitstap_tijd' : 'Left_Laatste_RO_Uitstap_Tijd';
+	}		
+	
+	unit<uint64> c_FromTP_ToTP := combine_unit_uint64(Left/uq_c_FromTime_Place, Right/uq_c_ToTime_Place)
+	{
+		attribute<.> OD_pair_rel (Join_LeftT_Right) := combine_data(.,Left/uq_c_FromTime_Place_rel[Join_LeftT_Right/left_rel], Right/uq_c_ToTime_Place_rel[Join_LeftT_Right/right_rel]);
+	}
+
+	unit<uint64> CALC := unique_uint64(c_FromTP_ToTP/OD_pair_rel)
+	, Descr = "Geaggregeerde set naar 'OD-paren' om minimalisatie criterium op toe te passen"
+	{
+		unit<uint64> uq_c_FromTime_Place := Left/uq_c_FromTime_Place;
+		unit<uint64> uq_c_ToTime_Place   := Right/uq_c_ToTime_Place;
+		
+		attribute<uq_c_FromTime_Place>  uq_c_FromTime_Place_rel     := value(values / #Right/uq_c_ToTime_Place, Left/uq_c_FromTime_Place);
+		attribute<uq_c_ToTime_Place>    uq_c_ToTime_Place_rel       := value(values % #Right/uq_c_ToTime_Place, Right/uq_c_ToTime_Place);
+		
+		attribute<c_Time_Places>        c_FromTime_Place_rel        := uq_c_FromTime_Place/c_FromTime_Place_rel[uq_c_FromTime_Place_rel];
+		attribute<c_Time_Places>        c_ToTime_Place_rel          := uq_c_ToTime_Place/c_ToTime_Place_rel[uq_c_ToTime_Place_rel];
+		
+		attribute<Join_LeftT_Right>     Min_Index                   := ='min_index(Join_LeftT_Right/PriceTime_Score, Join_LeftT_Right/Result_rel)';
+		attribute<Euro>                 Price                       := Min_Index -> Price;
+		attribute<Euro>                 Price_augm                  := Min_Index -> Price_augm;
+		attribute<s_f>                  Traveltime                  := Min_Index -> Traveltime;
+		attribute<min_f>                Traveltime_min              := Traveltime[min_f];
+		
+		attribute<bool>                 IsValid                     := Traveltime_min <= ModelParameters/MaxTravelTime;
+		
+		attribute<Time>                 Laatste_RO_Uitstap_Tijd        := Min_Index -> Laatste_RO_Uitstap_Tijd, Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
+		
+		//adhoc debug
+		attribute<Time>          From_Time_rel            := value(c_FromTime_Place_rel / uint64(#Places), Time);
+		attribute<Places>        From_Place_rel           := value(c_FromTime_Place_rel % uint64(#Places), Places);
+		attribute<Time>          To_Time_rel              := value(c_ToTime_Place_rel / uint64(#Places), Time);
+		attribute<Places>        To_Place_rel             := value(c_ToTime_Place_rel % uint64(#Places), Places);
+	}
+	
+	unit<uint64> FENCE := FenceContainer(CALC, 'calculated '+string(#CALC)+' od pairs for '+LeftStr+ ' to '+RightStr);
+	
+	// unit<uint64> Result := FENCE;
+	unit<uint64> Result := CALC;
+}
