@@ -36,8 +36,7 @@ container Classifications: Using = "Units"
 	
 	container Ketens
 	{
-		parameter<uint32> max_ketens       := max_overstappen + 1;
-		parameter<uint32> max_overstappen  := 2;
+		parameter<uint32> max_ketens       := Modelparameters/max_overstappen + 1;
 		
 		
 		// unit<uint32> V := range(0,2), Descr = "voortransport"
@@ -54,7 +53,7 @@ container Classifications: Using = "Units"
 			// attribute<string> name := V/name[first_rel] + N/name[second_rel]; 
 		// }
 		
-		unit<uint32> Keten_range := range(0, max_overstappen)
+		unit<uint32> Keten_range := range(0, Modelparameters/max_overstappen)
 		{
 			attribute<string> name      := 'r'+string(id(.)+1);
 			attribute<string> prev_name := MakeDefined(name[sub_or_null(id(.),1)]+'/Result','TariefGroep');
@@ -140,6 +139,7 @@ container Classifications: Using = "Units"
 		attribute<string> NetworkType    := TimeInvariant_Modes/NetworkType[second_rel];
 		attribute<string> OriginSet      := TimeInvariant_ConnectionTypes/OriginSet[first_rel];
 		attribute<string> DestinationSet := TimeInvariant_ConnectionTypes/DestinationSet[first_rel];
+		attribute<string> VN_Transport   := TimeInvariant_ConnectionTypes/VN_Transport[first_rel];
 		attribute<string> Label          := ConnectionType + '_' + Mode;
 		attribute<string> Name           := AsItemName(label);
 		attribute<string> Name_short     := ConnectionType + '_' + Mode_abbrev;
@@ -147,13 +147,33 @@ container Classifications: Using = "Units"
 		container V := for_each_nedv(Name, String(ID(.))+'[..]', void, .);
 	}
 	
-	unit<uint8> TimeInvariant_ConnectionTypes : NrOfRows = 2
+	unit<uint32> TimeInvariant_ConnectionTypes : NrOfRows = 5
 	{
-		attribute<string> Label          := OriginSet + '2' + DestinationSet;
-		attribute<string> OriginSet      : ['Org',  'Stops'];
-		attribute<string> DestinationSet : ['Stops', 'Dest'];
-		attribute<string> Name           := AsItemName(label);
+		unit<uint32> Matrix := Range(uint32, 0, nrAttr*#.)
+		{
+			attribute<string> Values: 
+			[
+			'Org'       , 'Stops'       ,'V',
+			'Stops'     , 'Dest'        ,'N',
+			'Org'       , 'TMT_Stops'   ,'V', //TMT_Stops=Trein+Metro+Tram
+			'OVF_Stops' , 'Dest'        ,'N', //OVF_Stops=OV-fiets stops
+			'Org'       , 'Tic_Stops'   ,'V'  //IC_Stops=IC_station_stops
+			];
+		}
+		
+		// Ketens: https://github.com/ObjectVision/NetworkModel_PBL/issues/31
+		
+		attribute<string> OriginSet         := Matrix/Values[value(id(.)* nrAttr + 0, Matrix)];
+		attribute<string> DestinationSet    := Matrix/Values[value(id(.)* nrAttr + 1, Matrix)];
+		attribute<string> VN_Transport      := Matrix/Values[value(id(.)* nrAttr + 2, Matrix)];
+		attribute<string> Label             := OriginSet + '2' + DestinationSet;
+		attribute<string> Name              := AsItemName(label);
+	
+		parameter<uint32> nrAttr := 3;
 	}
+	
+	
+	
 	unit<uint8> TimeInvariant_Modes : NrOfRows = 2
 	{
 		attribute<string> Label       : ['Walking', 'Cycling'];

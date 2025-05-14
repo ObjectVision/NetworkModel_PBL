@@ -5,15 +5,16 @@ Template CreateNetwork_Pedestrian_Bike_T : using = "geometries"
 	unit<uint32>      Roads;
 	parameter<string> TravelMode;
 	parameter<string> NetworkType;
-	parameter<string> Direction;
+	parameter<string> ConnectionType;
 	////
-	parameter<min_f> MaxDistSelectie_min := ='ModelParameters/Max'+TravelMode+'Time_'+Direction;
+	parameter<min_f> MaxDistSelectie_min := ='ModelParameters/Max'+TravelMode+'Time_'+ConnectionType;
 	parameter<s_f>   MaxDistSelectie_sec := convert(MaxDistSelectie_min, s_f);
 	
 	
 	container Create_Optimised_Network  := ='Templates/CreateNetwork_Efficient_T(inStart, inEind, Roads, NetworkType)';
 	unit<uint32> LinkSet := Create_Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet;
 	unit<uint32> NodeSet := Create_Optimised_Network/CreateMoreEfficientNetwork/FinalNodeSet;
+	unit<uint32> Places  := PublicTransport/Places;
 	
 	attribute<s_f> impedance (LinkSet) := ='LinkSet/Impedance_per_ImpedanceType/max_'+NetworkType;
 	
@@ -31,19 +32,26 @@ Template CreateNetwork_Pedestrian_Bike_T : using = "geometries"
 		attribute<Time>	   Duration                         := RoundUp(Impedance)[uint32][Time];
 		attribute<s_f>     Duration_seconds                 := Impedance;
 		attribute<float32> Duration_minutes                 := Impedance / 60f;
-		attribute<inStart> StartRef                         := OrgZone_rel; 
-		attribute<inEind>  EindRef                          := DstZone_rel; 
-		attribute<string>  StartName                        := inStart/name[StartRef];
-		attribute<string>  EindName                         := inEind/name[EindRef];
+		attribute<inStart> Start_rel                        := OrgZone_rel; 
+		attribute<inEind>  Eind_rel                         := DstZone_rel; 
+		attribute<string>  StartName                        := inStart/name[Start_rel];
+		attribute<string>  EindName                         := inEind/name[Eind_rel];
 		attribute<km>      LengthKm                         := alt_imp; 
-		attribute<rdc>     FromPoint                        := inStart/geometry[StartRef];
-		attribute<rdc>     ToPoint                          := inEind/geometry[EindRef];
+		attribute<rdc>     FromPoint                        := inStart/geometry[Start_rel];
+		attribute<rdc>     ToPoint                          := inEind/geometry[Eind_rel];
 		attribute<rdc>     geometry (arc)                   := points2sequence(LinkPoints/geometry, LinkPoints/ODPathRel, LinkPoints/CumulOrdinal);
 		attribute<string>  Label                            := TravelMode+' path from: ' + StartName + ' to ' + EindName;
 
+		parameter<string>  OriginSetStr                     := OriginSet == 'Org' ? 'Origin' : OriginSet;
+
+		attribute<Places>  From_Place_rel                   := ='rlookup(Start_rel, Places/'+OriginSetStr+'_rel)';
+		attribute<Places>  To_Place_rel                     := ='rlookup(Eind_rel,  Places/'+DestinationSet+'_rel)';
+		attribute<Euro>    Price                            := ='impedance[min_f] * ModelParameters/'+VoortransportStr+'_'+TravelMode+'_Time_Costs';
+
 		parameter<TimeInvariantTypes> Current_TimeInvariantTypes_rel := TimeInvariantTypes_rel;
-		parameter<bool>               IsVoorTransport                := DestinationSet == 'Stops';
-		parameter<string>             Mode_abbr                      := Mode_abbrev;
+		parameter<bool>               IsVoorTransport                := VN_Transport == 'V';
+		parameter<string>             VoortransportStr               := IsVoorTransport ? 'Voortransport' : 'Natransport';
+		attribute<string>             Mode_abbr                      := const(Mode_abbrev,.);
 		
 		unit<uint32> LinkPoints := union_unit(., .)
 		{

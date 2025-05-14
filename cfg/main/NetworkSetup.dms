@@ -114,6 +114,9 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 		{
 			container src := .;
 			
+			unit<uint32> org := ../org;
+			unit<uint32> dest := ../dest;
+			
 			parameter<string> Org_str           := rjoin(lowercase(Advanced/Orgset_str), lowercase(Advanced/org_domain_list/label), Advanced/org_domain_list/path);
 			parameter<string> Org_domain        := replace(rjoin(lowercase(Advanced/Orgset_str), lowercase(Advanced/org_domain_list/label), Advanced/org_domain_list/path), '@REGIO@', regio_name);
 			parameter<string> Dest_domain       := rjoin(lowercase(ModelParameters/DestSet), lowercase(Advanced/dest_domain_list/label), Advanced/dest_domain_list/path);
@@ -150,6 +153,15 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 				attribute<dest>                                    Dest_rel        := impl/AllPlaces/Dest_rel[AllPlaces_rel];
 				attribute<Stops>                                   Stop_rel        := impl/AllPlaces/Stop_rel[AllPlaces_rel];
 				attribute<Infrastructuur/OVprijzen/NS/NS_stations> NS_Stations_rel := Stops/NS_Stations_rel[Stop_rel];
+				attribute<TMT_Stops>                               TMT_Stop_rel    := invert(TMT_Stops/Place_rel);
+				attribute<Tic_Stops>                               Tic_Stop_rel    := invert(Tic_Stops/Place_rel);
+				attribute<T_Stops>                                 T_Stop_rel      := invert(T_Stops/Place_rel);
+				
+				attribute<Stops>                                   Stops_rel       := Stop_rel;
+				attribute<T_Stops>                                 T_Stops_rel     := T_Stop_rel;
+				attribute<Tic_Stops>                               Tic_Stops_rel   := Tic_Stop_rel;
+				attribute<TMT_Stops>                               TMT_Stops_rel   := TMT_Stop_rel;
+				attribute<OVF_Stops>                               OVF_Stops_rel   := invert(OVF_Stops/Place_rel);
 			}
 			
 			unit<uint64> c_Time_Places         := combine_uint64(Time, Places)
@@ -161,9 +173,15 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 			
 			unit<uint32>        Stops                 := =impl/PT_path_str+'/Stops'
 			{
-					attribute<rdc>    geometry  := =impl/PT_path_str+'/Stops/geometry';
-					attribute<Places> Place_rel := rlookup(geometry, Places/geometry);
+				attribute<string> name      := =impl/PT_path_str+'/Stops/name';
+				attribute<rdc>    geometry  := =impl/PT_path_str+'/Stops/geometry';
+				attribute<Places> Place_rel := rlookup(geometry, Places/geometry);
 			}
+			
+			unit<uint32>        TMT_Stops              := select_with_attr_by_cond(Stops, Stops/Mode_rel == GTFS_Modes/Selectie/V/Rail || Stops/Mode_rel == GTFS_Modes/Selectie/V/Metro || Stops/Mode_rel == GTFS_Modes/Selectie/V/Tram);
+			unit<uint32>        T_Stops                := select_with_attr_by_cond(Stops, Stops/Mode_rel == GTFS_Modes/Selectie/V/Rail);
+			unit<uint32>        Tic_Stops              := select_with_attr_by_cond(Stops, Stops/IsNSICStation);
+			unit<uint32>        OVF_Stops              := select_with_attr_by_cond(Stops, Stops/IsOVFietsStation);
 		}
 		
 		container PublicTransport 
@@ -198,9 +216,10 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 				parameter<string> DestinationSet := TimeInvariantTypes/DestinationSet[TimeInvariantTypes_rel];
 				parameter<string> Mode_abbrev    := TimeInvariantTypes/Mode_abbrev[TimeInvariantTypes_rel];
 				parameter<string> NetworkType    := TimeInvariantTypes/NetworkType[TimeInvariantTypes_rel];
+				parameter<string> VN_Transport   := TimeInvariantTypes/VN_Transport[TimeInvariantTypes_rel];
 				unit<uint32>      Network        := ='SourceData/Infrastructuur/OSM/Network_'+NetworkType;
 				
-				container Create_Routes      := ='Templates/CreateNetwork_Pedestrian_Bike_T('+OriginSet+', '+DestinationSet+', Network, Mode, NetworkType, ConnectionType)';
+				container Create_Routes      := ='Templates/CreateNetwork_Pedestrian_Bike_T(impl/'+OriginSet+', impl/'+DestinationSet+', Network, Mode, NetworkType, ConnectionType)';
 			}
 		}
 /*		
