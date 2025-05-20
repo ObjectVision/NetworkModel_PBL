@@ -9,21 +9,21 @@ unit<uint64> OD_L :=
 	)
 {
 	unit<uint32>              ThisSet                  := Set_L/Set;
-	attribute<bool>           IsLastReisdeelWaiting    := AfgelegdeReis/DecomposeLinkSet/IsLastReisdeelWaiting[invert(AfgelegdeReis/DecomposeLinkSet/Reis_rel)];  //omit these OD-connections, since the ones without the 'dangling' waiting at stop is always faster and preferable. 
-	container                 AfgelegdeReis            := Get_AfgelegdeReis_T(LinkSet, ., ThisSet);
-		
 	#include<../OD_extra_attributen.dms>
-		
-	unit<uint64>              Result                   := select_with_org_rel_with_attr_by_cond(., IsLastReisdeelWaiting)
+	
+	unit<uint64>              Result                   := select_with_org_rel_with_attr_by_cond(., !IsLastReisdeelWaiting && !IsTravelToItself)
 	{
-		attribute<Euro>             Price                                  := sum(
-																							AfgelegdeReis/uq_reis_route_sorted/Price
-																							, AfgelegdeReis/uq_reis_route_sorted/Reis_rel
-																						)[org_rel];
-		attribute<Euro>             Price_augm                               := Price;
+		attribute<Euro>             Price                       := sum(
+																		AfgelegdeReis/uq_reis_route_sorted/Price
+																		, AfgelegdeReis/uq_reis_route_sorted/Reis_rel
+																	)[org_rel];
+		attribute<Euro>             Price_augm                  := Price;
 		attribute<Places>           Last_Place_rel              := ThisSet/NodeSet/Place_rel[DstZone_rel];
+		
 		attribute<Time>             Laatste_RO_Uitstap_Tijd     := const(null_u,.), Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
+		
 		#include<../OD_uq_attributen.dms>
+		#include<../OD_traveldist.dms>
 	}
 }
 unit<uint64> OD_K := 
@@ -36,17 +36,16 @@ unit<uint64> OD_K :=
 		, Set_K/Set/Length
 	)
 {
-	unit<uint32> ThisSet := Set_K/Set;
+	unit<uint32>              ThisSet := Set_K/Set;
 	
+	//NS-kort specifiek
 	attribute<c_NS_start_end> c_NS_start_end_rel       := combine_data(c_NS_start_end, ThisSet/NodeSet/NS_Stations_rel[OrgZone_rel], ThisSet/NodeSet/NS_Stations_rel[DstZone_rel]);
 	attribute<uint32>         tariefeenheden           := rjoin(c_NS_start_end_rel, TariefEenhedenMatrix/c_NS_start_end_rel, TariefEenhedenMatrix/impedance);
 	attribute<bool>           IsDaadwerkelijkNSkort    := tariefeenheden < 9 && tariefeenheden > 0;
-	attribute<bool>           IsLastReisdeelWaiting    := AfgelegdeReis/DecomposeLinkSet/IsLastReisdeelWaiting[invert(AfgelegdeReis/DecomposeLinkSet/Reis_rel)];  //omit these OD-connections, since the ones without the 'dangling' waiting at stop is always faster and preferable. 
-	container                 AfgelegdeReis            := Get_AfgelegdeReis_T(LinkSet, .,ThisSet);
 	
 	#include<../OD_extra_attributen.dms>
 	
-	unit<uint64>              Result                   := select_with_org_rel_with_attr_by_cond(., !IsLastReisdeelWaiting && IsDaadwerkelijkNSkort)
+	unit<uint64>              Result                   := select_with_org_rel_with_attr_by_cond(., !IsLastReisdeelWaiting && !IsTravelToItself && IsDaadwerkelijkNSkort )
 	{
 		attribute<Euro>             Price                                  := sum(
 																							AfgelegdeReis/uq_reis_route_sorted/Price
@@ -54,7 +53,9 @@ unit<uint64> OD_K :=
 																						)[org_rel];
 		attribute<Euro>             Price_augm                               := Price;
 		attribute<Time>             Laatste_RO_Uitstap_Tijd                  := const(null_u,.), Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
+		
 		#include<../OD_uq_attributen.dms>
+		#include<../OD_traveldist.dms>
 	}
 }
 
@@ -68,15 +69,11 @@ unit<uint64> OD_R :=
 		, Set_R/Set/Length
 	)
 {
-	unit<uint32> ThisSet := Set_R/Set;
-
-	attribute<bool>           IsLastReisdeelWaiting    := AfgelegdeReis/DecomposeLinkSet/IsLastReisdeelWaiting[invert(AfgelegdeReis/DecomposeLinkSet/Reis_rel)];  //omit these OD-connections, since the ones without the 'dangling' waiting at stop is always faster and preferable. 
-	attribute<bool>           IsTravelToItself         := c_fromTime_Place_rel == c_ToTime_Place_rel;
+	unit<uint32>                 ThisSet                          := Set_R/Set;
 	
-	attribute<Stops/c_Stop_Stop> c_FromStop_ToStop_rel    := combine_data(Stops/c_Stop_Stop, From_Stop_rel, To_Stop_rel);
-	attribute<bool>           IsStartEndWithinSameStopCluster  := IsDefined(rlookup(c_FromStop_ToStop_rel, Stops/Find_Halte_Clusters/c_Stop_Stop_rel));
-	
-	container                 AfgelegdeReis            := Get_AfgelegdeReis_T(LinkSet, ., ThisSet);
+	// R specifiek
+	attribute<Stops/c_Stop_Stop> c_FromStop_ToStop_rel            := combine_data(Stops/c_Stop_Stop, From_Stop_rel, To_Stop_rel);
+	attribute<bool>              IsStartEndWithinSameStopCluster  := IsDefined(rlookup(c_FromStop_ToStop_rel, Stops/Find_Halte_Clusters/c_Stop_Stop_rel));
 	
 	#include<../OD_extra_attributen.dms>
 	
@@ -93,12 +90,13 @@ unit<uint64> OD_R :=
 																							, AfgelegdeReis/uq_reis_route_sorted/Reis_rel
 																						)[org_rel];
 																						
-		attribute<string>           Mode_str    := AsList(string(Modes/name_abr[AfgelegdeReis/VisualisatieTabel/Mode_rel]),'', AfgelegdeReis/VisualisatieTabel/Reis_rel)[org_rel];
-		attribute<string>           Agency_str  := AsList(string(Agencies/name[AfgelegdeReis/VisualisatieTabel/Agency_rel]),'_', AfgelegdeReis/VisualisatieTabel/Reis_rel)[org_rel];
+		attribute<string>           Mode_str        := AsList(string(Modes/name_abr[AfgelegdeReis/VisualisatieTabel/Mode_rel]),'', AfgelegdeReis/VisualisatieTabel/Reis_rel)[org_rel];
+		attribute<string>           Agency_str      := AsList(string(Agencies/name[AfgelegdeReis/VisualisatieTabel/Agency_rel]),'_', AfgelegdeReis/VisualisatieTabel/Reis_rel)[org_rel];
 		
 		attribute<Time>             Laatste_RO_Uitstap_Tijd                  := To_Time_rel, Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
 		
 		#include<../OD_uq_attributen.dms>
+		#include<../OD_traveldist.dms>
 	}
 }
 unit<uint64> OD_O := OD_R
