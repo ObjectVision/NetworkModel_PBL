@@ -29,15 +29,15 @@ container OSM : using = "classifications/OSM"
 			attribute<string>            oneway;
 			attribute<int32>             maxspeed;
 			// unit<uint32> uq := unique(oneway);
-		}
+		// }
 		
-		unit<uint32> Roads := Read_Roads_shp
-		,   StorageName = "='%LocalDataProjDir%/OSM/RegionFiles/'+Regio+'/Roads_'+file_date+'.fss'"
-		{
-			attribute<rdc>                         geometry (arc) := Read_Roads_shp/geometry_rd;
-			attribute<string>                      fclass         := Read_Roads_shp/fclass;
-			attribute<km_hr>                       maxspeed       := Read_Roads_shp/maxspeed[km_hr];
-			attribute<string>                      OSM_id         := Read_Roads_shp/OSM_id;
+		// unit<uint32> Roads := Read_Roads_shp
+		// ,   StorageName = "='%LocalDataProjDir%/OSM/RegionFiles/'+Regio+'/Roads_'+file_date+'.fss'"
+		// {
+			// attribute<rdc>                         geometry (arc) := Read_Roads_shp/geometry_rd;
+			// attribute<string>                      fclass         := Read_Roads_shp/fclass;
+			// attribute<km_hr>                       maxspeed       := Read_Roads_shp/maxspeed[km_hr];
+			// attribute<string>                      OSM_id         := Read_Roads_shp/OSM_id;
 			attribute<Directions_OSM>              Direction      := MakeDefined(rlookup(Oneway, Directions_OSM/code), Directions_OSM/v/dual); 
 			attribute<bool>                        IsOneDirection := Direction == Directions_OSM/v/backwards || Direction == Directions_OSM/v/forwards;
 			attribute<wegtype>                     wegtype_rel    := rlookup(fclass, wegtype/name);  
@@ -59,16 +59,16 @@ container OSM : using = "classifications/OSM"
 			parameter<string> country_name;
 			//
 			unit<uint32> Country_regios := ='Regios/'+country_name;
-			unit<uint32>  Merge_CountryRegion_Roads := ='union_unit('+AsList('Prepare_SourceData/'+Country_regios/name+'/Roads', ',')+')'
+			unit<uint32>  Merge_CountryRegion_Roads := ='union_unit('+AsList('Prepare_SourceData/'+Country_regios/name+'/Read_Roads_shp', ',')+')'
 			{
-				attribute<rdc>                          geometry (arc)                   := ='union_data(., '+AsList('Prepare_SourceData/'+Country_regios/name+'/Roads/geometry', ',')+')';
-				attribute<km_hr>                        maxspeed_src                     := ='union_data(., '+AsList('Prepare_SourceData/'+Country_regios/name+'/Roads/maxspeed', ',')+')';
-				attribute<wegtype>                      wegtype_rel                      := ='union_data(., '+AsList('Prepare_SourceData/'+Country_regios/name+'/Roads/wegtype_rel', ',')+')';
-				attribute<string>                       OSM_id                           := ='union_data(., '+AsList('Prepare_SourceData/'+Country_regios/name+'/Roads/OSM_id', ',')+')';
-				attribute<bool>                         IsOneDirection                   := ='union_data(., '+AsList('Prepare_SourceData/'+Country_regios/name+'/Roads/IsOneDirection', ',')+')';
+				attribute<rdc>                          geometry (arc)                   := ='union_data(., '+AsList('Prepare_SourceData/'+Country_regios/name+'/Read_Roads_shp/geometry_rd', ',')+')';
+				attribute<km_hr>                        maxspeed_src                     := ='union_data(., '+AsList('Prepare_SourceData/'+Country_regios/name+'/Read_Roads_shp/maxspeed[km_hr]', ',')+')';
+				attribute<wegtype>                      wegtype_rel                      := ='union_data(., '+AsList('Prepare_SourceData/'+Country_regios/name+'/Read_Roads_shp/wegtype_rel', ',')+')';
+				attribute<string>                       OSM_id                           := ='union_data(., '+AsList('Prepare_SourceData/'+Country_regios/name+'/Read_Roads_shp/OSM_id', ',')+')';
+				attribute<bool>                         IsOneDirection                   := ='union_data(., '+AsList('Prepare_SourceData/'+Country_regios/name+'/Read_Roads_shp/IsOneDirection', ',')+')';
 				
 				attribute<km_hr>                        rth_maxspeed_per_wegtype (classifications/OSM/wegtype)         := rth_element(maxspeed_src, 0.9f, wegtype_rel);
-				attribute<km_hr>                        rth_maxspeed_per_wegtype_Defined (classifications/OSM/wegtype) := MakeDefined(rth_maxspeed_per_wegtype, ModelParameters/Advanced/CarDefaultSpeed_low) == 0[km_hr] ? ModelParameters/Advanced/CarDefaultSpeed_low : MakeDefined(rth_maxspeed_per_wegtype, ModelParameters/Advanced/CarDefaultSpeed_low);
+				attribute<km_hr>                        rth_maxspeed_per_wegtype_Defined (classifications/OSM/wegtype) := rth_maxspeed_per_wegtype == 0[km_hr] ? ModelParameters/Advanced/CarDefaultSpeed_low : MakeDefined(rth_maxspeed_per_wegtype, ModelParameters/Advanced/CarDefaultSpeed_low);
 			
 				attribute<km_hr>                        maxspeed_edit00                                                := maxspeed_src != 0[km_hr] && IsDefined(maxspeed_src) && maxspeed_src < 140[km_hr]  ? maxspeed_src : rjoin(wegtype_rel, id(classifications/OSM/wegtype), rth_maxspeed_per_wegtype_Defined);
 				attribute<km_hr>                        maxspeed_edit0                                                 := wegtype_rel == classifications/OSM/wegtype/v/motorway && maxspeed_edit00 < 80[km_hr] ? rjoin(wegtype_rel, id(classifications/OSM/wegtype), rth_maxspeed_per_wegtype_Defined) : maxspeed_edit00;
@@ -81,7 +81,7 @@ container OSM : using = "classifications/OSM"
 				container AddCongestionData
 				{
 					attribute<bool>    isMotorWay                                 (..) := wegtype_rel == wegtype/v/motorway || wegtype_rel == wegtype/v/motorway_link;
-					attribute<bool>    isMajor                                    (..) := wegtype_rel == wegtype/v/primary_link || wegtype_rel == wegtype/v/secondary_link || wegtype_rel == wegtype/v/primary; 
+					attribute<bool>    isMajor                                    (..) := wegtype_rel == wegtype/v/primary_link || wegtype_rel == wegtype/v/secondary_link || wegtype_rel == wegtype/v/secondary || wegtype_rel == wegtype/v/primary; 
 					attribute<bool>    isStreet                                   (..) := !isMotorWay && !isMajor;
 					
 					attribute<km_hr>   congestion_speed_motorways_MorningRush     (..) := recollect_by_cond(isMotorWay, Motorways/congestion_speed_MorningRush);

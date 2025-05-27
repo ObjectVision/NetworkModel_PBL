@@ -75,7 +75,7 @@ Template Get_AfgelegdeReis_T
 		// attribute<bool>          Prijs_IntegrityCheck            := Agencies/IsForeign[Agency_rel] || IsDefined(impl/PrijsTabel_rel);
 		attribute<bool>          Prijs_IntegrityCheck            := IsDefined(impl/PrijsTabel_rel);
 		
-		attribute<Euro>          Price                         := Agency_rel == Agencies/V/NS  //NS (en andere rail) is anders, want die gaat op totale NS reis uit een afstandstabel
+		attribute<Euro>          Price_NS                        := Agency_rel == Agencies/V/NS  //NS (en andere rail) is anders, want die gaat op totale NS reis uit een afstandstabel
 																	|| Agency_rel == Agencies/V/NS_International
 																	|| Agency_rel == Agencies/V/DB 
 																	|| Agency_rel == Agencies/V/Eu_sleeper
@@ -147,14 +147,32 @@ Template Get_AfgelegdeReis_T
 		attribute<string>        RouteName                     := uq_reis_route_sorted/impl/RouteName_short;
 
 		attribute<Time>          First_StopTime_Route          := uq_reis_route_sorted/First_StopTime_Route;
-		attribute<Stops>         From_Stop_rel                  := uq_reis_route_sorted/From_Stop_rel;
+		attribute<Stops>         From_Stop_rel                 := uq_reis_route_sorted/From_Stop_rel;
 		attribute<Time>          Last_StopTime_Route           := uq_reis_route_sorted/Last_StopTime_Route;
-		attribute<Stops>         To_Stop_rel                    := uq_reis_route_sorted/To_Stop_rel;
+		attribute<Stops>         To_Stop_rel                   := uq_reis_route_sorted/To_Stop_rel;
 		attribute<min_f>         Reistijd                      := convert(float32((Last_StopTime_Route - First_StopTime_Route) /  1[Time]) * 1[s_f], min_f);
 		attribute<Euro>          Price                         := uq_reis_route_sorted/Price;
 		attribute<km>            Afgelegde_afstand_OV          := uq_reis_route_sorted/Afgelegde_afstand_OV;
 		
-		attribute<rdc>           geometry        (arc, DecomposeLinkSet) := DecomposeLinkSet/geometry, Descr = "daadwerkelijk afgelegde route geometry";
+attribute<rdc>           geometry        (arc, DecomposeLinkSet) := DecomposeLinkSet/geometry, Descr = "daadwerkelijk afgelegde route geometry";
+
+unit<uint32> DecomposeGeometry := sequence2points(geometry) 
+{
+	attribute<DecomposeLinkSet> SubReis_rel                 := Sequence_rel;
+	attribute<domain>           Reis_rel                    := DecomposeLinkSet/reis_rel[SubReis_rel];
+	
+	attribute<uint32>           subreis_ordinal             := subreis_rel * 10 + ordinal;
+	attribute<.>                subreis_ordinal_Sort_Index  := index(subreis_ordinal);
+
+	unit<uint32> DecomposeGeometry_sorted := unique(subreis_ordinal_Sort_Index) 
+	, Descr = "hack om het domein te sorteren op subreis_rel en ordinal"
+	{
+		attribute<domain>                Reis_rel                       := (../Reis_rel[../subreis_ordinal_Sort_Index])[values];
+		attribute<rdc>                   geometry                       := (../point[../subreis_ordinal_Sort_Index])[values];
+		attribute<uint32>                ordinal                        := cumulate(const(1,.), reis_rel)-1;
+	}
+	attribute<rdc> geometry (arc, domain) := points2sequence(DecomposeGeometry_sorted/geometry, DecomposeGeometry_sorted/reis_rel, DecomposeGeometry_sorted/ordinal);
+}
 	}
 }
 

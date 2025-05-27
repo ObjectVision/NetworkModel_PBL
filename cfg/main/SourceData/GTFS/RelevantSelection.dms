@@ -1,7 +1,7 @@
 container RelevantSelection : using = "LoadFeeds"
 , Descr = "Subset of GTFS-schedule relevant for the analysis."
 {
-	unit<uint32> Modes                    := GTFS_Modes/Selectie;
+	unit<uint8> Modes                    := GTFS_Modes/Selectie;
 		
 	unit<uint32> StopTimes := protoStopTimes
 	, Descr = "Times that a vehicle arrives at and departs from stops for each trip."
@@ -18,7 +18,23 @@ container RelevantSelection : using = "LoadFeeds"
 	unit<uint32> Stops := select_with_org_rel_with_attr_by_cond(LoadFeeds/protoStops, LoadFeeds/protoStops/StopUsed)
 	, Descr = "Stops where vehicles pick up or drop off riders. Also defines stations and station entrances."
 	{
-		attribute<GTFS_Modes/Selectie>       Mode_rel                 := modus(StopTimes/Mode_rel, StopTimes/Stop_rel);
+		attribute<GTFS_Modes/Selectie>          Mode_rel                 := modus(StopTimes/Mode_rel, StopTimes/Stop_rel);
+		attribute<GTFS_Modes/Modes_Combinaties> ModeComb_rel             := switch(
+																				case(uint32(Count_bus > 0)  + uint32(Count_tram > 0) == 2, GTFS_Modes/Modes_Combinaties/v/trambus)
+																				,case(Doubles == 1, rlookup(Mode_rel, GTFS_Modes/Modes_Combinaties/mode_rel))
+																				, null_b
+																			);
+		attribute<uint32>       Count_bus                    := sum_uint32(StopTimes/Mode_rel == Modes/v/bus, StopTimes/Stop_rel);
+		attribute<uint32>       Count_tram                   := sum_uint32(StopTimes/Mode_rel == Modes/v/tram, StopTimes/Stop_rel);
+		attribute<uint32>       Count_rail                   := sum_uint32(StopTimes/Mode_rel == Modes/v/rail, StopTimes/Stop_rel);
+		attribute<uint32>       Count_metro                  := sum_uint32(StopTimes/Mode_rel == Modes/v/metro, StopTimes/Stop_rel);
+		attribute<uint32>       Count_ferry                  := sum_uint32(StopTimes/Mode_rel == Modes/v/ferry, StopTimes/Stop_rel);
+		
+		attribute<uint32>       Doubles                      := uint32(Count_bus > 0)  + uint32(Count_tram > 0) + uint32(Count_rail > 0) + uint32(Count_metro > 0) + uint32(Count_ferry > 0); 
+		
+		//adhoc
+		// attribute<string>           Mode_str        := AsList(string(Modes/name_abr[StopTimes/Mode_rel]),'', StopTimes/Stop_rel);
+		
 		attribute<uint32>                    orgStopId                := org_rel;
 		attribute<uint32>                    feedId                   := const(0, ., uint32);
 		attribute<upoint>                    uni_StopId               := point_xy(feedId, orgStopId, upoint);
@@ -38,7 +54,7 @@ container RelevantSelection : using = "LoadFeeds"
 		attribute<string>                  RouteName_short := Routes/route_short_name[Route_rel];
 		attribute<Agencies>                Agency_rel      := Routes/Agency_rel[Route_rel];
 		attribute<Modes>                   Mode_rel        := rlookup(uint32(Routes/route_type)[Route_rel], Modes/ModeNr);
-		attribute<Services>                Services_rel     := rlookup(service_id, Services/Values);
+		attribute<Services>                Services_rel    := rlookup(service_id, Services/Values);
 		attribute<bool>                    sel_today       := Services/Today_exc[Services_rel] = 1;
 		attribute<bool>                    sel_yesterday   := Services/Yesterday_exc[Services_rel] = 1;
 		attribute<string>                  label           := RouteName;
@@ -50,8 +66,8 @@ container RelevantSelection : using = "LoadFeeds"
 		attribute<rdc>                     geometry (arc)  := union_data(., protoStopTimes/Yesterday/Links/geometry, protoStopTimes/Today/Links/geometry);
 		attribute<Stops>                   FromStop_rel    := rlookup(union_data(., protoStopTimes/Yesterday/Links/From_protoStop_rel, protoStopTimes/Today/Links/From_protoStop_rel), Stops/org_rel);
 		attribute<Stops>                   ToStop_rel      := rlookup(union_data(., protoStopTimes/Yesterday/Links/To_protoStop_rel, protoStopTimes/Today/Links/To_protoStop_rel), Stops/org_rel);
-		attribute<Time>                    fromTime_rel        := union_data(., protoStopTimes/Yesterday/Links/depTime, protoStopTimes/Today/Links/depTime);
-		attribute<Time>                    toTime_rel          := union_data(., protoStopTimes/Yesterday/Links/arrTime, protoStopTimes/Today/Links/arrTime);
+		attribute<Time>                    fromTime_rel    := union_data(., protoStopTimes/Yesterday/Links/depTime, protoStopTimes/Today/Links/depTime);
+		attribute<Time>                    toTime_rel      := union_data(., protoStopTimes/Yesterday/Links/arrTime, protoStopTimes/Today/Links/arrTime);
 		attribute<Trips>                   Trip_rel        := union_data(., protoStopTimes/Yesterday/Links/protoTrip_rel, protoStopTimes/Today/Links/protoTrip_rel);
 		attribute<Modes>                   Mode_rel        := Trips/Mode_rel[Trip_rel];
 		attribute<string>                  RouteName       := Trips/RouteName[Trip_rel];
@@ -61,17 +77,13 @@ container RelevantSelection : using = "LoadFeeds"
 		attribute<rdc>                     fromPoint       := first_point(geometry);
 		attribute<rdc>                     toPoint         := last_point(geometry);
 		attribute<km>                      Length          := arc_length(geometry, m)[km];
-		attribute<s_f>                     Duration   := fromTime_rel <= toTime_rel 
-															? float32(sub_or_null(toTime_rel,fromTime_rel))[s_f]
-															: float32(sub_or_null(toTime_rel + #Time, fromTime_rel))[s_f];
-		attribute<string>                  Label  := 'Scheduled: ' + Time/Label[fromTime_rel] + ' @ ' + Stops/Name[FromStop_rel] + ' to ' + Time/Label[toTime_rel] + ' @ ' + Stops/Name[ToStop_rel];
+		attribute<s_f>                     Duration        := fromTime_rel <= toTime_rel 
+																? float32(sub_or_null(toTime_rel,fromTime_rel))[s_f]
+																: float32(sub_or_null(toTime_rel + #Time, fromTime_rel))[s_f];
+		attribute<string>                  Label           := 'Scheduled: ' + Time/Label[fromTime_rel] + ' @ ' + Stops/Name[FromStop_rel] + ' to ' + Time/Label[toTime_rel] + ' @ ' + Stops/Name[ToStop_rel];
 		
-		// attribute<bool>                    IsConnectedToNSkortStation     := Stops/IsNSkortStation[FromStop_rel] || Stops/IsNSkortStation[ToStop_rel];
-		// attribute</SourceData/Infrastructuur/OVprijzen/NS/NS_stations>             NS_StartPoint_rel              := Stops/NS_Stations_rel[FromStop_rel];
-		// attribute</SourceData/Infrastructuur/OVprijzen/NS/NS_stations>             NS_EndPoint_rel                := Stops/NS_Stations_rel[ToStop_rel];
-		
-		attribute<c_Time_Stops> c_FromTime_Stop_rel := combine_data(c_Time_Stops, fromTime_rel, FromStop_rel);
-		attribute<c_Time_Stops> c_ToTime_Stop_rel   := combine_data(c_Time_Stops, toTime_rel, ToStop_rel);
+		attribute<c_Time_Stops>            c_FromTime_Stop_rel := combine_data(c_Time_Stops, fromTime_rel, FromStop_rel);
+		attribute<c_Time_Stops>            c_ToTime_Stop_rel   := combine_data(c_Time_Stops, toTime_rel, ToStop_rel);
 		
 		unit<uint32> findUniqueSpaceTimeEvents := union_unit(., .)
 		, Descr = "in order to get a set of all time-place events"
@@ -112,10 +124,12 @@ container RelevantSelection : using = "LoadFeeds"
 		attribute<string>   agency_name      := rjoin(agency_id, ReadFSS/agency/data/agency_id, ReadFSS/agency/data/agency_name);
 		attribute<Agencies> agency_rel       := rlookup(AsItemName(lowercase(agency_name)), Agencies/name);
 		attribute<string>   route_id         := union_data(., ReadFSS/Routes/data/route_id, Classifications/TimeInvariantTypes/name);
-		attribute<string>   route_type       := union_data(., ReadFSS/Routes/data/route_type, const(null_str,Classifications/TimeInvariantTypes));
+		attribute<string>   route_type       := union_data(., ReadFSS/Routes/data/route_type, string(Classifications/TimeInvariantTypes/mode_rel));
 		attribute<string>   route_long_name  := union_data(., ReadFSS/Routes/data/route_long_name, Classifications/TimeInvariantTypes/name);
 		attribute<string>   route_short_name := union_data(., ReadFSS/Routes/data/route_short_name, Classifications/TimeInvariantTypes/name_short);
 		attribute<string>   route_name       := route_short_name+ ' ' +route_long_name;
 		attribute<string>   label            := route_name;
+		
+		attribute<Modes>    Mode_rel         := rlookup(uint8(route_type), Modes/route_type);
 	}
 }

@@ -1,17 +1,56 @@
-attribute<c_Time_Places>  c_FromTime_Place_rel     := ThisSet/NodeSet/c_Time_Place_rel[OrgZone_rel];
-attribute<c_Time_Places>  c_ToTime_Place_rel       := ThisSet/NodeSet/c_Time_Place_rel[DstZone_rel];
-attribute<Places>         From_Place_rel           := ThisSet/NodeSet/Place_rel[OrgZone_rel];
-attribute<Places>         To_Place_rel             := ThisSet/NodeSet/Place_rel[DstZone_rel];
-attribute<rdc>            From_Point               := ThisSet/NodeSet/geometry[OrgZone_rel];
-attribute<rdc>            To_Point                 := ThisSet/NodeSet/geometry[DstZone_rel];
-attribute<Stops>          From_Stop_rel            := ThisSet/NodeSet/Stop_rel[OrgZone_rel];
-attribute<Stops>          To_Stop_rel              := ThisSet/NodeSet/Stop_rel[DstZone_rel];
-attribute<Time>           From_Time_rel            := value(c_FromTime_Place_rel / uint64(#Places), Time);
-attribute<Time>           To_Time_rel              := value(c_ToTime_Place_rel / uint64(#Places), Time);
-attribute<s_f>            Traveltime               := Impedance;
-attribute<Modes>          Mode_rel                 := AfgelegdeReis/DecomposeLinkSet/Mode_rel[invert(AfgelegdeReis/DecomposeLinkSet/Reis_rel)]; 
-attribute<bool>           IsLastReisdeelWaiting    := AfgelegdeReis/DecomposeLinkSet/IsLastReisdeelWaiting[invert(AfgelegdeReis/DecomposeLinkSet/Reis_rel)];  //omit these OD-connections, since the ones without the 'dangling' waiting at stop is always faster and preferable. 
-attribute<bool>           IsTravelToItself         := c_fromTime_Place_rel == c_ToTime_Place_rel;
+attribute<c_Time_Places>       c_FromTime_Place_rel       := ThisSet/NodeSet/c_Time_Place_rel[OrgZone_rel];
+attribute<c_Time_Places>       c_ToTime_Place_rel         := ThisSet/NodeSet/c_Time_Place_rel[DstZone_rel];
 
-container                 AfgelegdeReis            := Get_AfgelegdeReis_T(LinkSet, ., ThisSet);
+attribute<Places>              From_Place_rel             := ThisSet/NodeSet/Place_rel[OrgZone_rel];
+attribute<Places>              To_Place_rel               := ThisSet/NodeSet/Place_rel[DstZone_rel];
+attribute<rdc>                 From_Point                 := ThisSet/NodeSet/geometry[OrgZone_rel];
+attribute<rdc>                 To_Point                   := ThisSet/NodeSet/geometry[DstZone_rel];
+attribute<Stops>               From_Stop_rel              := ThisSet/NodeSet/Stop_rel[OrgZone_rel];
+attribute<Stops>               To_Stop_rel                := ThisSet/NodeSet/Stop_rel[DstZone_rel];
+attribute<Time>                From_Time_rel              := ThisSet/NodeSet/Time_rel[OrgZone_rel];
+attribute<Time>                To_Time_rel                := ThisSet/NodeSet/Time_rel[DstZone_rel];
+// attribute<Time>                From_Time_rel              := value(c_FromTime_Place_rel / uint64(#Places), Time);
+// attribute<Time>                To_Time_rel                := value(c_ToTime_Place_rel / uint64(#Places), Time);
 
+attribute<Routes>              Route_rel                  := ThisSet/NodeSet/Route_rel[OrgZone_rel];
+attribute<Agencies>            Agency_rel                 := ThisSet/NodeSet/Agency_rel[OrgZone_rel];
+attribute<s_f>                 Traveltime                 := Impedance;
+attribute<Modes>               Mode_rel                   := Routes/mode_rel[Route_rel];
+
+// container                 AfgelegdeReis            := Get_AfgelegdeReis_T(LinkSet, ., ThisSet);
+
+unit<uint64> impl := .
+{
+	// attribute<c_Time_Place_Routes> c_FromTime_Place_Route_rel := ThisSet/NodeSet/c_Time_Place_Route_rel[OrgZone_rel];
+	// attribute<c_Time_Place_Routes> c_ToTime_Place_Route_rel   := ThisSet/NodeSet/c_Time_Place_Route_rel[DstZone_rel];
+
+	attribute<bool>                IsTravelToItself           := c_fromTime_Place_rel == c_ToTime_Place_rel;
+	attribute<bool>                IsTravelToSamePlace        := from_Place_rel == To_Place_rel;
+
+
+	attribute<Concessiegebied> Start_Concessiegebied_rel      := point_in_polygon(From_Point, Concessiegebied/geometry);
+	attribute<Concessiegebied> Eind_Concessiegebied_rel       := point_in_polygon(To_Point, Concessiegebied/geometry);
+	attribute<Concessiegebied> Concessiegebied_rel            := MakeDefined(Start_Concessiegebied_rel, Eind_Concessiegebied_rel);
+	attribute<bool>            IsOD_completely_foreign        := IsNull(Concessiegebied_rel);
+	attribute<km>              Afgelegde_afstand_OV           := alt_imp;
+	attribute<string>          RouteName_short                := Routes/route_short_name[Route_rel];
+	attribute<string>          Mode_Agency_CG_Lijn_identifier := Modes/name[Mode_rel] +'_'+ Agencies/name[Agency_rel] +'_'+ Concessiegebied/name[Concessiegebied_rel] + '_' + RouteName_short;
+	attribute<string>          Mode_Agency_CG_identifier      := Modes/name[Mode_rel] +'_'+ Agencies/name[Agency_rel] +'_'+ Concessiegebied/name[Concessiegebied_rel];
+	attribute<string>          Mode_Agency_identifier         := Modes/name[Mode_rel] +'_'+ Agencies/name[Agency_rel];
+
+	attribute<NS_Stations>     From_NS_Stations_rel           := Stops/NS_Stations_rel[From_Stop_rel];
+	attribute<NS_Stations>     To_NS_Stations_rel             := Stops/NS_Stations_rel[To_Stop_rel];
+	attribute<c_NS_start_end>  c_NS_start_end_rel             := combine_data(c_NS_start_end, From_NS_Stations_rel, To_NS_Stations_rel);
+
+	attribute<PrijsTabel>      PrijsTabel_rel_initial         := rlookup(Mode_Agency_CG_Lijn_identifier, PrijsTabel/Mode_Agency_CG_Lijn_identifier);
+	attribute<PrijsTabel>      PrijsTabel_rel_augmented1      := rlookup(Mode_Agency_CG_identifier, PrijsTabel/Mode_Agency_CG_Lijn_identifier);
+	attribute<PrijsTabel>      PrijsTabel_rel_augmented2      := rlookup(Mode_Agency_identifier, PrijsTabel/Mode_Agency_CG_Lijn_identifier);
+	attribute<PrijsTabel>      PrijsTabel_rel_augmentation    := MakeDefined(PrijsTabel_rel_augmented1, PrijsTabel_rel_augmented2);
+	attribute<PrijsTabel>      PrijsTabel_rel_augmented_rev1  := rlookup(Mode_Agency_CG_identifier, PrijsTabel/Mode_Agency_CG_identifier);
+	attribute<PrijsTabel>      PrijsTabel_rel_augmented_rev2  := rlookup(Mode_Agency_identifier, PrijsTabel/Mode_Agency_identifier);
+	attribute<PrijsTabel>      PrijsTabel_rel_augmented_rev   := MakeDefined(PrijsTabel_rel_augmented_rev1, PrijsTabel_rel_augmented_rev2);
+	attribute<PrijsTabel>      PrijsTabel_rel_augmented       := MakeDefined(PrijsTabel_rel_augmentation, PrijsTabel_rel_augmented_rev);
+	attribute<PrijsTabel>      PrijsTabel_rel                 := MakeDefined(PrijsTabel_rel_initial, PrijsTabel_rel_augmented);
+	
+	attribute<bool>            Prijs_IntegrityCheck           := IsDefined(impl/PrijsTabel_rel);
+}

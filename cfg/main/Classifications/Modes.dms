@@ -1,16 +1,16 @@
 Container GTFS_Modes
 { 
-	unit<uint32> List: NrOfRows = 87
+	unit<uint8> List: NrOfRows = 87
 	{
 		// combines official modes list, as defined in the GTFS format, with the extended mode list, as eg used in the Vilnius feed. 
 		// For more information on the extended mode list see https://developers.google.com/transit/gtfs/reference/extended-route-types
-		attribute<uint32> ModeNr         := Matrix/Values[value(id(.)* nrAttr + 0, Matrix)][uint32];
-		attribute<string> Name_src       := Matrix/Values[value(id(.)* nrAttr + 1, Matrix)];
+		attribute<uint32> ModeNr         := Matrix/Values[value(uint32(id(.))* nrAttr + 0, Matrix)][uint32];
+		attribute<string> Name_src       := Matrix/Values[value(uint32(id(.))* nrAttr + 1, Matrix)];
 		attribute<string> Name           := AsItemName(name_src);
-		attribute<uint8>  r              := Matrix/Values[value(id(.)* nrAttr + 2, Matrix)][uint8];
-		attribute<uint8>  g              := Matrix/Values[value(id(.)* nrAttr + 3, Matrix)][uint8];
-		attribute<uint8>  b              := Matrix/Values[value(id(.)* nrAttr + 4, Matrix)][uint8];
-		attribute<uint8>  IsGelijkvloers := Matrix/Values[value(id(.)* nrAttr + 5, Matrix)][uint8];
+		attribute<uint8>  r              := Matrix/Values[value(uint32(id(.))* nrAttr + 2, Matrix)][uint8];
+		attribute<uint8>  g              := Matrix/Values[value(uint32(id(.))* nrAttr + 3, Matrix)][uint8];
+		attribute<uint8>  b              := Matrix/Values[value(uint32(id(.))* nrAttr + 4, Matrix)][uint8];
+		attribute<uint8>  IsGelijkvloers := Matrix/Values[value(uint32(id(.))* nrAttr + 5, Matrix)][uint8];
 		attribute<string> Label          := Name;
 		attribute<uint32> BrushColor     := rgb(r, g, b), DialogType = "BrushColor";
 		attribute<uint32> SymbolColor    := BrushColor, DialogType = "SymbolColor";
@@ -115,17 +115,67 @@ Container GTFS_Modes
 		}
 	}
 	
-	unit<uint32> Selectie := select_with_attr_by_cond(List, id(List) <= List/V/Walking || id(List) == List/v/Waiting || id(List) == List/v/Cycling)
+	unit<uint8> Selectie: NrOfRows = 8
 	{
+		attribute<uint32> ModeNr         := Matrix/Values[value(uint32(id(.))* nrAttr + 0, Matrix)][uint32];
+		attribute<string> name           := Matrix/Values[value(uint32(id(.))* nrAttr + 1, Matrix)];
+		attribute<string> name_abbr      := Matrix/Values[value(uint32(id(.))* nrAttr + 2, Matrix)];
+		attribute<uint8>  IsGelijkvloers := Matrix/Values[value(uint32(id(.))* nrAttr + 3, Matrix)][uint8];
+		attribute<uint8>  Route_type     := Matrix/Values[value(uint32(id(.))* nrAttr + 4, Matrix)][uint8], Descr = "relateert aan route_type in routes.txt";
+		attribute<string> Label          := Name;
+		
 		container V := for_each_nedv(name, String(ID(.))+'[..]', void, .);
 		
-		attribute<string> name_abr := switch(
-										case(name == 'Tram', 'T')
-										,case(name == 'Metro', 'M')
-										,case(name == 'Rail', 'R')
-										,case(name == 'Bus', 'B')
-										,case(name == 'Ferry', 'F')
-										,''
-									);
+		parameter<uint32> nrAttr := 5;
+		
+		unit<uint32> Matrix := Range(uint32, 0, nrAttr*#.)
+		{
+			attribute<string> Values: 
+			[
+			'0', 'Tram'    , 'T','1','0',
+			'1', 'Metro'   , 'M','0','1',
+			'2', 'Rail'    , 'R','0','2',
+			'3', 'Bus'     , 'B','1','3',
+			'4', 'Ferry'   , 'F','0','4',
+			'5', 'Walking' , 'W','1','5',
+			'9', 'Waiting' , 'S','1','', //stationary
+			'10','Cycling' , 'C','1','7'
+			];
+		}
+	}
+	
+	// unit<uint8> Selectie := select_with_attr_by_cond(List, id(List) <= List/V/Walking || id(List) == List/v/Waiting || id(List) == List/v/Cycling)
+	// {
+		// container V := for_each_nedv(name, String(ID(.))+'[..]', void, .);
+		
+		// attribute<string> name_abr := switch(
+										// case(name == 'Tram', 'T')
+										// ,case(name == 'Metro', 'M')
+										// ,case(name == 'Rail', 'R')
+										// ,case(name == 'Bus', 'B')
+										// ,case(name == 'Ferry', 'F')
+										// ,case(name == 'Walking', 'W')
+										// ,case(name == 'Waiting', 'S') //stationary
+										// ,case(name == 'Cycling', 'C')
+										// ,''
+									// );
+	// }
+	
+	unit<uint8> Combinaties : NrOfRows = 1
+	{
+		attribute<string> name      : ['TramBus'];
+		attribute<string> name_abbr : ['TB'];
+		attribute<string> label     := name;
+	}
+	
+	unit<uint8> Modes_Combinaties := union_unit_uint8(Selectie, Combinaties)
+	{
+		attribute<string> name           := union_data(., Selectie/name, Combinaties/name);
+		attribute<string> name_abbr      := union_data(., Selectie/name_abbr, Combinaties/name_abbr);
+		attribute<string> label          := union_data(., Selectie/label, Combinaties/label);
+		
+		attribute<Selectie> mode_rel := rlookup(name, selectie/name);
+		
+		container V := for_each_nedv(name, String(ID(.))+'[..]', void, .);
 	}
 }
