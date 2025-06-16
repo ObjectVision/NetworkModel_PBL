@@ -1,152 +1,3 @@
-parameter<Time> EersteVertrekMoment  := first(Advanced/MeasureMoments/Moment);
-parameter<Time> LaatsteVertrekMoment := last(Advanced/MeasureMoments/Moment);
-
-unit<uint32>        Routes            := =impl/PT_path_str+'/Routes';
-unit<uint32>        NS_Stations       := SourceData/Infrastructuur/OVprijzen/NS/NS_Stations;
-unit<uint8>         Modes             := GTFS_Modes/Selectie;
-unit<uint8>         PrijsTabel        := SourceData/Infrastructuur/OVprijzen/PrijsTabel;
-unit<uint32>        Provincie         := SourceData/RegioIndelingen/Provincie;
-unit<uint8>         Concessiegebied   := SourceData/RegioIndelingen/Concessiegebied;
-unit<uint32>        CoropP            := SourceData/RegioIndelingen/CoropP;
-unit<uint64>        Combine_OrgDest   := combine_unit_uint64(Org, Dest); 
-unit<uint32>        c_NS_start_end    := /SourceData/Infrastructuur/OVprijzen/NS/NS_tariefeenheden_matrix/c_NS_start_end;
-unit<uint32>        TariefEenhedenMatrix := Infrastructuur/OVprijzen/NS/NS_tariefeenheden_matrix/ConnectedNetwork/ODMatrix;
-unit<uint64>        c_Time_Places       := impl/c_Time_Places;
-unit<uint64>        c_Time_Place_Routes := impl/c_Time_Place_Routes;
-unit<uint32>        Places            := impl/Places;
-unit<uint32>        Stops             := impl/Stops;
-unit<uint32>        ToBeCalculated_Ketens        := /Classifications/Ketens/ToBeCalculated_Keten;
-unit<uint32>        Toegestane_Ketens            := /Classifications/Ketens/Keten/Toegestaan;
-
-unit<uint32> PTnet_prep := =impl/PT_path_str+''
-{
-	attribute<bool>   IsSub_from := From_Time_rel >= EersteVertrekMoment ;
-	attribute<bool>   IsSub_to   := To_Time_rel   < (LaatsteVertrekMoment + (convert(ModelParameters/MaxTravelTime, s_f)[Time]));
-	attribute<bool>   IsSub_dur  := duration <= convert(ModelParameters/MaxTravelTime , s_f);
-}
-
-container Set_R := Get_Windowed_Agency_Set_T(' &&  '+impl/PT_path_str+'/Agency_rel != Agencies/V/ns &&  '+impl/PT_path_str+'/Duration > 0f'), Descr = "subset of public transport net for the relevant time windows and agency-set.";
-container Set_L := Get_Windowed_Agency_Set_T(' && ('+impl/PT_path_str+'/Agency_rel == Agencies/V/ns || ('+impl/PT_path_str+'/Mode_rel == Modes/V/Waiting && IsDefined('+impl/PT_path_str+'/c_NS_start_end_rel))) && '+impl/PT_path_str+'/Duration > 0f');
-container Set_K := Get_Windowed_Agency_Set_T(' && ('+impl/PT_path_str+'/Agency_rel == Agencies/V/ns || ('+impl/PT_path_str+'/Mode_rel == Modes/V/Waiting && IsDefined('+impl/PT_path_str+'/c_NS_start_end_rel))) && '+impl/PT_path_str+'/Duration > 0f && '+impl/PT_path_str+'/IsConnectedToNSkortStation');
-
-#include<MakeODs.dms>
-#include<Transfers.dms>
-
-//adhoc
-// unit<uint32> export_batch := ToBeCalculated_Ketens
-// {
-	// attribute<string> name := ToBeCalculated_Ketens/name;
-	// attribute<string> path := 'NetworkSetup/ConfigurationPerRegio/all/PublicTransport/Keten_Generatie/'+name+'/CALC';
-// }
-
-container Keten_Generatie := 
-	for_each_ne(ToBeCalculated_Ketens/name
-	, 	iif(ToBeCalculated_Ketens/right == ''
-		, 'OD_'+ToBeCalculated_Ketens/left
-		, 'KetenRijger_T('+ToBeCalculated_Ketens/left+'/Result,'+ToBeCalculated_Ketens/right+'/Result,Transfers/'+ToBeCalculated_Ketens/transfer_name+'/Result, '+Quote(ToBeCalculated_Ketens/Left)+','+Quote(ToBeCalculated_Ketens/Right)+')' //e.g. er is een right 
-		) 
-	);
-
-unit<uint64> ToegestaneKetens := ='union_unit_uint64('+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result')+')'
-{
-	attribute<Toegestane_Ketens>    Toegestane_Keten_rel        := ='union_data(., '+AsList('const('+string(id(Toegestane_Ketens))+', Keten_Generatie/'+Toegestane_Ketens/name+'/Result)', ',')+')';
-	attribute<c_Time_Places>        c_FromTime_Place_rel        := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/c_FromTime_Place_rel')+')';
-	attribute<c_Time_Places>        c_ToTime_Place_rel          := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/c_ToTime_Place_rel')+')';
-	attribute<ct>                   Price                       := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/Price')+')';
-	attribute<s>                    Traveltime                  := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/Traveltime')+')';
-	attribute<ct>                   Price_augm                  := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/Price_augm')+')';
-	
-	attribute<uint32>               PriceTime_Score             := =ModelParameters/MinimiseCriterium == 'Price'
-																	? 'value(Price_augm, uint32) * value(ModelParameters/MaxTravelTime[s], uint32) + value(Traveltime, uint32)'
-																	: 'value(Traveltime, uint32) * 10000 + value(Price_augm, uint32)';
-	#include<OD_uq_attributen.dms>
-	
-	attribute<dam>                  TravelDist_Bus              := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/TravelDist_Bus')+')';
-	attribute<dam>                  Traveldist_Metro            := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/Traveldist_Metro')+')';
-	attribute<dam>                  Traveldist_Tram             := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/Traveldist_Tram')+')';
-	attribute<dam>                  Traveldist_Rail             := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/Traveldist_Rail')+')';
-	attribute<dam>                  Traveldist_Ferry            := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/Traveldist_Ferry')+')';
-	
-	unit<uint64>          OD_key_set    := combine_unit_uint64(uq_c_FromTime_Place, uq_c_ToTime_Place);
-	attribute<OD_key_set> OD_key        := combine_data(OD_key_set, uq_c_FromTime_Place_rel, uq_c_ToTime_Place_rel);
-	unit<uint64>          uq_OD_key     := unique(OD_key);
-	attribute<uq_OD_key>  uq_OD_key_rel := rlookup(OD_key, uq_OD_key/values); //attribuut om partitionering van price/traveltime etc te doen.
-	
-	unit<uint64> Result := uq_OD_key
-	{ 
-		attribute<..>                   Min_Index                   := ='min_index(../PriceTime_Score, ../uq_OD_key_rel)';
-		attribute<ct>                   Price                       := Min_Index -> Price;
-		attribute<ct>                   Price_augm                  := Min_Index -> Price_augm;
-		attribute<s>                    Traveltime                  := Min_Index -> Traveltime;
-		attribute<Toegestane_Ketens>    Toegestane_Keten_rel        := Min_Index -> Toegestane_Keten_rel;
-		
-		attribute<uq_c_FromTime_Place>  uq_c_FromTime_Place_rel  := value(uq_OD_key/values / #uq_c_ToTime_Place, uq_c_FromTime_Place);
-		attribute<uq_c_ToTime_Place>    uq_c_ToTime_Place_rel    := value(uq_OD_key/values % #uq_c_ToTime_Place, uq_c_ToTime_Place);
-		attribute<c_Time_Places>        c_FromTime_Place_rel     := uq_c_FromTime_Place/c_FromTime_Place_rel[uq_c_FromTime_Place_rel];
-		attribute<c_Time_Places>        c_ToTime_Place_rel       := uq_c_ToTime_Place/c_ToTime_Place_rel[uq_c_ToTime_Place_rel];
-		attribute<Time>                 From_Time_rel            := value(c_FromTime_Place_rel / uint64(#Places), Time);
-		attribute<Places>               From_Place_rel           := value(c_FromTime_Place_rel % uint64(#Places), Places);
-		attribute<Time>                 To_Time_rel              := value(c_ToTime_Place_rel / uint64(#Places), Time);
-		attribute<Places>               To_Place_rel             := value(c_ToTime_Place_rel % uint64(#Places), Places); 
-		
-		attribute<dam>                  TravelDist_Bus           := Min_Index -> TravelDist_Bus;
-		attribute<dam>                  Traveldist_Metro         := Min_Index -> Traveldist_Metro;
-		attribute<dam>                  Traveldist_Tram          := Min_Index -> Traveldist_Tram;
-		attribute<dam>                  Traveldist_Rail          := Min_Index -> Traveldist_Rail;
-		attribute<dam>                  Traveldist_Ferry         := Min_Index -> Traveldist_Ferry;
-		
-		
-	}
-} 
-
-unit<uint64> V := ='union_unit_uint64('+AsList('TimeInvariantConnections/'+ModelParameters/Advanced/OV_Voortransport_Typen/name+'/Create_Routes/ODMatrix', ',')+')'
-, Descr = "Voortransport"
-{
-	attribute<Places>         From_Place_rel            := ='union_data(., '+AsList('TimeInvariantConnections/'+ModelParameters/Advanced/OV_Voortransport_Typen/name+'/Create_Routes/ODMatrix/From_Place_rel', ',')+')';
-	attribute<Places>         To_Place_rel              := ='union_data(., '+AsList('TimeInvariantConnections/'+ModelParameters/Advanced/OV_Voortransport_Typen/name+'/Create_Routes/ODMatrix/To_Place_rel', ',')+')';
-	attribute<Modes>          Mode_rel                  := ='union_data(., '+AsList('TimeInvariantConnections/'+ModelParameters/Advanced/OV_Voortransport_Typen/name+'/Create_Routes/ODMatrix/Mode_rel', ',')+')';
-	attribute<s>              impedance                 := ='union_data(., '+AsList('TimeInvariantConnections/'+ModelParameters/Advanced/OV_Voortransport_Typen/name+'/Create_Routes/ODMatrix/impedance[s]', ',')+')';
-	attribute<ct>             Price                     := ='union_data(., '+AsList('TimeInvariantConnections/'+ModelParameters/Advanced/OV_Voortransport_Typen/name+'/Create_Routes/ODMatrix/Price', ',')+')';
-}
-
-unit<uint64> N := ='union_unit_uint64('+AsList('TimeInvariantConnections/'+ModelParameters/Advanced/OV_Natransport_Typen/name+'/Create_Routes/ODMatrix', ',')+')'
-, Descr = "Natransport"
-{
-	attribute<Places>         From_Place_rel            := ='union_data(., '+AsList('TimeInvariantConnections/'+ModelParameters/Advanced/OV_Natransport_Typen/name+'/Create_Routes/ODMatrix/From_Place_rel', ',')+')';
-	attribute<Places>         To_Place_rel              := ='union_data(., '+AsList('TimeInvariantConnections/'+ModelParameters/Advanced/OV_Natransport_Typen/name+'/Create_Routes/ODMatrix/To_Place_rel', ',')+')';
-	attribute<Modes>          Mode_rel                  := ='union_data(., '+AsList('TimeInvariantConnections/'+ModelParameters/Advanced/OV_Natransport_Typen/name+'/Create_Routes/ODMatrix/Mode_rel', ',')+')';
-	attribute<s>              impedance                 := ='union_data(., '+AsList('TimeInvariantConnections/'+ModelParameters/Advanced/OV_Natransport_Typen/name+'/Create_Routes/ODMatrix/impedance[s]', ',')+')';
-	attribute<ct>             Price                     := ='union_data(., '+AsList('TimeInvariantConnections/'+ModelParameters/Advanced/OV_Natransport_Typen/name+'/Create_Routes/ODMatrix/Price', ',')+')';
-}
-
-unit<uint64> Direct_OD := =/ModelParameters/Advanced/AllowDirectCyclingOverWalking 
-								? '/NetworkSetup/ConfigurationPerRegio/all/PrivateTransport/Bike/Calc_Traveltimes_maxspeed_bike/Traveltimes'
-								: '/NetworkSetup/ConfigurationPerRegio/all/PrivateTransport/Pedestrian/Calc_Traveltimes_maxspeed_pedestrian/Traveltimes'
-{
-	attribute<s>       Duration_seconds                 := convert(Impedance, s);
-	attribute<dam>     Distance                         := alt_imp[dam]; 
-	attribute<Places>  From_Place_rel                   := rlookup(OrgZone_rel, Places/origin_rel);
-	attribute<Places>  To_Place_rel                     := rlookup(DstZone_rel,  Places/dest_rel);
-	attribute<ct>      Price                            := =ModelParameters/Advanced/AllowDirectCyclingOverWalking 
-																? '(Impedance[min_f] * ModelParameters/Direct_Cycling_Time_Costs)[ct]'
-																: '(Impedance[min_f] * ModelParameters/Direct_Walking_Time_Costs)[ct]';
-}
-
-
-
-
-/////===========================================================================//////
-
-
-
-container PerVertrekmoment := 
-	for_each_ne(
-		Advanced/MeasureMoments/Name
-		, 'PerVetrekMoment_T('+string(Advanced/MeasureMoments/Moment)+', '+quote(Advanced/MeasureMoments/name)+')'
-	)
-{
-}
-
 Template PerVetrekMoment_T
 {
 	parameter<uint32>   inTime;
@@ -154,7 +5,7 @@ Template PerVetrekMoment_T
 	///
 	parameter<min>      Max_V_Time := max(/ModelParameters/Advanced/OV_Voortransport_Typen/MaxTime[min]);
 	
-	unit<uint64> Within_VW_Window := select_with_org_rel(ToegestaneKetens/Result/From_Time_rel <= inTime + convert(Max_V_Time, s_f)[Time] + ModelParameters/Advanced/MaxWachttijdThuis)
+	unit<uint64> Within_VW_Window := select_with_org_rel(PublicTransport_Prep/ToegestaneKetens/Result/From_Time_rel <= inTime + convert(Max_V_Time, s_f)[Time] + ModelParameters/Advanced/MaxWachttijdThuis)
 	, Descr = "Opties binnen voortransport + wachten thuis window"
 	{
 		attribute<ct>                Price                       := org_rel -> Result/Price;
@@ -334,7 +185,7 @@ Template PerVetrekMoment_T
 																					? 'value(Price_augm, uint32) * value(ModelParameters/MaxTravelTime[s], uint32) + value(Traveltime, uint32)'
 																					: 'value(Traveltime, uint32) * 10000 + value(Price_augm, uint32)';
 																					
-		#include<OD_uq_attributen.dms>
+		#include<../OD_uq_attributen.dms>
 		
 		unit<uint64>          OD_key_set    := combine_unit_uint64(uq_c_FromTime_Place, uq_c_ToTime_Place);
 		attribute<OD_key_set> OD_key        := combine_data(OD_key_set, uq_c_FromTime_Place_rel, uq_c_ToTime_Place_rel);
@@ -369,8 +220,3 @@ Template PerVetrekMoment_T
 		attribute<dam>                                      Traveldist_Ferry            := Min_Index -> Traveldist_Ferry;
 	}
 }
-
-#include<KetenRijger_T.dms>
-#include<CreateTransfers_T.dms>
-#include<Get_Windowed_Agency_Set_T.dms>
-#include<Get_AfgelegdeReis_T.dms>

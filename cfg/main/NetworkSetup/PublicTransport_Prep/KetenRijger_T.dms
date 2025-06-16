@@ -6,7 +6,9 @@ Template KetenRijger_T
 	
 	parameter<string> LeftStr;
 	parameter<string> RightStr;
-	parameter<bool>   IsRight_RO := left(RightStr, 1) == 'r' || left(RightStr, 1) == 'o';
+	parameter<bool>   IsRight_RO   := left(RightStr, 1) == 'r' || left(RightStr, 1) == 'o';
+	// parameter<bool>   IsLeft_NS    := left(LeftStr, 1) == 'l' || left(RightStr, 1) == 'k';
+	parameter<bool>   IsRight_NS   := left(RightStr, 1) == 'l' || left(RightStr, 1) == 'k';
 	
 	unit<uint64> c_FromTP_ToTP       := combine_unit_uint64(Left/uq_c_FromTime_Place, Right/uq_c_ToTime_Place);
 
@@ -35,6 +37,9 @@ Template KetenRijger_T
 		unit<uint64>                NextJoinFromDom            := Right/uq_c_FromTime_Place;
 		attribute<NextJoinFromDom>  to_rel_inNextJoinFromDom   := rlookup(LeftT_c_toTime_Place_rel, NextJoinFromDom/values), Descr = "de transfer to-rel in right from-rel values"; 
 		
+		attribute<NS_Stations>      First_NS_Station           := first_rel -> First_NS_Station, Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden van de eerste en laaste ns-stations zijn.";
+		attribute<NS_Stations>      Last_NS_Station            := first_rel -> Last_NS_Station, Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden van de eerste en laaste ns-stations zijn.";
+		attribute<Time>             Laatste_NS_Uitstap_Tijd    := first_rel -> Laatste_NS_Uitstap_Tijd, Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
 		attribute<Time>             Laatste_RO_Uitstap_Tijd    := first_rel -> Laatste_RO_Uitstap_Tijd, Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
 		attribute<CoropP>           CoropP_rel                 := Places/CoropP_rel[first_rel -> From_Place_rel], Descr = "tile based on location for next step.";
 	}
@@ -54,6 +59,7 @@ Template KetenRijger_T
 			parameter<CoropP> CoropP_id := ../CoropP_id;
 		}
 		container FenceHack := PhaseContainer(FenceHack0, 'CoropP_id'+string(FenceHack0/CoropP_id));
+		// container FenceHack := FenceContainer(FenceHack0, 'CoropP_id'+string(FenceHack0/CoropP_id));
 		
 		
 		unit<uint64> Tile := select_with_attr_by_cond(Join_Left_Transf, Join_Left_Transf/CoropP_rel == CoropP_id)
@@ -82,8 +88,8 @@ Template KetenRijger_T
 				attribute<dam>              Right_TravelDist_Rail      := second_rel -> Traveldist_Rail;
 				attribute<dam>              Right_TravelDist_Ferry     := second_rel -> Traveldist_Ferry;
 				
-				attribute<Ct>               Price                      := Left_price + Right_price;
-				attribute<Ct>               Price_augm                 := Left_price_augm + Right_price;
+				attribute<Ct>               Price                      := Left_price + Right_price, Descr = "te betalen prijs";
+				attribute<Ct>               Price_augm                 := Left_price_augm + Right_price, Descr = "te betalen prijs, plus kosten voor tijd van vervoer/wachten die niet beprijst zijn. ";
 				attribute<s>                Traveltime                 := Left_traveltime + Right_traveltime;
 				
 				attribute<dam>              TravelDist_Bus             := Left_TravelDist_Bus + Right_TravelDist_Bus;
@@ -92,17 +98,21 @@ Template KetenRijger_T
 				attribute<dam>              Traveldist_Rail            := Left_TravelDist_Rail + Right_TravelDist_Rail;
 				attribute<dam>              Traveldist_Ferry           := Left_TravelDist_Ferry + Right_TravelDist_Ferry;
 				
-				attribute<uint32>           PriceTime_Score            := =ModelParameters/MinimiseCriterium == 'Price'
+				attribute<uint32>           PriceTime_Score              := =ModelParameters/MinimiseCriterium == 'Price'
 																			? 'value(Price_augm, uint32) * value(ModelParameters/MaxTravelTime[s], uint32) + value(Traveltime, uint32)'
 																			: 'value(Traveltime, uint32) * 10000 + value(Price_augm, uint32)';
 				
-				attribute<Left>             Left_rel                   := Tile/first_rel[first_rel];
-				attribute<Right>            Right_rel                  := second_rel;
-				attribute<Result_Tiled>     Result_rel                 := rlookup(OD_pair_rel, Result_Tiled/values);
+				attribute<Left>             Left_rel                     := Tile/first_rel[first_rel];
+				attribute<Right>            Right_rel                    := second_rel;
+				attribute<Result_Tiled>     Result_rel                   := rlookup(OD_pair_rel, Result_Tiled/values);
 				
-				
+				attribute<NS_Stations>      First_NS_Station             := first_rel -> First_NS_Station, Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden van de eerste en laaste ns-stations zijn.";
+				attribute<NS_Stations>      Last_NS_Station              := =IsRight_NS ? 'second_rel -> Last_NS_Station' : 'first_rel -> Last_NS_Station', Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden van de eerste en laaste ns-stations zijn.";
+
+				attribute<Time>             Left_Laatste_NS_Uitstap_Tijd := first_rel -> Laatste_NS_Uitstap_Tijd, Descr = "om te kijken of een volgende NS rit als nieuwe reis telt, moeten we de laatste uitstaptijd bijhouden";
 				attribute<Time>             Left_Laatste_RO_Uitstap_Tijd := first_rel -> Laatste_RO_Uitstap_Tijd, Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
 				attribute<Time>             Right_uitstap_tijd           := second_rel -> To_Time_rel, Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
+				attribute<Time>             Laatste_NS_Uitstap_Tijd      := =IsRight_NS ? 'Right_uitstap_tijd' : 'Left_Laatste_NS_Uitstap_Tijd';
 				attribute<Time>             Laatste_RO_Uitstap_Tijd      := =IsRight_RO ? 'Right_uitstap_tijd' : 'Left_Laatste_RO_Uitstap_Tijd';
 				
 				attribute<c_FromTP_ToTP>    OD_pair_rel                  := combine_data(c_FromTP_ToTP, Left/uq_c_FromTime_Place_rel[left_rel], Right/uq_c_ToTime_Place_rel[right_rel]);
@@ -133,22 +143,25 @@ Template KetenRijger_T
 				attribute<dam>                    Traveldist_Rail             := Min_Index -> Traveldist_Rail;
 				attribute<dam>                    Traveldist_Ferry            := Min_Index -> Traveldist_Ferry;
 				
-				attribute<Left>                   Left_rel                    := Min_Index -> Left_rel;
+				attribute<NS_Stations>            First_NS_Station            := Min_Index -> First_NS_Station;
+				attribute<NS_Stations>            Last_NS_Station             := Min_Index -> Last_NS_Station;
 				attribute<Right>                  Right_rel                   := Min_Index -> Right_rel;
 				
+				
+				attribute<Time>                   Laatste_NS_Uitstap_Tijd     := Min_Index -> Laatste_NS_Uitstap_Tijd;
 				attribute<Time>                   Laatste_RO_Uitstap_Tijd     := Min_Index -> Laatste_RO_Uitstap_Tijd, Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
 			}
 			unit<uint64> Result_Tiled_Fence := PhaseContainer(Result_Tiled, 'Calculated Tile '+string(FenceHack/CoropP_id)+' '+CoropP/name[CoropP_id]+': '+string(#Result_Tiled)+' OD-pairs for '+LeftStr+ ' to '+RightStr+ '');
+			// unit<uint64> Result_Tiled_Fence := FenceContainer(Result_Tiled, 'Calculated Tile '+string(FenceHack/CoropP_id)+' '+CoropP/name[CoropP_id]+': '+string(#Result_Tiled)+' OD-pairs for '+LeftStr+ ' to '+RightStr+ '');
 		}
 	}
 	
-	unit<uint32> names := SubItem_PropValues(Union_Tiled_Results,'name');
-
-	parameter<string> Generate := 'Ready', ExplicitSuppliers = "=AsList('Union_Tiled_Results/'+names/name,';')";
+	// unit<uint32> names := SubItem_PropValues(Union_Tiled_Results,'name');
+	// parameter<string> Generate := 'Ready', ExplicitSuppliers = "=AsList('Union_Tiled_Results/'+names/name,';')";
 
 	unit<uint64> Union_Tiled_Results   := ='union_unit_uint64('+AsItemList('Join_LeftT_Right_Tiled/'+CoropP/name+'/Tile/Result_Tiled_Fence')+')'
 	, Descr = "Deze set bevat de geunionede resultaten per corop, dus hier moet nogmaals een unique met min_index op los worden gelaten."
-	, StorageName = "='%LocalDataProjDir%/Temp/'+LeftStr+RightStr+'.fss'"
+	// , StorageName = "='%LocalDataProjDir%/Temp/'+LeftStr+RightStr+'.fss'"
 	{
 		attribute<Ct>                  Price                      := ='union_data(.,'+AsItemList('Join_LeftT_Right_Tiled/'+CoropP/name+'/Tile/Result_Tiled_Fence/Price')+')';
 		attribute<Ct>                  Price_augm                 := ='union_data(.,'+AsItemList('Join_LeftT_Right_Tiled/'+CoropP/name+'/Tile/Result_Tiled_Fence/Price_augm')+')';
@@ -161,9 +174,12 @@ Template KetenRijger_T
 		attribute<dam>                 Traveldist_Ferry           := ='union_data(.,'+AsItemList('Join_LeftT_Right_Tiled/'+CoropP/name+'/Tile/Result_Tiled_Fence/Traveldist_Ferry')+')';
 	
 		attribute<uint32>              PriceTime_Score            := ='union_data(.,'+AsItemList('Join_LeftT_Right_Tiled/'+CoropP/name+'/Tile/Result_Tiled_Fence/PriceTime_Score')+')';
+		attribute<Time>                Laatste_NS_Uitstap_Tijd    := ='union_data(.,'+AsItemList('Join_LeftT_Right_Tiled/'+CoropP/name+'/Tile/Result_Tiled_Fence/Laatste_NS_Uitstap_Tijd')+')';
 		attribute<Time>                Laatste_RO_Uitstap_Tijd    := ='union_data(.,'+AsItemList('Join_LeftT_Right_Tiled/'+CoropP/name+'/Tile/Result_Tiled_Fence/Laatste_RO_Uitstap_Tijd')+')';
+		attribute<NS_Stations>         First_NS_Station           := ='union_data(.,'+AsItemList('Join_LeftT_Right_Tiled/'+CoropP/name+'/Tile/Result_Tiled_Fence/First_NS_Station')+')';
+		attribute<NS_Stations>         Last_NS_Station            := ='union_data(.,'+AsItemList('Join_LeftT_Right_Tiled/'+CoropP/name+'/Tile/Result_Tiled_Fence/Last_NS_Station')+')';
 		
-		attribute<Left>                Left_rel                   := ='union_data(.,'+AsItemList('Join_LeftT_Right_Tiled/'+CoropP/name+'/Tile/Result_Tiled_Fence/Left_rel')+')';
+		// attribute<Left>                Left_rel                   := ='union_data(.,'+AsItemList('Join_LeftT_Right_Tiled/'+CoropP/name+'/Tile/Result_Tiled_Fence/Left_rel')+')';
 		attribute<Right>               Right_rel                  := ='union_data(.,'+AsItemList('Join_LeftT_Right_Tiled/'+CoropP/name+'/Tile/Result_Tiled_Fence/Right_rel')+')';
 		
 		attribute<c_Time_Places>       c_FromTime_Place_rel       := ='union_data(.,'+AsItemList('Join_LeftT_Right_Tiled/'+CoropP/name+'/Tile/Result_Tiled_Fence/c_FromTime_Place_rel')+')';

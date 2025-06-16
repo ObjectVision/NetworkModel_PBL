@@ -1,5 +1,4 @@
 unit<uint64> OD_L := 
-	// impedance_matrix_od64('directed;cut(OrgZone_max_imp);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel,LinkSet'
 	impedance_matrix_od64('directed;cut(OrgZone_max_imp);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel'
 		, Set_L/Set/Duration
 		, Set_L/Set/F1
@@ -7,7 +6,7 @@ unit<uint64> OD_L :=
 		
 		, convert(ModelParameters/MaxOVTime, s_f)
 		, Set_L/Set/Length
-	)
+	), using = "impl"
 {
 	unit<uint32>              ThisSet                  := Set_L/Set;
 	#include<../OD_extra_attributen.dms>
@@ -21,11 +20,15 @@ unit<uint64> OD_L :=
 	attribute<Ct>            Price                           := Price_NS[Ct];
 	
 	
-	unit<uint64>              Result                   := select_with_org_rel_with_attr_by_cond(., !impl/IsTravelToItself)
+	unit<uint64>              Result                   := select_with_org_rel_with_attr_by_cond(., !impl/IsTravelToItself && !impl/IsStartEndWithinSameStopCluster)
 	{
 		attribute<Ct>               Price_augm                  := Price;
 		attribute<Places>           Last_Place_rel              := ThisSet/NodeSet/Place_rel[DstZone_rel];
 		
+		
+		attribute<NS_Stations>      First_NS_Station            := impl/From_NS_Stations_rel[org_rel];
+		attribute<NS_Stations>      Last_NS_Station             := impl/To_NS_Stations_rel[org_rel];
+		attribute<Time>             Laatste_NS_Uitstap_Tijd     := To_Time_rel;
 		attribute<Time>             Laatste_RO_Uitstap_Tijd     := const(null_u,.), Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
 		
 		#include<../OD_uq_attributen.dms>
@@ -33,7 +36,6 @@ unit<uint64> OD_L :=
 	}
 }
 unit<uint64> OD_K := 
-	// impedance_matrix_od64('directed;cut(OrgZone_max_imp);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel,LinkSet'
 	impedance_matrix_od64('directed;cut(OrgZone_max_imp);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel'
 		, Set_K/Set/Duration
 		, Set_K/Set/F1
@@ -41,7 +43,7 @@ unit<uint64> OD_K :=
 		
 		, convert(ModelParameters/MaxOVTime, s_f)
 		, Set_K/Set/Length
-	)
+	), using = "impl"
 {
 	unit<uint32>              ThisSet := Set_K/Set;
 	#include<../OD_extra_attributen.dms>
@@ -57,18 +59,20 @@ unit<uint64> OD_K :=
 																, IntegrityCheck = "all(NS_Station_Prijs_IntegrityCheck)";
 	attribute<Ct>             Price                           := Price_NS[Ct];
 	
-	unit<uint64>              Result                          := select_with_org_rel_with_attr_by_cond(., !impl/IsTravelToItself && IsDaadwerkelijkNSkort )
+	unit<uint64>              Result                          := select_with_org_rel_with_attr_by_cond(., !impl/IsTravelToItself && IsDaadwerkelijkNSkort && !impl/IsStartEndWithinSameStopCluster)
 	{
-		attribute<Ct>               Price_augm                               := Price;
-		attribute<Time>             Laatste_RO_Uitstap_Tijd                  := const(null_u,.), Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
-		
+		attribute<Ct>               Price_augm                  := Price;
+		attribute<Time>             Laatste_NS_Uitstap_Tijd     := To_Time_rel;
+		attribute<Time>             Laatste_RO_Uitstap_Tijd     := const(null_u,.), Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
+		attribute<NS_Stations>      First_NS_Station            := const(null_u,.);
+		attribute<NS_Stations>      Last_NS_Station             := const(null_u,.);
+
 		#include<../OD_uq_attributen.dms>
 		#include<../OD_traveldist.dms>
 	}
 }
 
 unit<uint64> OD_R := 
-	// impedance_matrix_od64('directed;cut(OrgZone_max_imp);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel,LinkSet'
 	impedance_matrix_od64('directed;cut(OrgZone_max_imp);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel'
 		, Set_R/Set/Duration
 		, Set_R/Set/F1
@@ -76,26 +80,29 @@ unit<uint64> OD_R :=
 		
 		, convert(ModelParameters/MaxOVTime, s_f)
 		, Set_R/Set/Length
-	)
+	), using = "impl"
 {
 	unit<uint32>                 ThisSet                          := Set_R/Set;
 	
-	// R specifiek
-	attribute<Stops/c_Stop_Stop> c_FromStop_ToStop_rel            := combine_data(Stops/c_Stop_Stop, From_Stop_rel, To_Stop_rel);
-	attribute<bool>              IsStartEndWithinSameStopCluster  := IsDefined(rlookup(c_FromStop_ToStop_rel, Stops/Find_Halte_Clusters/c_Stop_Stop_rel));
+	// attribute<Stops/c_Stop_Stop> c_FromStop_ToStop_rel            := combine_data(Stops/c_Stop_Stop, From_Stop_rel, To_Stop_rel);
+	// attribute<bool>              IsStartEndWithinSameStopCluster  := IsDefined(rlookup(c_FromStop_ToStop_rel, Stops/Find_Halte_Clusters/c_Stop_Stop_rel));
 	
+	// R specifiek
 	attribute<Ct>                Price_O                          := (PrijsTabel/VariabelePrijs[impl/PrijsTabel_rel] * impl/Afgelegde_afstand_OV)[Ct], IntegrityCheck = "all(impl/Prijs_IntegrityCheck)";
 	attribute<Ct>                Price_R                          := (PrijsTabel/VastePrijs[impl/PrijsTabel_rel] + (PrijsTabel/VariabelePrijs[impl/PrijsTabel_rel] * impl/Afgelegde_afstand_OV))[Ct], IntegrityCheck = "all(impl/Prijs_IntegrityCheck)";
 	attribute<Ct>                Price                            := Price_R;
 	 
 	#include<../OD_extra_attributen.dms>
 
-	unit<uint64>              Result                   := select_with_org_rel_with_attr_by_cond(., !impl/IsOD_completely_foreign && !impl/IsTravelToItself && !IsStartEndWithinSameStopCluster)
+	unit<uint64>              Result                   := select_with_org_rel_with_attr_by_cond(., !impl/IsOD_completely_foreign && !impl/IsTravelToItself && !impl/IsStartEndWithinSameStopCluster)
 	{
 	
-		attribute<Ct>               Price_augm                               := Price;
-		attribute<Time>             Laatste_RO_Uitstap_Tijd                  := To_Time_rel, Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
-		
+		attribute<Ct>               Price_augm                  := Price;
+		attribute<Time>             Laatste_NS_Uitstap_Tijd     := const(null_u,.);
+		attribute<Time>             Laatste_RO_Uitstap_Tijd     := To_Time_rel, Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
+		attribute<NS_Stations>      First_NS_Station            := const(null_u,.);
+		attribute<NS_Stations>      Last_NS_Station             := const(null_u,.);
+
 		#include<../OD_uq_attributen.dms>
 		#include<../OD_traveldist.dms>
 	}

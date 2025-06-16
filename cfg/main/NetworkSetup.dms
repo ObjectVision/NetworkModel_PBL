@@ -1,5 +1,6 @@
 container NetworkSetup : using = "units;geometries;SourceData;Classifications;ModelParameters"
 {     
+	#include<PublicTransport_Prep.dms>
 	// unit<uint32> quick_path := /NetworkSetup/ConfigurationPerRegio/all/PublicTransport/At_07h00m00s/Stops;
 
 	container ConfigurationPerRegio := 
@@ -92,11 +93,7 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 	Template ConfigurationPerRegio_T 
 	{
 		parameter<string> regio_name;
-		parameter<string> regio_name_if_enkel_sub := switch(
-														 case(strcount(ModelParameters/Orgset, 'Buurt_enkele_Corop') > 0, ModelParameters/Orgset_EnkeleCorop_selectie)
-														,case(strcount(ModelParameters/Orgset, 'Buurt_enkele_Prov') > 0, ModelParameters/Orgset_EnkeleProv_selectie)
-														, regio_name
-													);
+		////
 
 		unit<uint32> org := =impl/Org_domain
 		{
@@ -110,86 +107,24 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 			attribute<rdc>                   geometry       := =Advanced/Create_Symmetric_fullOD ? 'org/geometry' : 'impl/dest_src/geometry';
 		}
 		
-		container impl
+		container impl := PublicTransport_Prep/Impl
 		{
-			container src := .;
-			
 			unit<uint32> org := ../org;
 			unit<uint32> dest := ../dest;
 			
 			parameter<string> Org_str           := rjoin(lowercase(Advanced/Orgset_str), lowercase(Advanced/org_domain_list/label), Advanced/org_domain_list/path);
 			parameter<string> Org_domain        := replace(rjoin(lowercase(Advanced/Orgset_str), lowercase(Advanced/org_domain_list/label), Advanced/org_domain_list/path), '@REGIO@', regio_name);
-			parameter<string> Dest_domain       := rjoin(lowercase(ModelParameters/DestSet), lowercase(Advanced/dest_domain_list/label), Advanced/dest_domain_list/path);
 			
-			unit<uint32> dest_src := =Dest_domain
-			{
-				attribute<uint32>                nr_items_of_interest := =Dest_domain+'/'+Advanced/items_of_interest;
-				attribute<rdc>                   geometry             := =Dest_domain+'/geometry';
-				attribute<string>                name                 := =Dest_domain+'/name';
-				attribute<string>                label                := =Dest_domain+'/label';
-			}
-			
-			parameter<string>   PT_path_str           := 'SourceData/Infrastructuur/GTFS/PublicTransportNet'; 
-			unit<uint32>        PT_net                := =PT_path_str+''; //indirection, want dan kun je die later gebruiken in een select_with_attr_by_cond waarbij alle attributen worden opgehaald.
-			unit<uint32>        Routes                := =PT_path_str+'/Routes';
-			unit<uint32>        AllPlaces             := union_unit(impl/PT_net/SL_Places, org, dest)
-			, Descr = "All stops, orgs and dests"
-			{
-				attribute<rdc>       geometry      := union_data(., impl/PT_net/SL_Places/geometry, org/geometry, dest/geometry);
-				attribute<string>    label         := union_data(., impl/PT_net/SL_Places/label, org/label, dest/label);
-				attribute<org>       Origin_rel    := union_data(., const(null_u, impl/PT_net/SL_Places), id(org), const(null_u, dest));
-				attribute<dest>      Dest_rel      := union_data(., const(null_u, impl/PT_net/SL_Places), const(null_u, org), id(dest));
-				attribute<impl/PT_net/SL_Places> SL_Places_rel := union_data(., id(impl/PT_net/SL_Places), const(null_u, org), const(null_u, dest));
-				attribute<Stops>     Stop_rel      := impl/PT_net/SL_Places/Stop_rel[SL_Places_rel];
-			}	
-			
-			unit<uint32>        Places                := unique(impl/AllPlaces/geometry)
-			, Descr = "unique places"
-			{
-				attribute<rdc>                                     geometry        := values;
-				attribute<AllPlaces>                               AllPlaces_rel   := rlookup(geometry, impl/AllPlaces/geometry);
-				attribute<string>                                  label           := impl/AllPlaces/label[AllPlaces_rel];
-				attribute<org>                                     Origin_rel      := impl/AllPlaces/Origin_rel[AllPlaces_rel];
-				attribute<dest>                                    Dest_rel        := impl/AllPlaces/Dest_rel[AllPlaces_rel];
-				attribute<Stops>                                   Stop_rel        := impl/AllPlaces/Stop_rel[AllPlaces_rel];
-				attribute<Infrastructuur/OVprijzen/NS/NS_stations> NS_Stations_rel := Stops/NS_Stations_rel[Stop_rel];
-				attribute<TMT_Stops>                               TMT_Stop_rel    := invert(TMT_Stops/Place_rel);
-				attribute<Tic_Stops>                               Tic_Stop_rel    := invert(Tic_Stops/Place_rel);
-				attribute<T_Stops>                                 T_Stop_rel      := invert(T_Stops/Place_rel);
-				
-				attribute<Stops>                                   Stops_rel       := Stop_rel;
-				attribute<T_Stops>                                 T_Stops_rel     := T_Stop_rel;
-				attribute<Tic_Stops>                               Tic_Stops_rel   := Tic_Stop_rel;
-				attribute<TMT_Stops>                               TMT_Stops_rel   := TMT_Stop_rel;
-				attribute<OVF_Stops>                               OVF_Stops_rel   := invert(OVF_Stops/Place_rel);
-				
-				attribute<RegioIndelingen/CoropP> CoropP_rel := point_in_polygon(geometry, RegioIndelingen/CoropP/geometry);
-			}
-			
-			unit<uint64> c_Time_Place_Routes   := combine_unit_uint64(c_Time_Places,Routes);
-			unit<uint64> c_Time_Places         := combine_uint64(Time, Places)
-			{
-				attribute<string> Time_name  := Time/label[first_rel];
-				attribute<string> Place_name := Places/label[second_rel];
-				attribute<string> Label      := Place_name + ' @ ' + Time_name;
-			}
-			
-			unit<uint32>        Stops                 := =impl/PT_path_str+'/Stops'
-			{
-				attribute<string> name      := =impl/PT_path_str+'/Stops/name';
-				attribute<rdc>    geometry  := =impl/PT_path_str+'/Stops/geometry';
-				attribute<Places> Place_rel := rlookup(geometry, Places/geometry);
-			}
-			
-			unit<uint32>        TMT_Stops              := select_with_attr_by_cond(Stops, Stops/Mode_rel == GTFS_Modes/Selectie/V/Rail || Stops/Mode_rel == GTFS_Modes/Selectie/V/Metro || Stops/Mode_rel == GTFS_Modes/Selectie/V/Tram);
-			unit<uint32>        T_Stops                := select_with_attr_by_cond(Stops, Stops/Mode_rel == GTFS_Modes/Selectie/V/Rail);
-			unit<uint32>        Tic_Stops              := select_with_attr_by_cond(Stops, Stops/IsNSICStation);
-			unit<uint32>        OVF_Stops              := select_with_attr_by_cond(Stops, Stops/IsOVFietsStation);
+			parameter<string> regio_name_if_enkel_sub := switch(
+															 case(strcount(ModelParameters/Orgset, 'Buurt_enkele_Corop') > 0, ModelParameters/Orgset_EnkeleCorop_selectie)
+															,case(strcount(ModelParameters/Orgset, 'Buurt_enkele_Prov') > 0, ModelParameters/Orgset_EnkeleProv_selectie)
+															, regio_name
+														);
 		} 
 		
 		container PublicTransport 
 		{
-			#include<PublicTransport_T.dms>
+			#include<PublicTransport.dms>
 			
 			container TimeInvariantConnections := 
 				for_each_ne(
@@ -211,7 +146,7 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 				parameter<string> VN_Transport   := TimeInvariantTypes/VN_Transport[TimeInvariantTypes_rel];
 				unit<uint32>      Network        := ='SourceData/Infrastructuur/OSM/Network_'+NetworkType;
 				
-				container Create_Routes      := ='Templates/CreateNetwork_Pedestrian_Bike_T(impl/'+OriginSet+', impl/'+DestinationSet+', Network, Mode, NetworkType, ConnectionType)';
+				container Create_Routes      := ='Templates/CreateNetwork_Pedestrian_Bike_T(PublicTransport_Prep/Impl/'+OriginSet+', PublicTransport_Prep/Impl/'+DestinationSet+', Network, Mode, NetworkType, ConnectionType)';
 			}
 		}
 
@@ -228,7 +163,7 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 			{
 				parameter<string> fileNamePrefix :=  Advanced/fileNamePrefix;
 				parameter<string> fileNameSuffix :=  
-					'_ORG-'    + ModelParameters/Orgset + '-' + regio_name_if_enkel_sub + 
+					'_ORG-'    + ModelParameters/Orgset + '-' + impl/regio_name_if_enkel_sub + 
 					'_DEST-'   + Advanced/DestSet_string +
 					'_NETWERK-@@' +
 					'_MaxTime-##min';
