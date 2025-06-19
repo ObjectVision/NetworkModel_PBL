@@ -13,6 +13,8 @@ container RelevantSelection : using = "LoadFeeds"
 		attribute<string>                  stop_id          := ReadFSS/Stop_times/data/stop_id;
 		attribute<Stops>                   Stop_rel         := rlookup(stop_id, Stops/stop_id);
 		attribute<uint32>                  Stop_Sequence    := uint32(ReadFSS/Stop_times/data/stop_sequence);
+		
+		// attribute<Shapes/Uq>               Shapes_Uq_rel    := Trips/shapes_uq_rel[Trip_rel];
 	}
 	
 	unit<uint32> Stops := select_with_org_rel_with_attr_by_cond(LoadFeeds/protoStops, LoadFeeds/protoStops/StopUsed)
@@ -58,6 +60,10 @@ container RelevantSelection : using = "LoadFeeds"
 		attribute<bool>                    sel_today       := Services/Today_exc[Services_rel] = 1;
 		attribute<bool>                    sel_yesterday   := Services/Yesterday_exc[Services_rel] = 1;
 		attribute<string>                  label           := RouteName;
+		
+		attribute<rdc>                     geometry (arc)  := shapes/uq/geometry[shapes_uq_rel];
+		attribute<shapes>                  shapes_rel      := rlookup(shape_id, shapes/shape_id);
+		attribute<shapes/uq>               shapes_uq_rel   := rlookup(shape_id, shapes/uq/shape_id);
 	}
 	
 	unit<uint32> ScheduledLinks := union_unit(protoStopTimes/Yesterday/Links, protoStopTimes/Today/Links)
@@ -76,7 +82,8 @@ container RelevantSelection : using = "LoadFeeds"
 		attribute<Agencies>                Agency_rel      := Trips/Agency_rel[Trip_rel];
 		attribute<rdc>                     fromPoint       := first_point(geometry);
 		attribute<rdc>                     toPoint         := last_point(geometry);
-		attribute<km>                      Length          := arc_length(geometry, m)[km];
+		attribute<km>                      Length          := union_data(., protoStopTimes/Yesterday/Links/Length, protoStopTimes/Today/Links/Length);
+		// attribute<km>                      Length          := arc_length(geometry, m)[km];
 		attribute<s_f>                     Duration        := fromTime_rel <= toTime_rel 
 																? float32(sub_or_null(toTime_rel,fromTime_rel))[s_f]
 																: float32(sub_or_null(toTime_rel + #Time, fromTime_rel))[s_f];
@@ -131,5 +138,7 @@ container RelevantSelection : using = "LoadFeeds"
 		attribute<string>   label            := route_name;
 		
 		attribute<Modes>    Mode_rel         := rlookup(uint8(route_type), Modes/route_type);
+		attribute<rdc>      geometry   (arc) := Trips/geometry[invert(trips/Route_rel)];
 	}
+	
 }

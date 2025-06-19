@@ -3,14 +3,16 @@ container LoadFeeds
 { 
 	parameter<bool>              StoreFSS         := True, ExplicitSuppliers = "= AsList('WriteFSS/'+File_Structure/Name+'/MakeFSS',';')";
 	
-	unit<uint32>                 File_Structure   : NrOfRows = 9
+	unit<uint32>                 File_Structure   : NrOfRows = 8
 	{
-		attribute<string> Name: ['agency','calendar','calendar_dates','routes','shapes','stop_times','stops','transfers','trips'];
+		// attribute<string> Name: ['agency','calendar','calendar_dates','routes','shapes','stop_times','stops','transfers','trips'];
+		attribute<string> Name: ['agency','calendar','calendar_dates','routes','shapes','stop_times','stops','trips'];
 	}
 	
-	unit<uint32>                 Attribute_Structure   : NrOfRows = 33
+	unit<uint32>                 Attribute_Structure   : NrOfRows = 32
 	{
-		attribute<string> Name: ['agency_name','agency_id','stop_id','stop_lat','stop_lon','stop_name','route_id','route_type','route_short_name','route_long_name','trip_id','route_id','service_id','stop_sequence','departure_time','arrival_time','monday','tuesday','wednesday','thursday','friday','saturday','sunday','start_date','end_date','date','exception_type','wheelchair_boarding', 'shape_id', 'shape_pt_sequence', 'shape_pt_lat', 'shape_pt_lon', 'shape_dist_traveled'];
+		// attribute<string> Name: ['agency_name','agency_id','stop_id','stop_lat','stop_lon','stop_name','route_id','route_type','route_short_name','route_long_name','trip_id','route_id','service_id','stop_sequence','departure_time','arrival_time','monday','tuesday','wednesday','thursday','friday','saturday','sunday','start_date','end_date','date','exception_type','wheelchair_boarding', 'shape_id', 'shape_pt_sequence', 'shape_pt_lat', 'shape_pt_lon', 'shape_dist_traveled'];
+		attribute<string> Name: ['agency_name','agency_id','stop_id','stop_lat','stop_lon','stop_name','route_id','route_type','route_short_name','route_long_name','trip_id','route_id','service_id','stop_sequence','departure_time','arrival_time','monday','tuesday','wednesday','thursday','friday','saturday','sunday','start_date','end_date','date','exception_type', 'shape_id', 'shape_pt_sequence', 'shape_pt_lat', 'shape_pt_lon', 'shape_dist_traveled'];
 	}
 	
 	container WriteFSS := 
@@ -72,31 +74,41 @@ container LoadFeeds
 	unit<uint32> protoTrips  := ReadFSS/Trips/read_domain/domain
 	{
 		attribute<string>                  trip_id         := ReadFSS/Trips/data/trip_id;
+		attribute<uint32>                  shape_id        := uint32(ReadFSS/Trips/data/shape_id);
 		attribute<string>                  service_id      := ReadFSS/Trips/data/service_id;
 		attribute<Services>                Services_rel     := rlookup(service_id, Services/Values);
 		attribute<bool>                    sel_today       := Services/Today_exc[Services_rel] = 1;
 		attribute<bool>                    sel_yesterday   := Services/Yesterday_exc[Services_rel] = 1;
 		attribute<Trips_x_order_uq>        first_txo       := min_index(Trips_x_order_uq/ord, Trips_x_order_uq/protoTrip_rel);
+		attribute<shapes>                  shape_rel       := rlookup(shape_id, shapes/shape_id);
 	}
 	
 	
 	unit<uint32> protoStopTimes := ReadFSS/Stop_times/read_domain/domain //StopTimes
 	, Descr = "Times that a vehicle arrives at and departs from stops for each trip."
 	{
-		attribute<protoTrips>              protoTrip_rel     := rlookup(ReadFSS/Stop_times/data/trip_id, protoTrips/trip_id);
-		attribute<bool>                    SelToday          := protoTrips/sel_today[protoTrip_rel];
-		attribute<bool>                    SelYesterday      := protoTrips/sel_yesterday[protoTrip_rel] && (Time/Day[departureTime/TimesVector/Time_rel] > 0);
-		attribute<protoStops>              protoStop_rel     := rlookup(ReadFSS/Stop_times/data/stop_id, protoStops/stop_id);
-		attribute<protoStops>              NextprotoStop_rel := protoStop_rel[NextStopId];
-		attribute<uint32>                  Stop_Sequence     := uint32(ReadFSS/Stop_times/data/stop_sequence);
-		 
-		attribute<upoint>                  Trip_x_Ordinal    := point_xy(Stop_Sequence, protoTrip_rel, upoint);
-		attribute<Trips_x_order_uq>        txo_uq_rel        := rlookup(Trip_x_Ordinal, Trips_x_order_uq/Values);
-		attribute<uint32>                  ordered_ord       := txo_uq_rel - protoTrips/first_txo[protoTrip_rel];
-		attribute<upoint>                  ThisStopUni       := point_xy(protoTrip_rel, ordered_ord, upoint);
-		attribute<upoint>                  NextStopUni       := point_xy(protoTrip_rel, ordered_ord+1, upoint);
-		attribute<.>                       NextStopId        := rlookup(NextStopUni, ThisStopUni);
-		attribute<bool>                    EndPoint          := IsNull(NextStopId);
+		attribute<protoTrips>              protoTrip_rel            := rlookup(ReadFSS/Stop_times/data/trip_id, protoTrips/trip_id);
+		attribute<bool>                    SelToday                 := protoTrips/sel_today[protoTrip_rel];
+		attribute<bool>                    SelYesterday             := protoTrips/sel_yesterday[protoTrip_rel] && (Time/Day[departureTime/TimesVector/Time_rel] > 0);
+		attribute<protoStops>              protoStop_rel            := rlookup(ReadFSS/Stop_times/data/stop_id, protoStops/stop_id);
+		attribute<protoStops>              NextprotoStop_rel        := protoStop_rel[NextStopId];
+		attribute<uint32>                  Stop_Sequence            := uint32(ReadFSS/Stop_times/data/stop_sequence);
+		attribute<uint32>                  shape_dist_traveled      := uint32(ReadFSS/Stop_times/data/shape_dist_traveled);
+		attribute<uint32>                  next_shape_dist_traveled :=  shape_dist_traveled[NextStopId];
+		
+		attribute<upoint>                  Trip_x_Ordinal           := point_xy(Stop_Sequence, protoTrip_rel, upoint);
+		attribute<Trips_x_order_uq>        txo_uq_rel               := rlookup(Trip_x_Ordinal, Trips_x_order_uq/Values);
+		attribute<uint32>                  ordered_ord              := txo_uq_rel - protoTrips/first_txo[protoTrip_rel];
+		attribute<upoint>                  ThisStopUni              := point_xy(protoTrip_rel, ordered_ord, upoint);
+		attribute<upoint>                  NextStopUni              := point_xy(protoTrip_rel, ordered_ord+1, upoint);
+		attribute<.>                       NextStopId               := rlookup(NextStopUni, ThisStopUni);
+		attribute<bool>                    EndPoint                 := IsNull(NextStopId);
+		
+		// attribute<shapes>                  shape_rel         := protoTrips/shape_rel[protoTrip_rel];
+		// attribute<uint32>                  shape_id          := protoTrips/shape_id[protoTrip_rel];
+		// attribute<upoint>                  shape_dist_iden   := point_xy(shape_id, shape_dist_traveled);
+		// attribute<c_shape_seqnr>           c_shape_seqnr_rel      := rjoin(shape_dist_iden, shapes/shape_dist_iden, shapes/c_shape_seqnr_rel);
+		// attribute<c_shape_seqnr>           next_c_shape_seqnr_rel := c_shape_seqnr_rel[NextStopId];
 		
 		container departureTime := Templates/GTFS_getTimes_T(.,ReadFSS/Stop_times/data/departure_time);
 		container arrivalTime   := Templates/GTFS_getTimes_T(.,ReadFSS/Stop_times/data/arrival_time);
@@ -106,6 +118,8 @@ container LoadFeeds
 			unit<uint32> Links := select_with_org_rel(SelYesterday && !EndPoint)
 			{
 				attribute<rdc>         geometry     (arc) := points2sequence(GenLines/Points,GenLines/Sequence_rel,GenLines/Ordinal);
+				attribute<uint32>      dist_traveled      := .../next_shape_dist_traveled[org_rel] - .../shape_dist_traveled[org_rel];
+				attribute<m>           dist_euclid        := arc_length(geometry, m);
 				attribute<rdc>         fromPoint          := protoStops/geometry[protoStopTimes/protoStop_rel[org_rel]];
 				attribute<protoStops>  From_protoStop_rel := .../protoStop_rel[org_rel];
 				attribute<rdc>         ToPoint            := protoStops/geometry[protoStopTimes/NextprotoStop_rel[org_rel]];
@@ -113,6 +127,7 @@ container LoadFeeds
 				attribute<protoTrips>  protoTrip_rel      := .../protoTrip_rel[org_rel];
 				attribute<Time>        depTime            := sub_or_null(departureTime/TimesVector/Time_rel[org_rel],(24*60*60));
 				attribute<Time>        arrTime            := sub_or_null(arrivalTime/TimesVector/Time_rel[.../NextStopId[org_rel]],(24*60*60));
+				attribute<km>          Length             := MakeDefined(convert(float32(dist_traveled)[m], km), convert(dist_euclid, km));
 			}
 			
 			unit<uint32> GenLines := union_unit(Links, Links)
@@ -127,6 +142,8 @@ container LoadFeeds
 			unit<uint32> Links := select_with_org_rel(SelToday && !EndPoint)
 			{
 				attribute<rdc>         geometry     (arc) := points2sequence(GenLines/Points,GenLines/Sequence_rel,GenLines/Ordinal);
+				attribute<uint32>      dist_traveled      := .../next_shape_dist_traveled[org_rel] - .../shape_dist_traveled[org_rel];
+				attribute<m>           dist_euclid        := arc_length(geometry, m);
 				attribute<rdc>         fromPoint          := protoStops/geometry[protoStopTimes/protoStop_rel[org_rel]];
 				attribute<protoStops>  From_protoStop_rel := .../protoStop_rel[org_rel];
 				attribute<rdc>         ToPoint            := protoStops/geometry[protoStopTimes/NextprotoStop_rel[org_rel]];
@@ -134,6 +151,7 @@ container LoadFeeds
 				attribute<protoTrips>  protoTrip_rel      := .../protoTrip_rel[org_rel];
 				attribute<Time>        depTime            := departureTime/TimesVector/Time_rel[org_rel];
 				attribute<Time>        arrTime            := arrivalTime/TimesVector/Time_rel[.../NextStopId[org_rel]];
+				attribute<km>          Length             := MakeDefined(convert(float32(dist_traveled)[m], km), convert(dist_euclid, km));
 			}
 			unit<uint32> GenLines := union_unit(Links, Links)
 			{
@@ -156,4 +174,47 @@ container LoadFeeds
 		attribute<uint32>  Today_exc     := sum(Calendar_dates/Today * Calendar_dates/nType, Calendar_dates/Services_rel);
 		attribute<uint32>  Yesterday_exc := sum(Calendar_dates/Yesterday * Calendar_dates/nType, Calendar_dates/Services_rel);
 	}
+	
+	unit<uint32> Shapes := ReadFSS/Shapes/read_domain/domain
+	, Descr = "Rules for mapping vehicle travel paths, sometimes referred to as route alignments."
+	{
+		attribute<uint32>  shape_id                      := uint32(ReadFSS/Shapes/data/shape_id);
+		attribute<uint32>  shape_pt_sequence             := uint32(ReadFSS/Shapes/data/shape_pt_sequence);
+		attribute<shape_seqnrs>  shape_seqnrs_rel        := rlookup(shape_pt_sequence, id(shape_seqnrs));
+		attribute<float64> shape_pt_lat                  := float64(ReadFSS/Shapes/data/shape_pt_lat);
+		attribute<float64> shape_pt_lon                  := float64(ReadFSS/Shapes/data/shape_pt_lon);
+		attribute<uint32>  shape_dist_traveled_cum       := uint32(ReadFSS/Shapes/data/shape_dist_traveled);
+		
+		attribute<uint32>  shape_dist_traveled_cum_prev  := shape_dist_traveled_cum[sub_or_null(id(.),1)];
+		attribute<uint32>  shape_id_prev                 := shape_id[sub_or_null(id(.),1)];
+		attribute<uint32>  shape_dist_traveled_increm    := shape_id == shape_id_prev ? sub_or_null(shape_dist_traveled_cum, shape_dist_traveled_cum_prev) : 0;
+		attribute<km>      real_length                   := value(shape_dist_traveled_increm, m)[km];
+		attribute<dpoint>  point_wgs                     := point_xy(shape_pt_lon, shape_pt_lat, wgs84_base);
+		attribute<rdc>     geometry                      := LatLongWgs842RD(point_wgs[fpoint], rdc);
+		
+		// attribute<Stops>   stops_rel                     := rlookup(ipoint(geometry), ipoint(stops/geometry));
+		// attribute<bool>   Defined_stops_rel                     := Isdefined(stops_rel);
+		
+		attribute<c_shape_seqnr> c_shape_seqnr_rel := combine_data(c_shape_seqnr, shape_id, shape_seqnrs_rel);
+		attribute<upoint> shape_dist_iden   := point_xy(shape_id, shape_dist_traveled_cum);
+		
+		attribute<Uq> Uq_rel := rlookup(shape_id, Uq/values);
+		
+		unit<uint32> Uq := unique_uint32(shape_id)
+		{
+			attribute<uint32>  shape_id       := values;
+			attribute<rdc>     geometry (arc) := points2sequence(../geometry,Uq_rel);
+			attribute<m>       length_m       := arc_length(geometry, m);
+			attribute<uint32>  dist_traveled  := last(shape_dist_traveled_cum, Uq_rel);
+			attribute<uint32>  dist_traveled_incr  := sum(shape_dist_traveled_increm, Uq_rel);
+		}
+	}
+	
+	unit<uint32>                       shape_seqnrs      : nrofrows = 10000;
+	unit<uint64>                       c_shape_seqnr     := combine_unit_uint64(shapes, shape_seqnrs);
 }
+
+
+//shape 25637
+//dist 6831
+
