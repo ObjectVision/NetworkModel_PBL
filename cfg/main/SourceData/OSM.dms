@@ -1,14 +1,58 @@
 container OSM : using = "classifications/OSM"
 {  
-	parameter<string> file_date := ModelParameters/Advanced/OSM_file_date;
-	parameter<string> dir       := '%NetworkModel_Dir%/Infrastructuur/OSM/'+file_date;
-	parameter<string> date      := file_date == '20221201' ? '-221201' : '-latest';
-	unit<uint32>      Regios    := ModelParameters/Advanced/OSM_Regios;
+	parameter<string> file_date   := rjoin(ModelParameters/AnalyseMoment, ModelParameters/Advanced/AnalyseMomentPresets/name, ModelParameters/Advanced/AnalyseMomentPresets/OSM_file_date);
+	parameter<string> dir         := '%NetworkModel_Dir%/Infrastructuur/OSM/'+file_date;
+	parameter<string> date        := file_date == '20221201' ? '-221201' : '-latest';
+	parameter<bool>   OSM_NL_prov := rjoin(ModelParameters/AnalyseMoment, ModelParameters/Advanced/AnalyseMomentPresets/name,ModelParameters/Advanced/AnalyseMomentPresets/OSM_NL_prov), Descr = "";     
+	unit<uint32>      OSM_Regios  := =OSM_NL_prov ? 'ModelParameters/Advanced/OSM_impl/InProvincies' : 'ModelParameters/Advanced/OSM_impl/InEenBestand'
+	, Descr = ""
+	{
+		attribute<string>        label          := =OSM_NL_prov ? 'ModelParameters/Advanced/OSM_impl/InProvincies/label' : 'ModelParameters/Advanced/OSM_impl/InEenBestand/label';
+		attribute<string>        name           := =OSM_NL_prov ? 'ModelParameters/Advanced/OSM_impl/InProvincies/name' : 'ModelParameters/Advanced/OSM_impl/InEenBestand/name';
+		attribute<string>        Country        := =OSM_NL_prov ? 'ModelParameters/Advanced/OSM_impl/InProvincies/Country' : 'ModelParameters/Advanced/OSM_impl/InEenBestand/Country';
+		attribute<string>        Type_src       := =OSM_NL_prov ? 'ModelParameters/Advanced/OSM_impl/InProvincies/Type_src' : 'ModelParameters/Advanced/OSM_impl/InEenBestand/Type_src';
+		
+		// attribute<AnalyseRegios> AnalyseRegios_rel := rlookup(country, AnalyseRegios/short);
+		
+		attribute<bool>          IsOD_Regio      := Type_src == 'OD';
+		
+		
+		unit<uint32> OD_regios := select_with_org_rel(IsOD_Regio)
+		{
+			attribute<string> name  := ../name[org_rel];
+			attribute<string> label := ../label[org_rel];
+		}
+		
+		unit<uint32> Countries : nrofrows = 3
+		{
+			attribute<string> name : ['Germany', 'Netherlands', 'Belgium'];
+		}
+		
+		unit<uint32> Germany := select_with_org_rel(country == 'DE')
+		{
+			attribute<string> name  := ../name[org_rel];
+			attribute<string> label := ../label[org_rel];
+		}
+		unit<uint32> Netherlands := select_with_org_rel(country == 'NL')
+		{
+			attribute<string> name  := ../name[org_rel];
+			attribute<string> label := ../label[org_rel];
+		}
+		unit<uint32> Belgium := select_with_org_rel(country == 'BE')
+		{
+			attribute<string> name  := ../name[org_rel];
+			attribute<string> label := ../label[org_rel];
+		}
+		
+	}
+
+
+
 
 	container Prepare_SourceData :=
 		for_each_ne(
-			Regios/name
-			, 'Prepare_SourceData_T('+quote(Regios/label)+','+quote(Regios/country)+')'
+			OSM_Regios/name
+			, 'Prepare_SourceData_T('+quote(OSM_Regios/label)+','+quote(OSM_Regios/country)+')'
 		);
 	
 	Template Prepare_SourceData_T
@@ -49,8 +93,8 @@ container OSM : using = "classifications/OSM"
 	{
 		container Merge_Roads_perCountry :=
 			for_each_ne(
-				Regios/Countries/name
-				, 'Make_Merged_Roads_perCountry_T('+quote(Regios/Countries/name)+')'
+				OSM_Regios/Countries/name
+				, 'Make_Merged_Roads_perCountry_T('+quote(OSM_Regios/Countries/name)+')'
 			);
 
 		
@@ -58,7 +102,7 @@ container OSM : using = "classifications/OSM"
 		{
 			parameter<string> country_name;
 			//
-			unit<uint32> Country_regios := ='Regios/'+country_name;
+			unit<uint32> Country_regios := ='OSM_Regios/'+country_name;
 			unit<uint32>  Merge_CountryRegion_Roads := ='union_unit('+AsList('Prepare_SourceData/'+Country_regios/name+'/Read_Roads_shp', ',')+')'
 			{
 				attribute<rdc>                          geometry (arc)                   := ='union_data(., '+AsList('Prepare_SourceData/'+Country_regios/name+'/Read_Roads_shp/geometry_rd', ',')+')';
@@ -194,17 +238,17 @@ container OSM : using = "classifications/OSM"
 			}
 		}
 
-		unit<uint32>  Merge_Country_Roads := ='union_unit('+AsList('Merge_Roads_perCountry/'+Regios/Countries/name+'/Merge_CountryRegion_Roads', ',')+')'
+		unit<uint32>  Merge_Country_Roads := ='union_unit('+AsList('Merge_Roads_perCountry/'+OSM_Regios/Countries/name+'/Merge_CountryRegion_Roads', ',')+')'
 		{
-			attribute<rdc>                          geometry (arc)     := ='union_data(., '+AsList('Merge_Roads_perCountry/'+Regios/Countries/name+'/Merge_CountryRegion_Roads/geometry', ',')+')';
-			attribute<km_hr>                        maxspeed           := ='union_data(., '+AsList('Merge_Roads_perCountry/'+Regios/Countries/name+'/Merge_CountryRegion_Roads/maxspeed', ',')+')';
-			attribute<wegtype>                      wegtype_rel        := ='union_data(., '+AsList('Merge_Roads_perCountry/'+Regios/Countries/name+'/Merge_CountryRegion_Roads/wegtype_rel', ',')+')';
-			attribute<string>                       OSM_id             := ='union_data(., '+AsList('Merge_Roads_perCountry/'+Regios/Countries/name+'/Merge_CountryRegion_Roads/OSM_id', ',')+')';
-			attribute<bool>                         IsOneDirection     := ='union_data(., '+AsList('Merge_Roads_perCountry/'+Regios/Countries/name+'/Merge_CountryRegion_Roads/IsOneDirection', ',')+')';
+			attribute<rdc>                          geometry (arc)     := ='union_data(., '+AsList('Merge_Roads_perCountry/'+OSM_Regios/Countries/name+'/Merge_CountryRegion_Roads/geometry', ',')+')';
+			attribute<km_hr>                        maxspeed           := ='union_data(., '+AsList('Merge_Roads_perCountry/'+OSM_Regios/Countries/name+'/Merge_CountryRegion_Roads/maxspeed', ',')+')';
+			attribute<wegtype>                      wegtype_rel        := ='union_data(., '+AsList('Merge_Roads_perCountry/'+OSM_Regios/Countries/name+'/Merge_CountryRegion_Roads/wegtype_rel', ',')+')';
+			attribute<string>                       OSM_id             := ='union_data(., '+AsList('Merge_Roads_perCountry/'+OSM_Regios/Countries/name+'/Merge_CountryRegion_Roads/OSM_id', ',')+')';
+			attribute<bool>                         IsOneDirection     := ='union_data(., '+AsList('Merge_Roads_perCountry/'+OSM_Regios/Countries/name+'/Merge_CountryRegion_Roads/IsOneDirection', ',')+')';
 			
-			attribute<km_hr>                        congestion_speed_MorningRush     := ='union_data(., '+AsList('Merge_Roads_perCountry/'+Regios/Countries/name+'/Merge_CountryRegion_Roads/congestion_speed_MorningRush', ',')+')';
-			attribute<km_hr>                        congestion_speed_NoonRush        := ='union_data(., '+AsList('Merge_Roads_perCountry/'+Regios/Countries/name+'/Merge_CountryRegion_Roads/congestion_speed_NoonRush', ',')+')';
-			attribute<km_hr>                        congestion_speed_LateEveningRush := ='union_data(., '+AsList('Merge_Roads_perCountry/'+Regios/Countries/name+'/Merge_CountryRegion_Roads/congestion_speed_LateEveningRush', ',')+')';
+			attribute<km_hr>                        congestion_speed_MorningRush     := ='union_data(., '+AsList('Merge_Roads_perCountry/'+OSM_Regios/Countries/name+'/Merge_CountryRegion_Roads/congestion_speed_MorningRush', ',')+')';
+			attribute<km_hr>                        congestion_speed_NoonRush        := ='union_data(., '+AsList('Merge_Roads_perCountry/'+OSM_Regios/Countries/name+'/Merge_CountryRegion_Roads/congestion_speed_NoonRush', ',')+')';
+			attribute<km_hr>                        congestion_speed_LateEveningRush := ='union_data(., '+AsList('Merge_Roads_perCountry/'+OSM_Regios/Countries/name+'/Merge_CountryRegion_Roads/congestion_speed_LateEveningRush', ',')+')';
 		}
 	}
 	
@@ -359,7 +403,7 @@ container OSM : using = "classifications/OSM"
 			attribute<bool> isVerbonden (src) := all(pointset/isVerbonden, pointset/ArcNr);
 		}
 	}
-	unit<uint32> Network_Bike := select_with_org_rel(Read_Final_Network/isPartOfBikeNetwork)
+	unit<uint32> Network_Cycling := select_with_org_rel(Read_Final_Network/isPartOfBikeNetwork)
 	{
 		attribute<rdc>                          geometry (arc)                   := Read_Final_Network/geometry[org_rel];
 		attribute<classifications/OSM/wegtype>  wegtype_rel                      := Read_Final_Network/wegtype_rel[org_rel];
@@ -418,7 +462,7 @@ container OSM : using = "classifications/OSM"
 			attribute<bool> isVerbonden (src) := all(pointset/isVerbonden, pointset/ArcNr);
 		}
 	}
-	unit<uint32> Network_Pedestrian := select_with_org_rel(Read_Final_Network/isPartOfPedestrianNetwork)
+	unit<uint32> Network_Walking := select_with_org_rel(Read_Final_Network/isPartOfPedestrianNetwork)
 	{
 		attribute<rdc>                          geometry (arc)                   := Read_Final_Network/geometry[org_rel];
 		attribute<classifications/OSM/wegtype>  wegtype_rel                      := Read_Final_Network/wegtype_rel[org_rel];

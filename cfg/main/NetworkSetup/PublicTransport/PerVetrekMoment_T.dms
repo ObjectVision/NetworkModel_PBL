@@ -5,7 +5,7 @@ Template PerVetrekMoment_T
 	///
 	parameter<min>      Max_V_Time := max(/ModelParameters/Advanced/OV_Voortransport_Typen/MaxTime[min]);
 	
-	unit<uint64> Within_VW_Window := select_with_org_rel(PublicTransport_Prep/ToegestaneKetens/Result/From_Time_rel <= inTime + convert(Max_V_Time, s_f)[Time] + ModelParameters/Advanced/MaxWachttijdThuis)
+	unit<uint64> Within_VW_Window := select_with_org_rel(PublicTransport_Prep/Result/From_Time_rel <= inTime + convert(Max_V_Time, s_f)[Time] + ModelParameters/Advanced/MaxWachttijdThuis)
 	, Descr = "Opties binnen voortransport + wachten thuis window"
 	{
 		attribute<ct>                Price                       := org_rel -> Result/Price;
@@ -193,12 +193,22 @@ Template PerVetrekMoment_T
 		attribute<uq_OD_key>  uq_OD_key_rel := rlookup(OD_key, uq_OD_key/values); //attribuut om partitionering van price/traveltime etc te doen.
 	}
 	
-	unit<uint64> Result := Union_with_DirectOD/uq_OD_key
+	unit<uint64> Result_withDuplicate_Places := Union_with_DirectOD/uq_OD_key
+	, Descr = "Set that still contains duplicate from/to places, arriving at different times. So we need to condense it one more time."
 	{
 		attribute<Union_with_DirectOD/uq_c_FromTime_Place>  uq_c_FromTime_Place_rel     := value(values / #Union_with_DirectOD/uq_c_ToTime_Place, Union_with_DirectOD/uq_c_FromTime_Place);
 		attribute<Union_with_DirectOD/uq_c_ToTime_Place>    uq_c_ToTime_Place_rel       := value(values % #Union_with_DirectOD/uq_c_ToTime_Place, Union_with_DirectOD/uq_c_ToTime_Place);
 		attribute<c_Time_Places>                            c_FromTime_Place_rel        := Union_with_DirectOD/uq_c_FromTime_Place/c_FromTime_Place_rel[uq_c_FromTime_Place_rel];
 		attribute<c_Time_Places>                            c_ToTime_Place_rel          := Union_with_DirectOD/uq_c_ToTime_Place/c_ToTime_Place_rel[uq_c_ToTime_Place_rel];
+		 
+		attribute<Time>                                     From_Time_rel               := value(c_FromTime_Place_rel / uint64(#Places), Time);
+		attribute<Places>                                   From_Place_rel              := value(c_FromTime_Place_rel % uint64(#Places), Places);
+		attribute<Time>                                     To_Time_rel                 := value(c_ToTime_Place_rel / uint64(#Places), Time);
+		attribute<Places>                                   To_Place_rel                := value(c_ToTime_Place_rel % uint64(#Places), Places);
+		
+		attribute<uint32>                                   PriceTime_Score             := =ModelParameters/MinimiseCriterium == 'Price'
+																							? 'value(Price_augm, uint32) * value(ModelParameters/MaxTravelTime[s], uint32) + value(Traveltime, uint32)'
+																							: 'value(Traveltime, uint32) * 10000 + value(Price_augm, uint32)';
 		
 		attribute<Union_with_DirectOD>                      Min_Index                   := min_index(Union_with_DirectOD/PriceTime_Score, Union_with_DirectOD/uq_OD_key_rel);
 
@@ -218,5 +228,38 @@ Template PerVetrekMoment_T
 		attribute<dam>                                      Traveldist_Tram             := Min_Index -> Traveldist_Tram;
 		attribute<dam>                                      Traveldist_Rail             := Min_Index -> Traveldist_Rail;
 		attribute<dam>                                      Traveldist_Ferry            := Min_Index -> Traveldist_Ferry;
+		
+		unit<uint64>          OD_key_set    := combine_unit_uint64(Places, Places);
+		attribute<OD_key_set> OD_key        := combine_data(OD_key_set, From_Place_rel, To_Place_rel);
+		unit<uint64>          uq_OD_key     := unique(OD_key);
+		attribute<uq_OD_key>  uq_OD_key_rel := rlookup(OD_key, uq_OD_key/values); //attribuut om partitionering van price/traveltime etc te doen.
+	}
+	
+	unit<uint64> Result := Result_withDuplicate_Places/uq_OD_key
+	, Descr = "Final set"
+	{
+		attribute<Result_withDuplicate_Places>              Min_Index                   := min_index(Result_withDuplicate_Places/PriceTime_Score, Result_withDuplicate_Places/uq_OD_key_rel);
+		
+		attribute<ct>                                       Price                       := Min_Index -> Price;
+		attribute<ct>                                       Price_augm                  := Min_Index -> Price_augm;
+		attribute<s>                                        Traveltime                  := Min_Index -> Traveltime;
+		attribute<Toegestane_Ketens>                        Toegestane_Keten_rel        := Min_Index -> Toegestane_Keten_rel;
+		attribute<s>                                        W_time                      := Min_Index -> W_time, Descr = "Waiting at home";
+		attribute<s>                                        V_time                      := Min_Index -> V_time;
+		attribute<s>                                        PT_time                     := Min_Index -> PT_time;
+		attribute<s>                                        N_time                      := Min_Index -> N_time;
+		attribute<Modes>                                    V_mode_rel                  := Min_Index -> V_mode_rel;
+		attribute<Modes>                                    N_mode_rel                  := Min_Index -> N_mode_rel;
+		
+		attribute<dam>                                      TravelDist_Bus              := Min_Index -> TravelDist_Bus;
+		attribute<dam>                                      Traveldist_Metro            := Min_Index -> Traveldist_Metro;
+		attribute<dam>                                      Traveldist_Tram             := Min_Index -> Traveldist_Tram;
+		attribute<dam>                                      Traveldist_Rail             := Min_Index -> Traveldist_Rail;
+		attribute<dam>                                      Traveldist_Ferry            := Min_Index -> Traveldist_Ferry;
+		
+		attribute<Time>                                     From_Time_rel               := Min_Index -> From_Time_rel;
+		attribute<Places>                                   From_Place_rel              := Min_Index -> From_Place_rel;
+		attribute<Time>                                     To_Time_rel                 := Min_Index -> To_Time_rel;
+		attribute<Places>                                   To_Place_rel                := Min_Index -> To_Place_rel;
 	}
 }
