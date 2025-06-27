@@ -98,16 +98,23 @@ container RelevantSelection : using = "LoadFeeds"
 			attribute<c_Time_Stops> c_Time_Stops_rel   := union_data(., ../c_FromTime_Stop_rel, ../c_ToTime_Stop_rel);
 			attribute<Time>         Time_rel           := value(c_Time_Stops_rel / uint64(#Stops), Time);
 			attribute<Stops>        Stop_rel           := value(c_Time_Stops_rel % uint64(#Stops), Stops);
+			attribute<string>       Stop_name          := Stops/Name[Stop_rel];
 			attribute<rdc>          geometry           := union_data(., ../fromPoint, ../toPoint);
+			
+			attribute<string>       stop_geom_iden     := string(Stop_rel) + '_' + string(geometry);
+			
+			attribute<SL_Places>    SL_Places_rel := rlookup(stop_geom_iden, SL_Places/values);
 		}
 		
-		unit<uint32> SL_Places := unique(findUniqueSpaceTimeEvents/geometry)
-		, Descr = "unique scheduled links locations"
+		// unit<uint32> SL_Places := unique(findUniqueSpaceTimeEvents/geometry)
+		unit<uint32> SL_Places := unique(findUniqueSpaceTimeEvents/stop_geom_iden)
+		, Descr = "unique scheduled links locations. However duplicate locations with different a stop_rel do exist."
 		{
-			attribute<Stops>   Stop_rel    := rlookup(geometry, Stops/geometry);
+			// attribute<Stops>   Stop_rel    := rlookup(geometry, Stops/geometry);
+			attribute<Stops>   Stop_rel    := findUniqueSpaceTimeEvents/Stop_rel[invert(findUniqueSpaceTimeEvents/SL_Places_rel)];
 			attribute<string>  Stop_name   := Stops/Name[Stop_rel];
 			attribute<string>  Label       := Stop_name;
-			attribute<rdc>     geometry    := values;
+			attribute<rdc>     geometry    := findUniqueSpaceTimeEvents/geometry[invert(findUniqueSpaceTimeEvents/SL_Places_rel)];
 		}
 
 		unit<uint32> uq_TimeStop := unique(ScheduledLinks/findUniqueSpaceTimeEvents/c_Time_Stops_rel)
