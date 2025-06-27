@@ -10,9 +10,9 @@ Template KetenRijger_T
 	parameter<bool>   IsLeft_NS    := left(LeftStr, 1) == 'l' || left(RightStr, 1) == 'k';
 	parameter<bool>   IsRight_NS   := left(RightStr, 1) == 'l' || left(RightStr, 1) == 'k';
 	
-	unit<uint64> c_FromTP_ToTP       := combine_unit_uint64(Left/uq_c_FromTime_Place, Right/uq_c_ToTime_Place);
+	unit<uint64> c_FromTP_ToTP       := combine_unit_uint64(Left/uq_c_FromTime_Stop, Right/uq_c_ToTime_Stop);
 
-	unit<uint64> Join_Left_Transf   := join_equal_values_uint64(Left/uq_c_ToTime_Place_rel, Tranfers/from_rel_in_UqFirstDom), Descr = "join left To_rel met de de transfer from_rel"
+	unit<uint64> Join_Left_Transf   := join_equal_values_uint64(Left/uq_c_ToTime_Stop_rel, Tranfers/from_rel_in_UqFirstDom), Descr = "join left To_rel met de de transfer from_rel"
 	{
 		attribute<Ct>               Left_price                 := first_rel -> Price;
 		attribute<Ct>               Left_price_NonNS           := first_rel -> Price_NonNS;
@@ -34,15 +34,15 @@ Template KetenRijger_T
 		attribute<s>                Traveltime                 := Left_traveltime + Transfer_time, Descr = "ÖV-time + waiting at stop + transfer walking time";
 		// attribute<Ct>               Price_augm                 := Left_price + Transfer_Walking_Time_cost + Transfer_Waiting_Time_cost, Descr = "ÖV-price + waiting at stop costs+ transfer walking time costs";
 		
-		attribute<c_Time_Places>    LeftT_c_toTime_Place_rel   := second_rel -> c_toTime_Place_rel, Descr = "de to_rel van de transfers"; 
-		unit<uint64>                NextJoinFromDom            := Right/uq_c_FromTime_Place;
-		attribute<NextJoinFromDom>  to_rel_inNextJoinFromDom   := rlookup(LeftT_c_toTime_Place_rel, NextJoinFromDom/values), Descr = "de transfer to-rel in right from-rel values"; 
+		attribute<c_Time_Stops>    LeftT_c_toTime_Stop_rel   := second_rel -> c_toTime_Stop_rel, Descr = "de to_rel van de transfers"; 
+		unit<uint64>                NextJoinFromDom            := Right/uq_c_FromTime_Stop;
+		attribute<NextJoinFromDom>  to_rel_inNextJoinFromDom   := rlookup(LeftT_c_toTime_Stop_rel, NextJoinFromDom/values), Descr = "de transfer to-rel in right from-rel values"; 
 		
 		attribute<NS_Stations>      First_NS_Station           := first_rel -> First_NS_Station, Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden van de eerste en laaste ns-stations zijn.";
 		attribute<NS_Stations>      Last_NS_Station            := first_rel -> Last_NS_Station, Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden van de eerste en laaste ns-stations zijn.";
 		attribute<Time>             Laatste_NS_Uitstap_Tijd    := first_rel -> Laatste_NS_Uitstap_Tijd, Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
 		attribute<Time>             Laatste_RO_Uitstap_Tijd    := first_rel -> Laatste_RO_Uitstap_Tijd, Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
-		attribute<CoropP>           CoropP_rel                 := Places/CoropP_rel[first_rel -> From_Place_rel], Descr = "tile based on location for next step.";
+		attribute<CoropP>           CoropP_rel                 := Stops/CoropP_rel[first_rel -> From_Stop_rel], Descr = "tile based on location for next step.";
 	}
 	
 	container Join_LeftT_Right_perCorop :=
@@ -65,7 +65,7 @@ Template KetenRijger_T
 		
 		unit<uint64> Tile := select_with_attr_by_cond(Join_Left_Transf, Join_Left_Transf/CoropP_rel == CoropP_id);
 		
-		unit<uint64> Join_LeftT_Right   := join_equal_values_uint64(Tile/to_rel_inNextJoinFromDom, Right/uq_c_FromTime_Place_rel), Descr = "join Left+Transfer To_rel met de de Right from_rel"
+		unit<uint64> Join_LeftT_Right   := join_equal_values_uint64(Tile/to_rel_inNextJoinFromDom, Right/uq_c_FromTime_Stop_rel), Descr = "join Left+Transfer To_rel met de de Right from_rel"
 		, Descr = "deze set bevat alle mogelijke 'paden' en kan dus later geaggregeerd worden door group-by OD. En dus per OD-pair het kortste/goedkoopste pad te kiezen."
 		{
 			attribute<Ct>               Left_price_NonNS                := first_rel -> Left_price_NonNS;
@@ -118,9 +118,9 @@ Template KetenRijger_T
 			attribute<Time>             Laatste_RO_Uitstap_Tijd         := =IsRight_RO ? 'Right_uitstap_tijd' : 'Left_Laatste_RO_Uitstap_Tijd';
 			
 			
-			attribute<Places>           From_Place_rel                  := value(Left/c_fromTime_Place_rel[left_rel] % uint64(#Places), Places);
-			attribute<Places>           To_Place_rel                    := value(Right/c_ToTime_Place_rel[right_rel] % uint64(#Places), Places);
-			attribute<bool>             IsTravelToSamePlace             := from_Place_rel == To_Place_rel;
+			attribute<Stops>           From_Stop_rel                  := value(Left/c_fromTime_Stop_rel[left_rel] % uint64(#Stops), Stops);
+			attribute<Stops>           To_Stop_rel                    := value(Right/c_ToTime_Stop_rel[right_rel] % uint64(#Stops), Stops);
+			attribute<bool>            IsTravelToSameStop             := from_Stop_rel == To_Stop_rel;
 
 			//recalc NS-prices
 			attribute<NS_Stations>      First_NS_Station                := first_rel -> First_NS_Station, Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden van de eerste en laaste ns-stations zijn.";
@@ -133,9 +133,9 @@ Template KetenRijger_T
 																			, TariefEenhedenMatrix/Prijs), Ct);
 			attribute<bool>             PriceNeedsToBeReplaced          := IsLeft_NS && IsRight_NS && NOT(Right_IsNieuwePrijsReis), Descr = "Als beide zijden NS zijn, dan moet de prijs herbekenend worden. Want anders heb je twee opstartprijs en geen langeafstandskorting. Tenzij de overstap langer dan 35 minuten is.";
 			
-			attribute<c_FromTP_ToTP>    OD_pair_rel                     := combine_data(c_FromTP_ToTP, Left/uq_c_FromTime_Place_rel[left_rel], Right/uq_c_ToTime_Place_rel[right_rel]);
+			attribute<c_FromTP_ToTP>    OD_pair_rel                     := combine_data(c_FromTP_ToTP, Left/uq_c_FromTime_Stop_rel[left_rel], Right/uq_c_ToTime_Stop_rel[right_rel]);
 		
-			unit<uint64> Valid := select_with_attr_by_cond(.,NOT(IsTravelToSamePlace))
+			unit<uint64> Valid := select_with_attr_by_cond(.,NOT(IsTravelToSameStop))
 			{
 				attribute<Result_Tiled>     Result_rel                   := rlookup(OD_pair_rel, Result_Tiled/values);
 			}
@@ -145,13 +145,13 @@ Template KetenRijger_T
 		, Descr = "Geaggregeerde set naar 'OD-paren' om minimalisatie criterium op toe te passen"
 		// , StorageName = "='%LocalDataProjDir%/Temp/'+LeftStr+RightStr+'_'+Time/TemplatableTextShrt[EersteVertrekMoment]+'_to_'+Time/TemplatableTextShrt[LaatsteVertrekMoment+convert(ModelParameters/MaxTravelTime,s_f)[Time]]+'_'+/ModelParameters/Analysis_date+'.fss'"
 		{
-			unit<uint64> uq_c_FromTime_Place := Left/uq_c_FromTime_Place;
-			unit<uint64> uq_c_ToTime_Place   := Right/uq_c_ToTime_Place;
+			unit<uint64> uq_c_FromTime_Stop := Left/uq_c_FromTime_Stop;
+			unit<uint64> uq_c_ToTime_Stop   := Right/uq_c_ToTime_Stop;
 		
-			attribute<uq_c_FromTime_Place>    uq_c_FromTime_Place_rel     := value(values / #Right/uq_c_ToTime_Place, Left/uq_c_FromTime_Place);
-			attribute<uq_c_ToTime_Place>      uq_c_ToTime_Place_rel       := value(values % #Right/uq_c_ToTime_Place, Right/uq_c_ToTime_Place);
-			attribute<c_Time_Places>          c_FromTime_Place_rel        := uq_c_FromTime_Place/c_FromTime_Place_rel[uq_c_FromTime_Place_rel];
-			attribute<c_Time_Places>          c_ToTime_Place_rel          := uq_c_ToTime_Place/c_ToTime_Place_rel[uq_c_ToTime_Place_rel];
+			attribute<uq_c_FromTime_Stop>    uq_c_FromTime_Stop_rel     := value(values / #Right/uq_c_ToTime_Stop, Left/uq_c_FromTime_Stop);
+			attribute<uq_c_ToTime_Stop>      uq_c_ToTime_Stop_rel       := value(values % #Right/uq_c_ToTime_Stop, Right/uq_c_ToTime_Stop);
+			attribute<c_Time_Stops>          c_FromTime_Stop_rel        := uq_c_FromTime_Stop/c_FromTime_Stop_rel[uq_c_FromTime_Stop_rel];
+			attribute<c_Time_Stops>          c_ToTime_Stop_rel          := uq_c_ToTime_Stop/c_ToTime_Stop_rel[uq_c_ToTime_Stop_rel];
 			
 			attribute<Join_LeftT_Right/Valid> Min_Index                   := ='min_index(Join_LeftT_Right/Valid/PriceTime_Score, Join_LeftT_Right/Valid/Result_rel)', DisableStorage = "true";
 			attribute<Ct>                     Price                       := Min_Index -> Price;
@@ -206,13 +206,13 @@ Template KetenRijger_T
 		// attribute<Left>                Left_rel                   := ='union_data(.,'+AsItemList('Join_LeftT_Right_perCorop/'+CoropP/name+'/Result_Tiled_Fence/Left_rel')+')';
 		attribute<Right>               Right_rel                  := ='union_data(.,'+AsItemList('Join_LeftT_Right_perCorop/'+CoropP/name+'/Result_Tiled_Fence/Right_rel')+')';
 		
-		attribute<c_Time_Places>       c_FromTime_Place_rel       := ='union_data(.,'+AsItemList('Join_LeftT_Right_perCorop/'+CoropP/name+'/Result_Tiled_Fence/c_FromTime_Place_rel')+')';
-		attribute<c_Time_Places>       c_ToTime_Place_rel         := ='union_data(.,'+AsItemList('Join_LeftT_Right_perCorop/'+CoropP/name+'/Result_Tiled_Fence/c_ToTime_Place_rel')+')';
-		attribute<uq_c_FromTime_Place> uq_c_FromTime_Place_rel    := ='union_data(.,'+AsItemList('Join_LeftT_Right_perCorop/'+CoropP/name+'/Result_Tiled_Fence/uq_c_FromTime_Place_rel')+')';
-		attribute<uq_c_ToTime_Place>   uq_c_ToTime_Place_rel      := ='union_data(.,'+AsItemList('Join_LeftT_Right_perCorop/'+CoropP/name+'/Result_Tiled_Fence/uq_c_ToTime_Place_rel')+')';
-		attribute<Places>              From_Place_rel             := value(c_FromTime_Place_rel % uint64(#Places), Places);
+		attribute<c_Time_Stops>       c_FromTime_Stop_rel       := ='union_data(.,'+AsItemList('Join_LeftT_Right_perCorop/'+CoropP/name+'/Result_Tiled_Fence/c_FromTime_Stop_rel')+')';
+		attribute<c_Time_Stops>       c_ToTime_Stop_rel         := ='union_data(.,'+AsItemList('Join_LeftT_Right_perCorop/'+CoropP/name+'/Result_Tiled_Fence/c_ToTime_Stop_rel')+')';
+		attribute<uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel    := ='union_data(.,'+AsItemList('Join_LeftT_Right_perCorop/'+CoropP/name+'/Result_Tiled_Fence/uq_c_FromTime_Stop_rel')+')';
+		attribute<uq_c_ToTime_Stop>   uq_c_ToTime_Stop_rel      := ='union_data(.,'+AsItemList('Join_LeftT_Right_perCorop/'+CoropP/name+'/Result_Tiled_Fence/uq_c_ToTime_Stop_rel')+')';
+		attribute<Stops>              From_Stop_rel             := value(c_FromTime_Stop_rel % uint64(#Stops), Stops);
 		
-		unit<uint64> uq_c_FromTime_Place := Left/uq_c_FromTime_Place;
-		unit<uint64> uq_c_ToTime_Place   := Right/uq_c_ToTime_Place;
+		unit<uint64> uq_c_FromTime_Stop := Left/uq_c_FromTime_Stop;
+		unit<uint64> uq_c_ToTime_Stop   := Right/uq_c_ToTime_Stop;
 	}
 }
