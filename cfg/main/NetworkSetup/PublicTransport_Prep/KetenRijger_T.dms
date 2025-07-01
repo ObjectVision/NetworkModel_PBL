@@ -1,71 +1,130 @@
 Template KetenRijger_T
 {
-	unit<uint64> Left; //11191
+	unit<uint64> Left0; //11191
 	unit<uint64> Right;
 	unit<uint64> Tranfers;
 	
 	parameter<string> LeftStr;
 	parameter<string> RightStr;
-	parameter<bool>   IsRight_RO   := left(RightStr, 1) == 'r' || left(RightStr, 1) == 'o';
-	parameter<bool>   IsLeft_NS    := left(LeftStr, 1) == 'l' || left(RightStr, 1) == 'k';
-	parameter<bool>   IsRight_NS   := left(RightStr, 1) == 'l' || left(RightStr, 1) == 'k';
-	
-	unit<uint64> c_FromTP_ToTP       := combine_unit_uint64(Left/uq_c_FromTime_Stop, Right/uq_c_ToTime_Stop);
-
-	unit<uint64> Join_Left_Transf   := join_equal_values_uint64(Left/uq_c_ToTime_Stop_rel, Tranfers/from_rel_in_UqFirstDom), Descr = "join left To_rel met de de transfer from_rel"
+	parameter<uint32> NumberOfBlocks;
+	////
+	unit<uint32> LeftSet := Stops
 	{
-		attribute<Ct>               Left_price                 := first_rel -> Price;
-		attribute<Ct>               Left_price_NonNS           := first_rel -> Price_NonNS;
-		attribute<s>                Left_traveltime            := first_rel -> Traveltime;
-		
-		attribute<dam>              TravelDist_Bus             := first_rel -> TravelDist_Bus; 
-		attribute<dam>              Traveldist_Metro           := first_rel -> Traveldist_Metro; 
-		attribute<dam>              Traveldist_Tram            := first_rel -> Traveldist_Tram; 
-		attribute<dam>              Traveldist_Rail            := first_rel -> Traveldist_Rail; 
-		attribute<dam>              Traveldist_Ferry           := first_rel -> Traveldist_Ferry; 
-		
-		attribute<s>                Transfer_time              := second_rel -> Transfer_time;
-		attribute<s>                WaitingAtStop_time         := second_rel -> WaitingAtStop_time;
-		attribute<s>                Walking_time               := second_rel -> Walking_Time;
-		
-		attribute<Ct>               Transfer_Walking_Time_cost := rounded_convert(Walking_Time[min_f] * ModelParameters/Transfer_Walking_Time_Costs, Ct);
-		attribute<Ct>               Transfer_Waiting_Time_cost := rounded_convert(WaitingAtStop_time[min_f] * ModelParameters/Transfer_Waiting_Time_Costs, Ct);
-		
-		attribute<s>                Traveltime                 := Left_traveltime + Transfer_time, Descr = "ÖV-time + waiting at stop + transfer walking time";
-		// attribute<Ct>               Price_augm                 := Left_price + Transfer_Walking_Time_cost + Transfer_Waiting_Time_cost, Descr = "ÖV-price + waiting at stop costs+ transfer walking time costs";
-		
-		attribute<c_Time_Stops>    LeftT_c_toTime_Stop_rel   := second_rel -> c_toTime_Stop_rel, Descr = "de to_rel van de transfers"; 
-		unit<uint64>                NextJoinFromDom            := Right/uq_c_FromTime_Stop;
-		attribute<NextJoinFromDom>  to_rel_inNextJoinFromDom   := rlookup(LeftT_c_toTime_Stop_rel, NextJoinFromDom/values), Descr = "de transfer to-rel in right from-rel values"; 
-		
-		attribute<NS_Stations>      First_NS_Station           := first_rel -> First_NS_Station, Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden van de eerste en laaste ns-stations zijn.";
-		attribute<NS_Stations>      Last_NS_Station            := first_rel -> Last_NS_Station, Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden van de eerste en laaste ns-stations zijn.";
-		attribute<Time>             Laatste_NS_Uitstap_Tijd    := first_rel -> Laatste_NS_Uitstap_Tijd, Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
-		attribute<Time>             Laatste_RO_Uitstap_Tijd    := first_rel -> Laatste_RO_Uitstap_Tijd, Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
-		attribute<CoropP>           CoropP_rel                 := Stops/CoropP_rel[first_rel -> From_Stop_rel], Descr = "tile based on location for next step.";
+		attribute<uint32> weight     := uint32(pcount(Left0/From_Stop_rel));
+		attribute<uint32> cum_weight := cumulate(weight) - weight;
+	}
+	// parameter<uint64> LeftSize := =IsDefined(LeftSizeEstimation) ? 'LeftSizeEstimation' : '#LeftSet';
+	
+	parameter<bool>   IsRight_RO    := left(RightStr, 1) == 'r' || left(RightStr, 1) == 'o';
+	parameter<bool>   IsLeft_NS     := left(LeftStr, 1) == 'l' || left(RightStr, 1) == 'k';
+	parameter<bool>   IsRight_NS    := left(RightStr, 1) == 'l' || left(RightStr, 1) == 'k';
+	unit<uint64>      c_FromTP_ToTP := combine_unit_uint64(Left0/uq_c_FromTime_Stop, Right/uq_c_ToTime_Stop);
+	
+	parameter<uint32> MaxBlockSize  := ModelParameters/MaxBlockSize;
+	
+	// unit<uint32>      BlockDomain   := range(0, (uint32(LeftSize) + (MaxBlockSize - 1)) / MaxBlockSize)
+	unit<uint32>      BlockDomain   := range(0, NumberOfBlocks)
+	{
+		attribute<string> name        := 'Block_'+string(id(.)+1)+'_of_'+string(max(id(.))+1);
+		attribute<uint64> BlockOffset := min_elem(uint64(id(.)) * uint64(MaxBlockSize), uint64(#LeftSet));
+		attribute<uint64> BlockEnd    := min_elem(BlockOffset + uint64(MaxBlockSize), uint64(#LeftSet));
+		attribute<uint32> BlockSize   := uint32(BlockEnd - BlockOffset);
+		attribute<uint32> ClassBreak  := ClassifyEqualCount(LeftSet/cum_weight, .);
 	}
 	
-	container Join_LeftT_Right_perCorop :=
+	// container cardinaliteit_Result_perBlock :=
+		// for_each_nedv(
+			// BlockDomain/name
+			// , 'Joins_perBlock/'+BlockDomain/name+'/cardinaliteit_Result'
+			// , void
+			// , uint64
+		// )
+	// {
+		// parameter<uint64> sum := ='add('+AsItemList(BlockDomain/name)+')';
+	// }
+	// container cardinaliteit_Join_LeftT_Right_perBlock :=
+		// for_each_nedv(
+			// BlockDomain/name
+			// , 'Joins_perBlock/'+BlockDomain/name+'/cardinaliteit_Join_LeftT_Right'
+			// , void
+			// , uint64
+		// )
+	// {
+		// parameter<uint64> sum := ='add('+AsItemList(BlockDomain/name)+')';
+	// }
+		
+	container Joins_perBlock :=
 		for_each_ne(
-			CoropP/name
-			, 'Join_LeftT_Right_Tiled_T('+string(id(CoropP))+')'
+			BlockDomain/name
+			, 'Joins_perBlockT('+string(id(BlockDomain))+')'
 		);
 	
-	Template Join_LeftT_Right_Tiled_T
+	Template Joins_perBlockT
 	{
-		parameter<CoropP> CoropP_id;
+		parameter<BlockDomain> BlockDomain_id;
 		///
-		container FenceHack0
+		container StartCalc0{parameter<string> BlockDomain_name := BlockDomain/name[../BlockDomain_id], IntegrityCheck = "uint64(MaxBlockSize) * uint64(NumberOfBlocks) > uint64(#LeftSet)";}
+		container StartCalc := PhaseContainer(StartCalc0, 'Start calculating '+string(StartCalc0/BlockDomain_name)+': '+LeftStr+ ' to '+RightStr+', with block size of '+string(BlockDomain/BlockSize[BlockDomain_id]));
+
+		// parameter<string> LeftSelectionCriteria := 'uint32(uint64(Left0/From_Stop_rel) / uint64(MaxBlockSize)) == BlockDomain_id';
+		// attribute<bool> LeftSelectionCriteria (Left0) := Classify(LeftSet/cum_weight[Left0/From_Stop_rel], BlockDomain/ClassBreak[BlockDomain_id]) == const(BlockDomain_id, Left0);
+		attribute<bool> LeftSelectionCriteria (Left0) := Classify(LeftSet/cum_weight[Left0/From_Stop_rel], BlockDomain/ClassBreak) == BlockDomain_id;
+		
+		unit<uint64> Left := select(LeftSelectionCriteria)
+		, Descr = "Subset of original left set."
 		{
-			parameter<CoropP> CoropP_id := ../CoropP_id;
+			attribute<Left0/uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel  := collect_by_cond(., LeftSelectionCriteria, Left0/uq_c_FromTime_Stop_rel);
+			attribute<Left0/uq_c_ToTime_Stop>   uq_c_ToTime_Stop_rel    := collect_by_cond(., LeftSelectionCriteria, Left0/uq_c_ToTime_Stop_rel);
+			attribute<c_Time_Stops>             c_FromTime_Stop_rel     := collect_by_cond(., LeftSelectionCriteria, Left0/c_FromTime_Stop_rel);
+			attribute<Ct>                       price                   := collect_by_cond(., LeftSelectionCriteria, Left0/price);
+			attribute<Ct>                       price_NonNS             := collect_by_cond(., LeftSelectionCriteria, Left0/price_NonNS);
+			attribute<s>                        traveltime              := collect_by_cond(., LeftSelectionCriteria, Left0/traveltime);
+			
+			attribute<dam>                      TravelDist_Bus          := collect_by_cond(., LeftSelectionCriteria, Left0/TravelDist_Bus);
+			attribute<dam>                      Traveldist_Metro        := collect_by_cond(., LeftSelectionCriteria, Left0/Traveldist_Metro);
+			attribute<dam>                      Traveldist_Tram         := collect_by_cond(., LeftSelectionCriteria, Left0/Traveldist_Tram);
+			attribute<dam>                      Traveldist_Rail         := collect_by_cond(., LeftSelectionCriteria, Left0/Traveldist_Rail);
+			attribute<dam>                      Traveldist_Ferry        := collect_by_cond(., LeftSelectionCriteria, Left0/Traveldist_Ferry);
+			
+			attribute<NS_Stations>              First_NS_Station        := collect_by_cond(., LeftSelectionCriteria, Left0/First_NS_Station), Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden wat de eerste en laaste ns-stations zijn.";
+			attribute<NS_Stations>              Last_NS_Station         := collect_by_cond(., LeftSelectionCriteria, Left0/Last_NS_Station), Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden wat de eerste en laaste ns-stations zijn.";
+			attribute<Time>                     Laatste_NS_Uitstap_Tijd := collect_by_cond(., LeftSelectionCriteria, Left0/Laatste_NS_Uitstap_Tijd), Descr = "om te kijken of een volgende NS rit lange afstandkorting moet behouden, moeten we de laatste uitstaptijd bijhouden";
+			attribute<Time>                     Laatste_RO_Uitstap_Tijd := collect_by_cond(., LeftSelectionCriteria, Left0/Laatste_RO_Uitstap_Tijd), Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
 		}
-		container FenceHack := PhaseContainer(FenceHack0, 'CoropP_id'+string(FenceHack0/CoropP_id));
-		// container FenceHack := FenceContainer(FenceHack0, 'CoropP_id'+string(FenceHack0/CoropP_id));
-		
-		
-		unit<uint64> Tile := select_with_attr_by_cond(Join_Left_Transf, Join_Left_Transf/CoropP_rel == CoropP_id);
-		
-		unit<uint64> Join_LeftT_Right   := join_equal_values_uint64(Tile/to_rel_inNextJoinFromDom, Right/uq_c_FromTime_Stop_rel), Descr = "join Left+Transfer To_rel met de de Right from_rel"
+
+		unit<uint64> Join_Left_Transf   := join_equal_values_uint64(Left/uq_c_ToTime_Stop_rel, Tranfers/from_rel_in_UqFirstDom)
+		, Descr = "join left To_rel met de de transfer from_rel"
+		{
+			attribute<Ct>               Left_price                 := first_rel -> Price;
+			attribute<Ct>               Left_price_NonNS           := first_rel -> Price_NonNS;
+			attribute<s>                Left_traveltime            := first_rel -> Traveltime;
+			
+			attribute<dam>              TravelDist_Bus             := first_rel -> TravelDist_Bus; 
+			attribute<dam>              Traveldist_Metro           := first_rel -> Traveldist_Metro; 
+			attribute<dam>              Traveldist_Tram            := first_rel -> Traveldist_Tram; 
+			attribute<dam>              Traveldist_Rail            := first_rel -> Traveldist_Rail; 
+			attribute<dam>              Traveldist_Ferry           := first_rel -> Traveldist_Ferry; 
+			
+			attribute<s>                Transfer_time              := second_rel -> Transfer_time;
+			attribute<s>                WaitingAtStop_time         := second_rel -> WaitingAtStop_time;
+			attribute<s>                Walking_time               := second_rel -> Walking_Time;
+			
+			attribute<Ct>               Transfer_Walking_Time_cost := rounded_convert(Walking_Time[min_f] * ModelParameters/Transfer_Walking_Time_Costs, Ct);
+			attribute<Ct>               Transfer_Waiting_Time_cost := rounded_convert(WaitingAtStop_time[min_f] * ModelParameters/Transfer_Waiting_Time_Costs, Ct);
+			
+			attribute<s>                Traveltime                 := Left_traveltime + Transfer_time, Descr = "ÖV-time + waiting at stop + transfer walking time";
+			
+			attribute<c_Time_Stops>     LeftT_c_toTime_Stop_rel    := second_rel -> c_toTime_Stop_rel, Descr = "de to_rel van de transfers"; 
+			unit<uint64>                NextJoinFromDom            := Right/uq_c_FromTime_Stop;
+			attribute<NextJoinFromDom>  to_rel_inNextJoinFromDom   := rlookup(LeftT_c_toTime_Stop_rel, NextJoinFromDom/values), Descr = "de transfer to-rel in right from-rel values"; 
+			
+			attribute<NS_Stations>      First_NS_Station           := first_rel -> First_NS_Station, Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden wat de eerste en laaste ns-stations zijn.";
+			attribute<NS_Stations>      Last_NS_Station            := first_rel -> Last_NS_Station, Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden wat de eerste en laaste ns-stations zijn.";
+			attribute<Time>             Laatste_NS_Uitstap_Tijd    := first_rel -> Laatste_NS_Uitstap_Tijd, Descr = "om te kijken of een volgende NS rit lange afstandkorting moet behouden, moeten we de laatste uitstaptijd bijhouden";
+			attribute<Time>             Laatste_RO_Uitstap_Tijd    := first_rel -> Laatste_RO_Uitstap_Tijd, Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
+		}
+	
+		unit<uint64> Join_LeftT_Right   := join_equal_values_uint64(Join_Left_Transf/to_rel_inNextJoinFromDom, Right/uq_c_FromTime_Stop_rel), Descr = "join Left+Transfer To_rel met de de Right from_rel"
 		, Descr = "deze set bevat alle mogelijke 'paden' en kan dus later geaggregeerd worden door group-by OD. En dus per OD-pair het kortste/goedkoopste pad te kiezen."
 		{
 			attribute<Ct>               Left_price_NonNS                := first_rel -> Left_price_NonNS;
@@ -76,11 +135,11 @@ Template KetenRijger_T
 			attribute<s>                Left_WaitingAtStop_time         := first_rel -> WaitingAtStop_time;  //nodig?
 			attribute<s>                Left_Walking_time               := first_rel -> Walking_time;  //nodig?
 			
-			attribute<dam>               Left_TravelDist_Bus            := first_rel -> TravelDist_Bus;
-			attribute<dam>               Left_TravelDist_Metro          := first_rel -> Traveldist_Metro;
-			attribute<dam>               Left_TravelDist_Tram           := first_rel -> Traveldist_Tram;
-			attribute<dam>               Left_TravelDist_Rail           := first_rel -> Traveldist_Rail;
-			attribute<dam>               Left_TravelDist_Ferry          := first_rel -> Traveldist_Ferry;
+			attribute<dam>              Left_TravelDist_Bus             := first_rel -> TravelDist_Bus;
+			attribute<dam>              Left_TravelDist_Metro           := first_rel -> Traveldist_Metro;
+			attribute<dam>              Left_TravelDist_Tram            := first_rel -> Traveldist_Tram;
+			attribute<dam>              Left_TravelDist_Rail            := first_rel -> Traveldist_Rail;
+			attribute<dam>              Left_TravelDist_Ferry           := first_rel -> Traveldist_Ferry;
 			
 			attribute<Ct>               Right_price                     := second_rel -> Price;
 			attribute<s>                Right_traveltime                := second_rel -> Traveltime;
@@ -106,21 +165,19 @@ Template KetenRijger_T
 																			? 'value(Price_augm, uint32) * value(ModelParameters/MaxTravelTime[s], uint32) + value(Traveltime, uint32)'
 																			: 'value(Traveltime, uint32) * 10000 + value(Price_augm, uint32)';
 			
-			attribute<Left>             Left_rel                        := Tile/first_rel[first_rel];
+			attribute<Left>             Left_rel                        := Join_Left_Transf/first_rel[first_rel];
 			attribute<Right>            Right_rel                       := second_rel;
-			
 
-			attribute<Time>             Left_Laatste_NS_Uitstap_Tijd    := first_rel -> Laatste_NS_Uitstap_Tijd, Descr = "om te kijken of een volgende NS rit als nieuwe reis telt, moeten we de laatste uitstaptijd bijhouden";
+			attribute<Time>             Left_Laatste_NS_Uitstap_Tijd    := first_rel -> Laatste_NS_Uitstap_Tijd, Descr = "om te kijken of een volgende NS rit lange afstandkorting moet behouden, moeten we de laatste uitstaptijd bijhouden";
 			attribute<Time>             Left_Laatste_RO_Uitstap_Tijd    := first_rel -> Laatste_RO_Uitstap_Tijd, Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
-			attribute<Time>             Right_instap_tijd               := second_rel -> From_Time_rel, Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
+			attribute<Time>             Right_instap_tijd               := second_rel -> From_Time_rel, Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, of dat een nieuwe NS-rit begint moeten we de laatste uitstaptijd bijhouden";
 			attribute<Time>             Right_uitstap_tijd              := second_rel -> To_Time_rel, Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
 			attribute<Time>             Laatste_NS_Uitstap_Tijd         := =IsRight_NS ? 'Right_uitstap_tijd' : 'Left_Laatste_NS_Uitstap_Tijd';
 			attribute<Time>             Laatste_RO_Uitstap_Tijd         := =IsRight_RO ? 'Right_uitstap_tijd' : 'Left_Laatste_RO_Uitstap_Tijd';
 			
-			
-			attribute<Stops>           From_Stop_rel                  := value(Left/c_fromTime_Stop_rel[left_rel] % uint64(#Stops), Stops);
-			attribute<Stops>           To_Stop_rel                    := value(Right/c_ToTime_Stop_rel[right_rel] % uint64(#Stops), Stops);
-			attribute<bool>            IsTravelToSameStop             := from_Stop_rel == To_Stop_rel;
+			attribute<Stops>            From_Stop_rel                   := value(Left/c_fromTime_Stop_rel[left_rel] % uint64(#Stops), Stops);
+			attribute<Stops>            To_Stop_rel                     := value(Right/c_ToTime_Stop_rel[right_rel] % uint64(#Stops), Stops);
+			attribute<bool>             IsTravelToSameStop              := from_Stop_rel == To_Stop_rel;
 
 			//recalc NS-prices
 			attribute<NS_Stations>      First_NS_Station                := first_rel -> First_NS_Station, Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden van de eerste en laaste ns-stations zijn.";
@@ -137,82 +194,84 @@ Template KetenRijger_T
 		
 			unit<uint64> Valid := select_with_attr_by_cond(.,NOT(IsTravelToSameStop))
 			{
-				attribute<Result_Tiled>     Result_rel                   := rlookup(OD_pair_rel, Result_Tiled/values);
+				attribute<x/Result_Tiled>     Result_rel                   := rlookup(OD_pair_rel, x/Result_Tiled/values);
 			}
 		}
 		
-		unit<uint64> Result_Tiled := unique_uint64(Join_LeftT_Right/Valid/OD_pair_rel)
-		, Descr = "Geaggregeerde set naar 'OD-paren' om minimalisatie criterium op toe te passen"
-		// , StorageName = "='%LocalDataProjDir%/Temp/'+LeftStr+RightStr+'_'+Time/TemplatableTextShrt[EersteVertrekMoment]+'_to_'+Time/TemplatableTextShrt[LaatsteVertrekMoment+convert(ModelParameters/MaxTravelTime,s_f)[Time]]+'_'+/ModelParameters/Analysis_date+'.fss'"
+		container x
+		: Descr = "hack om deadlock te omzeilen"
+		, URL = "https://github.com/ObjectVision/GeoDMS/issues/965"
 		{
-			unit<uint64> uq_c_FromTime_Stop := Left/uq_c_FromTime_Stop;
-			unit<uint64> uq_c_ToTime_Stop   := Right/uq_c_ToTime_Stop;
-		
-			attribute<uq_c_FromTime_Stop>    uq_c_FromTime_Stop_rel     := value(values / #Right/uq_c_ToTime_Stop, Left/uq_c_FromTime_Stop);
-			attribute<uq_c_ToTime_Stop>      uq_c_ToTime_Stop_rel       := value(values % #Right/uq_c_ToTime_Stop, Right/uq_c_ToTime_Stop);
-			attribute<c_Time_Stops>          c_FromTime_Stop_rel        := uq_c_FromTime_Stop/c_FromTime_Stop_rel[uq_c_FromTime_Stop_rel];
-			attribute<c_Time_Stops>          c_ToTime_Stop_rel          := uq_c_ToTime_Stop/c_ToTime_Stop_rel[uq_c_ToTime_Stop_rel];
+			unit<uint64> Result_Tiled := unique_uint64(Join_LeftT_Right/Valid/OD_pair_rel)
+			, Descr = "Geaggregeerde set naar 'OD-paren' om minimalisatie criterium op toe te passen"
+			{
+				unit<uint64> uq_c_FromTime_Stop := Left0/uq_c_FromTime_Stop;
+				unit<uint64> uq_c_ToTime_Stop   := Right/uq_c_ToTime_Stop;
 			
-			attribute<Join_LeftT_Right/Valid> Min_Index                   := ='min_index(Join_LeftT_Right/Valid/PriceTime_Score, Join_LeftT_Right/Valid/Result_rel)', DisableStorage = "true";
-			attribute<Ct>                     Price                       := Min_Index -> Price;
-			attribute<Ct>                     Price_NonNS                 := Min_Index -> Price_NonNS;
-			attribute<Ct>                     Price_augm                  := Min_Index -> Price_augm;
-			attribute<uint32>                 PriceTime_Score             := Min_Index -> PriceTime_Score;
-			attribute<s>                      Traveltime                  := Min_Index -> Traveltime;
-			
-			attribute<dam>                    TravelDist_Bus              := Min_Index -> TravelDist_Bus;
-			attribute<dam>                    Traveldist_Metro            := Min_Index -> Traveldist_Metro;
-			attribute<dam>                    Traveldist_Tram             := Min_Index -> Traveldist_Tram;
-			attribute<dam>                    Traveldist_Rail             := Min_Index -> Traveldist_Rail;
-			attribute<dam>                    Traveldist_Ferry            := Min_Index -> Traveldist_Ferry;
-			
-			attribute<NS_Stations>            First_NS_Station            := Min_Index -> First_NS_Station;
-			attribute<NS_Stations>            Last_NS_Station             := Min_Index -> Last_NS_Station;
-			attribute<Right>                  Right_rel                   := Min_Index -> Right_rel;
-			
-			
-			attribute<Time>                   Laatste_NS_Uitstap_Tijd     := Min_Index -> Laatste_NS_Uitstap_Tijd;
-			attribute<Time>                   Laatste_RO_Uitstap_Tijd     := Min_Index -> Laatste_RO_Uitstap_Tijd, Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
+				attribute<uq_c_FromTime_Stop>     uq_c_FromTime_Stop_rel      := union_data(., value(values / #Right/uq_c_ToTime_Stop, Left0/uq_c_FromTime_Stop));
+				attribute<uq_c_ToTime_Stop>       uq_c_ToTime_Stop_rel        := union_data(., value(values % #Right/uq_c_ToTime_Stop, Right/uq_c_ToTime_Stop));
+				attribute<c_Time_Stops>           c_FromTime_Stop_rel         := union_data(., uq_c_FromTime_Stop/c_FromTime_Stop_rel[uq_c_FromTime_Stop_rel]);
+				attribute<c_Time_Stops>           c_ToTime_Stop_rel           := union_data(., uq_c_ToTime_Stop/c_ToTime_Stop_rel[uq_c_ToTime_Stop_rel]);
+				
+				attribute<Join_LeftT_Right/Valid> Min_Index                   := union_data(., min_index(Join_LeftT_Right/Valid/PriceTime_Score, Join_LeftT_Right/Valid/Result_rel));
+				attribute<Ct>                     Price                       := union_data(., Min_Index -> Price);
+				attribute<Ct>                     Price_NonNS                 := union_data(., Min_Index -> Price_NonNS);
+				attribute<Ct>                     Price_augm                  := union_data(., Min_Index -> Price_augm);
+				attribute<uint32>                 PriceTime_Score             := union_data(., Min_Index -> PriceTime_Score);
+				attribute<s>                      Traveltime                  := union_data(., Min_Index -> Traveltime);
+				
+				attribute<dam>                    TravelDist_Bus              := union_data(., Min_Index -> TravelDist_Bus);
+				attribute<dam>                    Traveldist_Metro            := union_data(., Min_Index -> Traveldist_Metro);
+				attribute<dam>                    Traveldist_Tram             := union_data(., Min_Index -> Traveldist_Tram);
+				attribute<dam>                    Traveldist_Rail             := union_data(., Min_Index -> Traveldist_Rail);
+				attribute<dam>                    Traveldist_Ferry            := union_data(., Min_Index -> Traveldist_Ferry);
+				
+				attribute<NS_Stations>            First_NS_Station            := union_data(., Min_Index -> First_NS_Station);
+				attribute<NS_Stations>            Last_NS_Station             := union_data(., Min_Index -> Last_NS_Station);
+				attribute<Right>                  Right_rel                   := union_data(., Min_Index -> Right_rel);
+				
+				
+				attribute<Time>                   Laatste_NS_Uitstap_Tijd     := union_data(., Min_Index -> Laatste_NS_Uitstap_Tijd);
+				attribute<Time>                   Laatste_RO_Uitstap_Tijd     := union_data(., Min_Index -> Laatste_RO_Uitstap_Tijd), Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
+			}
 		}
+		// container y := PhaseContainer(x, 'Calculated '+string(StartCalc/BlockDomain_name)+': '+LeftStr+ ' to '+RightStr+ ' for '+string(#x/Result_Tiled)+' OD-pairs.');
+		container y := PhaseContainer(x, 'Calculated '+string(StartCalc/BlockDomain_name)+': '+LeftStr+ ' to '+RightStr+ '');
+		unit<uint64> Result_Tiled_Fence := y/Result_Tiled;
 		
-		unit<uint64> Result_Tiled_Fence := PhaseContainer(Result_Tiled, 'Calculated Tile '+string(FenceHack/CoropP_id)+' '+CoropP/name[CoropP_id]+': '+string(#Result_Tiled)+' OD-pairs for '+LeftStr+ ' to '+RightStr+ '');
-		// unit<uint64> Result_Tiled_Fence := FenceContainer(Result_Tiled, 'Calculated Tile '+string(FenceHack/CoropP_id)+' '+CoropP/name[CoropP_id]+': '+string(#Result_Tiled)+' OD-pairs for '+LeftStr+ ' to '+RightStr+ '');
+		parameter<uint64> cardinaliteit_Join_LeftT_Right := #Join_LeftT_Right;
+		parameter<uint64> cardinaliteit_Result           := #x/Result_Tiled;
 	}
-	
-	// unit<uint32> names := SubItem_PropValues(Union_Tiled_Results,'name');
-	// parameter<string> Generate := 'Ready', ExplicitSuppliers = "=AsList('Union_Tiled_Results/'+names/name,';')";
 
-	unit<uint64> Result   := ='union_unit_uint64('+AsItemList('Join_LeftT_Right_perCorop/'+CoropP/name+'/Result_Tiled_Fence')+')'
-	, Descr = "Deze set bevat de geunionede resultaten per corop, dus hier moet nogmaals een unique met min_index op los worden gelaten."
-	// , StorageName = "='%LocalDataProjDir%/Temp/'+LeftStr+RightStr+'.fss'"
+	unit<uint64> Result   := ='union_unit_uint64('+AsItemList('Joins_perBlock/'+BlockDomain/name+'/Result_Tiled_Fence')+')'
+	, Descr = "Deze set bevat de geunionede resultaten per block."
 	{
-		attribute<Ct>                  Price                      := ='union_data(.,'+AsItemList('Join_LeftT_Right_perCorop/'+CoropP/name+'/Result_Tiled_Fence/Price')+')';
-		attribute<Ct>                  Price_augm                 := ='union_data(.,'+AsItemList('Join_LeftT_Right_perCorop/'+CoropP/name+'/Result_Tiled_Fence/Price_augm')+')';
-		attribute<Ct>                  Price_NonNS                := ='union_data(.,'+AsItemList('Join_LeftT_Right_perCorop/'+CoropP/name+'/Result_Tiled_Fence/Price_NonNS')+')';
-		attribute<s>                   Traveltime                 := ='union_data(.,'+AsItemList('Join_LeftT_Right_perCorop/'+CoropP/name+'/Result_Tiled_Fence/Traveltime')+')';
+		attribute<Ct>                  Price                      := ='union_data(.,'+AsItemList('Joins_perBlock/'+BlockDomain/name+'/Result_Tiled_Fence/Price')+')';
+		attribute<Ct>                  Price_augm                 := ='union_data(.,'+AsItemList('Joins_perBlock/'+BlockDomain/name+'/Result_Tiled_Fence/Price_augm')+')';
+		attribute<Ct>                  Price_NonNS                := ='union_data(.,'+AsItemList('Joins_perBlock/'+BlockDomain/name+'/Result_Tiled_Fence/Price_NonNS')+')';
+		attribute<s>                   Traveltime                 := ='union_data(.,'+AsItemList('Joins_perBlock/'+BlockDomain/name+'/Result_Tiled_Fence/Traveltime')+')';
 
-		attribute<dam>                 TravelDist_Bus             := ='union_data(.,'+AsItemList('Join_LeftT_Right_perCorop/'+CoropP/name+'/Result_Tiled_Fence/TravelDist_Bus')+')';
-		attribute<dam>                 Traveldist_Metro           := ='union_data(.,'+AsItemList('Join_LeftT_Right_perCorop/'+CoropP/name+'/Result_Tiled_Fence/Traveldist_Metro')+')';
-		attribute<dam>                 Traveldist_Tram            := ='union_data(.,'+AsItemList('Join_LeftT_Right_perCorop/'+CoropP/name+'/Result_Tiled_Fence/Traveldist_Tram')+')';
-		attribute<dam>                 Traveldist_Rail            := ='union_data(.,'+AsItemList('Join_LeftT_Right_perCorop/'+CoropP/name+'/Result_Tiled_Fence/Traveldist_Rail')+')';
-		attribute<dam>                 Traveldist_Ferry           := ='union_data(.,'+AsItemList('Join_LeftT_Right_perCorop/'+CoropP/name+'/Result_Tiled_Fence/Traveldist_Ferry')+')';
+		attribute<dam>                 TravelDist_Bus             := ='union_data(.,'+AsItemList('Joins_perBlock/'+BlockDomain/name+'/Result_Tiled_Fence/TravelDist_Bus')+')';
+		attribute<dam>                 Traveldist_Metro           := ='union_data(.,'+AsItemList('Joins_perBlock/'+BlockDomain/name+'/Result_Tiled_Fence/Traveldist_Metro')+')';
+		attribute<dam>                 Traveldist_Tram            := ='union_data(.,'+AsItemList('Joins_perBlock/'+BlockDomain/name+'/Result_Tiled_Fence/Traveldist_Tram')+')';
+		attribute<dam>                 Traveldist_Rail            := ='union_data(.,'+AsItemList('Joins_perBlock/'+BlockDomain/name+'/Result_Tiled_Fence/Traveldist_Rail')+')';
+		attribute<dam>                 Traveldist_Ferry           := ='union_data(.,'+AsItemList('Joins_perBlock/'+BlockDomain/name+'/Result_Tiled_Fence/Traveldist_Ferry')+')';
 	
-		attribute<uint32>              PriceTime_Score            := ='union_data(.,'+AsItemList('Join_LeftT_Right_perCorop/'+CoropP/name+'/Result_Tiled_Fence/PriceTime_Score')+')';
-		attribute<Time>                Laatste_NS_Uitstap_Tijd    := ='union_data(.,'+AsItemList('Join_LeftT_Right_perCorop/'+CoropP/name+'/Result_Tiled_Fence/Laatste_NS_Uitstap_Tijd')+')';
-		attribute<Time>                Laatste_RO_Uitstap_Tijd    := ='union_data(.,'+AsItemList('Join_LeftT_Right_perCorop/'+CoropP/name+'/Result_Tiled_Fence/Laatste_RO_Uitstap_Tijd')+')';
-		attribute<NS_Stations>         First_NS_Station           := ='union_data(.,'+AsItemList('Join_LeftT_Right_perCorop/'+CoropP/name+'/Result_Tiled_Fence/First_NS_Station')+')';
-		attribute<NS_Stations>         Last_NS_Station            := ='union_data(.,'+AsItemList('Join_LeftT_Right_perCorop/'+CoropP/name+'/Result_Tiled_Fence/Last_NS_Station')+')';
+		attribute<uint32>              PriceTime_Score            := ='union_data(.,'+AsItemList('Joins_perBlock/'+BlockDomain/name+'/Result_Tiled_Fence/PriceTime_Score')+')';
+		attribute<Time>                Laatste_NS_Uitstap_Tijd    := ='union_data(.,'+AsItemList('Joins_perBlock/'+BlockDomain/name+'/Result_Tiled_Fence/Laatste_NS_Uitstap_Tijd')+')';
+		attribute<Time>                Laatste_RO_Uitstap_Tijd    := ='union_data(.,'+AsItemList('Joins_perBlock/'+BlockDomain/name+'/Result_Tiled_Fence/Laatste_RO_Uitstap_Tijd')+')';
+		attribute<NS_Stations>         First_NS_Station           := ='union_data(.,'+AsItemList('Joins_perBlock/'+BlockDomain/name+'/Result_Tiled_Fence/First_NS_Station')+')';
+		attribute<NS_Stations>         Last_NS_Station            := ='union_data(.,'+AsItemList('Joins_perBlock/'+BlockDomain/name+'/Result_Tiled_Fence/Last_NS_Station')+')';
 		
-		// attribute<Left>                Left_rel                   := ='union_data(.,'+AsItemList('Join_LeftT_Right_perCorop/'+CoropP/name+'/Result_Tiled_Fence/Left_rel')+')';
-		attribute<Right>               Right_rel                  := ='union_data(.,'+AsItemList('Join_LeftT_Right_perCorop/'+CoropP/name+'/Result_Tiled_Fence/Right_rel')+')';
+		attribute<Right>               Right_rel                  := ='union_data(.,'+AsItemList('Joins_perBlock/'+BlockDomain/name+'/Result_Tiled_Fence/Right_rel')+')';
 		
-		attribute<c_Time_Stops>       c_FromTime_Stop_rel       := ='union_data(.,'+AsItemList('Join_LeftT_Right_perCorop/'+CoropP/name+'/Result_Tiled_Fence/c_FromTime_Stop_rel')+')';
-		attribute<c_Time_Stops>       c_ToTime_Stop_rel         := ='union_data(.,'+AsItemList('Join_LeftT_Right_perCorop/'+CoropP/name+'/Result_Tiled_Fence/c_ToTime_Stop_rel')+')';
-		attribute<uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel    := ='union_data(.,'+AsItemList('Join_LeftT_Right_perCorop/'+CoropP/name+'/Result_Tiled_Fence/uq_c_FromTime_Stop_rel')+')';
-		attribute<uq_c_ToTime_Stop>   uq_c_ToTime_Stop_rel      := ='union_data(.,'+AsItemList('Join_LeftT_Right_perCorop/'+CoropP/name+'/Result_Tiled_Fence/uq_c_ToTime_Stop_rel')+')';
-		attribute<Stops>              From_Stop_rel             := value(c_FromTime_Stop_rel % uint64(#Stops), Stops);
+		attribute<c_Time_Stops>        c_FromTime_Stop_rel        := ='union_data(.,'+AsItemList('Joins_perBlock/'+BlockDomain/name+'/Result_Tiled_Fence/c_FromTime_Stop_rel')+')';
+		attribute<c_Time_Stops>        c_ToTime_Stop_rel          := ='union_data(.,'+AsItemList('Joins_perBlock/'+BlockDomain/name+'/Result_Tiled_Fence/c_ToTime_Stop_rel')+')';
+		attribute<uq_c_FromTime_Stop>  uq_c_FromTime_Stop_rel     := ='union_data(.,'+AsItemList('Joins_perBlock/'+BlockDomain/name+'/Result_Tiled_Fence/uq_c_FromTime_Stop_rel')+')';
+		attribute<uq_c_ToTime_Stop>    uq_c_ToTime_Stop_rel       := ='union_data(.,'+AsItemList('Joins_perBlock/'+BlockDomain/name+'/Result_Tiled_Fence/uq_c_ToTime_Stop_rel')+')';
+		attribute<Stops>               From_Stop_rel              := value(c_FromTime_Stop_rel % uint64(#Stops), Stops);
 		
-		unit<uint64> uq_c_FromTime_Stop := Left/uq_c_FromTime_Stop;
+		unit<uint64> uq_c_FromTime_Stop := Left0/uq_c_FromTime_Stop;
 		unit<uint64> uq_c_ToTime_Stop   := Right/uq_c_ToTime_Stop;
-	}
+	} 
 }
