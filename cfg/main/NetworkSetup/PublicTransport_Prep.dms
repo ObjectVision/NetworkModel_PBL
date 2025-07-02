@@ -52,20 +52,9 @@ container PublicTransport_Prep
 		}
 		
 		unit<uint64> c_Time_Stop_Routes   := combine_unit_uint64(c_Time_Stops,Routes);
-		unit<uint64> c_Time_Stops         := combine_uint64(Time, Stops)
-		{
-			// attribute<string> Time_name  := Time/label[first_rel];
-			// attribute<string> Stop_name  := Stops/label[second_rel];
-			// attribute<string> Label      := Stop_name + ' @ ' + Time_name;
-		}
-		
-		unit<uint64> c_Time_Places         := combine_uint64(Time, Places)
-		{
-			// attribute<string> Time_name  := Time/label[first_rel];
-			// attribute<string> Place_name := Places/label[second_rel];
-			// attribute<string> Label      := Place_name + ' @ ' + Time_name;
-		}
-		
+		unit<uint64> c_Time_Stops         := combine_uint64(Time, Stops);
+		unit<uint64> c_Time_Places         := combine_uint64(Time, Places);
+	
 		unit<uint32>        Stops                 := =PT_path_str+'/Stops'
 		{
 			// attribute<string> name      := =PT_path_str+'/Stops/name';
@@ -90,90 +79,203 @@ container PublicTransport_Prep
 		unit<uint32>        CoropP                 := SourceData/RegioIndelingen/CoropP;
 		unit<uint32>        c_NS_start_end         := /SourceData/Infrastructuur/OVprijzen/NS/NS_tariefeenheden_matrix/c_NS_start_end;
 		unit<uint32>        TariefEenhedenMatrix   := Infrastructuur/OVprijzen/NS/NS_tariefeenheden_matrix/ODMatrix;
-		unit<uint32>        ToBeCalculated_Ketens  := /Classifications/Ketens/ToBeCalculated_Keten;
-		unit<uint32>        Toegestane_Ketens      := /Classifications/Ketens/Keten/Toegestaan;
+		unit<uint16>        ToBeCalculated_Ketens  := /Classifications/Ketens/ToBeCalculated_Keten;
+		unit<uint16>        Toegestane_Ketens      := /Classifications/Ketens/Keten/Toegestaan;
+		
+		unit<uint32> PTnet_prep := =impl/PT_path_str+''
+		{
+			attribute<bool>   IsSub_from := From_Time_rel >= impl/EersteVertrekMoment ;
+			attribute<bool>   IsSub_to   := To_Time_rel   < (impl/LaatsteVertrekMoment + (convert(ModelParameters/MaxTravelTime, s_f)[Time]));
+			attribute<bool>   IsSub_dur  := duration <= convert(ModelParameters/MaxTravelTime , s_f);
+		}
+
+		container Set_R := Get_Windowed_Agency_Set_T(' &&  '+impl/PT_path_str+'/Agency_rel != Agencies/V/ns &&  '+impl/PT_path_str+'/Duration > 0f'), Descr = "subset of public transport net for the relevant time windows and agency-set.", using = "impl";
+		container Set_L := Get_Windowed_Agency_Set_T(' && ('+impl/PT_path_str+'/Agency_rel == Agencies/V/ns || ('+impl/PT_path_str+'/Mode_rel == impl/Modes/V/Waiting && IsDefined('+impl/PT_path_str+'/c_NS_start_end_rel))) && '+impl/PT_path_str+'/Duration > 0f');
+		container Set_K := Get_Windowed_Agency_Set_T(' && ('+impl/PT_path_str+'/Agency_rel == Agencies/V/ns || ('+impl/PT_path_str+'/Mode_rel == impl/Modes/V/Waiting && IsDefined('+impl/PT_path_str+'/c_NS_start_end_rel))) && '+impl/PT_path_str+'/Duration > 0f && '+impl/PT_path_str+'/IsConnectedToNSkortStation');
+		
+		unit<uint64> All_Time_Stops := union_unit_uint64(OD_L/Result,OD_K/Result,OD_R/Result,OD_O/Result)
+		{
+			attribute<impl/c_Time_Stops>       c_FromTime_Stop_rel       := union_data(., OD_L/Result/c_FromTime_Stop_rel,OD_K/Result/c_FromTime_Stop_rel,OD_R/Result/c_FromTime_Stop_rel,OD_O/Result/c_FromTime_Stop_rel);
+			attribute<impl/c_Time_Stops>       c_ToTime_Stop_rel         := union_data(., OD_L/Result/c_ToTime_Stop_rel,OD_K/Result/c_ToTime_Stop_rel,OD_R/Result/c_ToTime_Stop_rel,OD_O/Result/c_ToTime_Stop_rel);
+			unit<uint64> Doubled := union_unit_uint64(.,.)
+			{
+				attribute<impl/c_Time_Stops>       c_Time_Stop_rel       := union_data(., ../c_FromTime_Stop_rel, ../c_ToTime_Stop_rel);
+			}
+		}
+		#include<MakeODs.dms>
+		
+		unit<uint32> BlockSelections := Impl/Stops
+		{
+			attribute<uint32> L_Weight      := uint32(pcount(OD_L/Result/From_Stop_rel));
+			attribute<uint32> K_Weight      := uint32(pcount(OD_K/Result/From_Stop_rel));
+			attribute<uint32> RO_Weight     := uint32(pcount(OD_R/Result/From_Stop_rel));
+			attribute<uint32> Cum_Weight    := cumulate(L_Weight + K_Weight + RO_Weight) - L_Weight - K_Weight - RO_Weight;
+		}	
+		unit<uint32>      BlockDomain   := range(0, ModelParameters/NumberOfBlocks)
+		{
+			attribute<string> name          := 'Block_'+string(id(.)+1)+'of'+string(max(id(.))+1);
+			attribute<uint64> BlockOffset   := min_elem(uint64(id(.)) * uint64(ModelParameters/MaxBlockSize), uint64(#BlockSelections));
+			attribute<uint64> BlockEnd      := min_elem(BlockOffset + uint64(ModelParameters/MaxBlockSize), uint64(#BlockSelections));
+			attribute<uint32> BlockSize     := uint32(BlockEnd - BlockOffset);
+			attribute<uint32> ClassBreak    := ClassifyEqualCount(BlockSelections/Cum_Weight, .);
+		}
 	} 
 
-
-	unit<uint32> PTnet_prep := =impl/PT_path_str+''
+	unit<uint64> uq_c_FromTime_Stop := unique_uint64(impl/All_Time_Stops/c_FromTime_Stop_rel), using = "impl"
 	{
-		attribute<bool>   IsSub_from := From_Time_rel >= impl/EersteVertrekMoment ;
-		attribute<bool>   IsSub_to   := To_Time_rel   < (impl/LaatsteVertrekMoment + (convert(ModelParameters/MaxTravelTime, s_f)[Time]));
-		attribute<bool>   IsSub_dur  := duration <= convert(ModelParameters/MaxTravelTime , s_f);
+		attribute<impl/c_Time_Stops> c_FromTime_Stop_rel      := values;
+		attribute<Time>              From_Time_rel            := value(c_FromTime_Stop_rel / uint64(#Stops), Time); //debug
+		attribute<Stops>             From_Stop_rel            := value(c_FromTime_Stop_rel % uint64(#Stops), Stops);//debug
+		attribute<string>            Label                    := Stops/name[From_Stop_rel]+' @ '+Time/TemplatableText[From_Time_rel];
 	}
-
-	container Set_R := Get_Windowed_Agency_Set_T(' &&  '+impl/PT_path_str+'/Agency_rel != Agencies/V/ns &&  '+impl/PT_path_str+'/Duration > 0f'), Descr = "subset of public transport net for the relevant time windows and agency-set.", using = "impl";
-	container Set_L := Get_Windowed_Agency_Set_T(' && ('+impl/PT_path_str+'/Agency_rel == Agencies/V/ns || ('+impl/PT_path_str+'/Mode_rel == impl/Modes/V/Waiting && IsDefined('+impl/PT_path_str+'/c_NS_start_end_rel))) && '+impl/PT_path_str+'/Duration > 0f');
-	container Set_K := Get_Windowed_Agency_Set_T(' && ('+impl/PT_path_str+'/Agency_rel == Agencies/V/ns || ('+impl/PT_path_str+'/Mode_rel == impl/Modes/V/Waiting && IsDefined('+impl/PT_path_str+'/c_NS_start_end_rel))) && '+impl/PT_path_str+'/Duration > 0f && '+impl/PT_path_str+'/IsConnectedToNSkortStation');
-
-	#include<MakeODs.dms>
-	#include<Transfers.dms>
-
-	container Keten_Generatie := 
-		for_each_ne(impl/ToBeCalculated_Ketens/name
-		, 	iif(impl/ToBeCalculated_Ketens/right == ''
-			, 'OD_'+impl/ToBeCalculated_Ketens/left
-			, 'KetenRijger_T(
-					'+impl/ToBeCalculated_Ketens/left+'/Result
-					,'+impl/ToBeCalculated_Ketens/right+'/Result
-					,Transfers/'+impl/ToBeCalculated_Ketens/transfer_name+'/Result
-					,'+Quote(impl/ToBeCalculated_Ketens/Left)+'
-					,'+Quote(impl/ToBeCalculated_Ketens/Right)+'
-					,ModelParameters/NumberOfBlocks
-				)' //e.g. er is een right 
-			) 
-		), using = "impl";
-
-	unit<uint64> ToegestaneKetens := ='union_unit_uint64('+AsItemList('Keten_Generatie/'+impl/Toegestane_Ketens/name+'/Result')+')', using = "impl"
+	unit<uint64> uq_c_ToTime_Stop   := unique_uint64(impl/All_Time_Stops/c_ToTime_Stop_rel), using = "impl"
 	{
-		attribute<Toegestane_Ketens>    Toegestane_Keten_rel        := ='union_data(., '+AsList('const('+string(id(Toegestane_Ketens))+', Keten_Generatie/'+Toegestane_Ketens/name+'/Result)', ',')+')';
-		attribute<c_Time_Stops>         c_FromTime_Stop_rel         := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/c_FromTime_Stop_rel')+')';
-		attribute<c_Time_Stops>         c_ToTime_Stop_rel           := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/c_ToTime_Stop_rel')+')';
-		attribute<ct>                   Price                       := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/Price')+')';
-		attribute<s>                    Traveltime                  := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/Traveltime')+')';
-		attribute<ct>                   Price_augm                  := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/Price_augm')+')';
-		attribute<uint32>               PriceTime_Score             := =ModelParameters/MinimiseCriterium == 'Price'
-																		? 'value(Price_augm, uint32) * value(ModelParameters/MaxTravelTime[s], uint32) + value(Traveltime, uint32)'
-																		: 'value(Traveltime, uint32) * 10000 + value(Price_augm, uint32)';
-		#include<OD_uq_attributen.dms>
-		
-		attribute<dam>                  TravelDist_Bus              := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/TravelDist_Bus')+')';
-		attribute<dam>                  Traveldist_Metro            := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/Traveldist_Metro')+')';
-		attribute<dam>                  Traveldist_Tram             := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/Traveldist_Tram')+')';
-		attribute<dam>                  Traveldist_Rail             := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/Traveldist_Rail')+')';
-		attribute<dam>                  Traveldist_Ferry            := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/Traveldist_Ferry')+')';
-		
-		unit<uint64>          OD_key_set    := combine_unit_uint64(uq_c_FromTime_Stop, uq_c_ToTime_Stop);
-		attribute<OD_key_set> OD_key        := combine_data(OD_key_set, uq_c_FromTime_Stop_rel, uq_c_ToTime_Stop_rel);
-		unit<uint64>          uq_OD_key     := unique(OD_key);
-		attribute<uq_OD_key>  uq_OD_key_rel := rlookup(OD_key, uq_OD_key/values); //attribuut om partitionering van price/traveltime etc te doen.
+		attribute<impl/c_Time_Stops> c_ToTime_Stop_rel        := values;
+		attribute<Time>              To_Time_rel              := value(c_ToTime_Stop_rel / uint64(#Stops), Time);//debug
+		attribute<Stops>             To_Stop_rel              := value(c_ToTime_Stop_rel % uint64(#Stops), Stops); //debug
+		attribute<string>            Label                    := Stops/name[To_Stop_rel]+' @ '+Time/TemplatableText[To_Time_rel];
+	}
+	unit<uint64> uq_c_Time_Stop   := unique_uint64(impl/All_Time_Stops/Doubled/c_Time_Stop_rel), using = "impl"
+	{
+		attribute<impl/c_Time_Stops> c_Time_Stop_rel        := values;
+		attribute<Time>              Time_rel               := value(c_Time_Stop_rel / uint64(#Stops), Time);//debug
+		attribute<Stops>             Stop_rel               := value(c_Time_Stop_rel % uint64(#Stops), Stops); //debug
+		attribute<string>            Label                  := Stops/name[Stop_rel]+' @ '+Time/TemplatableText[Time_rel];
 	} 
 	
-	unit<uint64> Write_Result := ToegestaneKetens/uq_OD_key
-	, StorageName = "=StorageName_Str"
-	, using = "impl;ToegestaneKetens"
-	{ 
-		attribute<ToegestaneKetens>     Min_Index                   := ='min_index(ToegestaneKetens/PriceTime_Score, ToegestaneKetens/uq_OD_key_rel)', DisableStorage = "true";
-		attribute<ct>                   Price                       := Min_Index -> Price;
-		attribute<ct>                   Price_augm                  := Min_Index -> Price_augm;
-		attribute<s>                    Traveltime                  := Min_Index -> Traveltime;
-		attribute<Toegestane_Ketens>    Toegestane_Keten_rel        := Min_Index -> Toegestane_Keten_rel;
+	unit<uint64> c_FromTS_ToTS      := combine_unit_uint64(uq_c_FromTime_Stop, uq_c_ToTime_Stop);
+
+	container KetenGeneratie_PerBlock :=
+		for_each_ne(
+			impl/BlockDomain/name
+			, 'KetenGeneratie_PerBlock_T('+string(id(impl/BlockDomain))+')'
+		), using = "impl";
 		
-		attribute<uq_c_FromTime_Stop>  uq_c_FromTime_Stop_rel     := value(uq_OD_key/values / #uq_c_ToTime_Stop, uq_c_FromTime_Stop), DisableStorage = "true";
-		attribute<uq_c_ToTime_Stop>    uq_c_ToTime_Stop_rel       := value(uq_OD_key/values % #uq_c_ToTime_Stop, uq_c_ToTime_Stop), DisableStorage = "true";
-		attribute<c_Time_Stops>        c_FromTime_Stop_rel        := uq_c_FromTime_Stop/c_FromTime_Stop_rel[uq_c_FromTime_Stop_rel];
-		attribute<c_Time_Stops>        c_ToTime_Stop_rel          := uq_c_ToTime_Stop/c_ToTime_Stop_rel[uq_c_ToTime_Stop_rel];
-		// attribute<Time>                 From_Time_rel            := value(c_FromTime_Stop_rel / uint64(#Stops), Time);
-		// attribute<Stops>               From_Stop_rel           := value(c_FromTime_Stop_rel % uint64(#Stops), Stops);
-		// attribute<Time>                 To_Time_rel              := value(c_ToTime_Stop_rel / uint64(#Stops), Time);
-		// attribute<Stops>               To_Place_rel             := value(c_ToTime_Stop_rel % uint64(#Stops), Stops); 
+	Template KetenGeneratie_PerBlock_T
+	{
+		parameter<BlockDomain> BlockDomain_id;
+		///
+		container StartCalc0{parameter<string> BlockDomain_name := BlockDomain/name[../BlockDomain_id], IntegrityCheck = "uint64(ModelParameters/MaxBlockSize) * uint64(ModelParameters/NumberOfBlocks) > uint64(#BlockSelections)";}
+		container StartCalc := PhaseContainer(StartCalc0, 'Start calculating '+string(StartCalc0/BlockDomain_name)+', with block size of '+string(BlockDomain/BlockSize[BlockDomain_id]));
 		
-		attribute<dam>                  TravelDist_Bus             := Min_Index -> TravelDist_Bus;
-		attribute<dam>                  Traveldist_Metro           := Min_Index -> Traveldist_Metro;
-		attribute<dam>                  Traveldist_Tram            := Min_Index -> Traveldist_Tram;
-		attribute<dam>                  Traveldist_Rail            := Min_Index -> Traveldist_Rail;
-		attribute<dam>                  Traveldist_Ferry           := Min_Index -> Traveldist_Ferry;
+		unit<uint64> Sub_OD_L := select_with_attr_by_cond(OD_L/Result, Classify(BlockSelections/Cum_Weight[OD_L/Result/From_Stop_rel], BlockDomain/ClassBreak) == BlockDomain_id)
+		{
+			unit<uint64> Result := .;
+		}
+		unit<uint64> Sub_OD_K := select_with_attr_by_cond(OD_K/Result, Classify(BlockSelections/Cum_Weight[OD_K/Result/From_Stop_rel], BlockDomain/ClassBreak) == BlockDomain_id)
+		{
+			unit<uint64> Result := .;
+		}
+		unit<uint64> Sub_OD_R := select_with_attr_by_cond(OD_R/Result, Classify(BlockSelections/Cum_Weight[OD_R/Result/From_Stop_rel], BlockDomain/ClassBreak) == BlockDomain_id)
+		{
+			unit<uint64> Result := .;
+		}
+		unit<uint64> Sub_OD_O := select_with_attr_by_cond(OD_O/Result, Classify(BlockSelections/Cum_Weight[OD_O/Result/From_Stop_rel], BlockDomain/ClassBreak) == BlockDomain_id)
+		{
+			unit<uint64> Result := .;
+		}
+		
+		#include<Transfers.dms>
+
+		container Keten_Generatie := 
+			for_each_ne(impl/ToBeCalculated_Ketens/name
+			, 	iif(impl/ToBeCalculated_Ketens/right == ''
+				, 'Sub_OD_'+impl/ToBeCalculated_Ketens/left
+				, 'KetenRijger_T(
+						'+impl/ToBeCalculated_Ketens/left+'/Result' //left unit
+						',OD_'+impl/ToBeCalculated_Ketens/right+'/Result' //right unit
+						',Transfers/'+impl/ToBeCalculated_Ketens/transfer_name+'/Result' //transfer unit
+						','+Quote(impl/ToBeCalculated_Ketens/Left)+ //left name str
+						','+Quote(impl/ToBeCalculated_Ketens/Right)+ //right name str
+					')' //e.g. er is een right 
+				) 
+			), using = "impl";
+			
+		unit<uint64> ToegestaneKetens := ='union_unit_uint64('+AsItemList('Keten_Generatie/'+impl/Toegestane_Ketens/name+'/Result')+')', using = "impl"
+		{
+			attribute<Toegestane_Ketens>    Toegestane_Keten_rel        := ='union_data(., '+AsList('const('+string(id(Toegestane_Ketens))+'[Toegestane_Ketens], Keten_Generatie/'+Toegestane_Ketens/name+'/Result)', ',')+')';
+			attribute<c_Time_Stops>         c_FromTime_Stop_rel         := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/c_FromTime_Stop_rel')+')';
+			attribute<c_Time_Stops>         c_ToTime_Stop_rel           := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/c_ToTime_Stop_rel')+')';
+			attribute<ct>                   Price                       := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/Price')+')';
+			attribute<s>                    Traveltime                  := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/Traveltime')+')';
+			attribute<s>                    WaitingAtStop_time          := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/WaitingAtStop_time')+')';
+			attribute<s>                    Walking_time                := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/Walking_time')+')';
+			attribute<ct>                   Price_augm                  := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/Price_augm')+')';
+			attribute<uint32>               PriceTime_Score             := =ModelParameters/MinimiseCriterium == 'Price'
+																			? 'value(Price_augm, uint32) * value(ModelParameters/MaxTravelTime[s], uint32) + value(Traveltime, uint32)'
+																			: 'value(Traveltime, uint32) * 10000 + value(Price_augm, uint32)';
+			attribute<uq_c_FromTime_Stop>   uq_c_FromTime_Stop_rel      := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/uq_c_FromTime_Stop_rel')+')';
+			attribute<uq_c_ToTime_Stop>     uq_c_ToTime_Stop_rel        := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/uq_c_ToTime_Stop_rel')+')';
+
+			// attribute<dam>                  TravelDist_Bus              := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/TravelDist_Bus')+')';
+			// attribute<dam>                  Traveldist_Metro            := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/Traveldist_Metro')+')';
+			// attribute<dam>                  Traveldist_Tram             := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/Traveldist_Tram')+')';
+			// attribute<dam>                  Traveldist_Rail             := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/Traveldist_Rail')+')';
+			// attribute<dam>                  Traveldist_Ferry            := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/Traveldist_Ferry')+')';
+			
+			attribute<c_FromTS_ToTS>        c_FromTS_ToTS_rel        := combine_data(c_FromTS_ToTS, uq_c_FromTime_Stop_rel, uq_c_ToTime_Stop_rel); //fka OD_key
+			unit<uint64>                    uq_c_FromTS_ToTS         := unique_uint64(c_FromTS_ToTS_rel); //fka uq_OD_key
+			attribute<uq_c_FromTS_ToTS>     uq_c_FromTS_ToTS_rel     := rlookup(c_FromTS_ToTS_rel, uq_c_FromTS_ToTS/values); //attribuut om partitionering van price/traveltime etc te doen. //fka uq_OD_key_rel
+		} 
+		
+		container x
+		: Descr = "hack om deadlock te omzeilen"
+		, URL = "https://github.com/ObjectVision/GeoDMS/issues/965"
+		{
+			unit<uint64> Result := ToegestaneKetens/uq_c_FromTS_ToTS
+			, using = "impl;ToegestaneKetens"
+			{ 
+				attribute<ToegestaneKetens>     Min_Index                   := ='min_index(ToegestaneKetens/PriceTime_Score, ToegestaneKetens/uq_c_FromTS_ToTS_rel)', DisableStorage = "true";
+				attribute<ct>                   Price                       := Min_Index -> Price;
+				attribute<ct>                   Price_augm                  := Min_Index -> Price_augm;
+				attribute<s>                    Traveltime                  := Min_Index -> Traveltime;
+				attribute<s>                    WaitingAtStop_time          := Min_Index -> WaitingAtStop_time;
+				attribute<s>                    Walking_time                := Min_Index -> Walking_time;
+				attribute<Toegestane_Ketens>    Toegestane_Keten_rel        := Min_Index -> Toegestane_Keten_rel;
+				
+				attribute<uq_c_FromTime_Stop>   uq_c_FromTime_Stop_rel      := value(uq_c_FromTS_ToTS/values / #uq_c_ToTime_Stop, uq_c_FromTime_Stop), DisableStorage = "true";
+				attribute<uq_c_ToTime_Stop>     uq_c_ToTime_Stop_rel        := value(uq_c_FromTS_ToTS/values % #uq_c_ToTime_Stop, uq_c_ToTime_Stop), DisableStorage = "true";
+				attribute<c_Time_Stops>         c_FromTime_Stop_rel         := uq_c_FromTime_Stop/c_FromTime_Stop_rel[uq_c_FromTime_Stop_rel];
+				attribute<c_Time_Stops>         c_ToTime_Stop_rel           := uq_c_ToTime_Stop/c_ToTime_Stop_rel[uq_c_ToTime_Stop_rel];
+				
+				// attribute<dam>                  TravelDist_Bus              := Min_Index -> TravelDist_Bus;
+				// attribute<dam>                  Traveldist_Metro            := Min_Index -> Traveldist_Metro;
+				// attribute<dam>                  Traveldist_Tram             := Min_Index -> Traveldist_Tram;
+				// attribute<dam>                  Traveldist_Rail             := Min_Index -> Traveldist_Rail;
+				// attribute<dam>                  Traveldist_Ferry            := Min_Index -> Traveldist_Ferry;
+				
+				attribute<Time>                 From_Time_rel            := value(c_FromTime_Stop_rel / uint64(#Stops), Time); //debug
+				attribute<Stops>                From_Stop_rel            := value(c_FromTime_Stop_rel % uint64(#Stops), Stops);//debug
+				attribute<Time>                 To_Time_rel              := value(c_ToTime_Stop_rel / uint64(#Stops), Time);//debug
+				attribute<Stops>                To_Stop_rel              := value(c_ToTime_Stop_rel % uint64(#Stops), Stops); //debug
+			}
+		}
+	 	container Fence := PhaseContainer(x, 'Calculated: '+string(StartCalc/BlockDomain_name));
 	}
+	
+	unit<uint64> Write_Result   := ='union_unit_uint64('+AsItemList('KetenGeneratie_PerBlock/'+impl/BlockDomain/name+'/Fence/Result')+')'
+	, StorageName = "=StorageName_Str"
+	, Descr = "Deze set bevat de geunionede resultaten per block."
+	, using = "impl"
+	{
+		attribute<Ct>                  Price                      := ='union_data(.,'+AsItemList('KetenGeneratie_PerBlock/'+BlockDomain/name+'/Fence/Result/Price')+')';
+		attribute<Ct>                  Price_augm                 := ='union_data(.,'+AsItemList('KetenGeneratie_PerBlock/'+BlockDomain/name+'/Fence/Result/Price_augm')+')';
+		attribute<s>                   Traveltime                 := ='union_data(.,'+AsItemList('KetenGeneratie_PerBlock/'+BlockDomain/name+'/Fence/Result/Traveltime')+')';
+		attribute<s>                   WaitingAtStop_time         := ='union_data(.,'+AsItemList('KetenGeneratie_PerBlock/'+BlockDomain/name+'/Fence/Result/WaitingAtStop_time')+')';
+		attribute<s>                   Walking_time               := ='union_data(.,'+AsItemList('KetenGeneratie_PerBlock/'+BlockDomain/name+'/Fence/Result/Walking_time')+')';
+		attribute<Toegestane_Ketens>   Toegestane_Keten_rel       := ='union_data(.,'+AsItemList('KetenGeneratie_PerBlock/'+BlockDomain/name+'/Fence/Result/Toegestane_Keten_rel')+')';
+		
+		// attribute<dam>                 TravelDist_Bus             := ='union_data(.,'+AsItemList('KetenGeneratie_PerBlock/'+BlockDomain/name+'/Fence/Result/TravelDist_Bus')+')';
+		// attribute<dam>                 Traveldist_Metro           := ='union_data(.,'+AsItemList('KetenGeneratie_PerBlock/'+BlockDomain/name+'/Fence/Result/Traveldist_Metro')+')';
+		// attribute<dam>                 Traveldist_Tram            := ='union_data(.,'+AsItemList('KetenGeneratie_PerBlock/'+BlockDomain/name+'/Fence/Result/Traveldist_Tram')+')';
+		// attribute<dam>                 Traveldist_Rail            := ='union_data(.,'+AsItemList('KetenGeneratie_PerBlock/'+BlockDomain/name+'/Fence/Result/Traveldist_Rail')+')';
+		// attribute<dam>                 Traveldist_Ferry           := ='union_data(.,'+AsItemList('KetenGeneratie_PerBlock/'+BlockDomain/name+'/Fence/Result/Traveldist_Ferry')+')';
+		attribute<c_Time_Stops>        c_FromTime_Stop_rel        := ='union_data(.,'+AsItemList('KetenGeneratie_PerBlock/'+BlockDomain/name+'/Fence/Result/c_FromTime_Stop_rel')+')';
+		attribute<c_Time_Stops>        c_ToTime_Stop_rel          := ='union_data(.,'+AsItemList('KetenGeneratie_PerBlock/'+BlockDomain/name+'/Fence/Result/c_ToTime_Stop_rel')+')';
+		
+		attribute<uq_c_FromTime_Stop>   uq_c_FromTime_Stop_rel      := rlookup(c_FromTime_Stop_rel, uq_c_FromTime_Stop/c_FromTime_Stop_rel), DisableStorage = "true";
+		attribute<uq_c_ToTime_Stop>     uq_c_ToTime_Stop_rel        := rlookup(c_ToTime_Stop_rel, uq_c_ToTime_Stop/c_ToTime_Stop_rel), DisableStorage = "true";
+	} 
 	
 	unit<uint64> Result
 	: StorageName = "=StorageName_Str"
@@ -181,8 +283,10 @@ container PublicTransport_Prep
 	, using = "impl"
 	{ 
 		attribute<ct>                   Price;
-		attribute<ct>                   Price_augm;
+		// attribute<ct>                   Price_augm;
 		attribute<s>                    Traveltime;
+		attribute<s>                    WaitingAtStop_time;
+		attribute<s>                    Walking_time;
 		attribute<Toegestane_Ketens>    Toegestane_Keten_rel;
 		
 		attribute<c_Time_Stops>         c_FromTime_Stop_rel;
@@ -192,21 +296,24 @@ container PublicTransport_Prep
 		attribute<Time>                 To_Time_rel              := value(c_ToTime_Stop_rel / uint64(#Stops), Time);
 		attribute<Stops>                To_Stop_rel              := value(c_ToTime_Stop_rel % uint64(#Stops), Stops); 
 		
-		attribute<Places>               From_Place_rel           := Stops/Place_rel[From_Stop_rel];
-		attribute<Places>               To_Place_rel             := Stops/Place_rel[To_Stop_rel];
-		attribute<c_Time_Places>        c_FromTime_Place_rel     := combine_data(c_Time_Places, From_Time_rel, From_Place_rel);
-		attribute<c_Time_Places>        c_ToTime_Place_rel       := combine_data(c_Time_Places, To_Time_rel, To_Place_rel);
+		attribute<Stops/c_Stop_Stop>    c_Stop_Stop_rel          := combine_data(Stops/c_Stop_Stop, From_Stop_rel, To_Stop_rel);
+		// attribute<Places>               From_Place_rel           := Stops/Place_rel[From_Stop_rel];
+		// attribute<Places>               To_Place_rel             := Stops/Place_rel[To_Stop_rel];
+		// attribute<c_Time_Places>        c_FromTime_Place_rel     := combine_data(c_Time_Places, From_Time_rel, From_Place_rel);
+		// attribute<c_Time_Places>        c_ToTime_Place_rel       := combine_data(c_Time_Places, To_Time_rel, To_Place_rel);
 		
-		attribute<dam>                  TravelDist_Bus;
-		attribute<dam>                  Traveldist_Metro;
-		attribute<dam>                  Traveldist_Tram;
-		attribute<dam>                  Traveldist_Rail;
-		attribute<dam>                  Traveldist_Ferry;
+		// attribute<dam>                  TravelDist_Bus;
+		// attribute<dam>                  Traveldist_Metro;
+		// attribute<dam>                  Traveldist_Tram;
+		// attribute<dam>                  Traveldist_Rail;
+		// attribute<dam>                  Traveldist_Ferry;
+		
+		attribute<uq_c_FromTime_Stop>   uq_c_FromTime_Stop_rel      := rlookup(c_FromTime_Stop_rel, uq_c_FromTime_Stop/c_FromTime_Stop_rel), DisableStorage = "true";
+		attribute<uq_c_ToTime_Stop>     uq_c_ToTime_Stop_rel        := rlookup(c_ToTime_Stop_rel, uq_c_ToTime_Stop/c_ToTime_Stop_rel), DisableStorage = "true";
 	}
 	
 	parameter<string>     StorageName_Str := '%LocalDataProjDir%/IntermediateResults/PT_Ketens_'+Time/TemplatableTextShrt[impl/EersteVertrekMoment]+'_to_'+Time/TemplatableTextShrt[impl/LaatsteVertrekMoment+convert(ModelParameters/MaxTravelTime,s_f)[Time]]+'_'+/ModelParameters/Analysis_date+'_min-'+ModelParameters/MinimiseCriterium+'_maxtransf-'+string(ModelParameters/Max_overstappen)+'.fss';
-		
-
+	
 	#include<KetenRijger_T.dms>
 	#include<CreateTransfers_T.dms>
 	#include<Get_Windowed_Agency_Set_T.dms>
