@@ -38,14 +38,16 @@ container PublicTransport_Prep
 			attribute<PT_net/SL_Places> SL_Places_rel := union_data(., id(PT_net/SL_Places), const(null_u, org), const(null_u, dest));
 			attribute<Stops>            Stop_rel      := PT_net/SL_Places/Stop_rel[SL_Places_rel];
 			attribute<Infrastructuur/OVprijzen/NS/NS_stations> NS_Stations_rel := Stops/NS_Stations_rel[Stop_rel];
-			attribute<TMT_Stops>                               TMT_Stop_rel    := invert(TMT_Stops/Place_rel);
+			attribute<RMT_Stops>                               RMT_Stop_rel    := invert(RMT_Stops/Place_rel);
+			attribute<RM_Stops>                                RM_Stop_rel     := invert(RM_Stops/Place_rel);
 			attribute<Tic_Stops>                               Tic_Stop_rel    := invert(Tic_Stops/Place_rel);
 			attribute<T_Stops>                                 T_Stop_rel      := invert(T_Stops/Place_rel);
 			
 			attribute<Stops>                                   Stops_rel       := Stop_rel;
 			attribute<T_Stops>                                 T_Stops_rel     := T_Stop_rel;
 			attribute<Tic_Stops>                               Tic_Stops_rel   := Tic_Stop_rel;
-			attribute<TMT_Stops>                               TMT_Stops_rel   := TMT_Stop_rel;
+			attribute<RMT_Stops>                               RMT_Stops_rel   := RMT_Stop_rel;
+			attribute<RM_Stops>                                RM_Stops_rel    := RM_Stop_rel;
 			attribute<OVF_Stops>                               OVF_Stops_rel   := invert(OVF_Stops/Place_rel);
 			
 			attribute<RegioIndelingen/CoropP> CoropP_rel := point_in_polygon(geometry, RegioIndelingen/CoropP/geometry);
@@ -62,7 +64,8 @@ container PublicTransport_Prep
 			attribute<RegioIndelingen/CoropP> CoropP_rel := point_in_polygon(geometry, RegioIndelingen/CoropP/geometry);
 			attribute<Places> Place_rel := invert(Places/stop_rel);
 		}
-		unit<uint32>        TMT_Stops              := select_with_attr_by_cond(Stops, Stops/Mode_rel == GTFS_Modes/Selectie/V/Rail || Stops/Mode_rel == GTFS_Modes/Selectie/V/Metro || Stops/Mode_rel == GTFS_Modes/Selectie/V/Tram);
+		unit<uint32>        RMT_Stops              := select_with_attr_by_cond(Stops, Stops/Mode_rel == GTFS_Modes/Selectie/V/Rail || Stops/Mode_rel == GTFS_Modes/Selectie/V/Metro || Stops/Mode_rel == GTFS_Modes/Selectie/V/Tram);
+		unit<uint32>        RM_Stops               := select_with_attr_by_cond(Stops, Stops/Mode_rel == GTFS_Modes/Selectie/V/Rail || Stops/Mode_rel == GTFS_Modes/Selectie/V/Metro);
 		unit<uint32>        T_Stops                := select_with_attr_by_cond(Stops, Stops/Mode_rel == GTFS_Modes/Selectie/V/Rail);
 		unit<uint32>        Tic_Stops              := select_with_attr_by_cond(Stops, Stops/IsNSICStation);
 		unit<uint32>        OVF_Stops              := select_with_attr_by_cond(Stops, Stops/IsOVFietsStation);
@@ -85,8 +88,8 @@ container PublicTransport_Prep
 		unit<uint32> PTnet_prep := =impl/PT_path_str+''
 		{
 			attribute<bool>   IsSub_from := From_Time_rel >= impl/EersteVertrekMoment ;
-			attribute<bool>   IsSub_to   := To_Time_rel   < (impl/LaatsteVertrekMoment + (convert(ModelParameters/MaxTravelTime, s_f)[Time]));
-			attribute<bool>   IsSub_dur  := duration <= convert(ModelParameters/MaxTravelTime , s_f);
+			attribute<bool>   IsSub_to   := To_Time_rel   < (impl/LaatsteVertrekMoment + (convert(ModelParameters/MaxOVTime, s_f)[Time]));//MaxTravelTime
+			attribute<bool>   IsSub_dur  := duration <= convert(ModelParameters/MaxOVTime , s_f);
 		}
 
 		container Set_R := Get_Windowed_Agency_Set_T(' &&  '+impl/PT_path_str+'/Agency_rel != Agencies/V/ns &&  '+impl/PT_path_str+'/Duration > 0f'), Descr = "subset of public transport net for the relevant time windows and agency-set.", using = "impl";
@@ -202,7 +205,7 @@ container PublicTransport_Prep
 			attribute<s>                    Walking_time                := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/Walking_time')+')';
 			attribute<ct>                   Price_augm                  := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/Price_augm')+')';
 			attribute<uint32>               PriceTime_Score             := =ModelParameters/MinimiseCriterium == 'Price'
-																			? 'value(Price_augm, uint32) * value(ModelParameters/MaxTravelTime[s], uint32) + value(Traveltime, uint32)'
+																			? 'value(Price_augm, uint32) * value(ModelParameters/MaxOVTime[s], uint32) + value(Traveltime, uint32)'
 																			: 'value(Traveltime, uint32) * 10000 + value(Price_augm, uint32)';
 			attribute<uq_c_FromTime_Stop>   uq_c_FromTime_Stop_rel      := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/uq_c_FromTime_Stop_rel')+')';
 			attribute<uq_c_ToTime_Stop>     uq_c_ToTime_Stop_rel        := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/uq_c_ToTime_Stop_rel')+')';
@@ -313,7 +316,7 @@ container PublicTransport_Prep
 		attribute<uq_c_ToTime_Stop>     uq_c_ToTime_Stop_rel        := rlookup(c_ToTime_Stop_rel, uq_c_ToTime_Stop/c_ToTime_Stop_rel);
 	}
 	
-	parameter<string>     StorageName_Str := '%LocalDataProjDir%/IntermediateResults/PT_Ketens_'+Time/TemplatableTextShrt[impl/EersteVertrekMoment]+'_to_'+Time/TemplatableTextShrt[impl/LaatsteVertrekMoment+convert(ModelParameters/MaxTravelTime,s_f)[Time]]+'_'+/ModelParameters/Analysis_date+'_min-'+ModelParameters/MinimiseCriterium+'_maxtransf-'+string(ModelParameters/Max_overstappen)+'.fss';
+	parameter<string>     StorageName_Str := '%LocalDataProjDir%/IntermediateResults/PT_Ketens_'+Time/TemplatableTextShrt[impl/EersteVertrekMoment]+'_to_'+Time/TemplatableTextShrt[impl/LaatsteVertrekMoment+convert(ModelParameters/MaxOVTime,s_f)[Time]]+'_'+/ModelParameters/Analysis_date+'_min-'+ModelParameters/MinimiseCriterium+'_maxtransf-'+string(ModelParameters/Max_overstappen)+'.fss';
 	
 	#include<KetenRijger_T.dms>
 	#include<CreateTransfers_T.dms>
