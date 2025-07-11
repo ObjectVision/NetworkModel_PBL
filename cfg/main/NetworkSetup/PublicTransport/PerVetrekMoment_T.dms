@@ -16,6 +16,7 @@ Template PerVetrekMoment_T
 		attribute<c_Time_Places>     c_FromTime_Place_rel        := org_rel -> Result/c_FromTime_Place_rel;
 		attribute<c_Time_Places>     c_ToTime_Place_rel          := org_rel -> Result/c_ToTime_Place_rel;
 		attribute<Places>            From_Place_rel              := value(c_FromTime_Place_rel % uint64(#Places), Places);
+		attribute<Time>              From_Time_rel               := value(c_FromTime_Place_rel / uint64(#Places), Time);
 		
 		attribute<dam>               TravelDist_Bus              := org_rel -> Result/TravelDist_Bus;
 		attribute<dam>               Traveldist_Metro            := org_rel -> Result/Traveldist_Metro;
@@ -33,10 +34,17 @@ Template PerVetrekMoment_T
 		attribute<Time>                                        V_From_Time_rel                  := const(inTime[Time],V)[V_rel];
 		attribute<Places>                                      V_From_Place_rel                 := V/From_Place_rel[V_rel];
 		attribute<Time>                                        V_To_Time_rel                    := V_From_Time_rel + V_time[Time];
-		
 		attribute<c_Time_Places>                               V_c_fromTime_Place_rel           := combine_data(c_Time_Places, V_From_Time_rel, V_From_Place_rel);
+		
+		attribute<Time>                                        PT_From_Time_rel                 := Within_VW_Window/From_Time_rel[PT_rel];
+		attribute<Places>                                      PT_From_Place_rel                := Within_VW_Window/From_Place_rel[PT_rel];
+		attribute<Stops>                                       PT_From_Stop_rel                 := Places/Stop_rel[PT_From_Place_rel];
 		attribute<c_Time_Places>                               PT_c_fromTime_Place_rel          := Within_VW_Window/c_fromTime_Place_rel[PT_rel];
 		attribute<c_Time_Places>                               PT_c_toTime_Place_rel            := Within_VW_Window/c_toTime_Place_rel[PT_rel];
+		
+		attribute<c_Time_Stops>                                PT_c_fromTime_Stop_rel           := combine_data(c_Time_Stops, PT_From_Time_rel, PT_From_Stop_rel);
+		attribute</SourceData/Infrastructuur/GTFS/RelevantSelection/ScheduledLinks>                                        IsPT_departureEvent_ActualPT0     := rlookup(PT_c_fromTime_Stop_rel, /SourceData/Infrastructuur/GTFS/RelevantSelection/ScheduledLinks/c_fromTime_Stop_rel);//debug
+		attribute<bool>                                        IsPT_departureEvent_ActualPT     := IsDefined(IsPT_departureEvent_ActualPT0);//debug
 		
 		attribute<Time>                                        StartWacht_Time_rel              := V_To_Time_rel;
 		attribute<Time>                                        EindWacht_Time_rel               := value(PT_c_fromTime_Place_rel / uint64(#Places), Time);
@@ -68,7 +76,7 @@ Template PerVetrekMoment_T
 																										, case(V_mode_rel == Modes/v/Cycling, V_time <= convert(ModelParameters/MaxCyclingTime_Org2Stops, s))
 																										, FALSE
 																									);
-		attribute<bool>                                        IsValid                          := Wachttijd_Time_rel <= ModelParameters/Advanced/MaxWachttijdThuis && IsVTimeNotTooLong;
+		attribute<bool>                                        IsValid                          := Wachttijd_Time_rel <= ModelParameters/Advanced/MaxWachttijdThuis && IsVTimeNotTooLong && IsPT_departureEvent_ActualPT;
 		
 		unit<uint64> Result := select_with_org_rel(IsValid)
 		{
