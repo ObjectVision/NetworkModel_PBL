@@ -10,7 +10,8 @@ Template KetenRijger_T
 	parameter<bool>   IsRight_RO    := left(RightStr, 1) == 'r' || left(RightStr, 1) == 'o';
 	parameter<bool>   IsLeft_NS     := IsDefined(strpos(LeftStr, 'l'))  || IsDefined(strpos(LeftStr, 'k'));
 	parameter<bool>   IsRight_NS    := left(RightStr, 1) == 'l' || left(RightStr, 1) == 'k';
-	
+	parameter<bool>   PriceCanBeReplaced := IsLeft_NS && IsRight_NS;
+
 	container StartCalc0{parameter<string> KetenName := Leftstr+RightStr;}
 	container StartCalc := PhaseContainer(StartCalc0, 'Start calculating '+string(StartCalc0/KetenName)+' for '+BlockDomain/name[BlockDomain_id]);
 	
@@ -86,8 +87,12 @@ Template KetenRijger_T
 		attribute<dam>              Right_TravelDist_Tram           := second_rel -> Traveldist_Tram;
 		attribute<dam>              Right_TravelDist_Rail           := second_rel -> Traveldist_Rail;
 		attribute<dam>              Right_TravelDist_Ferry          := second_rel -> Traveldist_Ferry;
-		
-		attribute<Ct>               Price                           := PriceNeedsToBeReplaced ? Left_price_NonNS + Price_NS : Left_price + Right_price, Descr = "te betalen prijs";
+
+		attribute<Ct>               SimplePriceCombination          := Left_price + Right_price;
+		attribute<Ct>               NS_PriceCombination             := Left_price_NonNS + Price_NS;
+		attribute<Ct>               OptinalNS_PriceCombination      := NOT(Right_IsNieuwePrijsReis) ? NS_PriceCombination : SimplePriceCombination, Descr = "Als beide zijden NS zijn, dan moet de prijs herbekenend worden. Want anders heb je twee opstartprijs en geen langeafstandskorting. Tenzij de overstap langer dan 35 minuten is.";
+
+		attribute<Ct>               Price                           := =PriceCanBeReplaced ? 'OptinalNS_PriceCombination' : 'SimplePriceCombination', Descr = "te betalen prijs";
 		attribute<Ct>               Price_augm                      := Left_price_augm + Left_Transfer_Walking_Time_cost + Left_Transfer_Waiting_Time_cost + Right_price_augm, Descr = "te betalen prijs, plus kosten voor tijd van vervoer/wachten die niet beprijst zijn. "; 
 		attribute<Ct>               Price_NonNS                     := =IsRight_RO ? 'Left_price_NonNS + Right_price' : 'Left_price_NonNS';
 		attribute<s>                Traveltime                      := Left_traveltime + Right_traveltime;
@@ -133,7 +138,6 @@ Template KetenRijger_T
 		attribute<Ct>               Price_NS                        := rounded_convert(rjoin(c_NS_start_end_rel
 																		, TariefEenhedenMatrix/c_NS_start_end_rel
 																		, TariefEenhedenMatrix/Prijs), Ct);
-		attribute<bool>             PriceNeedsToBeReplaced          := IsLeft_NS && IsRight_NS && NOT(Right_IsNieuwePrijsReis), Descr = "Als beide zijden NS zijn, dan moet de prijs herbekenend worden. Want anders heb je twee opstartprijs en geen langeafstandskorting. Tenzij de overstap langer dan 35 minuten is.";
 		attribute<bool>             IsDurationLongerThanAllowed     := Traveltime > convert(/ModelParameters/MaxOVTime, s);
 		attribute<uq_c_FromTime_Stop>   uq_c_FromTime_Stop_rel      := rlookup(c_FromTime_Stop_rel, uq_c_FromTime_Stop/values);
 		attribute<uq_c_ToTime_Stop>     uq_c_ToTime_Stop_rel        := rlookup(c_ToTime_Stop_rel, uq_c_ToTime_Stop/values);
