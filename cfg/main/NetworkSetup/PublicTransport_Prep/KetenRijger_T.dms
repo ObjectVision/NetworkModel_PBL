@@ -116,6 +116,7 @@ Template KetenRijger_T
 		attribute<Time>             Right_uitstap_tijd              := second_rel -> To_Time_rel, Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
 		attribute<Time>             Laatste_NS_Uitstap_Tijd         := =IsRight_NS ? 'Right_uitstap_tijd' : 'Left_Laatste_NS_Uitstap_Tijd';
 		attribute<Time>             Laatste_RO_Uitstap_Tijd         := =IsRight_RO ? 'Right_uitstap_tijd' : 'Left_Laatste_RO_Uitstap_Tijd';
+		attribute<Time>             RO_overstap_resttijd            := =IsRight_RO ? 'const(0[Time], .)' :'min_elem(Right_uitstap_tijd - Left_Laatste_RO_Uitstap_Tijd, ModelParameters/Advanced/MaxOverstapTijdVoorBasistarief + 1[Time])';
 		
 		attribute<c_Time_Stops>     c_fromTime_Stop_rel             := Left/c_fromTime_Stop_rel[left_rel];
 		attribute<c_Time_Stops>     c_toTime_Stop_rel               := Right/c_ToTime_Stop_rel[right_rel];
@@ -143,8 +144,32 @@ Template KetenRijger_T
 		attribute<uq_c_ToTime_Stop>     uq_c_ToTime_Stop_rel        := rlookup(c_ToTime_Stop_rel, uq_c_ToTime_Stop/values);
 		attribute<c_FromTS_ToTS>        OD_pair_rel                 := combine_data(c_FromTS_ToTS, uq_c_FromTime_Stop_rel, uq_c_ToTime_Stop_rel);
 	
-		unit<uint64> Valid := select_with_attr_by_cond(.,NOT(IsTravelToSameStop) && NOT(IsDurationLongerThanAllowed))
+		attribute<bool> Valid1_condition := NOT(IsTravelToSameStop) && NOT(IsDurationLongerThanAllowed);
+		unit<uint64> Valid1 := select(Valid1_condition)
 		{
+			attribute<Ct>   Price                := collect_by_cond(Valid1, Valid1_condition, ../Price);
+			attribute<Time> Right_uitstap_tijd   := collect_by_cond(Valid1, Valid1_condition, ../Right_uitstap_tijd);
+			attribute<Time> RO_overstap_resttijd := collect_by_cond(Valid1, Valid1_condition, ../RO_overstap_resttijd);
+			
+			attribute<c_FromTS_ToTS> OD_pair_rel := collect_by_cond(Valid1, Valid1_condition, ../OD_pair_rel);
+		
+			unit<uint64> pareto_vergelijker := join_equal_values_uint64(valid1/OD_pair_rel, valid1/OD_pair_rel)
+			{
+				attribute<bool> is_less_or_equal := 
+					=AsList('Valid1/'+ Classifications/ParetoAttr/Name+'[./first_rel] <= Valid1/'+Classifications/ParetoAttr/Name+'[./second_rel]',  ' && ');
+				attribute<bool> is_equal := 
+					=AsList('Valid1/'+ Classifications/ParetoAttr/Name+'[./first_rel] == Valid1/'+Classifications/ParetoAttr/Name+'[./second_rel]',  ' && ');
+					
+				attribute<bool> is_less := is_less_or_equal && not(is_equal);
+			}
+			attribute<bool> pareto_condition := const(false, Valid1); //not(any(pareto_vergelijker/is_less, pareto_vergelijker/second_rel));
+			attribute<bool> org_pareto_condition(..) := recollect_by_cond(Valid1_condition, pareto_condition, false);
+		}
+		
+		
+		unit<uint64> Valid := select_with_attr_by_cond(., Valid1/org_pareto_condition)
+		{
+//			attribute<uint64>       OD_pair_rel := collect_by_cond(Valid1/OD_Pair_rel, pareto_condition);
 			attribute<x/Result>     Result_rel                   := rlookup(OD_pair_rel, x/Result/values);
 		}
 	}
