@@ -2,175 +2,121 @@ Template KetenRijger_T
 {
 	unit<uint64> Left; 
 	unit<uint64> Right;
-	unit<uint64> Tranfers;
+	unit<uint64> Transfers;
 	
 	parameter<string> LeftStr;
 	parameter<string> RightStr;
 	////
-	parameter<bool>   IsRight_RO    := left(RightStr, 1) == 'r' || left(RightStr, 1) == 'o';
-	parameter<bool>   IsLeft_NS     := IsDefined(strpos(LeftStr, 'l'))  || IsDefined(strpos(LeftStr, 'k'));
-	parameter<bool>   IsRight_NS    := left(RightStr, 1) == 'l' || left(RightStr, 1) == 'k';
-	parameter<bool>   PriceCanBeReplaced := IsLeft_NS && IsRight_NS;
+	parameter<bool>   HasLeft_RO    := IsDefined(strpos(LeftStr , 'R'));
+	parameter<bool>   HasRight_RO   := IsDefined(strpos(RightStr, 'R'));
+	parameter<bool>   HasLeft_NS    := IsDefined(strpos(LeftStr , 'L')) || IsDefined(strpos(LeftStr, 'K'));
+	parameter<bool>   HasRight_NS   := IsDefined(strpos(RightStr, 'L')) || IsDefined(strpos(RightStr, 'K'));
+	
+	parameter<bool>   NS_overstap_mogelijk := HasLeft_NS && HasRight_NS;
+	parameter<bool>   RO_overstap_mogelijk := HasLeft_RO && HasRight_RO;
+
+	parameter<Time>   MaxOverstapTijdBinnenPrijsReis  := convert(/ModelParameters/Advanced/MaxOverstapTijdVoorBasistarief,s_f)[Time]; // MOVE to ModelParameters/Advanced
+
 
 	container StartCalc0{parameter<string> KetenName := Leftstr+RightStr;}
 	container StartCalc := PhaseContainer(StartCalc0, 'Start calculating '+string(StartCalc0/KetenName)+' for '+BlockDomain/name[BlockDomain_id]);
 	
-	unit<uint64> Join_Left_Transf   := join_equal_values_uint64(Left/uq_c_Time_Stop_To, Tranfers/uq_c_Time_Stop_From)
+	unit<uint64> Join_Left_Transf   := join_equal_values_uint64(Left/uq_c_ToTime_Stop_rel, Transfers/uq_c_Exit_rel)
 	, Descr = "join left To_rel met de de transfer from_rel"
 	{
-		attribute<Ct>               Left_price                  := first_rel -> Price;
-		attribute<Ct>               Left_price_NonNS            := first_rel -> Price_NonNS;
-		attribute<Ct>               Left_price_augm             := first_rel -> Price_augm;
-		attribute<s>                Left_traveltime             := first_rel -> Traveltime;
-		attribute<s>                Left_WaitingAtStop_time     := first_rel -> WaitingAtStop_time;
-		attribute<s>                Left_Walking_time           := first_rel -> Walking_Time;
-		
-		attribute<dam>              TravelDist_Bus              := first_rel -> TravelDist_Bus; 
-		attribute<dam>              Traveldist_Metro            := first_rel -> Traveldist_Metro; 
-		attribute<dam>              Traveldist_Tram             := first_rel -> Traveldist_Tram; 
-		attribute<dam>              Traveldist_Rail             := first_rel -> Traveldist_Rail; 
-		attribute<dam>              Traveldist_Ferry            := first_rel -> Traveldist_Ferry; 
-		
-		attribute<s>                Transfer_Transfer_time      := second_rel -> Transfer_time;
-		attribute<s>                Transfer_WaitingAtStop_time := second_rel -> WaitingAtStop_time;
-		attribute<s>                Transfer_Walking_time       := second_rel -> Walking_Time;
-		
-		attribute<Ct>               Transfer_Walking_Time_cost  := rounded_convert(Transfer_Walking_time[min_f] * ModelParameters/Transfer_Walking_Time_Costs, Ct);
-		attribute<Ct>               Transfer_Waiting_Time_cost  := rounded_convert(Transfer_WaitingAtStop_time[min_f] * ModelParameters/Transfer_Waiting_Time_Costs, Ct);
-		
-		attribute<s>                Traveltime                  := Left_traveltime + Transfer_Transfer_time, Descr = "OV-time + waiting at stop + transfer walking time";
-		attribute<s>                WaitingAtStop_time          := Left_WaitingAtStop_time + Transfer_WaitingAtStop_time; 
-		attribute<s>                Walking_time                := Left_Walking_time + Transfer_Walking_time;
- 
-		attribute<uq_c_Time_Stop>   Left_uq_c_Time_Stop_From    := first_rel -> uq_c_Time_Stop_From;
-		attribute<uq_c_Time_Stop>   Left_uq_c_Time_Stop_to      := first_rel -> uq_c_Time_Stop_To;
-		attribute<uq_c_Time_Stop>   Right_uq_c_Time_Stop_From   := second_rel -> uq_c_Time_Stop_From;
-		attribute<uq_c_Time_Stop>   Right_uq_c_Time_Stop_to     := second_rel -> uq_c_Time_Stop_To;
-	 	
-		attribute<NS_Stations>      First_NS_Station            := first_rel -> First_NS_Station, Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden wat de eerste en laaste ns-stations zijn.";
-		attribute<NS_Stations>      Last_NS_Station             := first_rel -> Last_NS_Station, Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden wat de eerste en laaste ns-stations zijn.";
-		attribute<Time>             Laatste_NS_Uitstap_Tijd     := first_rel -> Laatste_NS_Uitstap_Tijd, Descr = "om te kijken of een volgende NS rit lange afstandkorting moet behouden, moeten we de laatste uitstaptijd bijhouden";
-		attribute<Time>             Laatste_RO_Uitstap_Tijd     := first_rel -> Laatste_RO_Uitstap_Tijd, Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
-	
-		attribute<bool>             IsDurationLongerThanAllowed := Traveltime > convert(/ModelParameters/MaxOVTime, s);
-		
-		unit<uint64> Valid := select_with_attr_by_cond(., NOT(IsDurationLongerThanAllowed))
-		{
-		}
-	
+		attribute<Left>      Left_rel      := first_rel;
+		attribute<Transfers> Transfers_rel := second_rel;
 	}
 
-	unit<uint64> Join_LeftT_Right   := join_equal_values_uint64(Join_Left_Transf/Valid/Right_uq_c_Time_Stop_to, Right/uq_c_Time_Stop_From), Descr = "join Left+Transfer To_rel met de de Right from_rel"
+	unit<uint64> Join_LeftT_Right   := join_equal_values_uint64(Join_Left_Transf/transfers_rel->uq_c_Reboard_rel, Right/uq_c_FromTime_Stop_rel), Descr = "join Left+Transfer To_rel met de de Right from_rel"
 	, Descr = "deze set bevat alle mogelijke 'paden' en kan dus later geaggregeerd worden door group-by OD. En dus per OD-pair het kortste/goedkoopste pad te kiezen."
 	{
-		attribute<Ct>               Left_price_NonNS                := first_rel -> Left_price_NonNS;
-		attribute<Ct>               Left_price                      := first_rel -> Left_price;
-		attribute<Ct>               Left_price_augm                 := first_rel -> Left_price_augm;
-		attribute<Ct>               Left_Transfer_Walking_Time_cost := first_rel -> Transfer_Walking_Time_cost;
-		attribute<Ct>               Left_Transfer_Waiting_Time_cost := first_rel -> Transfer_Waiting_Time_cost;
-		attribute<s>                Left_traveltime                 := first_rel -> Traveltime;
-		attribute<s>                WaitingAtStop_time              := first_rel -> WaitingAtStop_time;  //nodig?
-		attribute<s>                Walking_time                    := first_rel -> Walking_time;  //nodig?
+		attribute<Left>             Left_rel                        := first_rel -> Left_rel;
+		attribute<Transfers>        Transfers_rel                   := first_rel -> Transfers_rel;
+		attribute<Right>            Right_rel                       := second_rel;
+					
+		attribute<s> Traveltime := Left_rel->traveltime + Transfers_rel->Transfer_Time+ Right_rel->traveltime;
+				
+		attribute<uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel := left_rel ->uq_c_FromTime_Stop_rel;
+		attribute<uq_c_ToTime_Stop>   uq_c_ToTime_Stop_rel   := right_rel->uq_c_ToTime_Stop_rel;
 		
-		attribute<dam>              Left_TravelDist_Bus             := first_rel -> TravelDist_Bus;
-		attribute<dam>              Left_TravelDist_Metro           := first_rel -> Traveldist_Metro;
-		attribute<dam>              Left_TravelDist_Tram            := first_rel -> Traveldist_Tram;
-		attribute<dam>              Left_TravelDist_Rail            := first_rel -> Traveldist_Rail;
-		attribute<dam>              Left_TravelDist_Ferry           := first_rel -> Traveldist_Ferry;
+		attribute<Stops> From_Stop_rel                   := value(uq_c_FromTime_Stop_rel->values % uint64(#Stops), Stops);
+		attribute<Stops> To_Stop_rel                     := value(uq_c_ToTime_Stop_rel  ->Values % uint64(#Stops), Stops);
 		
-		attribute<Ct>               Right_price                     := second_rel -> Price;
-		attribute<Ct>               Right_price_augm                := second_rel -> Price_augm;
-		attribute<s>                Right_traveltime                := second_rel -> Traveltime;
-		
-		attribute<dam>              Right_TravelDist_Bus            := second_rel -> TravelDist_Bus;
-		attribute<dam>              Right_TravelDist_Metro          := second_rel -> Traveldist_Metro;
-		attribute<dam>              Right_TravelDist_Tram           := second_rel -> Traveldist_Tram;
-		attribute<dam>              Right_TravelDist_Rail           := second_rel -> Traveldist_Rail;
-		attribute<dam>              Right_TravelDist_Ferry          := second_rel -> Traveldist_Ferry;
+		attribute<bool>  IsTravelToSameStop              := from_Stop_rel == To_Stop_rel;
 
-		attribute<Ct>               SimplePriceCombination          := Left_price + Right_price;
-		attribute<Ct>               NS_PriceCombination             := Left_price_NonNS + Price_NS;
-		attribute<Ct>               OptionalNS_PriceCombination     := NOT(Right_IsNieuwePrijsReis) ? NS_PriceCombination : SimplePriceCombination, Descr = "Als beide zijden NS zijn, dan moet de prijs herbekenend worden. Want anders heb je twee opstartprijs en geen langeafstandskorting. Tenzij de overstap langer dan 35 minuten is.";
+		attribute<bool> IsJourneyLongerThanAllowed     := Traveltime > convert(/ModelParameters/MaxOVTime, s);
 
-		attribute<Ct>               Price                           := =PriceCanBeReplaced ? 'OptionalNS_PriceCombination' : 'SimplePriceCombination', Descr = "te betalen prijs";
-		attribute<Ct>               Price_augm                      := Left_price_augm + Left_Transfer_Walking_Time_cost + Left_Transfer_Waiting_Time_cost + Right_price_augm, Descr = "te betalen prijs, plus kosten voor tijd van vervoer/wachten die niet beprijst zijn. "; 
-		attribute<Ct>               Price_NonNS                     := =IsRight_RO ? 'Left_price_NonNS + Right_price' : 'Left_price_NonNS';
-		attribute<s>                Traveltime                      := Left_traveltime + Right_traveltime;
-
-		attribute<dam>              TravelDist_Bus                  := Left_TravelDist_Bus + Right_TravelDist_Bus;
-		attribute<dam>              Traveldist_Metro                := Left_TravelDist_Metro + Right_TravelDist_Metro;
-		attribute<dam>              Traveldist_Tram                 := Left_TravelDist_Tram + Right_TravelDist_Tram;
-		attribute<dam>              Traveldist_Rail                 := Left_TravelDist_Rail + Right_TravelDist_Rail;
-		attribute<dam>              Traveldist_Ferry                := Left_TravelDist_Ferry + Right_TravelDist_Ferry;
+		attribute<bool> is_valid_connection := NOT(IsTravelToSameStop) && NOT(IsJourneyLongerThanAllowed);
+	}
+	
+	unit<uint64> JoinResult := select(Join_LeftT_Right/is_valid_connection)
+	{
+		attribute<Left>             Left_rel                        := collect_by_cond(JoinResult, Join_LeftT_Right/Left_rel);
+		attribute<Transfers>        Transfers_rel                   := collect_by_cond(JoinResult, Join_LeftT_Right/Transfers_rel);
+		attribute<Right>            Right_rel                       := collect_by_cond(JoinResult, Join_LeftT_Right/Right_rel);
 		
+		attribute<dam>              TravelDist_Bus                  := Left_rel -> TravelDist_Bus   + Right_rel -> TravelDist_Bus;
+		attribute<dam>              TravelDist_Metro                := Left_rel -> Traveldist_Metro + Right_rel -> Traveldist_Metro;
+		attribute<dam>              TravelDist_Tram                 := Left_rel -> Traveldist_Tram  + Right_rel -> Traveldist_Tram;
+		attribute<dam>              TravelDist_Rail                 := Left_rel -> Traveldist_Rail  + Right_rel -> Traveldist_Rail;
+		attribute<dam>              TravelDist_Ferry                := Left_rel -> Traveldist_Ferry + Right_rel -> Traveldist_Ferry;
+		
+		attribute<Ct>               Price_O                        := =RO_overstap_mogelijk ? 'Left_rel->price_O + Right_rel->price_O + (Left_rel->Laatste_RO_Uitstap_Tijd + MaxOverstapTijdBinnenPrijsReis >= Right_rel->Instaptijd_RO?const(0[Ct],.):Right_rel->Price_I)' : HasLeft_RO ? 'Left_rel->price_O' : HasRight_RO ? 'Right_rel->price_O' : 'const(9999[Ct], .)';
+		attribute<Ct>               Price_I                        := =HasLeft_RO ? 'Left_rel->price_I' : HasRight_RO ? 'Right_rel->price_I' : 'const(9999[Ct], .)';
+		attribute<Ct>               Price_T                         := Left_rel->Price_T + Transfers_rel->Time_cost + Right_rel->Price_T;
+		
+		// deze tussenstapppen zijn alleen nodig indien NS_overstap_mogelijk t.b.v. herberekeking van het treinkaartje
+		attribute<c_NS_start_end>   c_NS_start_end_rel              := =NS_overstap_mogelijk  ? 'combine_data(c_NS_start_end, left_rel ->First_NS_Station, right_rel-> Last_NS_Station)' : 'const(null_u, .)';
+		attribute<Ct>               Price_NS                        := =NS_overstap_mogelijk  ? 'rounded_convert(rjoin(c_NS_start_end_rel, TariefEenhedenMatrix/c_NS_start_end_rel, TariefEenhedenMatrix/Prijs), Ct)' : 'const(9999[Ct], .)' ;
+																		
+		attribute<bool>             NS_overstap_toegestaan         := =NS_overstap_mogelijk ? 'Left_rel->Laatste_NS_Uitstap_Tijd + MaxOverstapTijdBinnenPrijsReis >= Right_rel->Instaptijd_NS' : 'const(false,. )';
+		attribute<Ct>               Price_L                        := =NS_overstap_mogelijk ? 'NS_overstap_toegestaan ? Price_NS : Right_rel->Price_L' : HasLeft_NS ? 'Left_rel->price_L' : HasRight_NS ? 'Right_rel->price_L' : 'const(0[Ct], .)';
+		attribute<Ct>               Price_F_inherited              := ='Left_rel->Price_F' + (strlen(RightStr) > 1 ? '+ Rightrel->Price_F' : ''), Descr = "Final costs inherited from left and right sources";
+		attribute<Ct>               Price_F                        := =NS_overstap_mogelijk ? 'NS_overstap_toegestaan ? Price_F_inherited : Price_F_inherited + Left_rel->Price_L' : 'Price_F_inherited', Descr = "Final costs, not subject to subsequent recalculation";
+		
+		attribute<NS_Stations>      First_NS_Station               := =NS_overstap_mogelijk ? 'NS_overstap_toegestaan ? left_rel ->First_NS_Station : Right_rel->First_NS_Station' : HasRight_NS ? 'right_rel->First_NS_Station' : 'const(null_u,.)', Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden van de eerste en laaste ns-stations zijn.";
+		attribute<NS_Stations>      Last_NS_Station                := =HasRight_NS ? 'Right_rel->Last_NS_Station' : HasLeft_NS ? 'Left_rel->Last_NS_Station' : 'const(null_u,.)', Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden van de eerste en laaste ns-stations zijn.";
+		
+		attribute<uq_c_FromTime_Stop>   uq_c_FromTime_Stop_rel      := Left_rel ->uq_c_FromTime_Stop_rel;
+		attribute<uq_c_ToTime_Stop>     uq_c_ToTime_Stop_rel        := Right_rel->uq_c_ToTime_Stop_rel;
+		attribute<c_FromTS_ToTS>        OD_pair_rel                 := combine_data(c_FromTS_ToTS, uq_c_FromTime_Stop_rel, uq_c_ToTime_Stop_rel);
+		
+		
+		attribute<s>                TravelTime                      := collect_by_cond(JoinResult, Join_LeftT_Right/TravelTime);		
+		
+		attribute<Ct>               Price                           := Price_O + Price_I + Price_L + Price_F, Descr = "te betalen prijs";
+		attribute<Ct>               Price_augm                      := Price + Price_T, Descr = "te betalen prijs, plus kosten voor tijd van vervoer/wachten die niet beprijst zijn. "; 
 		attribute<uint32>           PriceTime_Score                 := =ModelParameters/MinimiseCriterium == 'Price'
 																		? 'value(Price_augm, uint32) * value(ModelParameters/MaxTravelTime[s], uint32) + value(Traveltime, uint32)'
 																		: 'value(Traveltime, uint32) * 10000 + value(Price_augm, uint32)';
-		
-		attribute<Left>             Left_rel                        := Join_Left_Transf/Valid/first_rel[first_rel];
-		attribute<Right>            Right_rel                       := second_rel;
-
-		attribute<Time>             Left_Laatste_NS_Uitstap_Tijd    := first_rel -> Laatste_NS_Uitstap_Tijd, Descr = "om te kijken of een volgende NS rit lange afstandkorting moet behouden, moeten we de laatste uitstaptijd bijhouden";
-		attribute<Time>             Left_Laatste_RO_Uitstap_Tijd    := first_rel -> Laatste_RO_Uitstap_Tijd, Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
-		attribute<Time>             Right_instap_tijd               := second_rel -> From_Time_rel, Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, of dat een nieuwe NS-rit begint moeten we de laatste uitstaptijd bijhouden";
-		attribute<Time>             Right_uitstap_tijd              := second_rel -> To_Time_rel, Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
-		attribute<Time>             Laatste_NS_Uitstap_Tijd         := =IsRight_NS ? 'Right_uitstap_tijd' : 'Left_Laatste_NS_Uitstap_Tijd';
-		attribute<Time>             Laatste_RO_Uitstap_Tijd         := =IsRight_RO ? 'Right_uitstap_tijd' : 'Left_Laatste_RO_Uitstap_Tijd';
-		
-		attribute<c_Time_Stops>     c_fromTime_Stop_rel             := Left/c_fromTime_Stop_rel[left_rel];
-		attribute<c_Time_Stops>     c_toTime_Stop_rel               := Right/c_ToTime_Stop_rel[right_rel];
-		
-		attribute<Stops>            Left_From_Stop_rel              := value(Left/c_fromTime_Stop_rel[left_rel] % uint64(#Stops), Stops); //debug
-		attribute<Stops>            Left_To_Stop_rel                := value(Left/c_ToTime_Stop_rel[left_rel] % uint64(#Stops), Stops); //debug
-		attribute<Stops>            Right_From_Stop_rel             := value(Right/c_fromTime_Stop_rel[right_rel] % uint64(#Stops), Stops); //debug
-		attribute<Stops>            Right_To_Stop_rel               := value(Right/c_ToTime_Stop_rel[right_rel] % uint64(#Stops), Stops); //debug
-		
-		attribute<Stops>            From_Stop_rel                   := value(Left/c_fromTime_Stop_rel[left_rel] % uint64(#Stops), Stops);
-		attribute<Stops>            To_Stop_rel                     := value(Right/c_ToTime_Stop_rel[right_rel] % uint64(#Stops), Stops);
-		attribute<bool>             IsTravelToSameStop              := from_Stop_rel == To_Stop_rel;
-
-		//recalc NS-prices
-		attribute<NS_Stations>      First_NS_Station                := =IsLeft_NS  ? 'first_rel ->First_NS_Station' : 'second_rel->First_NS_Station', Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden van de eerste en laaste ns-stations zijn.";
-		attribute<NS_Stations>      Last_NS_Station                 := =IsRight_NS ? 'second_rel-> Last_NS_Station' : 'first_rel -> Last_NS_Station', Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden van de eerste en laaste ns-stations zijn.";
-		attribute<bool>             Right_IsNieuwePrijsReis         := IsRight_NS && (Left_Laatste_NS_Uitstap_Tijd + MaxOverstapTijdBinnenPrijsReis < Right_instap_tijd);
-		parameter<Time>             MaxOverstapTijdBinnenPrijsReis  := convert(/ModelParameters/Advanced/MaxOverstapTijdVoorBasistarief,s_f)[Time];
-		attribute<c_NS_start_end>   c_NS_start_end_rel              := combine_data(c_NS_start_end, First_NS_Station, Last_NS_Station);
-		attribute<Ct>               Price_NS                        := rounded_convert(rjoin(c_NS_start_end_rel
-																		, TariefEenhedenMatrix/c_NS_start_end_rel
-																		, TariefEenhedenMatrix/Prijs), Ct);
-		attribute<bool>             IsDurationLongerThanAllowed     := Traveltime > convert(/ModelParameters/MaxOVTime, s);
-		attribute<uq_c_FromTime_Stop>   uq_c_FromTime_Stop_rel      := rlookup(c_FromTime_Stop_rel, uq_c_FromTime_Stop/values);
-		attribute<uq_c_ToTime_Stop>     uq_c_ToTime_Stop_rel        := rlookup(c_ToTime_Stop_rel, uq_c_ToTime_Stop/values);
-		attribute<c_FromTS_ToTS>        OD_pair_rel                 := combine_data(c_FromTS_ToTS, uq_c_FromTime_Stop_rel, uq_c_ToTime_Stop_rel);
-	
-		unit<uint64> Valid := select_with_attr_by_cond(.,NOT(IsTravelToSameStop) && NOT(IsDurationLongerThanAllowed))
-		{
-			attribute<x/Result>     Result_rel                   := rlookup(OD_pair_rel, x/Result/values);
-		}
+																		
+		attribute<Time>             Laatste_NS_Uitstap_Tijd         := =HasRight_NS ? 'Right_rel->Laatste_NS_Uitstap_Tijd' : 'Left_rel->Laatste_NS_Uitstap_Tijd';
+		attribute<Time>             Laatste_RO_Uitstap_Tijd         := =HasRight_RO ? 'Right_rel->Laatste_RO_Uitstap_Tijd' : 'Left_rel->Laatste_RO_Uitstap_Tijd';
+			
+		attribute<x/Result>     Result_rel                   := rlookup(OD_pair_rel, x/Result/values);
 	}
 	
 	container x
 	: Descr = "hack om deadlock te omzeilen"
 	, URL = "https://github.com/ObjectVision/GeoDMS/issues/965"
 	{
-		unit<uint64> Result := unique_uint64(Join_LeftT_Right/Valid/OD_pair_rel)
+		unit<uint64> Result := unique_uint64(JoinResult/OD_pair_rel)
 		, Descr = "Geaggregeerde set naar 'OD-paren' om minimalisatie criterium op toe te passen"
 		{
 			attribute<uq_c_FromTime_Stop>     uq_c_FromTime_Stop_rel      := union_data(., value(values / #uq_c_ToTime_Stop, uq_c_FromTime_Stop));
 			attribute<uq_c_ToTime_Stop>       uq_c_ToTime_Stop_rel        := union_data(., value(values % #uq_c_ToTime_Stop, uq_c_ToTime_Stop));
-			attribute<c_Time_Stops>           c_FromTime_Stop_rel         := union_data(., uq_c_FromTime_Stop/c_FromTime_Stop_rel[uq_c_FromTime_Stop_rel]);
-			attribute<c_Time_Stops>           c_ToTime_Stop_rel           := union_data(., uq_c_ToTime_Stop/c_ToTime_Stop_rel[uq_c_ToTime_Stop_rel]);
-			attribute<uq_c_Time_Stop>         uq_c_Time_Stop_From         := rlookup(c_FromTime_Stop_rel, uq_c_Time_Stop/values);
-			attribute<uq_c_Time_Stop>         uq_c_Time_Stop_to           := rlookup(c_ToTime_Stop_rel, uq_c_Time_Stop/values);
 			
-			attribute<Join_LeftT_Right/Valid> Min_Index                   := union_data(., min_index(Join_LeftT_Right/Valid/PriceTime_Score, Join_LeftT_Right/Valid/Result_rel));
-			attribute<Ct>                     Price                       := union_data(., Min_Index -> Price);
-			attribute<Ct>                     Price_NonNS                 := union_data(., Min_Index -> Price_NonNS);
+			
+			attribute<Ct>                     Price                         := union_data(., Min_Index -> Price  );
+			attribute<Ct>                     Price_O                       := union_data(., Min_Index -> Price_O);
+			attribute<Ct>                     Price_I                       := union_data(., Min_Index -> Price_I);
+			attribute<Ct>                     Price_F                       := union_data(., Min_Index -> Price_F);
+			attribute<Ct>                     Price_T                       := union_data(., Min_Index -> Price_T);
+			attribute<Ct>                     Price_L                       := union_data(., Min_Index -> Price_L);
 			attribute<Ct>                     Price_augm                  := union_data(., Min_Index -> Price_augm);
-			attribute<uint32>                 PriceTime_Score             := union_data(., Min_Index -> PriceTime_Score);
-			attribute<s>                      Traveltime                  := union_data(., Min_Index -> Traveltime);
-			attribute<s>                      WaitingAtStop_time          := union_data(., Min_Index -> WaitingAtStop_time);
-			attribute<s>                      Walking_time                := union_data(., Min_Index -> Walking_time);
+			
+			attribute<JoinResult> Min_Index                   := union_data(., min_index(JoinResult/PriceTime_Score, JoinResult/Result_rel));
 			
 			attribute<dam>                    TravelDist_Bus              := union_data(., Min_Index -> TravelDist_Bus);
 			attribute<dam>                    Traveldist_Metro            := union_data(., Min_Index -> Traveldist_Metro);
@@ -178,15 +124,13 @@ Template KetenRijger_T
 			attribute<dam>                    Traveldist_Rail             := union_data(., Min_Index -> Traveldist_Rail);
 			attribute<dam>                    Traveldist_Ferry            := union_data(., Min_Index -> Traveldist_Ferry);
 			
+			attribute<s>                      TravelTime                  := union_data(., Min_Index -> TravelTime);
+			
 			attribute<NS_Stations>            First_NS_Station            := union_data(., Min_Index -> First_NS_Station);
 			attribute<NS_Stations>            Last_NS_Station             := union_data(., Min_Index -> Last_NS_Station);
-			attribute<Right>                  Right_rel                   := union_data(., Min_Index -> Right_rel);
 			
-			attribute<Stops>                  From_Stop_rel               := value(c_fromTime_Stop_rel % uint64(#Stops), Stops); //debug
-			attribute<Stops>                  To_Stop_rel                 := value(c_ToTime_Stop_rel % uint64(#Stops), Stops); //debug
-			
-			attribute<Time>                   Laatste_NS_Uitstap_Tijd     := union_data(., Min_Index -> Laatste_NS_Uitstap_Tijd);
 			attribute<Time>                   Laatste_RO_Uitstap_Tijd     := union_data(., Min_Index -> Laatste_RO_Uitstap_Tijd), Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
+			attribute<Time>                   Laatste_NS_Uitstap_Tijd     := union_data(., Min_Index -> Laatste_NS_Uitstap_Tijd), Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
 		}
 	}
 	

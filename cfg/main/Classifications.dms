@@ -14,12 +14,12 @@ container Classifications: Using = "Units"
 		{
 			attribute<string> Values: 
 			[
-			'NS-kort'    , 'Rail'    ,'Nk',
-			'NS-lang'    , 'Rail'    ,'Nl',
-			'Niet-NS-OV' , ''        ,'R', //een groep waarin het opstaptarief blijft gelden bij overstappen (en je mits 30min overstapt). e.g. 1.08 euro voor bus betalen en daarna 'gratis' op de metro stappen.
-			'Transfer'   , 'Walking' ,'T',
-			'Walking'    , 'Walking' ,'W',
-			'Cycling'    , 'Cycling' ,'C'
+				'NS-kort'    , 'Rail'    ,'Nk',
+				'NS-lang'    , 'Rail'    ,'Nl',
+				'Niet-NS-OV' , ''        ,'R', //een groep waarin het opstaptarief blijft gelden bij overstappen (en je mits 35[min] overstapt). e.g. 1.08 euro voor bus betalen en daarna 'gratis' op de metro stappen.
+				'Transfer'   , 'Walking' ,'T',
+				'Walking'    , 'Walking' ,'W',
+				'Cycling'    , 'Cycling' ,'C'
 			];
 		}
 		
@@ -44,12 +44,12 @@ container Classifications: Using = "Units"
 			attribute<string> prev_name := MakeDefined(name[sub_or_null(id(.),1w)]+'/Result','TariefGroep');
 		}
 		
-		unit<uint16> TariefGroep := range(0w, 4w)
+		unit<uint16> TariefGroep := range(0w, 2w)
 		{
-			attribute<string> name          : ['r', 'o', 'l', 'k'];
+			attribute<string> name          : ['R', 'L'];
 			attribute<string> left          := name;
-			attribute<string> right         : ['', '', '', ''];
-			attribute<string> transfer_name : ['xxx','xxx','xxx','xxx'];
+			attribute<string> right         := const('', .);
+			attribute<string> transfer_name := const('xxx', .);
 		}
 
 		container Generate_keten_reeks := 
@@ -84,33 +84,28 @@ container Classifications: Using = "Units"
 			attribute<string> right                := right(name, strlen(name) - keten_breakpoint_pos);
 			attribute<string> transfer_name        := 'Transfers_'+right(left, 1)+'_'+left(right, 1);
 			
-			attribute<uint32> pos_first_r          := strpos(name, 'r');
-			attribute<uint32> pos_first_o          := strpos(name, 'o');
-			attribute<bool>   cond_ro              := IsDefined(pos_first_o) ? pos_first_r < pos_first_o : TRUE; // als er een o in zit, moet er een r voor zitten.
+			attribute<uint32> pos_first_R          := strpos(name, 'R');
 			
-			attribute<bool>   IsToegestaan         := NOT(IsDefined(strpos(Keten/name, 'kk'))) 
-														&& NOT(IsDefined(strpos(Keten/name, 'kl')))
-														&& NOT(IsDefined(strpos(Keten/name, 'lk')))
-														// && NOT(IsDefined(strpos(Keten/name, 'rr'))) //rr mag niet, dan zou de tweede altijd een o moeten zijn. EDIT: niet waar, je zou > 35min kunnen wachten.
-														// && NOT(IsDefined(strpos(Keten/name, 'or'))) //een r mag niet volgen direct na een o. EDIT: niet waar, je zou > 35min kunnen wachten.
-														// && NOT(left(Keten/name, 1) == 'o') //keten mag nooit beginnen met een o, je moet immers eerst betalen voor r; overbodig door cond_ro?
-														&& cond_ro;
-			unit<uint16> Toegestaan := select_with_attr_by_cond(.,IsToegestaan);
-
+			// attribute<bool>   IsToegestaan         := NOT(IsDefined(strpos(Keten/name, 'KK'))) 
+												   // && NOT(IsDefined(strpos(Keten/name, 'KL')))
+												   // && NOT(IsDefined(strpos(Keten/name, 'LK')));
+														// && NOT(IsDefined(strpos(Keten/name, 'RR'))) //rr mag niet, dan zou de tweede altijd een o moeten zijn. EDIT: niet waar, je zou > 35min kunnen wachten.
+														// && NOT(IsDefined(strpos(Keten/name, 'OR'))) //een r mag niet volgen direct na een o. EDIT: niet waar, je zou > 35min kunnen wachten.
+														// && NOT(left(Keten/name, 1) == 'O') //keten mag nooit beginnen met een o, je moet immers eerst betalen voor r; overbodig door cond_ro?
+														// && cond_ro
+												
+//			unit<uint16> Toegestaan := select_with_attr_by_cond(.,IsToegestaan);
 		}
 		
 		//NOTE: this could later fail due to missing indirect calculated needs. 
-		unit<uint16> ToBeCalculated_Keten := select_with_org_rel(
-													   Keten/IsToegestaan
-													|| IsDefined(rlookup(Keten/name, Keten/Toegestaan/right)) // je wilt evt een 'oo' wel toestaan als deze een subketen is.
-													|| IsDefined(rlookup(Keten/name, Keten/Toegestaan/left))  // je wilt evt een 'oo' wel toestaan als deze een subketen is.
-											)
-		{
-			attribute<string> name          := Keten/name[org_rel];
-			attribute<string> left          := Keten/left[org_rel];
-			attribute<string> right         := Keten/right[org_rel];
-			attribute<string> transfer_name := Keten/transfer_name[org_rel];
-		}
+		unit<uint16> ToBeCalculated := Keten, Descr = "Alle ketens die nodig zijn om langere ketens mee te maken of om reizen uit te kiezen.";
+		unit<uint16> Toegestaan := Keten, Descr = "Zonder ketens waaruit geen reizen samengesteld kunnen worden";
+		// {
+			// attribute<string> name          := Keten/name[org_rel];
+			// attribute<string> left          := Keten/left[org_rel];
+			// attribute<string> right         := Keten/right[org_rel];
+			// attribute<string> transfer_name := Keten/transfer_name[org_rel];
+		// }
 	}
 	
 	
