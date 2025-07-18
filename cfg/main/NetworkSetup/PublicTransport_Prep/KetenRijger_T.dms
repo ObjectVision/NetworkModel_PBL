@@ -11,6 +11,9 @@ Template KetenRijger_T
 	parameter<bool>   HasRight_RO   := IsDefined(strpos(RightStr, 'R'));
 	parameter<bool>   HasLeft_NS    := IsDefined(strpos(LeftStr , 'L')) || IsDefined(strpos(LeftStr, 'K'));
 	parameter<bool>   HasRight_NS   := IsDefined(strpos(RightStr, 'L')) || IsDefined(strpos(RightStr, 'K'));
+	parameter<bool>   Has_RO        := HasLeft_RO || HasRight_RO;
+	parameter<bool>   Has_NS        := HasLeft_NS || HasRight_NS;
+	parameter<bool>   HasBoth       := Has_RO && Has_NS;
 	
 	parameter<bool>   NS_overstap_mogelijk := HasLeft_NS && HasRight_NS;
 	parameter<bool>   RO_overstap_mogelijk := HasLeft_RO && HasRight_RO;
@@ -62,21 +65,31 @@ Template KetenRijger_T
 		attribute<dam>              TravelDist_Rail                 := Left_rel -> Traveldist_Rail  + Right_rel -> Traveldist_Rail;
 		attribute<dam>              TravelDist_Ferry                := Left_rel -> Traveldist_Ferry + Right_rel -> Traveldist_Ferry;
 		
-		attribute<Ct>               Price_O                        := =RO_overstap_mogelijk ? 'Left_rel->price_O + Right_rel->price_O + (Left_rel->Laatste_RO_Uitstap_Tijd + MaxOverstapTijdBinnenPrijsReis >= Right_rel->Instaptijd_RO?const(0[Ct],.):Right_rel->Price_I)' : HasLeft_RO ? 'Left_rel->price_O' : HasRight_RO ? 'Right_rel->price_O' : 'const(9999[Ct], .)';
-		attribute<Ct>               Price_I                        := =HasLeft_RO ? 'Left_rel->price_I' : HasRight_RO ? 'Right_rel->price_I' : 'const(9999[Ct], .)';
+		attribute<Ct>               Price_O                         := =RO_overstap_mogelijk ? 'Left_rel->price_O + Right_rel->price_O + (Left_rel->Laatste_RO_Uitstap_Tijd + MaxOverstapTijdBinnenPrijsReis >= Right_rel->Instaptijd_RO?const(0[Ct],.):Right_rel->Price_I)' : HasLeft_RO ? 'Left_rel->price_O' : HasRight_RO ? 'Right_rel->price_O' : 'const(9999[Ct], .)';
+		attribute<Ct>               Price_I                         := =HasLeft_RO ? 'Left_rel->price_I' : HasRight_RO ? 'Right_rel->price_I' : 'const(9999[Ct], .)';
 		attribute<Ct>               Price_T                         := Left_rel->Price_T + Transfers_rel->Time_cost + Right_rel->Price_T;
 		
-		// deze tussenstapppen zijn alleen nodig indien NS_overstap_mogelijk t.b.v. herberekeking van het treinkaartje
+		// deze tussenstapppen zijn alleen nodig indien NS_overstap_mogelijk t.b.v. herberekeking van het treinkaartje		
 		attribute<c_NS_start_end>   c_NS_start_end_rel              := =NS_overstap_mogelijk  ? 'combine_data(c_NS_start_end, left_rel ->First_NS_Station, right_rel-> Last_NS_Station)' : 'const(null_u, .)';
+				
 		attribute<Ct>               Price_NS                        := =NS_overstap_mogelijk  ? 'rounded_convert(rjoin(c_NS_start_end_rel, TariefEenhedenMatrix/c_NS_start_end_rel, TariefEenhedenMatrix/Prijs), Ct)' : 'const(9999[Ct], .)' ;
 																		
-		attribute<bool>             NS_overstap_toegestaan         := =NS_overstap_mogelijk ? 'Left_rel->Laatste_NS_Uitstap_Tijd + MaxOverstapTijdBinnenPrijsReis >= Right_rel->Instaptijd_NS' : 'const(false,. )';
-		attribute<Ct>               Price_L                        := =NS_overstap_mogelijk ? 'NS_overstap_toegestaan ? Price_NS : Right_rel->Price_L' : HasLeft_NS ? 'Left_rel->price_L' : HasRight_NS ? 'Right_rel->price_L' : 'const(0[Ct], .)';
-		attribute<Ct>               Price_F_inherited              := ='Left_rel->Price_F' + (strlen(RightStr) > 1 ? '+ Rightrel->Price_F' : ''), Descr = "Final costs inherited from left and right sources";
-		attribute<Ct>               Price_F                        := =NS_overstap_mogelijk ? 'NS_overstap_toegestaan ? Price_F_inherited : Price_F_inherited + Left_rel->Price_L' : 'Price_F_inherited', Descr = "Final costs, not subject to subsequent recalculation";
+		attribute<bool>             NS_overstap_toegestaan          := =NS_overstap_mogelijk ? 'Left_rel->Laatste_NS_Uitstap_Tijd + MaxOverstapTijdBinnenPrijsReis >= Right_rel->Instaptijd_NS' : 'const(false,. )';
+		attribute<bool>             NS_overstap_voordelig           := =NS_overstap_mogelijk ? right(LeftStr, 1)=='L'?'NS_overstap_toegestaan':'NS_overstap_toegestaan && IsDefined(Price_NS) && Price_NS < Left_rel->Price_L + Right_rel->Price_L' : 'const(false,. )';
+		attribute<Ct>               Price_L                         := =NS_overstap_mogelijk ? 'NS_overstap_voordelig ? Price_NS : Right_rel->Price_L' : HasLeft_NS ? 'Left_rel->price_L' : HasRight_NS ? 'Right_rel->price_L' : 'const(0[Ct], .)';
+		attribute<Ct>               Price_F_inherited               := ='Left_rel->Price_F' + (strlen(RightStr) > 1 ? '+ Right_rel->Price_F' : ''), Descr = "Final costs inherited from left and right sources";
+		attribute<Ct>               Price_F                         := =NS_overstap_mogelijk ? 'NS_overstap_voordelig ? Price_F_inherited : Price_F_inherited + Left_rel->Price_L' : 'Price_F_inherited', Descr = "Final costs, not subject to subsequent recalculation";
 		
-		attribute<NS_Stations>      First_NS_Station               := =NS_overstap_mogelijk ? 'NS_overstap_toegestaan ? left_rel ->First_NS_Station : Right_rel->First_NS_Station' : HasRight_NS ? 'right_rel->First_NS_Station' : 'const(null_u,.)', Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden van de eerste en laaste ns-stations zijn.";
-		attribute<NS_Stations>      Last_NS_Station                := =HasRight_NS ? 'Right_rel->Last_NS_Station' : HasLeft_NS ? 'Left_rel->Last_NS_Station' : 'const(null_u,.)', Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden van de eerste en laaste ns-stations zijn.";
+		attribute<NS_Stations>      First_NS_Station               : Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden van de eerste en laaste ns-stations zijn.",
+			=	= NS_overstap_mogelijk ? 'NS_overstap_voordelig ? left_rel ->First_NS_Station : Right_rel->First_NS_Station' 
+		        : HasRight_NS ? 'right_rel->First_NS_Station' 
+				: HasLeft_NS  ? 'left_rel->First_NS_Station' 
+				: 'const(null_u,.)';
+		attribute<NS_Stations>      Last_NS_Station                : Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden van de eerste en laaste ns-stations zijn.",
+			=	= HasRight_NS ? 'Right_rel->Last_NS_Station' 
+		        : HasLeft_NS ? 'Left_rel->Last_NS_Station' 
+				: 'const(null_u,.)';
+		
 		
 		attribute<uq_c_FromTime_Stop>   uq_c_FromTime_Stop_rel      := Left_rel ->uq_c_FromTime_Stop_rel;
 		attribute<uq_c_ToTime_Stop>     uq_c_ToTime_Stop_rel        := Right_rel->uq_c_ToTime_Stop_rel;
@@ -85,7 +98,7 @@ Template KetenRijger_T
 		
 		attribute<s>                TravelTime                      := collect_by_cond(JoinResult, Join_LeftT_Right/TravelTime);		
 		
-		attribute<Ct>               Price                           := Price_O + Price_I + Price_L + Price_F, Descr = "te betalen prijs";
+		attribute<Ct>               Price                           := = (Has_RO ? 'Price_O + Price_I ':'')+(HasBoth?'+':'')+(Has_NS?'Price_L':'')+(HasLeft_NS?' + Price_F':''), Descr = "te betalen prijs";
 		attribute<Ct>               Price_augm                      := Price + Price_T, Descr = "te betalen prijs, plus kosten voor tijd van vervoer/wachten die niet beprijst zijn. "; 
 		attribute<uint32>           PriceTime_Score                 := =ModelParameters/MinimiseCriterium == 'Price'
 																		? 'value(Price_augm, uint32) * value(ModelParameters/MaxTravelTime[s], uint32) + value(Traveltime, uint32)'
