@@ -52,9 +52,31 @@ Template KetenRijger_T
 		attribute<bool> IsJourneyLongerThanAllowed     := Traveltime > convert(/ModelParameters/MaxOVTime, s);
 
 		attribute<bool> is_valid_connection := NOT(IsTravelToSameStop) && NOT(IsJourneyLongerThanAllowed);
+
+		unit<uint64> Valid1 := select(is_valid_connection)
+		{
+			attribute<Time> TravelTime           := collect_by_cond(Valid1, Join_LeftT_RightTravelTime);
+			// attribute<Time> RO_overstap_resttijd := collect_by_cond(Valid1, Join_LeftT_Right/RO_overstap_resttijd);
+			
+			attribute<c_FromTS_ToTS> OD_pair_rel := collect_by_cond(Valid1, is_valid_connection, ../OD_pair_rel);
+			unit<uint32> OD_pair_enum := unique_uint32(OD_pair_rel);
+			attribute<OD_pair_enum> OD_pair_enum_rel := rlookup(OD_pair_rel, OD_pair_enum/values);
+		
+			unit<uint64> pareto_vergelijker := join_equal_values_uint64(valid1/OD_pair_enum_rel, valid1/OD_pair_enum_rel)
+			{
+				attribute<bool> is_less_or_equal := 
+					=AsList('Valid1/'+ Classifications/ParetoAttr/Name+'[./first_rel] <= Valid1/'+Classifications/ParetoAttr/Name+'[./second_rel]',  ' && ');
+				attribute<bool> is_equal := 
+					=AsList('Valid1/'+ Classifications/ParetoAttr/Name+'[./first_rel] == Valid1/'+Classifications/ParetoAttr/Name+'[./second_rel]',  ' && ');
+					
+				attribute<bool> is_less := is_less_or_equal && not(is_equal);
+			}
+			attribute<bool> pareto_condition := not(any(pareto_vergelijker/is_less, pareto_vergelijker/second_rel));
+		}
+		attribute<bool> valid_pareto_optimal := recollect_by_cond(is_valid_connection, Valid1/pareto_condition, false);		
 	}
 	
-	unit<uint64> JoinResult := select(Join_LeftT_Right/is_valid_connection)
+	unit<uint64> JoinResult := select(Join_LeftT_Right/valid_pareto_optimal)
 	{
 		attribute<Left>             Left_rel                        := collect_by_cond(JoinResult, Join_LeftT_Right/Left_rel);
 		attribute<Transfers>        Transfers_rel                   := collect_by_cond(JoinResult, Join_LeftT_Right/Transfers_rel);
