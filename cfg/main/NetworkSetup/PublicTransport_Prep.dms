@@ -172,13 +172,14 @@ container PublicTransport_Prep
 		{
 			attribute<Toegestane_Ketens>    Toegestane_Keten_rel        := ='union_data(., '+AsList('const('+string(id(Toegestane_Ketens))+'[Toegestane_Ketens], Keten_Generatie/'+Toegestane_Ketens/name+'/Result)', ',')+')';
 			attribute<ct>                   Price                       := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/Price')+')';
+			attribute<ct>                   Price_augm                  := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/Price_augm')+')';
 			attribute<s>                    Traveltime                  := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/Traveltime')+')';
 			// attribute<s>                    WaitingAtStop_time          := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/WaitingAtStop_time')+')';
 			// attribute<s>                    Walking_time                := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/Walking_time')+')';
-			attribute<ct>                   Price_augm                  := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/Price_augm')+')';
-			attribute<uint32>               PriceTime_Score             := =ModelParameters/MinimiseCriterium == 'Price'
-																			? 'value(Price_augm, uint32) * value(ModelParameters/MaxOVTime[s], uint32) + value(Traveltime, uint32)'
-																			: 'value(Traveltime, uint32) * 10000 + value(Price_augm, uint32)';
+			// attribute<uint32>               PriceTime_Score             := =ModelParameters/MinimiseCriterium == 'Price'
+																			// ? 'value(Price_augm, uint32) * value(ModelParameters/MaxOVTime[s], uint32) + value(Traveltime, uint32)'
+																			// : 'value(Traveltime, uint32) * 10000 + value(Price_augm, uint32)';
+																			
 			attribute<uq_c_FromTime_Stop>   uq_c_FromTime_Stop_rel      := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/uq_c_FromTime_Stop_rel')+')';
 			attribute<uq_c_ToTime_Stop>     uq_c_ToTime_Stop_rel        := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/uq_c_ToTime_Stop_rel')+')';
 
@@ -188,39 +189,60 @@ container PublicTransport_Prep
 			attribute<dam>                  Traveldist_Rail             := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/Traveldist_Rail')+')';
 			attribute<dam>                  Traveldist_Ferry            := ='union_data(., '+AsItemList('Keten_Generatie/'+Toegestane_Ketens/name+'/Result/Traveldist_Ferry')+')';
 			
-			attribute<c_FromTS_ToTS>        c_FromTS_ToTS_rel        := combine_data(c_FromTS_ToTS, uq_c_FromTime_Stop_rel, uq_c_ToTime_Stop_rel); //fka OD_key
-			attribute<BlockResultContainer/Result>BlockResultContainer_Result_rel   := rlookup(c_FromTS_ToTS_rel, BlockResultContainer/Result/Values); //attribuut om partitionering van price/traveltime etc te doen. //fka uq_OD_key_rel
+			attribute<c_FromTS_ToTS>        OD_pair_key        := combine_data(c_FromTS_ToTS, uq_c_FromTime_Stop_rel, uq_c_ToTime_Stop_rel); //fka OD_key
+			
+			unit<uint32> OD_pair := unique_uint32(OD_pair_key);
+			attribute<OD_pair> OD_pair_rel := rlookup(OD_pair_key, OD_pair/values);
+			
+//			attribute<BlockResultContainer/Result>BlockResultContainer_Result_rel   := rlookup(c_FromTS_ToTS_rel, BlockResultContainer/Result/Values); //attribuut om partitionering van price/traveltime etc te doen. //fka uq_OD_key_rel
+			
+			// do a pre-selection to limit the size of the pareto_candiate selection
+			attribute<ToegestaneKetens> good_candidate_of_OD(OD_Pair) := min_index(Price_augm, OD_pair_rel);
+			attribute<ToegestaneKetens> good_candidate_in_OD := good_candidate_of_OD[OD_pair_rel];
+			attribute<bool> le_to_good_candidate := 
+					=AsList(replace('@PA@ <= good_candidate_in_OD->@PA@', '@PA@', Classifications/ParetoAttr/Name), ' and ');
+			attribute<bool> eq_to_good_candidate := 
+					=AsList(replace('@PA@ == good_candidate_in_OD->@PA@', '@PA@', Classifications/ParetoAttr/Name), ' and ');
+			attribute<bool> is_also_good_candidate := le_to_good_candidate and (not(eq_to_good_candidate) or ID(.) <= good_candidate_in_OD);
+					
+			unit<uint64> Valid2 := select(is_also_good_candidate)
+			{
+				attribute<OD_Pair>    OD_pair_rel   := collect_by_cond(., ToegestaneKetens/OD_pair_rel);
+				attribute<s>          TravelTime    := collect_by_cond(., ToegestaneKetens/TravelTime);
+				attribute<Ct>         Price_augm    := collect_by_cond(., ToegestaneKetens/Price_augm);
+			}
+			unit<uint64> pareto_vergelijker := join_equal_values_uint64(Valid2/OD_pair_rel, Valid2/OD_pair_rel)
+			{
+				attribute<bool> is_less_or_equal := 
+					=AsList('Valid2/'+ Classifications/ParetoAttr/Name+'[./first_rel] <= Valid2/'+Classifications/ParetoAttr/Name+'[./second_rel]',  ' and ');
+				attribute<bool> is_equal := 
+					=AsList('Valid2/'+ Classifications/ParetoAttr/Name+'[./first_rel] == Valid2/'+Classifications/ParetoAttr/Name+'[./second_rel]',  ' and ');
+					
+				attribute<bool> is_less := is_less_or_equal && (not(is_equal) || first_rel < second_rel);
+			}
+			attribute<bool> Valid2_pareto_condition(Valid2) := not(any(pareto_vergelijker/is_less, pareto_vergelijker/second_rel));
+			attribute<bool> pareto_condition := recollect_by_cond(is_also_good_candidate, Valid2_pareto_condition, false);
 		} 
 		
 		container BlockResultContainer
 		: Descr = "hack om deadlock te omzeilen"
 		, URL = "https://github.com/ObjectVision/GeoDMS/issues/965"
 		{
-			unit<uint64> Result := unique_uint64(ToegestaneKetens/c_FromTS_ToTS_rel) //fka uq_OD_key
+			unit<uint64> Result := select(ToegestaneKetens/pareto_condition) //fka uq_OD_key
 			{ 
-				attribute<ToegestaneKetens>     Min_Index                   := min_index(ToegestaneKetens/PriceTime_Score, ToegestaneKetens/BlockResultContainer_Result_rel), DisableStorage = "true";
-				attribute<ct>                   Price                       := Min_Index -> Price;
-				attribute<ct>                   Price_augm                  := Min_Index -> Price_augm;
-				attribute<s>                    Traveltime                  := Min_Index -> Traveltime;
-				// attribute<s>                    WaitingAtStop_time          := Min_Index -> WaitingAtStop_time;
-				// attribute<s>                    Walking_time                := Min_Index -> Walking_time;
-				attribute<Toegestane_Ketens>    Toegestane_Keten_rel        := Min_Index -> Toegestane_Keten_rel;
+				attribute<ct>                   Price                       := collect_by_cond(., ToegestaneKetens/Price);
+				attribute<ct>                   Price_augm                  := collect_by_cond(., ToegestaneKetens/Price_augm);
+				attribute<s>                    Traveltime                  := collect_by_cond(., ToegestaneKetens/Traveltime);
+
+				attribute<Toegestane_Ketens>    Toegestane_Keten_rel        := collect_by_cond(., ToegestaneKetens/Toegestane_Keten_rel);
+				attribute<uq_c_FromTime_Stop>   uq_c_FromTime_Stop_rel      := collect_by_cond(., ToegestaneKetens/uq_c_FromTime_Stop_rel);
+				attribute<uq_c_ToTime_Stop>     uq_c_ToTime_Stop_rel        := collect_by_cond(., ToegestaneKetens/uq_c_ToTime_Stop_rel);
 				
-				attribute<uq_c_FromTime_Stop>   uq_c_FromTime_Stop_rel      := value(values / #uq_c_ToTime_Stop, uq_c_FromTime_Stop), DisableStorage = "true";
-				attribute<uq_c_ToTime_Stop>     uq_c_ToTime_Stop_rel        := value(values % #uq_c_ToTime_Stop, uq_c_ToTime_Stop), DisableStorage = "true";
-				// attribute<c_Time_Stops>         c_FromTime_Stop_rel         := uq_c_FromTime_Stop/c_FromTime_Stop_rel[uq_c_FromTime_Stop_rel];
-				// attribute<c_Time_Stops>         c_ToTime_Stop_rel           := uq_c_ToTime_Stop/c_ToTime_Stop_rel[uq_c_ToTime_Stop_rel];
-				
-				attribute<dam>                  TravelDist_Bus              := Min_Index -> TravelDist_Bus;
-				attribute<dam>                  Traveldist_Metro            := Min_Index -> Traveldist_Metro;
-				attribute<dam>                  Traveldist_Tram             := Min_Index -> Traveldist_Tram;
-				attribute<dam>                  Traveldist_Rail             := Min_Index -> Traveldist_Rail;
-				attribute<dam>                  Traveldist_Ferry            := Min_Index -> Traveldist_Ferry;
-				
-				// attribute<Time>                 From_Time_rel            := value(c_FromTime_Stop_rel / uint64(#Stops), Time); //debug
-				// attribute<Stops>                From_Stop_rel            := value(c_FromTime_Stop_rel % uint64(#Stops), Stops);//debug
-				// attribute<Time>                 To_Time_rel              := value(c_ToTime_Stop_rel / uint64(#Stops), Time);//debug
-				// attribute<Stops>                To_Stop_rel              := value(c_ToTime_Stop_rel % uint64(#Stops), Stops); //debug
+				attribute<dam>                  TravelDist_Bus              := collect_by_cond(., ToegestaneKetens/TravelDist_Bus);
+				attribute<dam>                  Traveldist_Metro            := collect_by_cond(., ToegestaneKetens/Traveldist_Metro);
+				attribute<dam>                  Traveldist_Tram             := collect_by_cond(., ToegestaneKetens/Traveldist_Tram);
+				attribute<dam>                  Traveldist_Rail             := collect_by_cond(., ToegestaneKetens/Traveldist_Rail);
+				attribute<dam>                  Traveldist_Ferry            := collect_by_cond(., ToegestaneKetens/Traveldist_Ferry);				
 			}
 		}
 	 	container Fence := PhaseContainer(BlockResultContainer, 'Calculated: '+string(StartCalc/BlockDomain_name));
