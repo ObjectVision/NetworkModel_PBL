@@ -87,6 +87,16 @@ Template KetenRijger_T
 			attribute<Ct>               Price                           := = (Has_RO ? 'Price_O + Price_I ':'')+(HasBoth?'+':'')+(Has_NS?'Price_L':'')+(HasLeft_NS?' + Price_F':''), Descr = "te betalen prijs";
 			attribute<Ct>               Price_augm                      := Price + Price_T;
 					
+			attribute<Time> resttijd_zonder_NS_overstap := 
+				= HasRight_NS ? 'MakeDefined(sub_or_null(impl/LaatsteAankomstMoment, right_rel->Laatste_NS_Uitstap_Tijd + MaxOverstapTijdBinnenPrijsReis), 0[Time])'
+				: HasLeft_NS ? 'MakeDefined(sub_or_null(impl/LaatsteAankomstMoment, iif(left_rel->Laatste_NS_Uitstap_Tijd + MaxOverstapTijdBinnenPrijsReis > right_rel->To_Time_rel, left_rel->Laatste_NS_Uitstap_Tijd + MaxOverstapTijdBinnenPrijsReis, 0[Time])), 0[Time])'
+				: 'const(impl/LaatsteAankomstMoment, .)';
+				
+			attribute<Time> resttijd_zonder_RO_overstap :=
+				= HasRight_RO ? 'MakeDefined(sub_or_null(impl/LaatsteAankomstMoment, right_rel->Laatste_RO_Uitstap_Tijd + MaxOverstapTijdBinnenPrijsReis), 0[Time])'
+				: HasLeft_RO ? 'MakeDefined(sub_or_null(impl/LaatsteAankomstMoment, iif(left_rel->Laatste_RO_Uitstap_Tijd + MaxOverstapTijdBinnenPrijsReis > right_rel->To_Time_rel, left_rel->Laatste_RO_Uitstap_Tijd + MaxOverstapTijdBinnenPrijsReis, 0[Time])), 0[Time])'
+				: 'const(impl/LaatsteAankomstMoment, .)';
+			
 			attribute<uq_c_FromTime_Stop>   uq_c_FromTime_Stop_rel      := Left_rel ->uq_c_FromTime_Stop_rel;
 			attribute<uq_c_ToTime_Stop>     uq_c_ToTime_Stop_rel        := Right_rel->uq_c_ToTime_Stop_rel;
 			attribute<c_FromTS_ToTS>        OD_pair_key                 := combine_data(c_FromTS_ToTS, uq_c_FromTime_Stop_rel, uq_c_ToTime_Stop_rel);
@@ -109,13 +119,15 @@ Template KetenRijger_T
 				attribute<OD_Pair>    OD_pair_rel   := collect_by_cond(., valid1/OD_pair_rel);
 				attribute<s>          TravelTime    := collect_by_cond(., Valid1/TravelTime);
 				attribute<Ct>         Price_augm    := collect_by_cond(., Valid1/Price_augm);
+				attribute<Time>       resttijd_zonder_NS_overstap    := collect_by_cond(., Valid1/resttijd_zonder_NS_overstap);
+				attribute<Time>       resttijd_zonder_RO_overstap    := collect_by_cond(., Valid1/resttijd_zonder_RO_overstap);
 			}
 			unit<uint64> pareto_vergelijker := join_equal_values_uint64(valid2/OD_pair_rel, valid2/OD_pair_rel)
 			{
 				attribute<bool> is_less_or_equal := 
-					=AsList('Valid2/'+ Classifications/ParetoAttr/Name+'[./first_rel] <= Valid2/'+Classifications/ParetoAttr/Name+'[./second_rel]',  ' and ');
+					=AsList('Valid2/'+ ParetoAttr/Name+'[./first_rel] <= Valid2/'+ParetoAttr/Name+'[./second_rel]',  ' and ');
 				attribute<bool> is_equal := 
-					=AsList('Valid2/'+ Classifications/ParetoAttr/Name+'[./first_rel] == Valid2/'+Classifications/ParetoAttr/Name+'[./second_rel]',  ' and ');
+					=AsList('Valid2/'+ ParetoAttr/Name+'[./first_rel] == Valid2/'+ParetoAttr/Name+'[./second_rel]',  ' and ');
 					
 				attribute<bool> is_less := is_less_or_equal && (not(is_equal) || first_rel < second_rel);
 			}
