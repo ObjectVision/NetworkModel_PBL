@@ -181,6 +181,7 @@ Template PerVetrekMoment_T
 		
 		attribute<uq_c_FromTime_Place>         uq_c_FromTime_Place_rel          := rlookup(c_fromTime_Place_rel, uq_c_FromTime_Place/Values);
 		attribute<uq_c_ToTime_Place>           uq_c_ToTime_Place_rel            := rlookup(c_toTime_Place_rel, uq_c_ToTime_Place/Values);
+		attribute<Places>                      ToPlace_rel                      := value(c_ToTime_Place_rel % uint64(#Places), Places);
 		
 		attribute<s>                           W_time                           := union_data(., Add_N_to_VPT/Result/W_time,  const(0w, Direct_OD, s));
 		attribute<s>                           V_time                           := union_data(., Add_N_to_VPT/Result/V_time,  Direct_OD/duration_seconds);
@@ -199,22 +200,54 @@ Template PerVetrekMoment_T
 		attribute<dam>                         Traveldist_Tram                  := union_data(., Add_N_to_VPT/Result/Traveldist_Tram, const(0w, Direct_OD, dam));
 		attribute<dam>                         Traveldist_Rail                  := union_data(., Add_N_to_VPT/Result/Traveldist_Rail, const(0w, Direct_OD, dam));
 		attribute<dam>                         Traveldist_Ferry                 := union_data(., Add_N_to_VPT/Result/Traveldist_Ferry, const(0w, Direct_OD, dam));
-		
-		attribute<uint32>                      PriceTime_Score                  := =ModelParameters/MinimiseCriterium == 'Price'
-																					? 'value(Price_augm, uint32) * value(ModelParameters/MaxTravelTime[s], uint32) + value(Traveltime, uint32)'
-																					: 'value(Traveltime, uint32) * 10000 + value(Price_augm, uint32)';
-																					
-		unit<uint64>          OD_key_set    := combine_unit_uint64(uq_c_FromTime_Place, uq_c_ToTime_Place);
-		attribute<OD_key_set> OD_key        := combine_data(OD_key_set, uq_c_FromTime_Place_rel, uq_c_ToTime_Place_rel);
+
+		unit<uint64>          OD_key_set    := combine_unit_uint64(uq_c_FromTime_Place, Places);
+		attribute<OD_key_set> OD_key        := combine_data(OD_key_set, uq_c_FromTime_Place_rel, ToPlace_rel);
 		unit<uint64>          uq_OD_key     := unique(OD_key);
 		attribute<uq_OD_key>  uq_OD_key_rel := rlookup(OD_key, uq_OD_key/values); //attribuut om partitionering van price/traveltime etc te doen.
+		
+		// issue #70 BEGIN
+		// do a pre-selection to limit the size of the pareto_candiate selection
+		attribute<.> good_candidate_of_OD(uq_OD_key) := min_index(Price_augm, uq_OD_key_rel);
+		attribute<.> good_candidate_in_OD := good_candidate_of_OD[uq_OD_key_rel];
+		
+		unit<uint8> ParetoAttr := Classifications/FinalParetoAttr;
+		
+		attribute<bool> pe_to_good_candidate := 
+				=AsList(replace('@PA@ < good_candidate_in_OD->@PA@', '@PA@', ParetoAttr/Name), ' or ');
+		attribute<bool> is_also_good_candidate := pe_to_good_candidate or (ID(.) == good_candidate_in_OD);
+				
+		unit<uint64> Valid2 := select(is_also_good_candidate)
+		{
+			attribute<uq_OD_key>  uq_OD_key_rel := collect_by_cond(., Union_with_DirectOD/uq_OD_key_rel);
+			attribute<s>          TravelTime    := collect_by_cond(., Union_with_DirectOD/TravelTime);
+			attribute<Ct>         Price_augm    := collect_by_cond(., Union_with_DirectOD/Price_augm);
+		}
+		unit<uint64> pareto_vergelijker := join_equal_values_uint64(Valid2/uq_OD_key_rel, Valid2/uq_OD_key_rel)
+		{
+			attribute<bool> is_less_or_equal := 
+				=AsList('Valid2/'+ ParetoAttr/Name+'[./first_rel] <= Valid2/'+ParetoAttr/Name+'[./second_rel]',  ' and ');
+			attribute<bool> is_equal := 
+				=AsList('Valid2/'+ ParetoAttr/Name+'[./first_rel] == Valid2/'+ParetoAttr/Name+'[./second_rel]',  ' and ');
+				
+			attribute<bool> is_less := is_less_or_equal && (not(is_equal) || first_rel < second_rel);
+		}
+		attribute<bool> Valid2_pareto_condition(Valid2) := not(any(pareto_vergelijker/is_less, pareto_vergelijker/second_rel));
+		attribute<bool> pareto_condition := recollect_by_cond(is_also_good_candidate, Valid2_pareto_condition, false);
+		// attribute<uint32>                      PriceTime_Score                  := =ModelParameters/MinimiseCriterium == 'Price'
+																					// ? 'value(Price_augm, uint32) * value(ModelParameters/MaxTravelTime[s], uint32) + value(Traveltime, uint32)'
+																					// : 'value(Traveltime, uint32) * 10000 + value(Price_augm, uint32)';
+		// issue #70 END
 	}
 	
-	unit<uint64> Result_withDuplicate_Places := Union_with_DirectOD/uq_OD_key
-	, Descr = "Set that still contains duplicate from/to places, arriving at different times. So we need to condense it one more time."
+	unit<uint64> Result_withDuplicate_Places := select_with_org_rel(Union_with_DirectOD/pareto_condition)
+	, Descr = "Set that still contains duplicate from places, departing at different times. So we need to condense it one more time."
 	{
-		attribute<Union_with_DirectOD/uq_c_FromTime_Place>  uq_c_FromTime_Place_rel     := value(values / uint64(#Union_with_DirectOD/uq_c_ToTime_Place), Union_with_DirectOD/uq_c_FromTime_Place);
-		attribute<Union_with_DirectOD/uq_c_ToTime_Place>    uq_c_ToTime_Place_rel       := value(values % uint64(#Union_with_DirectOD/uq_c_ToTime_Place), Union_with_DirectOD/uq_c_ToTime_Place);
+		// TODO: vervang gebruik min_index d.m.v. collect_by_cond 
+		attribute<Union_with_DirectOD> min_index := org_rel; 
+		
+		attribute<Union_with_DirectOD/uq_c_FromTime_Place>  uq_c_FromTime_Place_rel     := min_index->uq_c_FromTime_Place_rel;
+		attribute<Union_with_DirectOD/uq_c_ToTime_Place>    uq_c_ToTime_Place_rel       := min_index->uq_c_ToTime_Place_rel;
 		attribute<c_Time_Places>                            c_FromTime_Place_rel        := Union_with_DirectOD/uq_c_FromTime_Place/values[uq_c_FromTime_Place_rel];
 		attribute<c_Time_Places>                            c_ToTime_Place_rel          := Union_with_DirectOD/uq_c_ToTime_Place/values[uq_c_ToTime_Place_rel];
 		 
@@ -223,11 +256,11 @@ Template PerVetrekMoment_T
 		attribute<Time>                                     To_Time_rel                 := value(c_ToTime_Place_rel / uint64(#Places), Time);
 		attribute<Places>                                   To_Place_rel                := value(c_ToTime_Place_rel % uint64(#Places), Places);
 		
-		attribute<uint32>                                   PriceTime_Score             := =ModelParameters/MinimiseCriterium == 'Price'
-																							? 'value(Price_augm, uint32) * value(ModelParameters/MaxTravelTime[s], uint32) + value(Traveltime, uint32)'
-																							: 'value(Traveltime, uint32) * 10000 + value(Price_augm, uint32)';
+		// attribute<uint32>                                   PriceTime_Score             := =ModelParameters/MinimiseCriterium == 'Price'
+																							// ? 'value(Price_augm, uint32) * value(ModelParameters/MaxTravelTime[s], uint32) + value(Traveltime, uint32)'
+																							// : 'value(Traveltime, uint32) * 10000 + value(Price_augm, uint32)';
 		
-		attribute<Union_with_DirectOD>                      Min_Index                   := min_index(Union_with_DirectOD/PriceTime_Score, Union_with_DirectOD/uq_OD_key_rel);
+//		attribute<Union_with_DirectOD>                      Min_Index                   := min_index(Union_with_DirectOD/PriceTime_Score, Union_with_DirectOD/uq_OD_key_rel);
 
 		attribute<ct>                                       Price                       := Min_Index -> Price;
 		attribute<ct>                                       Price_augm                  := Min_Index -> Price_augm;
@@ -250,12 +283,46 @@ Template PerVetrekMoment_T
 		attribute<OD_key_set> OD_key        := combine_data(OD_key_set, From_Place_rel, To_Place_rel);
 		unit<uint64>          uq_OD_key     := unique(OD_key);
 		attribute<uq_OD_key>  uq_OD_key_rel := rlookup(OD_key, uq_OD_key/values); //attribuut om partitionering van price/traveltime etc te doen.
+		
+		// issue #70 BEGIN
+		attribute<.> good_candidate_of_OD(uq_OD_key) := min_index(Price_augm, uq_OD_key_rel);
+		attribute<.> good_candidate_in_OD := good_candidate_of_OD[uq_OD_key_rel];
+		
+		unit<uint8> ParetoAttr := Classifications/FinalParetoAttr;
+		
+		attribute<bool> pe_to_good_candidate := 
+				=AsList(replace('@PA@ < good_candidate_in_OD->@PA@', '@PA@', ParetoAttr/Name), ' or ');
+		attribute<bool> is_also_good_candidate := pe_to_good_candidate or (ID(.) == good_candidate_in_OD);
+				
+		unit<uint64> Valid2 := select(is_also_good_candidate)
+		{
+			attribute<uq_OD_key> uq_OD_key_rel   := collect_by_cond(., Result_withDuplicate_Places/uq_OD_key_rel);
+			attribute<s>         TravelTime    := collect_by_cond(., Result_withDuplicate_Places/TravelTime);
+			attribute<Ct>        Price_augm    := collect_by_cond(., Result_withDuplicate_Places/Price_augm);
+		}
+		unit<uint64> pareto_vergelijker := join_equal_values_uint64(Valid2/uq_OD_key_rel, Valid2/uq_OD_key_rel)
+		{
+			attribute<bool> is_less_or_equal := 
+				=AsList('Valid2/'+ ParetoAttr/Name+'[./first_rel] <= Valid2/'+ParetoAttr/Name+'[./second_rel]',  ' and ');
+			attribute<bool> is_equal := 
+				=AsList('Valid2/'+ ParetoAttr/Name+'[./first_rel] == Valid2/'+ParetoAttr/Name+'[./second_rel]',  ' and ');
+				
+			attribute<bool> is_less := is_less_or_equal && (not(is_equal) || first_rel < second_rel);
+		}
+		attribute<bool> Valid2_pareto_condition(Valid2) := not(any(pareto_vergelijker/is_less, pareto_vergelijker/second_rel));
+		attribute<bool> pareto_condition := recollect_by_cond(is_also_good_candidate, Valid2_pareto_condition, false);
+		// attribute<uint32>                      PriceTime_Score                  := =ModelParameters/MinimiseCriterium == 'Price'
+																					// ? 'value(Price_augm, uint32) * value(ModelParameters/MaxTravelTime[s], uint32) + value(Traveltime, uint32)'
+																					// : 'value(Traveltime, uint32) * 10000 + value(Price_augm, uint32)';
+		// issue #70 END
+		
 	}
 	
-	unit<uint64> Result := Result_withDuplicate_Places/uq_OD_key
+	unit<uint64> Result := select_with_org_rel(Result_withDuplicate_Places/pareto_condition)
 	, Descr = "Final set"
 	{
-		attribute<Result_withDuplicate_Places>              Min_Index                   := min_index(Result_withDuplicate_Places/PriceTime_Score, Result_withDuplicate_Places/uq_OD_key_rel);
+		// TODO: vervang gebruik min_index d.m.v. collect_by_cond 
+		attribute<Result_withDuplicate_Places>              Min_Index                   := org_rel; // min_index(Result_withDuplicate_Places/PriceTime_Score, Result_withDuplicate_Places/uq_OD_key_rel);
 		
 		attribute<ct>                                       Price                       := Min_Index -> Price;
 		attribute<ct>                                       Price_augm                  := Min_Index -> Price_augm;
@@ -309,8 +376,21 @@ Template PerVetrekMoment_T
 		container LongFormat
 		{
 			attribute<string>  BodyLines_fullOD (domain) := domain/OrgName + ';' + domain/DestName + ';' + Traveltime + ';' + Price + ';' + ModeUsed + ';' + TravelDist_Bus + ';' + Traveldist_Metro + ';' + Traveldist_Tram + ';' + Traveldist_Rail + ';' + Traveldist_Ferry + ';' + W_time + ';' + V_time + ';' + PT_time + ';' + N_time;
-			parameter<string>  File_fullOD               := 'OrgName;DestName;Traveltime_'+inTime_string+';Price_'+inTime_string+';ModeUsed_'+inTime_string+';TravelDist_Bus_'+inTime_string+';Traveldist_Metro_'+inTime_string+';Traveldist_Tram_'+inTime_string+';Traveldist_Rail_'+inTime_string+';Traveldist_Ferry_'+inTime_string+';WaitingTime_'+inTime_string+';VoortransTime_'+inTime_string+';PTTime_'+inTime_string+';NatransTime_'+inTime_string+'\n'++AsList(BodyLines_fullOD, '\n')
-																, StorageName = "=fileNamePrefix+'tt'+fileNameSuffix +'.csv'", StorageType = "str";
+			parameter<string>  File_fullOD               := 
+				'OrgName;DestName;Traveltime_'+inTime_string+
+				';Price_'+inTime_string+
+				';ModeUsed_'+inTime_string+
+				';TravelDist_Bus_'+inTime_string+
+				';Traveldist_Metro_'+inTime_string+
+				';Traveldist_Tram_'+inTime_string+
+				';Traveldist_Rail_'+inTime_string+
+				';Traveldist_Ferry_'+inTime_string+
+				';WaitingTime_'+inTime_string+
+				';VoortransTime_'+inTime_string+
+				';PTTime_'+inTime_string+
+				';NatransTime_'+inTime_string+'\n'+
+				AsList(BodyLines_fullOD, '\n')
+			,	StorageName = "=fileNamePrefix+'tt'+fileNameSuffix +'.csv'", StorageType = "str";
 		
 			// attribute<string>  BodyLines_decay     (org) := org/name + ';' + string(nr_items_of_interest_bereikbaar_decayed);
 			// parameter<string>  File_decay                := 'Org;'+ModelParameters/Advanced/items_of_interest+'_'+inTime_string+'\n'++AsList(BodyLines_decay, '\n')
@@ -337,7 +417,7 @@ Template PerVetrekMoment_T
 			'_ORG-'    + ModelParameters/Orgset + '-' + regio_name_if_enkel_sub + 
 			'_DEST-'   + ModelParameters/Advanced/DestSet_string +
 			'_Trsf-' + string(ModelParameters/Max_overstappen) +
-			'_MinCrit-' + ModelParameters/MinimiseCriterium +
+			'_MinCrit-' + AsList(Classifications/FinalParetoAttr/FileNameElement, '_') +
 			'_MaxOV-' + string(ModelParameters/MaxOVTime) + 'min'
 			;
 			
