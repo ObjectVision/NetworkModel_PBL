@@ -23,7 +23,7 @@
 	parameter<min_f>    MaxWalkingTime_Org2Stops          := 15[min_f]              , Descr = "Maximum walking time from origin towards first stop";
 	parameter<min_f>    MaxWalkingTime_Org2RMT_Stops      := 15[min_f]              , Descr = "Maximum walking time from origin towards first rail, metro, or tram stop";
 	parameter<min_f>    MaxWalkingTime_Org2RM_Stops       := 15[min_f]              , Descr = "Maximum walking time from origin towards first rail, metro, or tram stop";
-	parameter<min_f>    MaxWalkingTime_Org2Tic_Stops      := 15[min_f]              , Descr = "Maximum walking time from origin towards first InterCity train station";
+	parameter<min_f>    MaxWalkingTime_Org2Ric_Stops      := 15[min_f]              , Descr = "Maximum walking time from origin towards first InterCity train station";
 	parameter<min_f>    MaxWalkingTime_Stops2Dest         := 15[min_f]              , Descr = "Maximum walking time from last stop towards destination";
 	parameter<min_f>    MaxWalkingTime_OVF_Stops2Dest     := 15[min_f]              , Descr = "Maximum walking time from last stop which is an OV-fiets station towards destination";
 	
@@ -31,7 +31,7 @@
 	parameter<min_f>    MaxCyclingTime_Org2Stops          := 15[min_f]              , Descr = "Maximum cycling time from origin towards first stop";
 	parameter<min_f>    MaxCyclingTime_Org2RMT_Stops      := 15[min_f]              , Descr = "Maximum cycling time from origin towards first rail, metro, or tram stop";
 	parameter<min_f>    MaxCyclingTime_Org2RM_Stops       := 15[min_f]              , Descr = "Maximum cycling time from origin towards first rail, metro, or tram stop";
-	parameter<min_f>    MaxCyclingTime_Org2Tic_Stops      := 15[min_f]              , Descr = "Maximum cycling time from origin towards first InterCity train station";
+	parameter<min_f>    MaxCyclingTime_Org2Ric_Stops      := 15[min_f]              , Descr = "Maximum cycling time from origin towards first InterCity train station";
 	parameter<min_f>    MaxCyclingTime_Stops2Dest         := 15[min_f]              , Descr = "Maximum cycling time from origin towards first stop";
 	parameter<min_f>    MaxCyclingTime_OVF_Stops2Dest     := 15[min_f]              , Descr = "Maximum cycling time from last stop which is an OV-fiets station towards destination";
 	
@@ -78,11 +78,12 @@
 		// PUBLIC TRANSPORT
 		parameter<m>        MaxTransferDist                           := 500[m], Descr = "Maximum Euclidean distance between public transport stops that is allowed to be walked for transfers.";
 		parameter<string>   Concessiegebied_jaar                      := 'Y2024', Descr = "Which year of the concession areas would you like to use? Relevant for public transport price determination.";
+		parameter<string>   Concessiegebied_source                    := 'manual', Descr = "Use manual creation of concessiegebieden (based on CROW poster), or shapefile from CROW. Options:  manual, shape";
 		parameter<m>        DistanceTrainStationsSelection            := 350[m], Descr = "To find out which GTFS-stops relate to which trainstation a geographic search distance is used.";
 		parameter<m>        DistanceStopClusters                      := 100[m], Descr = "To cluster stops which belong to the same 'stop' a geographic search distance is used. Stops in opposite directions should be considered the same stop cluster. Travelling from stops within a cluster is non-sensical.";
 		parameter<m>        DistanceOVFietsStops                      := 200[m], Descr = "";
 		parameter<min_f>    MaxOverstapTijdVoorBasistarief            := 35[min_f], Descr = "";
-		parameter<bool>     AllowDirectCyclingOverWalking             := FALSE, Descr = "Direct walking is the minimum, however, directly cycling may also be an option";
+		parameter<bool>     AllowDirectCyclingOverWalking             := TRUE, Descr = "Direct walking is the minimum, however, directly cycling may also be an option";
 		parameter<m_s>      TransferEffectiveSpeed                    := value(4[km_hr] / 1.2f, m_s), Descr = "";           //De loopsnelheid tijdens het overstappen. X km/uur / 1.2 (correctie voor Manhattan distances) en dan geconverteerd naar meter/sec.
 		parameter<uint16>   WachttijdThuisMeetellen                   := 0w, Descr = "";                                      //Wil je dat de wachttijd thuis wordt meegenomen in de totale reisduur, bij vertrektijd vanaf bepaald moment? 1=ja
 		parameter<Time>     MaxWachttijdThuis                         := 300[Time], Descr = "";                               //Maximale wachttijd thuis, als WegingWachttijdThuisVoortransport > 0. Uitdrukt in Time = seconden.
@@ -117,41 +118,51 @@
 																		: 'SourceData/RegioIndelingen/NL', Descr = ""; // Als je getiled wilt rekenen, zorgt dit dat je verwijst naar die tiling, of naar heel NL in één keer.
 		unit<uint32>        RegioIndeling                             := ='SourceData/RegioIndelingen/'+Regio_voor_Tiling, Descr = "";
 		
-		unit<uint8> OV_Voortransport_Typen : nrofrows = 1 
+		unit<uint8> OV_Voortransport_Typen : nrofrows = 2 
 		, Descr = "Select here the to be considered pre-transport options. 
-					RMT=Rail+Metro+Tram, OVF=OV-fiets, Tic=InterCity station"
+					RMT=Rail+Metro+Tram, OVF=OV-fiets, Ric=InterCity station"
 		{
 			attribute<TimeInvariantTypes> TimeInvariantTypes_rel := 
 				union_data(.,
 					 TimeInvariantTypes/V/Org2Stops_Walking
 					// ,TimeInvariantTypes/V/Org2Stops_Cycling
-					// ,TimeInvariantTypes/V/Org2RMT_Stops_Cycling
+					,TimeInvariantTypes/V/Org2RMT_Stops_Cycling
 					// ,TimeInvariantTypes/V/Org2RM_Stops_Cycling
-					// ,TimeInvariantTypes/V/Org2Tic_Stops_Cycling
+					// ,TimeInvariantTypes/V/Org2Ric_Stops_Cycling
 				);
-			attribute<string> name    := TimeInvariantTypes/name[TimeInvariantTypes_rel];
-			attribute<min_f>  MaxTime := TimeInvariantTypes/MaxTime[TimeInvariantTypes_rel];
+			attribute<string> name        := TimeInvariantTypes/name[TimeInvariantTypes_rel];
+			attribute<string> Mode_abbrev := TimeInvariantTypes/Mode_abbrev[TimeInvariantTypes_rel];
+			attribute<min_f>  MaxTime     := TimeInvariantTypes/MaxTime[TimeInvariantTypes_rel];
+			attribute<string> StopClass   := TimeInvariantTypes/StopClass[TimeInvariantTypes_rel];
+			
+			attribute<string> StopClass_  := StopClass != '' ? '_'+StopClass : '';
+			attribute<string> ExportName  := Mode_abbrev + StopClass_;
 		}
-		unit<uint8> OV_Natransport_Typen : nrofrows = 1 
+		unit<uint8> OV_Natransport_Typen : nrofrows = 2 
 		, Descr = "Select here the to be considered post-transport options. 
-					RMT=Rail+Metro+Tram, OVF=OV-fiets, Tic=InterCity station"
+					RMT=Rail+Metro+Tram, OVF=OV-fiets, Ric=InterCity station"
 		{
 			attribute<TimeInvariantTypes> TimeInvariantTypes_rel :=
 				union_data(.,
 					 TimeInvariantTypes/V/Stops2Dest_Walking
 					// ,TimeInvariantTypes/V/Stops2Dest_Cycling
-					// ,TimeInvariantTypes/V/OVF_Stops2Dest_Cycling
+					,TimeInvariantTypes/V/OVF_Stops2Dest_Cycling
 				);
-			attribute<string> name    := TimeInvariantTypes/name[TimeInvariantTypes_rel];
-			attribute<min_f>  MaxTime := TimeInvariantTypes/MaxTime[TimeInvariantTypes_rel];
+			attribute<string> name        := TimeInvariantTypes/name[TimeInvariantTypes_rel];
+			attribute<string> Mode_abbrev := TimeInvariantTypes/Mode_abbrev[TimeInvariantTypes_rel];
+			attribute<min_f>  MaxTime     := TimeInvariantTypes/MaxTime[TimeInvariantTypes_rel];
+			attribute<string> StopClass   := TimeInvariantTypes/StopClass[TimeInvariantTypes_rel];
+			
+			attribute<string> StopClass_  := StopClass != '' ? StopClass+'_' : '';
+			attribute<string> ExportName  := StopClass_ + Mode_abbrev;
 		}
 				
 		
 		unit<uint8> OV_Reis_vertrek_uren : nrofrows = 1 
 		, Descr = ""
 		{
-			// attribute<uint32> values : [7];
-			attribute<uint32> values : [19];
+			attribute<uint32> values : [7];
+			// attribute<uint32> values : [19];
 			// attribute<uint32> values : [7,8,12,13,21,22]; // 6 stuks
 		}
 		unit<uint8> OV_Reis_vertrek_minuten : nrofrows = 12
