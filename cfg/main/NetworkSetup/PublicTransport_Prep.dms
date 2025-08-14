@@ -116,6 +116,42 @@ container PublicTransport_Prep
 		}
 	} 
 
+	container Create_Optimised_Network_Walking  := Templates/CreateNetwork_Efficient_T(impl/Org, impl/Dest, SourceData/Infrastructuur/OSM/Network_Walking, 'Walking', TRUE), Descr = "Network for pre- and post-transport.";
+	container Create_Optimised_Network_Cycling  := Templates/CreateNetwork_Efficient_T(impl/Org, impl/Dest, SourceData/Infrastructuur/OSM/Network_Cycling, 'Cycling', TRUE), Descr = "Network for pre- and post-transport.";
+	container Create_Optimised_Network_EBike    := Templates/CreateNetwork_Efficient_T(impl/Org, impl/Dest, SourceData/Infrastructuur/OSM/Network_Cycling, 'E_Biking', TRUE), Descr = "Network for pre- and post-transport.";
+
+	container TimeInvariantConnections := 
+		for_each_ne(
+			TimeInvariantTypes/name
+			, 'Create_TimeInvariantConnection_T('+string(id(TimeInvariantTypes))+'[TimeInvariantTypes])'
+		), Descr = "i.e. voor/na transport";
+	
+	Template Create_TimeInvariantConnection_T  : using = "/SourceData/Infrastructuur/GTFS/RelevantSelection"
+	{
+		parameter<TimeInvariantTypes> TimeInvariantTypes_rel;
+		///
+		parameter<string> ConnectionType := TimeInvariantTypes/ConnectionType[TimeInvariantTypes_rel];
+		parameter<string> Mode           := TimeInvariantTypes/Mode[TimeInvariantTypes_rel];
+		parameter<string> OriginSet      := TimeInvariantTypes/OriginSet[TimeInvariantTypes_rel];
+		parameter<string> DestinationSet := TimeInvariantTypes/DestinationSet[TimeInvariantTypes_rel];
+		parameter<string> Mode_abbrev    := TimeInvariantTypes/Mode_abbrev[TimeInvariantTypes_rel];
+		parameter<Modes>  Mode_rel       := TimeInvariantTypes/Mode_rel[TimeInvariantTypes_rel];
+		parameter<string> NetworkType    := TimeInvariantTypes/NetworkType[TimeInvariantTypes_rel];
+		parameter<string> VN_Transport   := TimeInvariantTypes/VN_Transport[TimeInvariantTypes_rel];
+		unit<uint32>      Network        := ='SourceData/Infrastructuur/OSM/Network_'+NetworkType;
+		
+		container Create_Routes      := ='Templates/CreateNetwork_Pedestrian_Bike_T(
+												PublicTransport_Prep/Impl/'+OriginSet+ //inStart
+												', PublicTransport_Prep/Impl/'+DestinationSet+ //inEind
+												', Network' //Roads
+												', Mode' //TravelMode
+												', NetworkType' //NetworkType
+												', ConnectionType' //ConnectionType
+												', Create_Optimised_Network_'+Mode+ //Optimised_Network
+											')';
+	}
+
+
 	unit<uint64> uq_c_FromTime_Stop := unique_uint64(impl/All_Time_Stops/c_FromTime_Stop_rel), using = "impl"
 	{
 		attribute<impl/c_Time_Stops> c_FromTime_Stop_rel      := values;
