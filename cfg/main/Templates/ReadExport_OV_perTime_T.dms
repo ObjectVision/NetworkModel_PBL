@@ -5,6 +5,8 @@ Template ReadExport_OV_perTime_T
 	parameter<string> Dest_str;
 	///
 	
+	parameter<bool> IsRegionMerged := Org_str == 'All';
+	
 	container PerTime := 
 		for_each_ne(
 			Advanced/MeasureMoments/name
@@ -15,17 +17,24 @@ Template ReadExport_OV_perTime_T
 	{ 
 		parameter<string> Time;	
 		///
-		parameter<string> filename       := Advanced/fileNamePrefix+'Traveltime_Long_'+Export_CombinationTypes+''+fileNameSuffix+'.csv';
+		parameter<string> inTime_str_short := rjoin(Time, ModelParameters/Advanced/MeasureMoments/Name , ModelParameters/Advanced/MeasureMoments/TemplatableTextShrt);
+
+		parameter<string> fileNamePrefix := IsRegionMerged ? '%LocalDataProjDir%/Output/' : ModelParameters/Advanced/fileNamePrefix;
+		
+		parameter<string> ORG := IsRegionMerged ? '_ORG-' + ModelParameters/Orgset : '_ORG-' + ModelParameters/Orgset + '-' + Org_str; 
 		
 		parameter<string> fileNameSuffix :=  
-			'_' + Analysis_Date + 
-			'_' + Advanced/Arrival_or_Departure_at_time + 
-			'_' + Time + 
-			'_ORG-' + Orgset + '-' + Org_str + 
-			'_DEST-'   + Dest_str +
-			'_WT_weging-' + string(ModelParameters_base/Advanced/WegingWachttijdThuisVoortransport) +
-			'_WT_Omit-' + string(ModelParameters_base/Advanced/OmitMaxWachttijdThuisVoortransportLinks) +
-			'_WT_Max-' + string(ModelParameters_base/Advanced/MaxWachttijdThuisVoortransport);
+			'_' + ModelParameters/Analysis_Date + 
+			'_' + inTime_str_short + 
+			ORG + 
+			'_DEST-'   + ModelParameters/Advanced/DestSet_string +
+			'_'+ Export_CombinationTypes +
+			'_Trsf-' + string(ModelParameters/Max_overstappen) +
+			'_MinCrit-' + AsList(Classifications/FinalParetoAttr/FileNameElement, '_') +
+			'_MaxOV-' + string(ModelParameters/MaxOVTime) + 'min'
+			;
+		
+		parameter<string> filename       := fileNamePrefix+'tt'+fileNameSuffix +'.csv';
 		
 		unit<uint64>      domain         := range(uint64, 0[uint64], count_rows);
 		parameter<string> fieldseparator := ';';
@@ -53,10 +62,14 @@ Template ReadExport_OV_perTime_T
 				,string
 			)
 		{
-			attribute<min_f>               Traveltime              (domain) := ='Traveltime_m_'+Time+'[float32] * 1[min_f]';
-			attribute<string>              ModeUsed                (domain) := ='ModeUsed_'+Time;
+			attribute<min_f>               Traveltime              (domain) := ='Traveltime_'+inTime_str_short+'[float32] * 1[min_f]';
+			attribute<string>              ModeUsed                (domain) := ='ModeUsed_'+inTime_str_short;
 			attribute<string>              OrgDestName             (domain) := OrgName + '_' + DestName;
-			attribute<string>              Price                   (domain) := ='Price_'+Time;
+			attribute<string>              Price                   (domain) := ='Price_'+inTime_str_short;
+			attribute<string>              WaitingTime             (domain) := ='WaitingTime_'+inTime_str_short;
+			attribute<string>              VoortransTime           (domain) := ='VoortransTime_'+inTime_str_short;
+			attribute<string>              PTTime                  (domain) := ='PTTime_'+inTime_str_short;
+			attribute<string>              NatransTime             (domain) := ='NatransTime_'+inTime_str_short;
 		}
 	}
 }
