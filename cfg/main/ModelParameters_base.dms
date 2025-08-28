@@ -40,10 +40,12 @@
 	
 	parameter<string>   NS_Tariefkeuze                    := 'Prijs_voltarief'      , Descr = "Which tarif class for NS would you like to use. Full fare, or a discounted fare? Choices: 'Prijs_40pr_tarief' 'Prijs_20pr_tarief' 'Prijs_voltarief'";
 	parameter<string>   PrijsTabel_jaar                   := '2023'                 , Descr = "From which year would like the public transport prices?";
-	parameter<string>   MinimiseCriteria                  := 'Price-Time'          , Descr = "Would you like to find the fastest or cheapest public transport journey? Choices: 'Price', 'Price_Augm' or 'Time' or both, i.e. 'Price,Time'";
+	parameter<string>   MinimiseCriteria                  := 'Price-Time'           , Descr = "Would you like to find the fastest or cheapest public transport journey? Choices: 'Price', 'Price_Augm' or 'Time' or both, i.e. 'Price,Time'";
 	parameter<uint16>   Max_overstappen                   := 3w                     , Descr = "How many transfers are allowed?", IntegrityCheck = "this >= 1w && this <= 4w";
-	parameter<uint32>   NumberOfBlocks                    := 200                    , Descr = "How many blocks should be used in the Ketenrijger? Less means more memory usage per unit of time.";
-	parameter<uint32>   MaxBlockSize                      := 250                    , Descr = "What is maximum block size?";
+	parameter<uint32>   NumberOfStopBlocks                := 200                    , Descr = "How many blocks should be used in the Ketenrijger? Less means more memory usage per unit of time.";
+	parameter<uint32>   MaxStopBlockSize                  := 250                    , Descr = "What is maximum block size?";
+	parameter<uint32>   NumberOfOrgBlocks                 := 100                     , Descr = "How many blocks should be used in the Ketenrijger? Less means more memory usage per unit of time.";
+	parameter<uint32>   MaxOrgBlockSize                   := 150                    , Descr = "What is maximum block size?";
 	
 	parameter<euro_min> Transfer_Walking_Time_Costs       := 0.19[euro_min]         , Descr = "To attach a value to walking, the cost thereof (or the time it takes) is incorporated. This is a mechanism to ensure when looking for the cheapest journey the model won't let you walk as much as possible.";
 	parameter<euro_min> Transfer_Waiting_Time_Costs       := 0.05[euro_min]         , Descr = "To attach a value to waiting, the cost thereof (or the time it takes) is incorporated.";
@@ -63,7 +65,7 @@
 		/// GENERAL
 		// parameter<bool>     Create_Symmetric_fullOD                   := FALSE      , Descr = "Would like to create a symmetric OD-matrix. So from origins to origins.", IntegrityCheck = "NOT(Getiled_berekenen)";
 		parameter<bool>     Getiled_berekenen                         := TRUE      , Descr = "Would you like to split the origins up into smaller sets to speed up calculation by reducing memory usage per unit of time.";
-		parameter<string>   Regio_voor_Tiling                         := 'coropP'    , Descr = "If calculating in tiled, which tiling would you like to use? Options: 'Corop' 'provincies'";
+		// parameter<string>   Regio_voor_Tiling                         := 'coropP'    , Descr = "If calculating in tiled, which tiling would you like to use? Options: 'Corop' 'provincies'";
 		parameter<string>   BAG_jaar                                  := RegioIndelingen_jaar, Descr = "Which BAG year would you like to use? This is now decided via RegioIndelingen_jaar, via AnalyseMoment. This data is used for weighted centroids.";
 		parameter<string>   RegioIndelingen_jaar                      := rjoin(AnalyseMoment, Advanced/AnalyseMomentPresets/name, Advanced/AnalyseMomentPresets/RegioIndelingen_jaar), Descr = "Which year for the adminstrative boundaries would you like to use? This is now decided via AnalyseMoment.";
 		parameter<string>   LISA_jaar                                 := '2018'     , Descr = "Which year of the LISA-dataset would you like to use?";
@@ -71,7 +73,7 @@
 		parameter<string>   Dest_location_scale                       := '100m'     , Descr = "If clustering the destination, at which scale would you like to cluster? Options: '100m', '500m', '1000m', '5000m', '10000m', '50000m'";
 		parameter<string>   items_of_interest                         := rjoin(lowercase(DestSet), lowercase(Advanced/dest_domain_list/label), Advanced/dest_domain_list/items_of_interest), Descr = "What is the item of interest in the analysis? Such as number of jobs. Decided via the dest_set.";
 		parameter<bool>     ExcludeOrgBuurtCentroidsWithoutAddressPop := FALSE      , Descr = "Would yo like to exclude buurt centroid that do not contain addresses or population (depending on CentroidWeightType).";
-		parameter<string>   fileNamePrefix                            := Getiled_berekenen ? '%LocalDataProjDir%/Output/PerRegio/' : '%LocalDataProjDir%/Output/', Descr = "Location where output files will be saved.";
+		parameter<string>   fileNamePrefix                            := Getiled_berekenen ? '%LocalDataProjDir%/Output/PerBlock/' : '%LocalDataProjDir%/Output/', Descr = "Location where output files will be saved.";
 		parameter<uint8>    NumberOfItersForNetworkCleanUp            := 10b        , Descr = "In the network clean up method, how many iternations should be used?";
 
 
@@ -115,13 +117,14 @@
 		parameter<string>   DestSet_string                            := Dests_geclusterd 
 																			? lowercase(Destset) + '_' + lowercase(Dest_location_scale)
 																			: lowercase(Destset), Descr = "";
-		parameter<string>   Orgset_str                                := Getiled_berekenen ? lowercase(Orgset)+'_per'+lowercase(Regio_voor_Tiling) : lowercase(Orgset), Descr = "";    //'PC6_domain_corop'; //'PC6full' 'PC6sub' 'PC4full' 'PC4sub' PC6sub_MRA PC6sub_Pijp Point100m LocatiesMachiel Buurtsub_MRA  //org punten selectie
-		unit<uint32>        Regio                                     := =Getiled_berekenen 
-																		? 'RegioIndeling' 
-																		: 'SourceData/RegioIndelingen/NL', Descr = ""; // Als je getiled wilt rekenen, zorgt dit dat je verwijst naar die tiling, of naar heel NL in één keer.
-		unit<uint32>        RegioIndeling                             := ='SourceData/RegioIndelingen/'+Regio_voor_Tiling, Descr = "";
+		// parameter<string>   Orgset_str                                := Getiled_berekenen ? lowercase(Orgset)+'_per'+lowercase(Regio_voor_Tiling) : lowercase(Orgset), Descr = "";    //'PC6_domain_corop'; //'PC6full' 'PC6sub' 'PC4full' 'PC4sub' PC6sub_MRA PC6sub_Pijp Point100m LocatiesMachiel Buurtsub_MRA  //org punten selectie
+		// parameter<string>   Orgset_str                                := lowercase(Orgset), Descr = "";    //'PC6_domain_corop'; //'PC6full' 'PC6sub' 'PC4full' 'PC4sub' PC6sub_MRA PC6sub_Pijp Point100m LocatiesMachiel Buurtsub_MRA  //org punten selectie
+		// unit<uint32>        Regio                                     := =Getiled_berekenen 
+																		// ? 'RegioIndeling' 
+																		// : 'SourceData/RegioIndelingen/NL', Descr = ""; // Als je getiled wilt rekenen, zorgt dit dat je verwijst naar die tiling, of naar heel NL in één keer.
+		// unit<uint32>        RegioIndeling                             := ='SourceData/RegioIndelingen/'+Regio_voor_Tiling, Descr = "";
 		
-		unit<uint8> OV_Voortransport_Typen : nrofrows = 1 
+		unit<uint8> OV_Voortransport_Typen : nrofrows = 1
 		, Descr = "Select here the to be considered pre-transport options. 
 					RMT=Rail+Metro+Tram, OVF=OV-fiets, Ric=InterCity station"
 		{
@@ -141,7 +144,7 @@
 			attribute<string> StopClass_  := StopClass != '' ? '_'+StopClass : '';
 			attribute<string> ExportName  := Mode_abbrev + StopClass_;
 		}
-		unit<uint8> OV_Natransport_Typen : nrofrows = 1 
+		unit<uint8> OV_Natransport_Typen : nrofrows = 1
 		, Descr = "Select here the to be considered post-transport options. 
 					RMT=Rail+Metro+Tram, OVF=OV-fiets, Ric=InterCity station"
 		{
@@ -149,7 +152,7 @@
 				union_data(.,
 					 TimeInvariantTypes/V/Stops2Dest_Walking
 					// ,TimeInvariantTypes/V/Stops2Dest_Cycling
-					//,TimeInvariantTypes/V/OVF_Stops2Dest_Cycling
+					// ,TimeInvariantTypes/V/OVF_Stops2Dest_Cycling
 				);
 			attribute<string> name        := TimeInvariantTypes/name[TimeInvariantTypes_rel];
 			attribute<string> Mode_abbrev := TimeInvariantTypes/Mode_abbrev[TimeInvariantTypes_rel];

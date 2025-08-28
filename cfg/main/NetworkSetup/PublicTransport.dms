@@ -5,7 +5,7 @@ container Generate_Output
 		// parameter<string>   Generate  := ='add('+AsList('PerVertrekmoment/'+Advanced/MeasureMoments/Name+'/CreateExports/LongFormat/File_fullOD',',')+')';
 		parameter<string>   Generate  := ='add('+AsList('PerVertrekmoment/'+Advanced/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Generate',',')+')'; 
 	}
-	container Traveltime_ForEachDepTime_Fence := PhaseContainer(Traveltime_ForEachDepTime, 'Results for all departure times in region '+impl/regio_name_if_enkel_sub+' are finished calculating'); //
+	container Traveltime_ForEachDepTime_Fence := PhaseContainer(Traveltime_ForEachDepTime, 'Results for all departure times in '+NetworkSetup/Impl/OrgBlockDomain/name[BlockDomain_id]+' are finished calculating'); //
 }
 
 unit<uint8>         Modes             := GTFS_Modes/Selectie;
@@ -13,7 +13,10 @@ unit<uint8>         Modes             := GTFS_Modes/Selectie;
 unit<uint32>        Places            := PublicTransport_Prep/Impl/Places
 {
 	//in het geval van getiled berekenen moet er een relatie zijn van de orgs naar de subset-orgs.
-	attribute<org> origin_rel := =/ModelParameters/Advanced/Getiled_berekenen ? 'rlookup(PublicTransport_Prep/Impl/Places/origin_rel, org/org_rel)' : 'PublicTransport_Prep/Impl/Places/origin_rel';
+	// attribute<org> origin_rel := =/ModelParameters/Advanced/Getiled_berekenen ? 'rlookup(PublicTransport_Prep/Impl/Places/origin_rel, org/org_rel)' : 'PublicTransport_Prep/Impl/Places/origin_rel';
+	
+	attribute<org>                                   origin_sub_rel := rlookup(PublicTransport_Prep/Impl/Places/origin_rel, org/org_rel);
+	attribute</NetworkSetup/Impl/OrgBlockSelections> origin_rel     := PublicTransport_Prep/Impl/Places/origin_rel;
 }
 
 
@@ -22,50 +25,45 @@ unit<uint16>        Toegestane_Ketens := /Classifications/Ketens/Toegestaan;
 unit<uint64> V_org := ='union_unit_uint64('+AsList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Voortransport_Typen/name+'/Create_Routes/ODMatrix', ',')+')'
 , Descr = "Voortransport"
 {
-	attribute<Places>         From_Place_rel            := ='union_data(., '+AsList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Voortransport_Typen/name+'/Create_Routes/ODMatrix/From_Place_rel', ',')+')';
-	attribute<Places>         To_Place_rel              := ='union_data(., '+AsList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Voortransport_Typen/name+'/Create_Routes/ODMatrix/To_Place_rel', ',')+')';
-	attribute<Modes>          Mode_rel                  := ='union_data(., '+AsList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Voortransport_Typen/name+'/Create_Routes/ODMatrix/Mode_rel', ',')+')';
-	attribute<string>         ModeClass_name            := ='union_data(., '+AsList('const('+quote(ModelParameters/Advanced/OV_Voortransport_Typen/ExportName)+', PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Voortransport_Typen/name+'/Create_Routes/ODMatrix)', ',')+')';
-	attribute<s>              impedance                 := ='union_data(., '+AsList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Voortransport_Typen/name+'/Create_Routes/ODMatrix/impedance[s]', ',')+')';
-	attribute<ct>             Price                     := ='union_data(., '+AsList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Voortransport_Typen/name+'/Create_Routes/ODMatrix/Price', ',')+')';
+	attribute<Places>            From_Place_rel            := ='union_data(., '+AsList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Voortransport_Typen/name+'/Create_Routes/ODMatrix/From_Place_rel', ',')+')';
+	attribute<Places>            To_Place_rel              := ='union_data(., '+AsList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Voortransport_Typen/name+'/Create_Routes/ODMatrix/To_Place_rel', ',')+')';
+	attribute<Modes>             Mode_rel                  := ='union_data(., '+AsList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Voortransport_Typen/name+'/Create_Routes/ODMatrix/Mode_rel', ',')+')';
+	attribute<VN_ModeClasses/Uq> ModeClass_rel             := ='union_data(., '+AsList('const('+string(rlookup(ModelParameters/Advanced/OV_Voortransport_Typen/ExportName, /classifications/VN_ModeClasses/Uq/name))+'[VN_ModeClasses/Uq], PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Voortransport_Typen/name+'/Create_Routes/ODMatrix)', ',')+')';
+	attribute<s>                 impedance                 := ='union_data(., '+AsList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Voortransport_Typen/name+'/Create_Routes/ODMatrix/impedance[s]', ',')+')';
+	attribute<ct>                Price                     := ='union_data(., '+AsList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Voortransport_Typen/name+'/Create_Routes/ODMatrix/Price', ',')+')';
 	
 	attribute<string>         OrgName                   := Places/label[From_Place_rel]; //debug
 	
-	attribute<bool>           IsRelevantForOrgSubset    := IsDefined(Places/origin_rel)[From_Place_rel];
+	attribute<bool>           IsRelevantForOrgSubset    := IsDefined(Places/origin_sub_rel)[From_Place_rel];
 }
 
 unit<uint64> V := select_with_attr_by_cond(V_org, V_org/IsRelevantForOrgSubset);
 
-
-
 unit<uint64> N := ='union_unit_uint64('+AsList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Natransport_Typen/name+'/Create_Routes/ODMatrix', ',')+')'
 , Descr = "Natransport"
 {
-	attribute<Places>         From_Place_rel            := ='union_data(., '+AsList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Natransport_Typen/name+'/Create_Routes/ODMatrix/From_Place_rel', ',')+')';
-	attribute<Places>         To_Place_rel              := ='union_data(., '+AsList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Natransport_Typen/name+'/Create_Routes/ODMatrix/To_Place_rel', ',')+')';
-	attribute<Modes>          Mode_rel                  := ='union_data(., '+AsList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Natransport_Typen/name+'/Create_Routes/ODMatrix/Mode_rel', ',')+')';
-	attribute<string>         ModeClass_name            := ='union_data(., '+AsList('const('+quote(ModelParameters/Advanced/OV_Natransport_Typen/ExportName)+', PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Natransport_Typen/name+'/Create_Routes/ODMatrix)', ',')+')';
-	attribute<s>              impedance                 := ='union_data(., '+AsList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Natransport_Typen/name+'/Create_Routes/ODMatrix/impedance[s]', ',')+')';
-	attribute<ct>             Price                     := ='union_data(., '+AsList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Natransport_Typen/name+'/Create_Routes/ODMatrix/Price', ',')+')';
+	attribute<Places>            From_Place_rel            := ='union_data(., '+AsList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Natransport_Typen/name+'/Create_Routes/ODMatrix/From_Place_rel', ',')+')';
+	attribute<Places>            To_Place_rel              := ='union_data(., '+AsList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Natransport_Typen/name+'/Create_Routes/ODMatrix/To_Place_rel', ',')+')';
+	attribute<Modes>             Mode_rel                  := ='union_data(., '+AsList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Natransport_Typen/name+'/Create_Routes/ODMatrix/Mode_rel', ',')+')';
+	attribute<VN_ModeClasses/Uq> ModeClass_rel             := ='union_data(., '+AsList('const('+string(rlookup(ModelParameters/Advanced/OV_Natransport_Typen/ExportName, /classifications/VN_ModeClasses/Uq/name))+'[VN_ModeClasses/Uq], PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Natransport_Typen/name+'/Create_Routes/ODMatrix)', ',')+')';
+	attribute<s>                 impedance                 := ='union_data(., '+AsList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Natransport_Typen/name+'/Create_Routes/ODMatrix/impedance[s]', ',')+')';
+	attribute<ct>                Price                     := ='union_data(., '+AsList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Natransport_Typen/name+'/Create_Routes/ODMatrix/Price', ',')+')';
 	
-	attribute<string>         DestName                  := Places/label[To_Place_rel]; //debug
+	attribute<string>            DestName                  := Places/label[To_Place_rel]; //debug
 }
 
-unit<uint64> Direct_OD := =/ModelParameters/Advanced/AllowDirectCyclingOverWalking 
-								? '/NetworkSetup/ConfigurationPerRegio/'+regio_name+'/PrivateTransport/Cycling/Calc_Traveltimes_maxspeed_cycling/Traveltimes'
-								: '/NetworkSetup/ConfigurationPerRegio/'+regio_name+'/PrivateTransport/Walking/Calc_Traveltimes_maxspeed_walking/Traveltimes'
+unit<uint64> Direct_OD_all := PublicTransport_Prep/Direct_OD
 {
-	attribute<s>       Duration_seconds                 := convert(Impedance, s);
-	attribute<dam>     Distance                         := alt_imp[dam]; 
-	attribute<Places>  From_Place_rel                   := rlookup(OrgZone_rel, Places/origin_rel);
+	attribute<s>       Duration_seconds                 := PublicTransport_Prep/Direct_OD/Duration_seconds;
+	attribute<dam>     Distance                         := PublicTransport_Prep/Direct_OD/Distance; 
+	attribute<ct>      Price_Augm                       := PublicTransport_Prep/Direct_OD/Price_Augm;
+	attribute<Modes>   Mode_rel                         := PublicTransport_Prep/Direct_OD/Mode_rel;
+	
+	attribute<Places>  From_Place_rel                   := rlookup(OrgZone_rel,  Places/origin_rel);
 	attribute<Places>  To_Place_rel                     := rlookup(DstZone_rel,  Places/dest_rel);
-	attribute<ct>      Price_Augm                       := =ModelParameters/Advanced/AllowDirectCyclingOverWalking 
-																? 'rounded_convert(Impedance[min_f] * ModelParameters/Direct_Cycling_Time_Costs, ct)'
-																: 'rounded_convert(Impedance[min_f] * ModelParameters/Direct_Walking_Time_Costs, ct)';
-	attribute<Modes>   Mode_rel                         :=  =ModelParameters/Advanced/AllowDirectCyclingOverWalking 
-																? 'const(Modes/V/Cycling, .)'
-																: 'const(Modes/V/Walking, .)';
+	attribute<bool>    IsRelevantForOrgSubset           := IsDefined(Places/origin_sub_rel)[From_Place_rel];
 }
+unit<uint64> Direct_OD := select_with_attr_by_cond(Direct_OD_all, Direct_OD_all/IsRelevantForOrgSubset);
 
 /////===========================================================================//////
 

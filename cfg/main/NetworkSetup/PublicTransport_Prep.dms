@@ -9,10 +9,6 @@ container PublicTransport_Prep
 			attribute<float32>               nr_inwoners    := =impl/Org_domain+'/nr_inwoners[float32]';
 		}
 		
-		// unit<uint32> dest := =Advanced/Create_Symmetric_fullOD ? 'org' : 'impl/dest_src'
-		// {
-			// attribute<rdc>                   geometry       := =Advanced/Create_Symmetric_fullOD ? 'org/geometry' : 'impl/dest_src/geometry';
-		// }
 		unit<uint32> dest := impl/dest_src
 		{
 			attribute<rdc>                   geometry       := impl/dest_src/geometry;
@@ -58,7 +54,6 @@ container PublicTransport_Prep
 		}
 		
 		unit<uint64> c_Time_Stop_Routes    := combine_unit_uint64(c_Time_Stops,Routes);
-		// unit<uint64> c_Time_Stops          := combine_uint64(Time, Stops);
 		unit<uint64> c_Time_Stops          := /SourceData/Infrastructuur/GTFS/c_Time_Stops;
 		unit<uint64> c_Time_Places         := combine_unit_uint64(Time, Places);
 	
@@ -111,11 +106,11 @@ container PublicTransport_Prep
 		{
 			attribute<.>      rnd_rel       := rnd_permutation(0, .);
 		}	
-		unit<uint32>      BlockDomain   := range(0, ModelParameters/NumberOfBlocks)
+		unit<uint32>      BlockDomain   := range(0, ModelParameters/NumberOfStopBlocks)
 		{
 			attribute<string> name          := 'Block_'+string(id(.)+1)+'of'+string(max(id(.))+1);
-			attribute<uint64> BlockOffset   := min_elem(uint64(id(.)) * uint64(ModelParameters/MaxBlockSize), uint64(#BlockSelections));
-			attribute<uint64> BlockEnd      := min_elem(BlockOffset + uint64(ModelParameters/MaxBlockSize), uint64(#BlockSelections));
+			attribute<uint64> BlockOffset   := min_elem(uint64(id(.)) * uint64(ModelParameters/MaxStopBlockSize), uint64(#BlockSelections));
+			attribute<uint64> BlockEnd      := min_elem(BlockOffset + uint64(ModelParameters/MaxStopBlockSize), uint64(#BlockSelections));
 			attribute<uint32> BlockSize     := uint32(BlockEnd - BlockOffset);
 		}
 	} 
@@ -123,6 +118,20 @@ container PublicTransport_Prep
 	container Create_Optimised_Network_Walking  := Templates/CreateNetwork_Efficient_T(impl/Org, impl/Dest, SourceData/Infrastructuur/OSM/Network_Walking, 'Walking', TRUE), Descr = "Network for pre- and post-transport.";
 	container Create_Optimised_Network_Cycling  := Templates/CreateNetwork_Efficient_T(impl/Org, impl/Dest, SourceData/Infrastructuur/OSM/Network_Cycling, 'Cycling', TRUE), Descr = "Network for pre- and post-transport.";
 	container Create_Optimised_Network_EBike    := Templates/CreateNetwork_Efficient_T(impl/Org, impl/Dest, SourceData/Infrastructuur/OSM/Network_Cycling, 'E_Biking', TRUE), Descr = "Network for pre- and post-transport.";
+
+	unit<uint64> Direct_OD := =/ModelParameters/Advanced/AllowDirectCyclingOverWalking 
+									? '/NetworkSetup/PrivateTransport/Cycling/Calc_Traveltimes_maxspeed_cycling/Traveltimes'
+									: '/NetworkSetup/PrivateTransport/Walking/Calc_Traveltimes_maxspeed_walking/Traveltimes'
+	{
+		attribute<s>       Duration_seconds                 := convert(Impedance, s);
+		attribute<dam>     Distance                         := alt_imp[dam]; 
+		attribute<ct>      Price_Augm                       := =ModelParameters/Advanced/AllowDirectCyclingOverWalking 
+																	? 'rounded_convert(Impedance[min_f] * ModelParameters/Direct_Cycling_Time_Costs, ct)'
+																	: 'rounded_convert(Impedance[min_f] * ModelParameters/Direct_Walking_Time_Costs, ct)';
+		attribute<impl/Modes>   Mode_rel                         :=  =ModelParameters/Advanced/AllowDirectCyclingOverWalking 
+																	? 'const(impl/Modes/V/Cycling, .)'
+																	: 'const(impl/Modes/V/Walking, .)';
+	}
 
 	container TimeInvariantConnections := 
 		for_each_ne(
@@ -200,10 +209,12 @@ container PublicTransport_Prep
 				')' 
 			)
 		{
-			container L  {
+			container L  
+			{
 				unit<uint32> result := select_with_attr_by_cond(OD_L/Result, BlockSelections/rnd_rel[OD_L/Result/From_Stop_rel] / ModelParameters/MaxBlockSize == BlockDomain_id);
 			}
-			container R {
+			container R 
+			{
 				unit<uint32> result := select_with_attr_by_cond(OD_R/Result, BlockSelections/rnd_rel[OD_R/Result/From_Stop_rel] / ModelParameters/MaxBlockSize == BlockDomain_id);
 			}		
 		}
@@ -295,7 +306,8 @@ container PublicTransport_Prep
 	 	container Fence := PhaseContainer(BlockResultContainer, 'Calculated: '+string(StartCalc/BlockDomain_name));
 	}
 	
-	container x {
+	container x 
+	{
 		unit<uint64> Write_Result   := ='union_unit_uint64('+AsItemList('KetenGeneratie_PerBlock/'+impl/BlockDomain/name+'/Fence/Result')+')'
 		, StorageName = "=StorageName_Str"
 		, Descr = "Deze set bevat de geunionede resultaten per block."
@@ -322,56 +334,133 @@ container PublicTransport_Prep
 			attribute<uq_c_FromTime_Stop>   uq_c_FromTime_Stop_rel      := ='union_data(.,'+AsItemList('KetenGeneratie_PerBlock/'+BlockDomain/name+'/Fence/Result/uq_c_FromTime_Stop_rel')+')';
 			attribute<uq_c_ToTime_Stop>     uq_c_ToTime_Stop_rel        := ='union_data(.,'+AsItemList('KetenGeneratie_PerBlock/'+BlockDomain/name+'/Fence/Result/uq_c_ToTime_Stop_rel')+')';
 		} 
-	
-		unit<uint64> Result
-		: StorageName = "=StorageName_Str"
-		, StorageReadOnly = "true"
-		, using = "impl"
-		{ 
-			attribute<ct>                   Price;
-			attribute<ct>                   Price_augm;
-			attribute<s>                    Traveltime;
-			// attribute<s>                    WaitingAtStop_time;
-			// attribute<s>                    Walking_time;
-			attribute<Toegestane_Ketens>    Toegestane_Keten_rel;
-		
-			attribute<dam>                  TravelDist_Bus;
-			attribute<dam>                  Traveldist_Metro;
-			attribute<dam>                  Traveldist_Tram;
-			attribute<dam>                  Traveldist_Rail;
-			attribute<dam>                  Traveldist_Ferry;
-		
-			attribute<uq_c_FromTime_Stop>   uq_c_FromTime_Stop_rel;
-			attribute<uq_c_ToTime_Stop>     uq_c_ToTime_Stop_rel;
-			
-			attribute<c_Time_Stops>         c_FromTime_Stop_rel      := uq_c_FromTime_Stop_rel->values;
-			attribute<c_Time_Stops>         c_ToTime_Stop_rel        := uq_c_ToTime_Stop_rel  ->values;
-			
-			attribute<Time>                 From_Time_rel            := value(c_FromTime_Stop_rel / uint64(#Stops), Time);
-			attribute<Stops>                From_Stop_rel            := value(c_FromTime_Stop_rel % uint64(#Stops), Stops);
-			attribute<Time>                 To_Time_rel              := value(c_ToTime_Stop_rel / uint64(#Stops), Time);
-			attribute<Stops>                To_Stop_rel              := value(c_ToTime_Stop_rel % uint64(#Stops), Stops); 
-		
-			attribute<Stops/c_Stop_Stop>    c_Stop_Stop_rel          := combine_data(Stops/c_Stop_Stop, From_Stop_rel, To_Stop_rel);
-			attribute<Places>               From_Place_rel           := Stops/Place_rel[From_Stop_rel];
-			attribute<Places>               To_Place_rel             := Stops/Place_rel[To_Stop_rel];
-			attribute<c_Time_Places>        c_FromTime_Place_rel     := combine_data(c_Time_Places, From_Time_rel, From_Place_rel);
-			attribute<c_Time_Places>        c_ToTime_Place_rel       := combine_data(c_Time_Places, To_Time_rel, To_Place_rel);
-		
-			// attribute<uq_c_FromTime_Stop>   uq_c_FromTime_Stop_rel      := rlookup(c_FromTime_Stop_rel, uq_c_FromTime_Stop/c_FromTime_Stop_rel);
-			// attribute<uq_c_ToTime_Stop>     uq_c_ToTime_Stop_rel        := rlookup(c_ToTime_Stop_rel, uq_c_ToTime_Stop/c_ToTime_Stop_rel);
-		}
-		
-		parameter<string>     StorageName_Str := 
-			'%LocalDataProjDir%/IntermediateResults/PT_Ketens_'+Time/TemplatableTextShrt[impl/EersteVertrekMoment]+
-			'_to_'+Time/TemplatableTextShrt[impl/LaatsteAankomstMoment]+
-			'_'+/ModelParameters/Analysis_date+
-			'_min-'+AsList(Classifications/FinalParetoAttr/FileNameElement, '_')+
-			'_maxtransf-'+string(ModelParameters/Max_overstappen)+
-			'_MaxOV-' + string(ModelParameters/MaxOVTime) + 'min'+
-			'.fss';
-			
 	}
+	
+	unit<uint64> PT
+	: StorageName = "=StorageName_Str"
+	, StorageReadOnly = "true"
+	, using = "impl"
+	{ 
+		attribute<ct>                   Price;
+		attribute<ct>                   Price_augm;
+		attribute<s>                    Traveltime;
+		// attribute<s>                    WaitingAtStop_time;
+		// attribute<s>                    Walking_time;
+		attribute<Toegestane_Ketens>    Toegestane_Keten_rel;
+	
+		attribute<dam>                  TravelDist_Bus;
+		attribute<dam>                  Traveldist_Metro;
+		attribute<dam>                  Traveldist_Tram;
+		attribute<dam>                  Traveldist_Rail;
+		attribute<dam>                  Traveldist_Ferry;
+	
+		attribute<uq_c_FromTime_Stop>   uq_c_FromTime_Stop_rel;
+		attribute<uq_c_ToTime_Stop>     uq_c_ToTime_Stop_rel;
+		
+		attribute<c_Time_Stops>         c_FromTime_Stop_rel      := uq_c_FromTime_Stop_rel->values;
+		attribute<c_Time_Stops>         c_ToTime_Stop_rel        := uq_c_ToTime_Stop_rel  ->values;
+		
+		attribute<Time>                 From_Time_rel            := value(c_FromTime_Stop_rel / uint64(#Stops), Time);
+		attribute<Stops>                From_Stop_rel            := value(c_FromTime_Stop_rel % uint64(#Stops), Stops);
+		attribute<Time>                 To_Time_rel              := value(c_ToTime_Stop_rel / uint64(#Stops), Time);
+		attribute<Stops>                To_Stop_rel              := value(c_ToTime_Stop_rel % uint64(#Stops), Stops); 
+	
+		attribute<Stops/c_Stop_Stop>    c_Stop_Stop_rel          := combine_data(Stops/c_Stop_Stop, From_Stop_rel, To_Stop_rel);
+		attribute<Places>               From_Place_rel           := Stops/Place_rel[From_Stop_rel];
+		attribute<Places>               To_Place_rel             := Stops/Place_rel[To_Stop_rel];
+		attribute<c_Time_Places>        c_FromTime_Place_rel     := combine_data(c_Time_Places, From_Time_rel, From_Place_rel);
+		attribute<c_Time_Places>        c_ToTime_Place_rel       := combine_data(c_Time_Places, To_Time_rel, To_Place_rel);
+	
+		// attribute<uq_c_FromTime_Stop>   uq_c_FromTime_Stop_rel      := rlookup(c_FromTime_Stop_rel, uq_c_FromTime_Stop/c_FromTime_Stop_rel);
+		// attribute<uq_c_ToTime_Stop>     uq_c_ToTime_Stop_rel        := rlookup(c_ToTime_Stop_rel, uq_c_ToTime_Stop/c_ToTime_Stop_rel);
+	}
+	
+	// unit<uint64> N := ='union_unit_uint64('+AsList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Natransport_Typen/name+'/Create_Routes/ODMatrix', ',')+')'
+	// , Descr = "Natransport"
+	// , using = "impl"
+	// {
+		// attribute<Places>            From_Place_rel            := ='union_data(., '+AsList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Natransport_Typen/name+'/Create_Routes/ODMatrix/From_Place_rel', ',')+')';
+		// attribute<Places>            To_Place_rel              := ='union_data(., '+AsList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Natransport_Typen/name+'/Create_Routes/ODMatrix/To_Place_rel', ',')+')';
+		// attribute<Modes>             Mode_rel                  := ='union_data(., '+AsList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Natransport_Typen/name+'/Create_Routes/ODMatrix/Mode_rel', ',')+')';
+		// attribute<VN_ModeClasses/Uq> VN_ModeClass_rel          := ='union_data(., '+AsList('const('+string(rlookup(ModelParameters/Advanced/OV_Natransport_Typen/ExportName, /classifications/VN_ModeClasses/Uq/name))+'[VN_ModeClasses/Uq], PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Natransport_Typen/name+'/Create_Routes/ODMatrix)', ',')+')';
+		// attribute<s>                 impedance                 := ='union_data(., '+AsList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Natransport_Typen/name+'/Create_Routes/ODMatrix/impedance[s]', ',')+')';
+		// attribute<ct>                Price                     := ='union_data(., '+AsList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_Natransport_Typen/name+'/Create_Routes/ODMatrix/Price', ',')+')';
+		
+		// attribute<string>         DestName                  := Places/label[To_Place_rel]; //debug
+	// }
+	
+	// unit<uint64> Add_N_to_PT   := join_equal_values_uint64(PT/To_Place_rel, N/From_Place_rel)
+	// , using = "impl"
+	// {
+		// attribute<PT>                                          PT_rel                           := first_rel; //debug
+		// attribute<N>                                           N_rel                            := second_rel; //debug
+		// attribute<Places>                                      Place_rel                        := X_rel; //debug
+		
+		// attribute<c_Time_Places>                               PT_c_fromTime_Place_rel          := PT/c_fromTime_Place_rel[PT_rel];
+		// attribute<c_Time_Places>                               PT_c_toTime_Place_rel            := PT/c_toTime_Place_rel[PT_rel];
+		// attribute<Time>                                        PT_To_Time_rel                   := value(PT_c_toTime_Place_rel / uint64(#Places), Time);
+		// attribute<Time>                                        N_To_Time_rel                    := PT_To_Time_rel + N_time[Time];
+		// attribute<Places>                                      N_to_Place_rel                   := N/To_Place_rel[N_rel];
+		// attribute<s>                                           N_time                           := N/impedance[N_rel];
+		// attribute<Modes>                                       N_mode_rel                       := N/Mode_rel[N_rel];
+		// attribute<VN_ModeClasses/Uq>                           N_ModeClass_rel                  := N/VN_ModeClass_rel[N_rel];
+		// attribute<ct>                                          N_price                          := N/Price[N_rel];
+		
+		// attribute<c_Time_Places>                               c_fromTime_Place_rel             := PT_c_fromTime_Place_rel;
+		// attribute<c_Time_Places>                               c_toTime_Place_rel               := combine_data(c_Time_Places, N_To_Time_rel, N_to_Place_rel);
+		
+		// attribute<ct>                                          Price                            := PT/Price[PT_rel];
+		// attribute<ct>                                          Price_augm                       := PT/Price_augm[PT_rel] + N_price;
+		// attribute<Toegestane_Ketens>                           Toegestane_Keten_rel             := PT/Toegestane_Keten_rel[PT_rel];
+		// attribute<s>                                           Traveltime                       := PT/Traveltime[PT_rel] + N_time;
+		// attribute<s>                                           PT_time                          := PT/Traveltime[PT_rel];
+		
+		// attribute<dam>                                         TravelDist_Bus                   := PT/TravelDist_Bus[PT_rel];
+		// attribute<dam>                                         Traveldist_Metro                 := PT/Traveldist_Metro[PT_rel];
+		// attribute<dam>                                         Traveldist_Tram                  := PT/Traveldist_Tram[PT_rel];
+		// attribute<dam>                                         Traveldist_Rail                  := PT/Traveldist_Rail[PT_rel];
+		// attribute<dam>                                         Traveldist_Ferry                 := PT/Traveldist_Ferry[PT_rel];
+		
+		// attribute<bool>                                        IsNTimeNotTooLong                := switch(
+																										  // case(N_mode_rel == Modes/v/Walking, N_time <= convert(ModelParameters/MaxWalkingTime_Stops2Dest, s))
+																										// , case(N_mode_rel == Modes/v/Cycling, N_time <= convert(ModelParameters/MaxCyclingTime_Stops2Dest, s))
+																										// , FALSE
+																									// );
+		// attribute<bool>                                        IsValid                          := Traveltime <= /ModelParameters/MaxTravelTime[s] && IsNTimeNotTooLong;
+		
+		// unit<uint64> Result := select_with_org_rel(IsValid)
+		// {
+			// attribute<c_Time_Places>               c_fromTime_Place_rel             := org_rel -> c_fromTime_Place_rel;
+			// attribute<c_Time_Places>               c_toTime_Place_rel               := org_rel -> c_toTime_Place_rel;
+			// attribute<Time>                        From_Time_rel                    := value(c_fromTime_Place_rel / uint64(#Places), Time);
+			// attribute<s>                           PT_time                          := org_rel -> PT_time;
+			// attribute<s>                           N_time                           := org_rel -> N_time;
+			
+			// attribute<ct>                          Price                            := org_rel -> Price;
+			// attribute<ct>                          Price_augm                       := org_rel -> Price_augm;
+			// attribute<s>                           Traveltime                       := org_rel -> Traveltime;
+			// attribute<Toegestane_Ketens>           Toegestane_Keten_rel             := org_rel -> Toegestane_Keten_rel;
+			// attribute<Modes>                       N_mode_rel                       := org_rel -> N_mode_rel;
+			// attribute<VN_ModeClasses/Uq>           N_ModeClass_rel                 := org_rel -> N_ModeClass_rel;
+
+			// attribute<dam>                         TravelDist_Bus                   := org_rel -> TravelDist_Bus;
+			// attribute<dam>                         Traveldist_Metro                 := org_rel -> Traveldist_Metro;
+			// attribute<dam>                         Traveldist_Tram                  := org_rel -> Traveldist_Tram;
+			// attribute<dam>                         Traveldist_Rail                  := org_rel -> Traveldist_Rail;
+			// attribute<dam>                         Traveldist_Ferry                 := org_rel -> Traveldist_Ferry;
+		// }
+	// }
+
+	
+	parameter<string>     StorageName_Str := 
+		'%LocalDataProjDir%/IntermediateResults/PT_Ketens_'+Time/TemplatableTextShrt[impl/EersteVertrekMoment]+
+		'_to_'+Time/TemplatableTextShrt[impl/LaatsteAankomstMoment]+
+		'_'+/ModelParameters/Analysis_date+
+		'_min-'+AsList(Classifications/FinalParetoAttr/FileNameElement, '_')+
+		'_maxtransf-'+string(ModelParameters/Max_overstappen)+
+		'_MaxOV-' + string(ModelParameters/MaxOVTime) + 'min'+
+		'.fss';
+		
 	#include<KetenRijger_T.dms>
 	#include<CreateTransfers_T.dms>
 	#include<Get_Windowed_Agency_Set_T.dms>
