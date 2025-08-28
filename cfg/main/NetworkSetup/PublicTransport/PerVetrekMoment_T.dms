@@ -33,9 +33,11 @@ Template PerVetrekMoment_T
 		attribute<Within_VW_Window>                            PT_rel                           := second_rel; //debug
 		attribute<Places>                                      Place_rel                        := X_rel; //debug
 
-		attribute<Time>                                        V_From_Time_rel                  := const(inTime[Time],V)[V_rel];
+		attribute<Time>                                        V_From_Time_rel_org              := const(inTime[Time],V)[V_rel], Descr = "Departure time from org, excluding waiting at first stop.";
+		attribute<Time>                                        V_To_Time_rel_org                := V_From_Time_rel_org + V_time[Time];
+		
+		attribute<Time>                                        V_From_Time_rel                  := V_From_Time_rel_org + Wachttijd_Time_rel, Descr = "Departure time from origin, excluding waiting at first stop.";
 		attribute<Places>                                      V_From_Place_rel                 := V/From_Place_rel[V_rel];
-		attribute<Time>                                        V_To_Time_rel                    := V_From_Time_rel + V_time[Time];
 		attribute<c_Time_Places>                               V_c_fromTime_Place_rel           := combine_data(c_Time_Places, V_From_Time_rel, V_From_Place_rel);
 		
 		attribute<Time>                                        PT_From_Time_rel                 := Within_VW_Window/From_Time_rel[PT_rel];
@@ -48,15 +50,16 @@ Template PerVetrekMoment_T
 		attribute</SourceData/Infrastructuur/GTFS/RelevantSelection/ScheduledLinks> IsPT_departureEvent_ActualPT0     := rlookup(PT_c_fromTime_Stop_rel, /SourceData/Infrastructuur/GTFS/RelevantSelection/ScheduledLinks/c_fromTime_Stop_rel), Descr = "the departure event should be a depature event, and not waiting or already a transfer. To make sure, this check is built in.";
 		attribute<bool>                                        IsPT_departureEvent_ActualPT                           := IsDefined(IsPT_departureEvent_ActualPT0);
 		
-		attribute<Time>                                        StartWacht_Time_rel              := V_To_Time_rel;
+		attribute<Time>                                        StartWacht_Time_rel              := V_To_Time_rel_org;
 		attribute<Time>                                        EindWacht_Time_rel               := value(PT_c_fromTime_Place_rel / uint64(#Places), Time);
+		attribute<bool>                                        IsWachttijdValid                 := StartWacht_Time_rel < EindWacht_Time_rel;
 		
 		attribute<s>                                           V_time                           := V/impedance[V_rel];
 		attribute<Modes>                                       V_mode_rel                       := V/Mode_rel[V_rel];
 		attribute<VN_ModeClasses/Uq>                           V_ModeClass_rel                  := V/ModeClass_rel[V_rel];
 		attribute<ct>                                          V_price                          := V/Price[V_rel];
 		
-		attribute<Time>                                        Wachttijd_Time_rel               := sub_or_null(EindWacht_Time_rel, StartWacht_Time_rel);
+		attribute<Time>                                        Wachttijd_Time_rel               := MakeDefined(sub_or_null(EindWacht_Time_rel, StartWacht_Time_rel), 0[Time]);
 		attribute<s>                                           W_time                           := Wachttijd_Time_rel[s];
 		
 		attribute<c_Time_Places>                               c_fromTime_Place_rel             := V_c_fromTime_Place_rel;
@@ -79,7 +82,7 @@ Template PerVetrekMoment_T
 																										, case(V_mode_rel == Modes/v/Cycling, V_time <= convert(ModelParameters/MaxCyclingTime_Org2Stops, s))
 																										, FALSE
 																									);
-		attribute<bool>                                        IsValid                          := Wachttijd_Time_rel <= ModelParameters/Advanced/MaxWachttijdThuis && IsVTimeNotTooLong && IsPT_departureEvent_ActualPT;
+		attribute<bool>                                        IsValid                          := Wachttijd_Time_rel <= ModelParameters/Advanced/MaxWachttijdThuis && IsWachttijdValid && IsVTimeNotTooLong && IsPT_departureEvent_ActualPT;
 		
 		unit<uint64> Result := select(IsValid)
 		{
@@ -182,10 +185,15 @@ Template PerVetrekMoment_T
 		
 		unit<uint32> uq_c_FromTime_Place := unique_uint32(c_fromTime_Place_rel);
 		unit<uint32> uq_c_ToTime_Place   := unique_uint32(c_toTime_Place_rel);
-		
+
 		attribute<uq_c_FromTime_Place>         uq_c_FromTime_Place_rel          := rlookup(c_fromTime_Place_rel, uq_c_FromTime_Place/Values);
 		attribute<uq_c_ToTime_Place>           uq_c_ToTime_Place_rel            := rlookup(c_toTime_Place_rel, uq_c_ToTime_Place/Values);
-		
+
+		attribute<Time>                        From_Time_rel                    := value(c_FromTime_Place_rel / uint64(#Places), Time);
+		attribute<Places>                      From_Place_rel                   := value(c_FromTime_Place_rel % uint64(#Places), Places);
+		attribute<Time>                        To_Time_rel                      := value(c_ToTime_Place_rel / uint64(#Places), Time);
+		attribute<Places>                      To_Place_rel                     := value(c_ToTime_Place_rel % uint64(#Places), Places);
+
 		attribute<s>                           W_time                           := union_data(., Add_N_to_VPT/Result/W_time,  const(0w, Direct_OD, s));
 		attribute<s>                           V_time                           := union_data(., Add_N_to_VPT/Result/V_time,  Direct_OD/duration_seconds);
 		attribute<s>                           PT_time                          := union_data(., Add_N_to_VPT/Result/PT_time, const(0w, Direct_OD, s));
@@ -208,6 +216,11 @@ Template PerVetrekMoment_T
 		attribute<dam>                         Traveldist_Rail                  := union_data(., Add_N_to_VPT/Result/Traveldist_Rail, const(0w, Direct_OD, dam));
 		attribute<dam>                         Traveldist_Ferry                 := union_data(., Add_N_to_VPT/Result/Traveldist_Ferry, const(0w, Direct_OD, dam));
 
+		//debug 
+		unit<uint64> subset := select_uint64_with_attr_by_cond(., c_fromTime_Place_rel == 1151887306u64 && c_toTime_Place_rel == 1317213143u64);
+
+
+
 
 		///// ==== Step-wise condensation of result set ==== ////
 		/// first condense the results based on from time-place to time-place.
@@ -219,6 +232,8 @@ Template PerVetrekMoment_T
 		attribute<OD_key_set> OD_key                           := combine_data(OD_key_set, uq_c_FromTime_Place_rel, uq_c_ToTime_Place_rel);
 		unit<uint64>          uq_OD_key                        := unique(OD_key);
 		attribute<uq_OD_key>  uq_OD_key_rel                    := rlookup(OD_key, uq_OD_key/values); //attribuut om partitionering van price/traveltime etc te doen.
+		
+		//to do: nu als price - tijd exact gelijk is, blijven ze beide in de set. Solution, if equal keep lowest id.
 		
 		// deze hardcoding van price_augm vervangen met iets uit de model parameters.
 		attribute<.>          good_candidate_of_OD (uq_OD_key) := min_index(Price_augm, uq_OD_key_rel), Descr = "do a pre-selection to limit the size of the pareto_candidate selection. Here, first select a point which is a good starting point from which to compare others.";
