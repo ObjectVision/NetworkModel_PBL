@@ -217,7 +217,7 @@ Template PerVetrekMoment_T
 		attribute<dam>                         Traveldist_Ferry                 := union_data(., Add_N_to_VPT/Result/Traveldist_Ferry, const(0w, Direct_OD, dam));
 
 		//debug 
-		unit<uint64> subset := select_uint64_with_attr_by_cond(., c_fromTime_Place_rel == 1151887306u64 && c_toTime_Place_rel == 1317213143u64);
+		// unit<uint64> subset := select_uint64_with_attr_by_cond(., c_fromTime_Place_rel == 1151887306u64 && c_toTime_Place_rel == 1317213143u64);
 
 
 
@@ -228,15 +228,75 @@ Template PerVetrekMoment_T
 		/// then, from place to place
 		/// As the join_equal_values in the 'pareto vergelijker' will explode if there too many options to compare.
 		
- 		unit<uint64>          OD_key_set                       := combine_unit_uint64(uq_c_FromTime_Place, uq_c_ToTime_Place), Descr = "Step-wise condensation of result set: first condense the results based on time-place to time-place.";
-		attribute<OD_key_set> OD_key                           := combine_data(OD_key_set, uq_c_FromTime_Place_rel, uq_c_ToTime_Place_rel);
+ 		// unit<uint64>          OD_key_set                       := combine_unit_uint64(uq_c_FromTime_Place, uq_c_ToTime_Place), Descr = "Step-wise condensation of result set";
+		// attribute<OD_key_set> OD_key                           := combine_data(OD_key_set, uq_c_FromTime_Place_rel, uq_c_ToTime_Place_rel);
+		// unit<uint64>          uq_OD_key                        := unique(OD_key);
+		// attribute<uq_OD_key>  uq_OD_key_rel                    := rlookup(OD_key, uq_OD_key/values); //attribuut om partitionering van price/traveltime etc te doen.
+		
+		// attribute<.>          good_candidate_of_OD (uq_OD_key) := ='min_index('+first(ParetoAttr/Name)+', uq_OD_key_rel)', Descr = "do a pre-selection to limit the size of the pareto_candidate selection. Here, first select a point which is a good starting point from which to compare others.";
+		// attribute<.>          good_candidate_in_OD             := good_candidate_of_OD[uq_OD_key_rel], Descr = "";
+		// attribute<bool>       pe_compared_to_good_candidate    := =AsList(replace('@PA@ < good_candidate_in_OD->@PA@', '@PA@', ParetoAttr/Name), ' or '), Descr = "Option is Pareto efficient compared to good candidate.";
+		// attribute<bool>       is_also_good_candidate           := pe_compared_to_good_candidate OR (ID(.) == good_candidate_in_OD), Descr = "";
+				
+		// unit<uint64> Valid := select(is_also_good_candidate)
+		// {
+			// attribute<uq_OD_key>  uq_OD_key_rel    := collect_by_cond(., ../uq_OD_key_rel);
+			// attribute<s>          TravelTime       := collect_by_cond(., ../TravelTime);
+			// attribute<Ct>         Price            := collect_by_cond(., ../Price);
+			// attribute<Ct>         Price_augm       := collect_by_cond(., ../Price_augm);
+		// }
+		// unit<uint64> pareto_vergelijker := join_equal_values_uint64(Valid/uq_OD_key_rel, Valid/uq_OD_key_rel)
+		// {
+			// attribute<bool>       is_less_or_equal := =AsList('Valid/'+ ParetoAttr/Name+'[./first_rel] <= Valid/'+ParetoAttr/Name+'[./second_rel]',  ' and ');
+			// attribute<bool>       is_equal         := =AsList('Valid/'+ ParetoAttr/Name+'[./first_rel] == Valid/'+ParetoAttr/Name+'[./second_rel]',  ' and ');
+			// attribute<bool>       is_less          := is_less_or_equal && (not(is_equal) || first_rel < second_rel);
+		// }
+		// attribute<bool>       Valid_pareto_condition   (Valid) := not(any(pareto_vergelijker/is_less, pareto_vergelijker/second_rel));
+		// attribute<bool>       pareto_condition                 := recollect_by_cond(is_also_good_candidate, Valid_pareto_condition, false);
+	// }
+	
+	// unit<uint64> Result_AfterFirstCondensation := select_with_org_rel(Union_with_DirectOD/pareto_condition)
+	// , Descr = "Set that still contains duplicate from places, departing at different times and arriving at different times. So we need to condense it again."
+	// {
+		// attribute<Union_with_DirectOD/uq_c_FromTime_Place>  uq_c_FromTime_Place_rel     := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/uq_c_FromTime_Place_rel);
+		// attribute<Union_with_DirectOD/uq_c_ToTime_Place>    uq_c_ToTime_Place_rel       := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/uq_c_ToTime_Place_rel);
+		// attribute<c_Time_Places>                            c_FromTime_Place_rel        := Union_with_DirectOD/uq_c_FromTime_Place/values[uq_c_FromTime_Place_rel];
+		// attribute<c_Time_Places>                            c_ToTime_Place_rel          := Union_with_DirectOD/uq_c_ToTime_Place/values[uq_c_ToTime_Place_rel];
+		 
+		// attribute<Time>                                     From_Time_rel               := value(c_FromTime_Place_rel / uint64(#Places), Time);
+		// attribute<Places>                                   From_Place_rel              := value(c_FromTime_Place_rel % uint64(#Places), Places);
+		// attribute<Time>                                     To_Time_rel                 := value(c_ToTime_Place_rel / uint64(#Places), Time);
+		// attribute<Places>                                   To_Place_rel                := value(c_ToTime_Place_rel % uint64(#Places), Places);
+
+		// attribute<ct>                                       Price                       := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Price);
+		// attribute<ct>                                       Price_augm                  := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Price_augm);
+		// attribute<s>                                        Traveltime                  := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Traveltime);
+		// attribute<Toegestane_Ketens>                        Toegestane_Keten_rel        := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Toegestane_Keten_rel);
+		// attribute<s>                                        W_time                      := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/W_time), Descr = "Waiting at home";
+		// attribute<s>                                        V_time                      := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/V_time);
+		// attribute<s>                                        PT_time                     := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/PT_time);
+		// attribute<s>                                        N_time                      := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/N_time);
+		// attribute<Modes>                                    V_mode_rel                  := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/V_mode_rel);
+		// attribute<Modes>                                    N_mode_rel                  := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/N_mode_rel);
+		
+		// attribute<VN_ModeClasses/Uq>                        V_ModeClass_rel             := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/V_ModeClass_rel);
+		// attribute<VN_ModeClasses/Uq>                        N_ModeClass_rel             := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/N_ModeClass_rel);
+		
+		// attribute<bool>                                     IsDirectTravel              := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/IsDirectTravel);
+		
+		// attribute<dam>                                      TravelDist_Bus              := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/TravelDist_Bus);
+		// attribute<dam>                                      Traveldist_Metro            := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Traveldist_Metro);
+		// attribute<dam>                                      Traveldist_Tram             := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Traveldist_Tram);
+		// attribute<dam>                                      Traveldist_Rail             := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Traveldist_Rail);
+		// attribute<dam>                                      Traveldist_Ferry            := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Traveldist_Ferry);
+ 	
+		///// ==== Step-wise condensation of result set ==== ////
+ 		unit<uint64>          OD_key_set                       := combine_unit_uint64(Union_with_DirectOD/uq_c_FromTime_Place, Places), Descr = "Step-wise condensation of result set: second condense the results based on time-place to place.";
+		attribute<OD_key_set> OD_key                           := combine_data(OD_key_set, uq_c_FromTime_Place_rel, To_Place_rel);
 		unit<uint64>          uq_OD_key                        := unique(OD_key);
 		attribute<uq_OD_key>  uq_OD_key_rel                    := rlookup(OD_key, uq_OD_key/values); //attribuut om partitionering van price/traveltime etc te doen.
 		
-		//to do: nu als price - tijd exact gelijk is, blijven ze beide in de set. Solution, if equal keep lowest id.
-		
-		// deze hardcoding van price_augm vervangen met iets uit de model parameters.
-		attribute<.>          good_candidate_of_OD (uq_OD_key) := min_index(Price_augm, uq_OD_key_rel), Descr = "do a pre-selection to limit the size of the pareto_candidate selection. Here, first select a point which is a good starting point from which to compare others.";
+		attribute<.>          good_candidate_of_OD (uq_OD_key) := ='min_index('+first(ParetoAttr/Name)+', uq_OD_key_rel)', Descr = "do a pre-selection to limit the size of the pareto_candidate selection. Here, first select a point which is a good starting point from which to compare others.";
 		attribute<.>          good_candidate_in_OD             := good_candidate_of_OD[uq_OD_key_rel], Descr = "";
 		attribute<bool>       pe_compared_to_good_candidate    := =AsList(replace('@PA@ < good_candidate_in_OD->@PA@', '@PA@', ParetoAttr/Name), ' or '), Descr = "Option is Pareto efficient compared to good candidate.";
 		attribute<bool>       is_also_good_candidate           := pe_compared_to_good_candidate OR (ID(.) == good_candidate_in_OD), Descr = "";
@@ -258,19 +318,9 @@ Template PerVetrekMoment_T
 		attribute<bool>       pareto_condition                 := recollect_by_cond(is_also_good_candidate, Valid_pareto_condition, false);
 	}
 	
-	unit<uint64> Result_AfterFirstCondensation := select_with_org_rel(Union_with_DirectOD/pareto_condition)
-	, Descr = "Set that still contains duplicate from places, departing at different times and arriving at different times. So we need to condense it again."
+	unit<uint64> Result_AfterSecondCondensation := select(Union_with_DirectOD/pareto_condition)
+	, Descr = "Set that still contains duplicate from places, departing at different times. So we need to condense it again."
 	{
-		attribute<Union_with_DirectOD/uq_c_FromTime_Place>  uq_c_FromTime_Place_rel     := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/uq_c_FromTime_Place_rel);
-		attribute<Union_with_DirectOD/uq_c_ToTime_Place>    uq_c_ToTime_Place_rel       := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/uq_c_ToTime_Place_rel);
-		attribute<c_Time_Places>                            c_FromTime_Place_rel        := Union_with_DirectOD/uq_c_FromTime_Place/values[uq_c_FromTime_Place_rel];
-		attribute<c_Time_Places>                            c_ToTime_Place_rel          := Union_with_DirectOD/uq_c_ToTime_Place/values[uq_c_ToTime_Place_rel];
-		 
-		attribute<Time>                                     From_Time_rel               := value(c_FromTime_Place_rel / uint64(#Places), Time);
-		attribute<Places>                                   From_Place_rel              := value(c_FromTime_Place_rel % uint64(#Places), Places);
-		attribute<Time>                                     To_Time_rel                 := value(c_ToTime_Place_rel / uint64(#Places), Time);
-		attribute<Places>                                   To_Place_rel                := value(c_ToTime_Place_rel % uint64(#Places), Places);
-
 		attribute<ct>                                       Price                       := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Price);
 		attribute<ct>                                       Price_augm                  := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Price_augm);
 		attribute<s>                                        Traveltime                  := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Traveltime);
@@ -281,73 +331,19 @@ Template PerVetrekMoment_T
 		attribute<s>                                        N_time                      := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/N_time);
 		attribute<Modes>                                    V_mode_rel                  := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/V_mode_rel);
 		attribute<Modes>                                    N_mode_rel                  := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/N_mode_rel);
-		
 		attribute<VN_ModeClasses/Uq>                        V_ModeClass_rel             := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/V_ModeClass_rel);
 		attribute<VN_ModeClasses/Uq>                        N_ModeClass_rel             := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/N_ModeClass_rel);
 		
-		attribute<bool>                                     IsDirectTravel              := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/IsDirectTravel);
 		
 		attribute<dam>                                      TravelDist_Bus              := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/TravelDist_Bus);
 		attribute<dam>                                      Traveldist_Metro            := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Traveldist_Metro);
 		attribute<dam>                                      Traveldist_Tram             := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Traveldist_Tram);
 		attribute<dam>                                      Traveldist_Rail             := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Traveldist_Rail);
 		attribute<dam>                                      Traveldist_Ferry            := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Traveldist_Ferry);
- 	
-		///// ==== Step-wise condensation of result set ==== ////
- 		unit<uint64>          OD_key_set                       := combine_unit_uint64(Union_with_DirectOD/uq_c_FromTime_Place, Places), Descr = "Step-wise condensation of result set: second condense the results based on time-place to place.";
-		attribute<OD_key_set> OD_key                           := combine_data(OD_key_set, uq_c_FromTime_Place_rel, To_Place_rel);
-		unit<uint64>          uq_OD_key                        := unique(OD_key);
-		attribute<uq_OD_key>  uq_OD_key_rel                    := rlookup(OD_key, uq_OD_key/values); //attribuut om partitionering van price/traveltime etc te doen.
 		
-		// deze hardcoding van price_augm vervangen met iets uit de model parameters.
-		attribute<.>          good_candidate_of_OD (uq_OD_key) := min_index(Price_augm, uq_OD_key_rel), Descr = "do a pre-selection to limit the size of the pareto_candidate selection. Here, first select a point which is a good starting point from which to compare others.";
-		attribute<.>          good_candidate_in_OD             := good_candidate_of_OD[uq_OD_key_rel], Descr = "";
-		attribute<bool>       pe_compared_to_good_candidate    := =AsList(replace('@PA@ < good_candidate_in_OD->@PA@', '@PA@', ParetoAttr/Name), ' or '), Descr = "Option is Pareto efficient compared to good candidate.";
-		attribute<bool>       is_also_good_candidate           := pe_compared_to_good_candidate OR (ID(.) == good_candidate_in_OD), Descr = "";
-				
-		unit<uint64> Valid := select(is_also_good_candidate)
-		{
-			attribute<uq_OD_key>  uq_OD_key_rel    := collect_by_cond(., ../uq_OD_key_rel);
-			attribute<s>          TravelTime       := collect_by_cond(., ../TravelTime);
-			attribute<Ct>         Price            := collect_by_cond(., ../Price);
-			attribute<Ct>         Price_augm       := collect_by_cond(., ../Price_augm);
-		}
-		unit<uint64> pareto_vergelijker := join_equal_values_uint64(Valid/uq_OD_key_rel, Valid/uq_OD_key_rel)
-		{
-			attribute<bool>       is_less_or_equal := =AsList('Valid/'+ ParetoAttr/Name+'[./first_rel] <= Valid/'+ParetoAttr/Name+'[./second_rel]',  ' and ');
-			attribute<bool>       is_equal         := =AsList('Valid/'+ ParetoAttr/Name+'[./first_rel] == Valid/'+ParetoAttr/Name+'[./second_rel]',  ' and ');
-			attribute<bool>       is_less          := is_less_or_equal && (not(is_equal) || first_rel < second_rel);
-		}
-		attribute<bool>       Valid_pareto_condition   (Valid) := not(any(pareto_vergelijker/is_less, pareto_vergelijker/second_rel));
-		attribute<bool>       pareto_condition                 := recollect_by_cond(is_also_good_candidate, Valid_pareto_condition, false);
-	}
-	
-	unit<uint64> Result_AfterSecondCondensation := select(Result_AfterFirstCondensation/pareto_condition)
-	, Descr = "Set that still contains duplicate from places, departing at different times. So we need to condense it again."
-	{
-		attribute<ct>                                       Price                       := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Price);
-		attribute<ct>                                       Price_augm                  := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Price_augm);
-		attribute<s>                                        Traveltime                  := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Traveltime);
-		attribute<Toegestane_Ketens>                        Toegestane_Keten_rel        := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Toegestane_Keten_rel);
-		attribute<s>                                        W_time                      := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/W_time), Descr = "Waiting at home";
-		attribute<s>                                        V_time                      := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/V_time);
-		attribute<s>                                        PT_time                     := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/PT_time);
-		attribute<s>                                        N_time                      := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/N_time);
-		attribute<Modes>                                    V_mode_rel                  := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/V_mode_rel);
-		attribute<Modes>                                    N_mode_rel                  := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/N_mode_rel);
-		attribute<VN_ModeClasses/Uq>                        V_ModeClass_rel             := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/V_ModeClass_rel);
-		attribute<VN_ModeClasses/Uq>                        N_ModeClass_rel             := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/N_ModeClass_rel);
-		
-		
-		attribute<dam>                                      TravelDist_Bus              := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/TravelDist_Bus);
-		attribute<dam>                                      Traveldist_Metro            := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Traveldist_Metro);
-		attribute<dam>                                      Traveldist_Tram             := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Traveldist_Tram);
-		attribute<dam>                                      Traveldist_Rail             := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Traveldist_Rail);
-		attribute<dam>                                      Traveldist_Ferry            := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Traveldist_Ferry);
-		
-		attribute<Places>                                   From_Place_rel              := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/From_Place_rel);
-		attribute<Places>                                   To_Place_rel                := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/To_Place_rel);
-		attribute<bool>                                     IsDirectTravel              := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/IsDirectTravel);
+		attribute<Places>                                   From_Place_rel              := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/From_Place_rel);
+		attribute<Places>                                   To_Place_rel                := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/To_Place_rel);
+		attribute<bool>                                     IsDirectTravel              := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/IsDirectTravel);
 	
 		///// ==== Step-wise condensation of result set ==== ////
  		unit<uint64>          OD_key_set                       := combine_unit_uint64(Places, Places), Descr = "Step-wise condensation of result set: third condense the results based on place to place.";
@@ -355,8 +351,7 @@ Template PerVetrekMoment_T
 		unit<uint64>          uq_OD_key                        := unique(OD_key);
 		attribute<uq_OD_key>  uq_OD_key_rel                    := rlookup(OD_key, uq_OD_key/values); //attribuut om partitionering van price/traveltime etc te doen.
 		
-		// deze hardcoding van price_augm vervangen met iets uit de model parameters.
-		attribute<.>          good_candidate_of_OD (uq_OD_key) := min_index(Price_augm, uq_OD_key_rel), Descr = "do a pre-selection to limit the size of the pareto_candidate selection. Here, first select a point which is a good starting point from which to compare others.";
+		attribute<.>          good_candidate_of_OD (uq_OD_key) := ='min_index('+first(ParetoAttr/Name)+', uq_OD_key_rel)', Descr = "do a pre-selection to limit the size of the pareto_candidate selection. Here, first select a point which is a good starting point from which to compare others.";
 		attribute<.>          good_candidate_in_OD             := good_candidate_of_OD[uq_OD_key_rel], Descr = "";
 		attribute<bool>       pe_compared_to_good_candidate    := =AsList(replace('@PA@ < good_candidate_in_OD->@PA@', '@PA@', ParetoAttr/Name), ' or '), Descr = "Option is Pareto efficient compared to good candidate.";
 		attribute<bool>       is_also_good_candidate           := pe_compared_to_good_candidate OR (ID(.) == good_candidate_in_OD), Descr = "";
@@ -445,16 +440,18 @@ Template PerVetrekMoment_T
 			attribute<ct>                                       Price                       := Result_AfterThirdCondensation/Price;
 			attribute<ct>                                       Price_augm                  := Result_AfterThirdCondensation/Price_augm;
 			attribute<string>                                   ModeUsed                    := Result_AfterThirdCondensation/ModeUsed;
-			attribute<dam>                                      TravelDist_Bus              := Result_AfterThirdCondensation/TravelDist_Bus;
-			attribute<dam>                                      Traveldist_Metro            := Result_AfterThirdCondensation/Traveldist_Metro;
-			attribute<dam>                                      Traveldist_Tram             := Result_AfterThirdCondensation/Traveldist_Tram;
-			attribute<dam>                                      Traveldist_Rail             := Result_AfterThirdCondensation/Traveldist_Rail;
-			attribute<dam>                                      Traveldist_Ferry            := Result_AfterThirdCondensation/Traveldist_Ferry;
+			// attribute<dam>                                      TravelDist_Bus              := Result_AfterThirdCondensation/TravelDist_Bus;
+			// attribute<dam>                                      Traveldist_Metro            := Result_AfterThirdCondensation/Traveldist_Metro;
+			// attribute<dam>                                      Traveldist_Tram             := Result_AfterThirdCondensation/Traveldist_Tram;
+			// attribute<dam>                                      Traveldist_Rail             := Result_AfterThirdCondensation/Traveldist_Rail;
+			// attribute<dam>                                      Traveldist_Ferry            := Result_AfterThirdCondensation/Traveldist_Ferry;
 			attribute<s>                                        W_time                      := Result_AfterThirdCondensation/W_time, Descr = "Waiting at home";
 			attribute<s>                                        V_time                      := Result_AfterThirdCondensation/V_time;
 			attribute<s>                                        PT_time                     := Result_AfterThirdCondensation/PT_time;
 			attribute<s>                                        N_time                      := Result_AfterThirdCondensation/N_time;
 		}
+
+		parameter<string> Generate_FSS := 'Ready', ExplicitSuppliers = "Export_fss";
 
 		container LongFormat
 		{
