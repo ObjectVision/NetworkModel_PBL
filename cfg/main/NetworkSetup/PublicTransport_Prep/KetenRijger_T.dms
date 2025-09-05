@@ -44,8 +44,24 @@ Template KetenRijger_T
 		attribute<Stops>              From_Stop_rel                   := value(uq_c_FromTime_Stop_rel -> values % uint64(#Stops), Stops);
 		attribute<Stops>              To_Stop_rel                     := value(uq_c_ToTime_Stop_rel   -> Values % uint64(#Stops), Stops);
 		
-		attribute<s>                  Traveltime                      := Left_rel -> traveltime + Transfers_rel -> Transfer_Time + Right_rel -> traveltime;
+		attribute<s>                  Traveltime_wo_Penalty           := Left_rel -> traveltime + Transfers_rel -> Transfer_Time + Right_rel -> traveltime;
+		attribute<Modes>              from_Mode_rel                   := Left_rel -> Mode_rel;
+		attribute<Modes>              to_Mode_rel                     := Right_rel -> Mode_rel;
+		attribute<Modes>              Mode_rel                        := to_Mode_rel, Descr = "Last mode_rel";
 		attribute<string>             ModeUsed                        := Left_rel -> ModeUsed + Right_rel -> ModeUsed;
+		
+		attribute<bool>               NeedsTranferTimePenalty         := Modes/IsGelijkvloers[from_Mode_rel] == 1b && Modes/IsGelijkvloers[to_Mode_rel] == 1b //van: bus, tram, walk    to bus, tram, walk  --> niks
+																			? False
+																			: Modes/IsGelijkvloers[from_Mode_rel] == 1b && Modes/IsGelijkvloers[to_Mode_rel] == 0b //van: bus, tram, walk to metro, rail, ferry --> penalty
+																				? TRUE
+																				: Modes/IsGelijkvloers[from_Mode_rel] == 0b && Modes/IsGelijkvloers[to_Mode_rel] == 0b //van: metro, rail, ferry to metro, rail, ferry --> penalty
+																					? TRUE
+																					: Modes/IsGelijkvloers[from_Mode_rel] == 0b && Modes/IsGelijkvloers[to_Mode_rel] == 1b //van: metro, rail, ferry to bus, tram, walk --> penalty
+																						? TRUE
+																						: (0/0)[bool];
+		attribute<s>                  Traveltime                      := NeedsTranferTimePenalty 
+																			? Traveltime_wo_Penalty + convert(ModelParameters/Advanced/OngelijkvloersPenalty, s) 
+																			: Traveltime_wo_Penalty;
 		
 		attribute<bool>               IsTravelToSameStop              := from_Stop_rel == To_Stop_rel;
 		attribute<bool>               IsJourneyLongerThanAllowed      := Traveltime > convert(/ModelParameters/MaxOVTime, s);
@@ -143,6 +159,7 @@ Template KetenRijger_T
 			attribute<Join_LeftT_Right/Valid1> Valid1_rel                      := collect_by_cond(., Join_LeftT_Right/Valid1_rel);
 			
 			attribute<string>                  ModeUsed                        := collect_by_cond(., Join_LeftT_Right/ModeUsed);
+			attribute<Modes>                   Mode_rel                        := collect_by_cond(., Join_LeftT_Right/Mode_rel);
 			attribute<bool>                    NS_overstap_voordelig           := Valid1_rel->NS_overstap_voordelig;
 
 			attribute<NS_Stations>             First_NS_Station                : Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden van de eerste en laaste ns-stations zijn.",
