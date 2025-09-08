@@ -35,23 +35,37 @@ Template KetenRijger_T
 	unit<uint64> Join_LeftT_Right   := join_equal_values_uint64(Join_Left_Transf/transfers_rel->uq_c_Reboard_rel, Right/uq_c_FromTime_Stop_rel), Descr = "join Left+Transfer To_rel met de de Right from_rel"
 	, Descr = "deze set bevat alle mogelijke 'paden' en kan dus later geaggregeerd worden door group-by OD. En dus per OD-pair het kortste/goedkoopste pad te kiezen."
 	{
-		attribute<Left>             Left_rel                        := first_rel -> Left_rel;
-		attribute<Transfers>        Transfers_rel                   := first_rel -> Transfers_rel;
-		attribute<Right>            Right_rel                       := second_rel;
+		attribute<Left>               Left_rel                        := first_rel -> Left_rel;
+		attribute<Transfers>          Transfers_rel                   := first_rel -> Transfers_rel;
+		attribute<Right>              Right_rel                       := second_rel;
 					
-		attribute<s> Traveltime := Left_rel->traveltime + Transfers_rel->Transfer_Time+ Right_rel->traveltime;
-				
-		attribute<uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel := left_rel ->uq_c_FromTime_Stop_rel;
-		attribute<uq_c_ToTime_Stop>   uq_c_ToTime_Stop_rel   := right_rel->uq_c_ToTime_Stop_rel;
+		attribute<uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel          := left_rel -> uq_c_FromTime_Stop_rel;
+		attribute<uq_c_ToTime_Stop>   uq_c_ToTime_Stop_rel            := right_rel -> uq_c_ToTime_Stop_rel;
+		attribute<Stops>              From_Stop_rel                   := value(uq_c_FromTime_Stop_rel -> values % uint64(#Stops), Stops);
+		attribute<Stops>              To_Stop_rel                     := value(uq_c_ToTime_Stop_rel   -> Values % uint64(#Stops), Stops);
 		
-		attribute<Stops> From_Stop_rel                   := value(uq_c_FromTime_Stop_rel->values % uint64(#Stops), Stops);
-		attribute<Stops> To_Stop_rel                     := value(uq_c_ToTime_Stop_rel  ->Values % uint64(#Stops), Stops);
+		attribute<s>                  Traveltime_wo_Penalty           := Left_rel -> traveltime + Transfers_rel -> Transfer_Time + Right_rel -> traveltime;
+		attribute<Modes>              from_Mode_rel                   := Left_rel -> Mode_rel;
+		attribute<Modes>              to_Mode_rel                     := Right_rel -> Mode_rel;
+		attribute<Modes>              Mode_rel                        := to_Mode_rel, Descr = "Last mode_rel";
+		attribute<string>             ModeUsed                        := Left_rel -> ModeUsed + Right_rel -> ModeUsed;
 		
-		attribute<bool>  IsTravelToSameStop              := from_Stop_rel == To_Stop_rel;
-
-		attribute<bool> IsJourneyLongerThanAllowed     := Traveltime > convert(/ModelParameters/MaxOVTime, s);
-
-		attribute<bool> is_valid_connection := NOT(IsTravelToSameStop) && NOT(IsJourneyLongerThanAllowed);
+		attribute<bool>               NeedsTranferTimePenalty         := Modes/IsGelijkvloers[from_Mode_rel] == 1b && Modes/IsGelijkvloers[to_Mode_rel] == 1b //van: bus, tram, walk    to bus, tram, walk  --> niks
+																			? False
+																			: Modes/IsGelijkvloers[from_Mode_rel] == 1b && Modes/IsGelijkvloers[to_Mode_rel] == 0b //van: bus, tram, walk to metro, rail, ferry --> penalty
+																				? TRUE
+																				: Modes/IsGelijkvloers[from_Mode_rel] == 0b && Modes/IsGelijkvloers[to_Mode_rel] == 0b //van: metro, rail, ferry to metro, rail, ferry --> penalty
+																					? TRUE
+																					: Modes/IsGelijkvloers[from_Mode_rel] == 0b && Modes/IsGelijkvloers[to_Mode_rel] == 1b //van: metro, rail, ferry to bus, tram, walk --> penalty
+																						? TRUE
+																						: (0/0)[bool];
+		attribute<s>                  Traveltime                      := NeedsTranferTimePenalty 
+																			? Traveltime_wo_Penalty + convert(ModelParameters/Advanced/OngelijkvloersPenalty, s) 
+																			: Traveltime_wo_Penalty;
+		
+		attribute<bool>               IsTravelToSameStop              := from_Stop_rel == To_Stop_rel;
+		attribute<bool>               IsJourneyLongerThanAllowed      := Traveltime > convert(/ModelParameters/MaxOVTime, s);
+		attribute<bool>               Is_valid_connection             := NOT(IsTravelToSameStop) && NOT(IsJourneyLongerThanAllowed);
 
 		unit<uint64> Valid1 := select(is_valid_connection)
 		{
@@ -101,21 +115,17 @@ Template KetenRijger_T
 			attribute<uq_c_ToTime_Stop>     uq_c_ToTime_Stop_rel        := Right_rel->uq_c_ToTime_Stop_rel;
 			attribute<c_FromTS_ToTS>        OD_pair_key                 := combine_data(c_FromTS_ToTS, uq_c_FromTime_Stop_rel, uq_c_ToTime_Stop_rel);
 
-			unit<uint32> OD_pair := unique_uint32(OD_pair_key);
-			attribute<OD_pair> OD_pair_rel := rlookup(OD_pair_key, OD_pair/values);
-			
+			unit<uint32>          OD_pair                          := unique_uint32(OD_pair_key);
+			attribute<OD_pair>    OD_pair_rel                      := rlookup(OD_pair_key, OD_pair/values); //attribuut om partitionering van price/traveltime etc te doen.
+
 			// do a pre-selection to limit the size of the pareto_candiate selection
-			attribute<Valid1> good_candidate_of_OD(OD_Pair) := min_index(Price_augm, OD_pair_rel);
-			attribute<Valid1> good_candidate_in_OD := good_candidate_of_OD[OD_pair_rel];
+			attribute<.>          good_candidate_of_OD   (OD_Pair) := ='min_index('+first(ParetoAttr/Name)+', OD_pair_rel)', Descr = "do a pre-selection to limit the size of the pareto_candidate selection. Here, first select a point which is a good starting point from which to compare others.";
+			attribute<.>          good_candidate_in_OD             := good_candidate_of_OD[OD_pair_rel], Descr = "";
+			attribute<bool>       pe_compared_to_good_candidate    := =AsList(replace('@PA@ < good_candidate_in_OD->@PA@', '@PA@', ParetoAttr/Name), ' or '), Descr = "Option is Pareto efficient compared to good candidate.";
+			attribute<bool>       is_also_good_candidate           := pe_compared_to_good_candidate OR (ID(.) == good_candidate_in_OD), Descr = "";
 			
-			unit<uint8> ParetoAttr := KetenRijgerParetoAttr;
+			unit<uint8>  ParetoAttr := KetenRijgerParetoAttr;
 			
-			attribute<bool> is_the_good_candidate := ID(.) == good_candidate_in_OD;
-			attribute<bool> pe_to_good_candidate : Descr = "true if this route is pareto efficient compared to the found good candidate",
-					=	=AsList(replace('@PA@ < good_candidate_in_OD->@PA@', '@PA@', ParetoAttr/Name),  ' or ');
-			attribute<bool> is_also_good_candidate : Descr = "if false, we do not have to compare this route to other routes as it is found to be dominated by the chosen good candidate",
-					=	pe_to_good_candidate or is_the_good_candidate;
-								
 			unit<uint64> Valid2 := select(is_also_good_candidate)
 			{
 				attribute<OD_Pair>    OD_pair_rel   := collect_by_cond(., valid1/OD_pair_rel);
@@ -126,20 +136,17 @@ Template KetenRijger_T
 			}
 			unit<uint64> pareto_vergelijker := join_equal_values_uint64(valid2/OD_pair_rel, valid2/OD_pair_rel)
 			{
-				attribute<bool> is_less_or_equal := 
-					=AsList('Valid2/'+ ParetoAttr/Name+'[./first_rel] <= Valid2/'+ParetoAttr/Name+'[./second_rel]',  ' and ');
-				attribute<bool> is_equal := 
-					=AsList('Valid2/'+ ParetoAttr/Name+'[./first_rel] == Valid2/'+ParetoAttr/Name+'[./second_rel]',  ' and ');
-					
-				attribute<bool> is_less := is_less_or_equal && (not(is_equal) || first_rel < second_rel);
+				attribute<bool> is_less_or_equal := =AsList('Valid2/'+ ParetoAttr/Name+'[./first_rel] <= Valid2/'+ParetoAttr/Name+'[./second_rel]',  ' and ');
+				attribute<bool> is_equal         := =AsList('Valid2/'+ ParetoAttr/Name+'[./first_rel] == Valid2/'+ParetoAttr/Name+'[./second_rel]',  ' and ');
+				attribute<bool> is_less          := is_less_or_equal && (not(is_equal) || first_rel < second_rel);
 			}
-			attribute<bool> Valid2_pareto_condition(Valid2) := not(any(pareto_vergelijker/is_less, pareto_vergelijker/second_rel));
-			attribute<bool> pareto_condition := recollect_by_cond(is_also_good_candidate,  Valid2_pareto_condition, false);		
+			attribute<bool> Valid2_pareto_condition (Valid2) := not(any(pareto_vergelijker/is_less, pareto_vergelijker/second_rel));
+			attribute<bool> Pareto_condition                 := recollect_by_cond(is_also_good_candidate,  Valid2_pareto_condition, false);
 		}
-		attribute<bool> valid_pareto_optimal := recollect_by_cond(is_valid_connection,  Valid1/pareto_condition, false);		
-		attribute<Valid1> Valid1_rel         :=  recollect_by_cond(is_valid_connection, ID(Valid1));		
+		attribute<bool>     Valid_pareto_optimal             := recollect_by_cond(is_valid_connection,  Valid1/pareto_condition, false);
+		attribute<Valid1>   Valid1_rel                       := recollect_by_cond(is_valid_connection, ID(Valid1));
 	}
-	
+
 	container x
 	: Descr = "hack om deadlock te omzeilen"
 	, URL = "https://github.com/ObjectVision/GeoDMS/issues/965"
@@ -147,49 +154,46 @@ Template KetenRijger_T
 		unit<uint32> Result := select_uint32(Join_LeftT_Right/valid_pareto_optimal)
 		, Descr = "Geaggregeerde set naar 'OD-paren' om minimalisatie criterium op toe te passen"
 		{
-			attribute<Left>             Left_rel                        := collect_by_cond(., Join_LeftT_Right/Left_rel);
-			// attribute<Transfers>        Transfers_rel                   := collect_by_cond(., Join_LeftT_Right/Transfers_rel);
-			attribute<Right>            Right_rel                       := collect_by_cond(., Join_LeftT_Right/Right_rel);
-			attribute<Join_LeftT_Right/Valid1>   Valid1_rel                       := collect_by_cond(., Join_LeftT_Right/Valid1_rel);
+			attribute<Left>                    Left_rel                        := collect_by_cond(., Join_LeftT_Right/Left_rel);
+			attribute<Right>                   Right_rel                       := collect_by_cond(., Join_LeftT_Right/Right_rel);
+			attribute<Join_LeftT_Right/Valid1> Valid1_rel                      := collect_by_cond(., Join_LeftT_Right/Valid1_rel);
 			
-			attribute<bool>             NS_overstap_voordelig           := Valid1_rel->NS_overstap_voordelig;
+			attribute<string>                  ModeUsed                        := collect_by_cond(., Join_LeftT_Right/ModeUsed);
+			attribute<Modes>                   Mode_rel                        := collect_by_cond(., Join_LeftT_Right/Mode_rel);
+			attribute<bool>                    NS_overstap_voordelig           := Valid1_rel->NS_overstap_voordelig;
 
-			attribute<NS_Stations>      First_NS_Station               : Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden van de eerste en laaste ns-stations zijn.",
+			attribute<NS_Stations>             First_NS_Station                : Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden van de eerste en laaste ns-stations zijn.",
 				=	= NS_overstap_zeker    ? 'left_rel ->First_NS_Station'
 					: NS_overstap_mogelijk ? 'NS_overstap_voordelig ? left_rel ->First_NS_Station : Right_rel->First_NS_Station' 
 					: HasRight_NS ? 'right_rel->First_NS_Station' 
 					: HasLeft_NS  ? 'left_rel->First_NS_Station' 
 					: 'const(null_u,.)';
-			attribute<NS_Stations>      Last_NS_Station                : Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden van de eerste en laaste ns-stations zijn.",
+			attribute<NS_Stations>             Last_NS_Station                 : Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden van de eerste en laaste ns-stations zijn.",
 				=	= HasRight_NS ? 'Right_rel->Last_NS_Station' 
 					: HasLeft_NS ? 'Left_rel->Last_NS_Station' 
 					: 'const(null_u,.)';
 			
+			attribute<uq_c_FromTime_Stop>      uq_c_FromTime_Stop_rel          := Left_rel ->uq_c_FromTime_Stop_rel;
+			attribute<uq_c_ToTime_Stop>        uq_c_ToTime_Stop_rel            := Right_rel->uq_c_ToTime_Stop_rel;
 			
-			attribute<uq_c_FromTime_Stop>   uq_c_FromTime_Stop_rel      := Left_rel ->uq_c_FromTime_Stop_rel;
-			attribute<uq_c_ToTime_Stop>     uq_c_ToTime_Stop_rel        := Right_rel->uq_c_ToTime_Stop_rel;
-			// attribute<c_FromTS_ToTS>        OD_pair_rel                 := combine_data(c_FromTS_ToTS, uq_c_FromTime_Stop_rel, uq_c_ToTime_Stop_rel);
+			attribute<s>                       TravelTime                      := collect_by_cond(., Join_LeftT_Right/TravelTime);		
 			
+			attribute<Ct>                      Price_I                         := Valid1_rel->Price_I;
+			attribute<Ct>                      Price_O                         := Valid1_rel->Price_O;
+			attribute<Ct>                      Price_F                         := Valid1_rel->Price_F;
+			attribute<Ct>                      Price_L                         := Valid1_rel->Price_L;
+			attribute<Ct>                      Price_T                         := Valid1_rel->Price_T;
+			attribute<Ct>                      Price                           := Valid1_rel->Price  ;
 			
-			attribute<s>                TravelTime                      := collect_by_cond(., Join_LeftT_Right/TravelTime);		
-			
-			
-			attribute<Ct>               Price_I                         := Valid1_rel->Price_I;
-			attribute<Ct>               Price_O                         := Valid1_rel->Price_O;
-			attribute<Ct>               Price_F                         := Valid1_rel->Price_F;
-			attribute<Ct>               Price_L                         := Valid1_rel->Price_L;
-			attribute<Ct>               Price_T                         := Valid1_rel->Price_T;
-			attribute<Ct>               Price                           := Valid1_rel->Price  ;
-			
-			attribute<Ct>               Price_augm                      := Price + Price_T, Descr = "te betalen prijs, plus kosten voor tijd van vervoer/wachten die niet beprijst zijn. "; 
-			attribute<dam>              TravelDist_Bus                  := Left_rel -> TravelDist_Bus   + Right_rel -> TravelDist_Bus;
-			attribute<dam>              TravelDist_Metro                := Left_rel -> Traveldist_Metro + Right_rel -> Traveldist_Metro;
-			attribute<dam>              TravelDist_Tram                 := Left_rel -> Traveldist_Tram  + Right_rel -> Traveldist_Tram;
-			attribute<dam>              TravelDist_Rail                 := Left_rel -> Traveldist_Rail  + Right_rel -> Traveldist_Rail;
-			attribute<dam>              TravelDist_Ferry                := Left_rel -> Traveldist_Ferry + Right_rel -> Traveldist_Ferry;
+			attribute<Ct>                      Price_augm                      := Price + Price_T, Descr = "te betalen prijs, plus kosten voor tijd van vervoer/wachten die niet beprijst zijn. "; 
+			attribute<dam>                     TravelDist_Bus                  := Left_rel -> TravelDist_Bus   + Right_rel -> TravelDist_Bus;
+			attribute<dam>                     TravelDist_Metro                := Left_rel -> Traveldist_Metro + Right_rel -> Traveldist_Metro;
+			attribute<dam>                     TravelDist_Tram                 := Left_rel -> Traveldist_Tram  + Right_rel -> Traveldist_Tram;
+			attribute<dam>                     TravelDist_Rail                 := Left_rel -> Traveldist_Rail  + Right_rel -> Traveldist_Rail;
+			attribute<dam>                     TravelDist_Ferry                := Left_rel -> Traveldist_Ferry + Right_rel -> Traveldist_Ferry;
 					
-			attribute<Time>             Laatste_NS_Uitstap_Tijd         := =HasRight_NS ? 'Right_rel->Laatste_NS_Uitstap_Tijd' : 'Left_rel->Laatste_NS_Uitstap_Tijd', Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
-			attribute<Time>             Laatste_RO_Uitstap_Tijd         := =HasRight_RO ? 'Right_rel->Laatste_RO_Uitstap_Tijd' : 'Left_rel->Laatste_RO_Uitstap_Tijd', Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";			
+			attribute<Time>                    Laatste_NS_Uitstap_Tijd         := =HasRight_NS ? 'Right_rel->Laatste_NS_Uitstap_Tijd' : 'Left_rel->Laatste_NS_Uitstap_Tijd', Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
+			attribute<Time>                    Laatste_RO_Uitstap_Tijd         := =HasRight_RO ? 'Right_rel->Laatste_RO_Uitstap_Tijd' : 'Left_rel->Laatste_RO_Uitstap_Tijd', Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";			
 		}
 	}
 	

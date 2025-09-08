@@ -167,6 +167,17 @@ container Classifications: Using = "Units"
 		attribute<string> Name        := AsItemName(label);
 		attribute<string> NetworkType : ['Walking', 'Cycling'];
 	}
+	
+	unit<uint8> VN_ModeClasses := union_unit_uint8(/ModelParameters/Advanced/OV_Voortransport_Typen,/ModelParameters/Advanced/OV_Natransport_Typen)
+	{
+		attribute<string> name := union_data(., ModelParameters/Advanced/OV_Voortransport_Typen/ExportName, ModelParameters/Advanced/OV_Natransport_Typen/ExportName);
+		
+		unit<uint8> uq := unique_uint8(name)
+		{	
+			attribute<string> name := values;
+			attribute<string> label := values;
+		}
+	}
 
 	#include<modes.dms>
 	// #include<lisa.dms>
@@ -275,11 +286,23 @@ container Classifications: Using = "Units"
 		attribute<string> Name : [ 'Price_augm', 'resttijd_zonder_RO_overstap', 'resttijd_zonder_NS_overstap' ];
 	}	
 	
-	unit<uint8> CandidateParetoAttr: nrofrows = 2
+	unit<uint8> CandidateParetoAttr: nrofrows = 3
 	{
-		attribute<string> Name : [ 'Price_augm', 'TravelTime']; // kan hier gereguleerd worden; maak dit afhankelijk van MinimiseCriterium
-		attribute<string> FileNameElement : [ 'Price', 'Time']; // codering voor in een samengestelde file_naam/ 
+		attribute<string> Name               : [ 'Price', 'Price_augm', 'TravelTime']; // kan hier gereguleerd worden; maak dit afhankelijk van MinimiseCriterium
+		attribute<string> FileNameElement    : [ 'Price', 'Price_augm', 'Time'];       // codering voor in een samengestelde file_naam/ 
+		attribute<bool>   IsCriteriaInLijst  := IsDefined(strpos(ModelParameters/MinimiseCriteria, CandidateParetoAttr/FileNameElement)); 
+		parameter<bool>   IsBothPriceAndAugm := IsCriteriaInLijst[v/Price] && IsCriteriaInLijst[v/Price_augm];
+		
+		attribute<bool>   IsFinalParetoSelection := switch(
+														  case(id(.) == v/Price && IsBothPriceAndAugm, FALSE)
+														, case(id(.) == v/Price && NOT(IsBothPriceAndAugm) && IsCriteriaInLijst, TRUE)
+														, IsCriteriaInLijst
+													);
+		
+		container V := for_each_nedv(name, String(ID(.))+'[..]', void, .);
 	}
 	
-	unit<uint8> FinalParetoAttr := select_with_attr_by_cond(CandidateParetoAttr, IsDefined(strpos(ModelParameters/MinimiseCriteria, CandidateParetoAttr/FileNameElement)));
+	
+	
+	unit<uint8> FinalParetoAttr := select_with_attr_by_cond(CandidateParetoAttr, CandidateParetoAttr/IsFinalParetoSelection);
 }

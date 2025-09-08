@@ -4,25 +4,28 @@ Template PerVetrekMoment_T
 	parameter<string>   inTime_string;
 	///
 	parameter<min>      Max_V_Time := max(/ModelParameters/Advanced/OV_Voortransport_Typen/MaxTime[min]);
+	unit<uint8>         ParetoAttr := Classifications/FinalParetoAttr;
+	attribute<bool>     Within_VW_Window_SelectionCriterium (PublicTransport_Prep/PT) := PublicTransport_Prep/PT/From_Time_rel <= inTime + convert(Max_V_Time, s_f)[Time] + ModelParameters/Advanced/MaxWachttijdThuis;
 	
-	unit<uint64> Within_VW_Window := select_with_org_rel(PublicTransport_Prep/x/Result/From_Time_rel <= inTime + convert(Max_V_Time, s_f)[Time] + ModelParameters/Advanced/MaxWachttijdThuis)
+	unit<uint64> Within_VW_Window := select(Within_VW_Window_SelectionCriterium)
 	, Descr = "Opties binnen voortransport + wachten thuis window"
 	{
-		attribute<ct>                Price                       := org_rel -> Result/Price;
-		attribute<ct>                Price_augm                  := org_rel -> Result/Price_augm;
-		attribute<s>                 Traveltime                  := org_rel -> Result/Traveltime;
-		attribute<Toegestane_Ketens> Toegestane_Keten_rel        := org_rel -> Result/Toegestane_Keten_rel;
+		attribute<ct>                Price                       := collect_by_cond(., Within_VW_Window_SelectionCriterium, PublicTransport_Prep/PT/Price);
+		attribute<ct>                Price_augm                  := collect_by_cond(., Within_VW_Window_SelectionCriterium, PublicTransport_Prep/PT/Price_augm);
+		attribute<s>                 Traveltime                  := collect_by_cond(., Within_VW_Window_SelectionCriterium, PublicTransport_Prep/PT/Traveltime);
+		attribute<Toegestane_Ketens> Toegestane_Keten_rel        := collect_by_cond(., Within_VW_Window_SelectionCriterium, PublicTransport_Prep/PT/Toegestane_Keten_rel);
+		attribute<string>            ModeUsed                    := collect_by_cond(., Within_VW_Window_SelectionCriterium, PublicTransport_Prep/PT/ModeUsed);
 		
-		attribute<c_Time_Places>     c_FromTime_Place_rel        := org_rel -> Result/c_FromTime_Place_rel;
-		attribute<c_Time_Places>     c_ToTime_Place_rel          := org_rel -> Result/c_ToTime_Place_rel;
+		attribute<c_Time_Places>     c_FromTime_Place_rel        := collect_by_cond(., Within_VW_Window_SelectionCriterium, PublicTransport_Prep/PT/c_FromTime_Place_rel);
+		attribute<c_Time_Places>     c_ToTime_Place_rel          := collect_by_cond(., Within_VW_Window_SelectionCriterium, PublicTransport_Prep/PT/c_ToTime_Place_rel);
 		attribute<Places>            From_Place_rel              := value(c_FromTime_Place_rel % uint64(#Places), Places);
 		attribute<Time>              From_Time_rel               := value(c_FromTime_Place_rel / uint64(#Places), Time);
-		
-		attribute<dam>               TravelDist_Bus              := org_rel -> Result/TravelDist_Bus;
-		attribute<dam>               Traveldist_Metro            := org_rel -> Result/Traveldist_Metro;
-		attribute<dam>               Traveldist_Tram             := org_rel -> Result/Traveldist_Tram;
-		attribute<dam>               Traveldist_Rail             := org_rel -> Result/Traveldist_Rail;
-		attribute<dam>               Traveldist_Ferry            := org_rel -> Result/Traveldist_Ferry;
+
+		attribute<dam>               TravelDist_Bus              := collect_by_cond(., Within_VW_Window_SelectionCriterium, PublicTransport_Prep/PT/TravelDist_Bus);
+		attribute<dam>               Traveldist_Metro            := collect_by_cond(., Within_VW_Window_SelectionCriterium, PublicTransport_Prep/PT/Traveldist_Metro);
+		attribute<dam>               Traveldist_Tram             := collect_by_cond(., Within_VW_Window_SelectionCriterium, PublicTransport_Prep/PT/Traveldist_Tram);
+		attribute<dam>               Traveldist_Rail             := collect_by_cond(., Within_VW_Window_SelectionCriterium, PublicTransport_Prep/PT/Traveldist_Rail);
+		attribute<dam>               Traveldist_Ferry            := collect_by_cond(., Within_VW_Window_SelectionCriterium, PublicTransport_Prep/PT/Traveldist_Ferry);
 	}
 
 	unit<uint64> Add_V_to_PT   := join_equal_values_uint64(V/To_Place_rel, Within_VW_Window/From_Place_rel)
@@ -31,9 +34,11 @@ Template PerVetrekMoment_T
 		attribute<Within_VW_Window>                            PT_rel                           := second_rel; //debug
 		attribute<Places>                                      Place_rel                        := X_rel; //debug
 
-		attribute<Time>                                        V_From_Time_rel                  := const(inTime[Time],V)[V_rel];
+		attribute<Time>                                        V_From_Time_rel_org              := const(inTime[Time],V)[V_rel], Descr = "Departure time from org, excluding waiting at first stop.";
+		attribute<Time>                                        V_To_Time_rel_org                := V_From_Time_rel_org + V_time[Time];
+		
+		attribute<Time>                                        V_From_Time_rel                  := V_From_Time_rel_org + Wachttijd_Time_rel, Descr = "Departure time from origin, excluding waiting at first stop.";
 		attribute<Places>                                      V_From_Place_rel                 := V/From_Place_rel[V_rel];
-		attribute<Time>                                        V_To_Time_rel                    := V_From_Time_rel + V_time[Time];
 		attribute<c_Time_Places>                               V_c_fromTime_Place_rel           := combine_data(c_Time_Places, V_From_Time_rel, V_From_Place_rel);
 		
 		attribute<Time>                                        PT_From_Time_rel                 := Within_VW_Window/From_Time_rel[PT_rel];
@@ -43,27 +48,34 @@ Template PerVetrekMoment_T
 		attribute<c_Time_Places>                               PT_c_toTime_Place_rel            := Within_VW_Window/c_toTime_Place_rel[PT_rel];
 		
 		attribute<c_Time_Stops>                                PT_c_fromTime_Stop_rel           := combine_data(c_Time_Stops, PT_From_Time_rel, PT_From_Stop_rel);
-		attribute</SourceData/Infrastructuur/GTFS/RelevantSelection/ScheduledLinks>                                        IsPT_departureEvent_ActualPT0     := rlookup(PT_c_fromTime_Stop_rel, /SourceData/Infrastructuur/GTFS/RelevantSelection/ScheduledLinks/c_fromTime_Stop_rel);//debug
-		attribute<bool>                                        IsPT_departureEvent_ActualPT     := IsDefined(IsPT_departureEvent_ActualPT0);//debug
+		attribute</SourceData/Infrastructuur/GTFS/RelevantSelection/ScheduledLinks> IsPT_departureEvent_ActualPT0     := rlookup(PT_c_fromTime_Stop_rel, /SourceData/Infrastructuur/GTFS/RelevantSelection/ScheduledLinks/c_fromTime_Stop_rel), Descr = "the departure event should be a depature event, and not waiting or already a transfer. To make sure, this check is built in.";
+		attribute<bool>                                        IsPT_departureEvent_ActualPT                           := IsDefined(IsPT_departureEvent_ActualPT0);
 		
-		attribute<Time>                                        StartWacht_Time_rel              := V_To_Time_rel;
+		attribute<Time>                                        StartWacht_Time_rel              := V_To_Time_rel_org;
 		attribute<Time>                                        EindWacht_Time_rel               := value(PT_c_fromTime_Place_rel / uint64(#Places), Time);
+		attribute<bool>                                        IsWachttijdValid                 := StartWacht_Time_rel < EindWacht_Time_rel;
 		
-		attribute<s>                                           V_time                           := V/impedance[V_rel];
+		attribute<s>                                           V_time_wo_Penalty                := V/impedance[V_rel];
 		attribute<Modes>                                       V_mode_rel                       := V/Mode_rel[V_rel];
-		attribute<string>                                      V_ModeClass_name                 := V/ModeClass_name[V_rel];
-		attribute<Time>                                        Wachttijd_Time_rel               := sub_or_null(EindWacht_Time_rel, StartWacht_Time_rel);
+		attribute<VN_ModeClasses/Uq>                           V_ModeClass_rel                  := V/ModeClass_rel[V_rel];
+		attribute<ct>                                          V_price                          := V/Price[V_rel];
+		attribute<s>                                           V_time                           := V_mode_rel == Modes/v/Cycling 
+																									? V_time_wo_Penalty + convert(ModelParameters/Advanced/FietsVoortransport_Penalty, s) 
+																									: V_time_wo_Penalty;
+		
+		attribute<Time>                                        Wachttijd_Time_rel               := MakeDefined(sub_or_null(EindWacht_Time_rel, StartWacht_Time_rel), 0[Time]);
 		attribute<s>                                           W_time                           := Wachttijd_Time_rel[s];
 		
 		attribute<c_Time_Places>                               c_fromTime_Place_rel             := V_c_fromTime_Place_rel;
 		attribute<c_Time_Places>                               c_toTime_Place_rel               := PT_c_toTime_Place_rel;
-		
-		attribute<ct>                                          V_price                          := V/Price[V_rel];
 
-		attribute<ct>                                          Price                            := Within_VW_Window/Price[PT_rel];
+		attribute<ct>                                          Price                            := ModelParameters/Advanced/IncludeCyclingCostsInPrice &&  V_mode_rel == Modes/v/Cycling
+																									? Within_VW_Window/Price[PT_rel] + V_price
+																									: Within_VW_Window/Price[PT_rel];
 		attribute<ct>                                          Price_augm                       := Within_VW_Window/Price_augm[PT_rel] + V_price;
 		attribute<s>                                           PT_time                          := Within_VW_Window/Traveltime[PT_rel];
-		attribute<Toegestane_Ketens>                           Toegestane_Keten_rel             := Within_VW_Window/Toegestane_Keten_rel[PT_rel];
+		attribute<string>                                      ModeUsed                         := VN_ModeClasses/Uq/name[V_ModeClass_rel] + '_' + Within_VW_Window/ModeUsed[PT_rel];
+		// attribute<Toegestane_Ketens>                           Toegestane_Keten_rel             := Within_VW_Window/Toegestane_Keten_rel[PT_rel];
 		attribute<s>                                           Traveltime                       := (ModelParameters/Advanced/WachttijdThuisMeetellen * W_time) + V_time + PT_time;
 		
 		attribute<dam>                                         TravelDist_Bus                   := Within_VW_Window/TravelDist_Bus[PT_rel];
@@ -72,41 +84,36 @@ Template PerVetrekMoment_T
 		attribute<dam>                                         Traveldist_Rail                  := Within_VW_Window/Traveldist_Rail[PT_rel];
 		attribute<dam>                                         Traveldist_Ferry                 := Within_VW_Window/Traveldist_Ferry[PT_rel];
 		
-		attribute<string>                                      OrgName                          := V/OrgName[V_rel]; //debug
-		attribute<string>                                      OrgName_Vtime                    :=OrgName +'_'+ string(V_time); //debug
-		
 		attribute<bool>                                        IsVTimeNotTooLong                := switch(
 																										case(V_mode_rel == Modes/v/Walking, V_time <= convert(ModelParameters/MaxWalkingTime_Org2Stops, s))
 																										, case(V_mode_rel == Modes/v/Cycling, V_time <= convert(ModelParameters/MaxCyclingTime_Org2Stops, s))
 																										, FALSE
 																									);
-		attribute<bool>                                        IsValid                          := Wachttijd_Time_rel <= ModelParameters/Advanced/MaxWachttijdThuis && IsVTimeNotTooLong && IsPT_departureEvent_ActualPT;
+		attribute<bool>                                        IsValid                          := Wachttijd_Time_rel <= ModelParameters/Advanced/MaxWachttijdThuis && IsWachttijdValid && IsVTimeNotTooLong && IsPT_departureEvent_ActualPT;
 		
-		unit<uint64> Result := select_with_org_rel(IsValid)
+		unit<uint64> Result := select(IsValid)
 		{
-			attribute<c_Time_Places>               c_fromTime_Place_rel             := org_rel -> c_fromTime_Place_rel;
-			attribute<c_Time_Places>               c_toTime_Place_rel               := org_rel -> c_toTime_Place_rel;
-		
-			attribute<s>                           W_time                           := org_rel -> W_time;
-			attribute<s>                           V_time                           := org_rel -> V_time;
-			attribute<Modes>                       V_mode_rel                       := org_rel -> V_mode_rel;
-			attribute<string>                      V_ModeClass_name                 := org_rel -> V_ModeClass_name;
+			attribute<c_Time_Places>               c_fromTime_Place_rel             := collect_by_cond(., ../IsValid, ../c_fromTime_Place_rel);
+			attribute<c_Time_Places>               c_toTime_Place_rel               := collect_by_cond(., ../IsValid, ../c_toTime_Place_rel);
+			attribute<Places>                      To_Place_rel                     := value(c_ToTime_Place_rel % uint64(#Places), Places);
 			
-			attribute<ct>                          Price                            := org_rel -> Price;
-			attribute<ct>                          Price_augm                       := org_rel -> Price_augm;
-			attribute<s>                           PT_time                          := org_rel -> PT_time;
-			attribute<Toegestane_Ketens>           Toegestane_Keten_rel             := org_rel -> Toegestane_Keten_rel;
-			attribute<s>                           Traveltime                       := org_rel -> Traveltime;
-			attribute<Places>                      To_Place_rel                     := value(c_ToTime_Place_rel % uint64(#Places), Places); 
+			attribute<s>                           W_time                           := collect_by_cond(., ../IsValid, ../W_time), Descr = "Waiting at home";
+			attribute<s>                           V_time                           := collect_by_cond(., ../IsValid, ../V_time);
+			attribute<s>                           PT_time                          := collect_by_cond(., ../IsValid, ../PT_time);
 			
-			attribute<dam>                         TravelDist_Bus                   := org_rel -> TravelDist_Bus;
-			attribute<dam>                         Traveldist_Metro                 := org_rel -> Traveldist_Metro;
-			attribute<dam>                         Traveldist_Tram                  := org_rel -> Traveldist_Tram;
-			attribute<dam>                         Traveldist_Rail                  := org_rel -> Traveldist_Rail;
-			attribute<dam>                         Traveldist_Ferry                 := org_rel -> Traveldist_Ferry;
-			
-			attribute<string>                      OrgName                          := org_rel -> OrgName; //debug
-			attribute<string>                      OrgName_Vtime                    := org_rel -> OrgName_Vtime; //debug
+			attribute<ct>                          Price                            := collect_by_cond(., ../IsValid, ../Price);
+			attribute<ct>                          Price_augm                       := collect_by_cond(., ../IsValid, ../Price_augm);
+			attribute<s>                           Traveltime                       := collect_by_cond(., ../IsValid, ../Traveltime);
+			// attribute<Toegestane_Ketens>           Toegestane_Keten_rel             := collect_by_cond(., ../IsValid, ../Toegestane_Keten_rel);
+			attribute<string>                      ModeUsed                         := collect_by_cond(., ../IsValid, ../ModeUsed);
+			// attribute<Modes>                       V_mode_rel                       := collect_by_cond(., ../IsValid, ../V_mode_rel);
+			// attribute<VN_ModeClasses/Uq>           V_ModeClass_rel                  := collect_by_cond(., ../IsValid, ../V_ModeClass_rel);
+
+			attribute<dam>                         TravelDist_Bus                   := collect_by_cond(., ../IsValid, ../TravelDist_Bus);
+			attribute<dam>                         Traveldist_Metro                 := collect_by_cond(., ../IsValid, ../Traveldist_Metro);
+			attribute<dam>                         Traveldist_Tram                  := collect_by_cond(., ../IsValid, ../Traveldist_Tram);
+			attribute<dam>                         Traveldist_Rail                  := collect_by_cond(., ../IsValid, ../Traveldist_Rail);
+			attribute<dam>                         Traveldist_Ferry                 := collect_by_cond(., ../IsValid, ../Traveldist_Ferry);
 		}
 	}
 	
@@ -123,22 +130,25 @@ Template PerVetrekMoment_T
 		attribute<Places>                                      N_to_Place_rel                   := N/To_Place_rel[N_rel];
 		attribute<s>                                           N_time                           := N/impedance[N_rel];
 		attribute<Modes>                                       N_mode_rel                       := N/Mode_rel[N_rel];
-		attribute<string>                                      N_ModeClass_name                 := N/ModeClass_name[N_rel];
+		attribute<VN_ModeClasses/Uq>                           N_ModeClass_rel                  := N/ModeClass_rel[N_rel];
 		attribute<ct>                                          N_price                          := N/Price[N_rel];
 		
 		attribute<c_Time_Places>                               c_fromTime_Place_rel             := PT_c_fromTime_Place_rel;
 		attribute<c_Time_Places>                               c_toTime_Place_rel               := combine_data(c_Time_Places, N_To_Time_rel, N_to_Place_rel);
 		
-		attribute<ct>                                          Price                            := Add_V_to_PT/Result/Price[PT_rel];
+		attribute<ct>                                          Price                            := ModelParameters/Advanced/IncludeCyclingCostsInPrice &&  N_mode_rel == Modes/v/Cycling
+																									? Add_V_to_PT/Result/Price[PT_rel] + N_price
+																									: Add_V_to_PT/Result/Price[PT_rel];
 		attribute<ct>                                          Price_augm                       := Add_V_to_PT/Result/Price_augm[PT_rel] + N_price;
-		attribute<Toegestane_Ketens>                           Toegestane_Keten_rel             := Add_V_to_PT/Result/Toegestane_Keten_rel[PT_rel];
+		// attribute<Toegestane_Ketens>                           Toegestane_Keten_rel             := Add_V_to_PT/Result/Toegestane_Keten_rel[PT_rel];
+		attribute<string>                                      ModeUsed                         := Add_V_to_PT/Result/ModeUsed[PT_rel] + '_' + VN_ModeClasses/Uq/name[N_ModeClass_rel];
 		attribute<s>                                           Traveltime                       := Add_V_to_PT/Result/Traveltime[PT_rel] + N_time;
 		attribute<s>                                           W_time                           := Add_V_to_PT/Result/W_time[PT_rel];
 		attribute<s>                                           V_time                           := Add_V_to_PT/Result/V_time[PT_rel];
 		attribute<s>                                           PT_time                          := Add_V_to_PT/Result/PT_time[PT_rel];
-		attribute<Modes>                                       V_mode_rel                       := Add_V_to_PT/Result/V_Mode_rel[PT_rel];
-		attribute<string>                                      V_ModeClass_name                 := Add_V_to_PT/Result/V_ModeClass_name[PT_rel];
-		
+		// attribute<Modes>                                       V_mode_rel                       := Add_V_to_PT/Result/V_Mode_rel[PT_rel];
+		// attribute<VN_ModeClasses/Uq>                           V_ModeClass_rel                  := Add_V_to_PT/Result/V_ModeClass_rel[PT_rel];
+
 		attribute<dam>                                         TravelDist_Bus                   := Add_V_to_PT/Result/TravelDist_Bus[PT_rel];
 		attribute<dam>                                         Traveldist_Metro                 := Add_V_to_PT/Result/Traveldist_Metro[PT_rel];
 		attribute<dam>                                         Traveldist_Tram                  := Add_V_to_PT/Result/Traveldist_Tram[PT_rel];
@@ -151,30 +161,32 @@ Template PerVetrekMoment_T
 																										, FALSE
 																									);
 		attribute<bool>                                        IsValid                          := Traveltime <= /ModelParameters/MaxTravelTime[s] && IsNTimeNotTooLong;
-		unit<uint64> Result := select_with_org_rel(IsValid)
+		
+		unit<uint64> Result := select(IsValid)
 		{
-			attribute<c_Time_Places>               c_fromTime_Place_rel             := org_rel -> c_fromTime_Place_rel;
-			attribute<c_Time_Places>               c_toTime_Place_rel               := org_rel -> c_toTime_Place_rel;
+			attribute<c_Time_Places>               c_fromTime_Place_rel             := collect_by_cond(., ../IsValid, ../c_fromTime_Place_rel);
+			attribute<c_Time_Places>               c_toTime_Place_rel               := collect_by_cond(., ../IsValid, ../c_toTime_Place_rel);
 		  
-			attribute<s>                           W_time                           := org_rel -> W_time, Descr = "Waiting at home";
-			attribute<s>                           V_time                           := org_rel -> V_time;
-			attribute<s>                           PT_time                          := org_rel -> PT_time;
-			attribute<s>                           N_time                           := org_rel -> N_time;
+			attribute<s>                           W_time                           := collect_by_cond(., ../IsValid, ../W_time), Descr = "Waiting at home";
+			attribute<s>                           V_time                           := collect_by_cond(., ../IsValid, ../V_time);
+			attribute<s>                           PT_time                          := collect_by_cond(., ../IsValid, ../PT_time);
+			attribute<s>                           N_time                           := collect_by_cond(., ../IsValid, ../N_time);
 			
-			attribute<ct>                          Price                            := org_rel -> Price;
-			attribute<ct>                          Price_augm                       := org_rel -> Price_augm;
-			attribute<s>                           Traveltime                       := org_rel -> Traveltime;
-			attribute<Toegestane_Ketens>           Toegestane_Keten_rel             := org_rel -> Toegestane_Keten_rel;
-			attribute<Modes>                       V_mode_rel                       := org_rel -> V_mode_rel;
-			attribute<Modes>                       N_mode_rel                       := org_rel -> N_mode_rel;
-			attribute<string>                      V_ModeClass_name                 := org_rel -> V_ModeClass_name;
-			attribute<string>                      N_ModeClass_name                 := org_rel -> N_ModeClass_name;
+			attribute<ct>                          Price                            := collect_by_cond(., ../IsValid, ../Price);
+			attribute<ct>                          Price_augm                       := collect_by_cond(., ../IsValid, ../Price_augm);
+			attribute<s>                           Traveltime                       := collect_by_cond(., ../IsValid, ../Traveltime);
+			// attribute<Toegestane_Ketens>           Toegestane_Keten_rel             := collect_by_cond(., ../IsValid, ../Toegestane_Keten_rel);
+			attribute<string>                      ModeUsed                         := collect_by_cond(., ../IsValid, ../ModeUsed);
+			// attribute<Modes>                       V_mode_rel                       := collect_by_cond(., ../IsValid, ../V_mode_rel);
+			// attribute<Modes>                       N_mode_rel                       := collect_by_cond(., ../IsValid, ../N_mode_rel);
+			// attribute<VN_ModeClasses/Uq>           V_ModeClass_rel                  := collect_by_cond(., ../IsValid, ../V_ModeClass_rel);
+			// attribute<VN_ModeClasses/Uq>           N_ModeClass_rel                  := collect_by_cond(., ../IsValid, ../N_ModeClass_rel);
 
-			attribute<dam>                         TravelDist_Bus                   := org_rel -> TravelDist_Bus;
-			attribute<dam>                         Traveldist_Metro                 := org_rel -> Traveldist_Metro;
-			attribute<dam>                         Traveldist_Tram                  := org_rel -> Traveldist_Tram;
-			attribute<dam>                         Traveldist_Rail                  := org_rel -> Traveldist_Rail;
-			attribute<dam>                         Traveldist_Ferry                 := org_rel -> Traveldist_Ferry;
+			attribute<dam>                         TravelDist_Bus                   := collect_by_cond(., ../IsValid, ../TravelDist_Bus);
+			attribute<dam>                         Traveldist_Metro                 := collect_by_cond(., ../IsValid, ../Traveldist_Metro);
+			attribute<dam>                         Traveldist_Tram                  := collect_by_cond(., ../IsValid, ../Traveldist_Tram);
+			attribute<dam>                         Traveldist_Rail                  := collect_by_cond(., ../IsValid, ../Traveldist_Rail);
+			attribute<dam>                         Traveldist_Ferry                 := collect_by_cond(., ../IsValid, ../Traveldist_Ferry);
 		}
 	}
 	
@@ -182,13 +194,18 @@ Template PerVetrekMoment_T
 	{
 		attribute<c_Time_Places>               c_fromTime_Place_rel             := union_data(., Add_N_to_VPT/Result/c_FromTime_Place_rel,  combine_data(c_Time_Places, inTime[Time], Direct_OD/From_Place_rel)); 
 		attribute<c_Time_Places>               c_toTime_Place_rel               := union_data(., Add_N_to_VPT/Result/c_toTime_Place_rel, combine_data(c_Time_Places, inTime[Time] + Direct_OD/Duration_seconds[Time], Direct_OD/To_Place_rel)); 
+		
 		unit<uint32> uq_c_FromTime_Place := unique_uint32(c_fromTime_Place_rel);
 		unit<uint32> uq_c_ToTime_Place   := unique_uint32(c_toTime_Place_rel);
-		
+
 		attribute<uq_c_FromTime_Place>         uq_c_FromTime_Place_rel          := rlookup(c_fromTime_Place_rel, uq_c_FromTime_Place/Values);
 		attribute<uq_c_ToTime_Place>           uq_c_ToTime_Place_rel            := rlookup(c_toTime_Place_rel, uq_c_ToTime_Place/Values);
-		attribute<Places>                      ToPlace_rel                      := value(c_ToTime_Place_rel % uint64(#Places), Places);
-		
+
+		attribute<Time>                        From_Time_rel                    := value(c_FromTime_Place_rel / uint64(#Places), Time);
+		attribute<Places>                      From_Place_rel                   := value(c_FromTime_Place_rel % uint64(#Places), Places);
+		attribute<Time>                        To_Time_rel                      := value(c_ToTime_Place_rel / uint64(#Places), Time);
+		attribute<Places>                      To_Place_rel                     := value(c_ToTime_Place_rel % uint64(#Places), Places);
+
 		attribute<s>                           W_time                           := union_data(., Add_N_to_VPT/Result/W_time,  const(0w, Direct_OD, s));
 		attribute<s>                           V_time                           := union_data(., Add_N_to_VPT/Result/V_time,  Direct_OD/duration_seconds);
 		attribute<s>                           PT_time                          := union_data(., Add_N_to_VPT/Result/PT_time, const(0w, Direct_OD, s));
@@ -197,12 +214,12 @@ Template PerVetrekMoment_T
 		attribute<ct>                          Price                            := union_data(., Add_N_to_VPT/Result/Price, const(0w, Direct_OD, ct));
 		attribute<ct>                          Price_augm                       := union_data(., Add_N_to_VPT/Result/Price_augm, Direct_OD/Price_Augm);
 		attribute<s>                           Traveltime                       := union_data(., Add_N_to_VPT/Result/Traveltime, Direct_OD/duration_seconds);
-		attribute<Toegestane_Ketens>           Toegestane_Keten_rel             := union_data(., Add_N_to_VPT/Result/Toegestane_Keten_rel, const(null_u, Direct_OD, Toegestane_Ketens));
-		attribute<Modes>                       V_mode_rel                       := union_data(., Add_N_to_VPT/Result/V_mode_rel, Direct_OD/Mode_rel);
-		attribute<Modes>                       N_mode_rel                       := union_data(., Add_N_to_VPT/Result/N_mode_rel, const(null_b, Direct_OD, modes));
-		
-		attribute<string>                      V_ModeClass_name                 := union_data(., Add_N_to_VPT/Result/V_ModeClass_name, const('', Direct_OD));
-		attribute<string>                      N_ModeClass_name                 := union_data(., Add_N_to_VPT/Result/N_ModeClass_name, const('', Direct_OD));
+		// attribute<Toegestane_Ketens>           Toegestane_Keten_rel             := union_data(., Add_N_to_VPT/Result/Toegestane_Keten_rel, const(null_u, Direct_OD, Toegestane_Ketens));
+		attribute<string>                      ModeUsed                         := union_data(., Add_N_to_VPT/Result/ModeUsed, Direct_OD/ModeUsed);
+		// attribute<Modes>                       V_mode_rel                       := union_data(., Add_N_to_VPT/Result/V_mode_rel, Direct_OD/Mode_rel);
+		// attribute<Modes>                       N_mode_rel                       := union_data(., Add_N_to_VPT/Result/N_mode_rel, const(null_b, Direct_OD, modes));
+		// attribute<VN_ModeClasses/Uq>           V_ModeClass_rel                  := union_data(., Add_N_to_VPT/Result/V_ModeClass_rel, const(null_b, Direct_OD));
+		// attribute<VN_ModeClasses/Uq>           N_ModeClass_rel                  := union_data(., Add_N_to_VPT/Result/N_ModeClass_rel, const(null_b, Direct_OD));
 		
 		attribute<bool>                        IsDirectTravel                   := union_data(., const(FALSE, Add_N_to_VPT/Result), const(TRUE, Direct_OD));
 		
@@ -212,166 +229,131 @@ Template PerVetrekMoment_T
 		attribute<dam>                         Traveldist_Rail                  := union_data(., Add_N_to_VPT/Result/Traveldist_Rail, const(0w, Direct_OD, dam));
 		attribute<dam>                         Traveldist_Ferry                 := union_data(., Add_N_to_VPT/Result/Traveldist_Ferry, const(0w, Direct_OD, dam));
 
-		unit<uint64>          OD_key_set    := combine_unit_uint64(uq_c_FromTime_Place, Places);
-		attribute<OD_key_set> OD_key        := combine_data(OD_key_set, uq_c_FromTime_Place_rel, ToPlace_rel);
-		unit<uint64>          uq_OD_key     := unique(OD_key);
-		attribute<uq_OD_key>  uq_OD_key_rel := rlookup(OD_key, uq_OD_key/values); //attribuut om partitionering van price/traveltime etc te doen.
+		///// ==== Step-wise condensation of result set ==== ////
+ 		unit<uint64>          OD_key_set                       := combine_unit_uint64(Union_with_DirectOD/uq_c_FromTime_Place, Places), Descr = "Step-wise condensation of result set: second condense the results based on time-place to place.";
+		attribute<OD_key_set> OD_key                           := combine_data(OD_key_set, uq_c_FromTime_Place_rel, To_Place_rel);
+		unit<uint64>          uq_OD_key                        := unique(OD_key);
+		attribute<uq_OD_key>  uq_OD_key_rel                    := rlookup(OD_key, uq_OD_key/values); //attribuut om partitionering van price/traveltime etc te doen.
 		
-		// issue #70 BEGIN
-		// do a pre-selection to limit the size of the pareto_candidate selection
-		attribute<.> good_candidate_of_OD (uq_OD_key) := min_index(Price_augm, uq_OD_key_rel);
-		attribute<.> good_candidate_in_OD             := good_candidate_of_OD[uq_OD_key_rel];
-		
-		unit<uint8> ParetoAttr := Classifications/FinalParetoAttr;
-		
-		attribute<bool> pe_to_good_candidate   := =AsList(replace('@PA@ < good_candidate_in_OD->@PA@', '@PA@', ParetoAttr/Name), ' or ');
-		attribute<bool> is_also_good_candidate := pe_to_good_candidate or (ID(.) == good_candidate_in_OD);
+		attribute<.>          good_candidate_of_OD (uq_OD_key) := ='min_index('+first(ParetoAttr/Name)+', uq_OD_key_rel)', Descr = "do a pre-selection to limit the size of the pareto_candidate selection. Here, first select a point which is a good starting point from which to compare others.";
+		attribute<.>          good_candidate_in_OD             := good_candidate_of_OD[uq_OD_key_rel], Descr = "";
+		attribute<bool>       pe_compared_to_good_candidate    := =AsList(replace('@PA@ < good_candidate_in_OD->@PA@', '@PA@', ParetoAttr/Name), ' or '), Descr = "Option is Pareto efficient compared to good candidate.";
+		attribute<bool>       is_also_good_candidate           := pe_compared_to_good_candidate OR (ID(.) == good_candidate_in_OD), Descr = "";
 				
-		unit<uint64> Valid2 := select(is_also_good_candidate)
+		unit<uint64> Valid := select(is_also_good_candidate)
 		{
-			attribute<uq_OD_key>  uq_OD_key_rel := collect_by_cond(., Union_with_DirectOD/uq_OD_key_rel);
-			attribute<s>          TravelTime    := collect_by_cond(., Union_with_DirectOD/TravelTime);
-			attribute<Ct>         Price_augm    := collect_by_cond(., Union_with_DirectOD/Price_augm);
+			attribute<uq_OD_key>  uq_OD_key_rel    := collect_by_cond(., ../uq_OD_key_rel);
+			attribute<s>          TravelTime       := collect_by_cond(., ../TravelTime);
+			attribute<Ct>         Price            := collect_by_cond(., ../Price);
+			attribute<Ct>         Price_augm       := collect_by_cond(., ../Price_augm);
 		}
-		unit<uint64> pareto_vergelijker := join_equal_values_uint64(Valid2/uq_OD_key_rel, Valid2/uq_OD_key_rel)
+		unit<uint64> pareto_vergelijker := join_equal_values_uint64(Valid/uq_OD_key_rel, Valid/uq_OD_key_rel)
 		{
-			attribute<bool> is_less_or_equal := =AsList('Valid2/'+ ParetoAttr/Name+'[./first_rel] <= Valid2/'+ParetoAttr/Name+'[./second_rel]',  ' and ');
-			attribute<bool> is_equal         := =AsList('Valid2/'+ ParetoAttr/Name+'[./first_rel] == Valid2/'+ParetoAttr/Name+'[./second_rel]',  ' and ');
-			attribute<bool> is_less          := is_less_or_equal && (not(is_equal) || first_rel < second_rel);
+			attribute<bool>       is_less_or_equal := =AsList('Valid/'+ ParetoAttr/Name+'[./first_rel] <= Valid/'+ParetoAttr/Name+'[./second_rel]',  ' and ');
+			attribute<bool>       is_equal         := =AsList('Valid/'+ ParetoAttr/Name+'[./first_rel] == Valid/'+ParetoAttr/Name+'[./second_rel]',  ' and ');
+			attribute<bool>       is_less          := is_less_or_equal && (not(is_equal) || first_rel < second_rel);
 		}
-		attribute<bool> Valid2_pareto_condition (Valid2) := not(any(pareto_vergelijker/is_less, pareto_vergelijker/second_rel));
-		attribute<bool> pareto_condition                 := recollect_by_cond(is_also_good_candidate, Valid2_pareto_condition, false);
-		// issue #70 END
+		attribute<bool>       Valid_pareto_condition   (Valid) := not(any(pareto_vergelijker/is_less, pareto_vergelijker/second_rel));
+		attribute<bool>       pareto_condition                 := recollect_by_cond(is_also_good_candidate, Valid_pareto_condition, false);
 	}
 	
-	unit<uint64> Result_withDuplicate_Places := select_with_org_rel(Union_with_DirectOD/pareto_condition)
-	, Descr = "Set that still contains duplicate from places, departing at different times. So we need to condense it one more time."
+	unit<uint64> Result_AfterFirstCondensation := select(Union_with_DirectOD/pareto_condition)
+	, Descr = "Set that still contains duplicate from places, departing at different times. So we need to condense it again."
 	{
-		// TODO: vervang gebruik min_index d.m.v. collect_by_cond 
-		attribute<Union_with_DirectOD> min_index := org_rel; 
+		attribute<ct>                                       Price                       := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Price);
+		attribute<ct>                                       Price_augm                  := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Price_augm);
+		attribute<s>                                        Traveltime                  := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Traveltime);
+		// attribute<Toegestane_Ketens>                        Toegestane_Keten_rel        := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Toegestane_Keten_rel);
+		attribute<string>                                   ModeUsed                    := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/ModeUsed);
+		attribute<s>                                        W_time                      := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/W_time), Descr = "Waiting at home";
+		attribute<s>                                        V_time                      := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/V_time);
+		attribute<s>                                        PT_time                     := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/PT_time);
+		attribute<s>                                        N_time                      := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/N_time);
+		// attribute<Modes>                                    V_mode_rel                  := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/V_mode_rel);
+		// attribute<Modes>                                    N_mode_rel                  := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/N_mode_rel);
+		// attribute<VN_ModeClasses/Uq>                        V_ModeClass_rel             := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/V_ModeClass_rel);
+		// attribute<VN_ModeClasses/Uq>                        N_ModeClass_rel             := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/N_ModeClass_rel);
 		
-		attribute<Union_with_DirectOD/uq_c_FromTime_Place>  uq_c_FromTime_Place_rel     := min_index->uq_c_FromTime_Place_rel;
-		attribute<Union_with_DirectOD/uq_c_ToTime_Place>    uq_c_ToTime_Place_rel       := min_index->uq_c_ToTime_Place_rel;
-		attribute<c_Time_Places>                            c_FromTime_Place_rel        := Union_with_DirectOD/uq_c_FromTime_Place/values[uq_c_FromTime_Place_rel];
-		attribute<c_Time_Places>                            c_ToTime_Place_rel          := Union_with_DirectOD/uq_c_ToTime_Place/values[uq_c_ToTime_Place_rel];
-		 
-		attribute<Time>                                     From_Time_rel               := value(c_FromTime_Place_rel / uint64(#Places), Time);
-		attribute<Places>                                   From_Place_rel              := value(c_FromTime_Place_rel % uint64(#Places), Places);
-		attribute<Time>                                     To_Time_rel                 := value(c_ToTime_Place_rel / uint64(#Places), Time);
-		attribute<Places>                                   To_Place_rel                := value(c_ToTime_Place_rel % uint64(#Places), Places);
 		
-		// attribute<uint32>                                   PriceTime_Score             := =ModelParameters/MinimiseCriterium == 'Price'
-																							// ? 'value(Price_augm, uint32) * value(ModelParameters/MaxTravelTime[s], uint32) + value(Traveltime, uint32)'
-																							// : 'value(Traveltime, uint32) * 10000 + value(Price_augm, uint32)';
+		attribute<dam>                                      TravelDist_Bus              := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/TravelDist_Bus);
+		attribute<dam>                                      Traveldist_Metro            := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Traveldist_Metro);
+		attribute<dam>                                      Traveldist_Tram             := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Traveldist_Tram);
+		attribute<dam>                                      Traveldist_Rail             := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Traveldist_Rail);
+		attribute<dam>                                      Traveldist_Ferry            := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Traveldist_Ferry);
 		
-//		attribute<Union_with_DirectOD>                      Min_Index                   := min_index(Union_with_DirectOD/PriceTime_Score, Union_with_DirectOD/uq_OD_key_rel);
-
-		attribute<ct>                                       Price                       := Min_Index -> Price;
-		attribute<ct>                                       Price_augm                  := Min_Index -> Price_augm;
-		attribute<s>                                        Traveltime                  := Min_Index -> Traveltime;
-		attribute<Toegestane_Ketens>                        Toegestane_Keten_rel        := Min_Index -> Toegestane_Keten_rel;
-		attribute<s>                                        W_time                      := Min_Index -> W_time, Descr = "Waiting at home";
-		attribute<s>                                        V_time                      := Min_Index -> V_time;
-		attribute<s>                                        PT_time                     := Min_Index -> PT_time;
-		attribute<s>                                        N_time                      := Min_Index -> N_time;
-		attribute<Modes>                                    V_mode_rel                  := Min_Index -> V_mode_rel;
-		attribute<Modes>                                    N_mode_rel                  := Min_Index -> N_mode_rel;
+		attribute<Places>                                   From_Place_rel              := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/From_Place_rel);
+		attribute<Places>                                   To_Place_rel                := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/To_Place_rel);
+		attribute<bool>                                     IsDirectTravel              := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/IsDirectTravel);
+	
+		///// ==== Step-wise condensation of result set ==== ////
+ 		unit<uint64>          OD_key_set                       := combine_unit_uint64(Places, Places), Descr = "Step-wise condensation of result set: third condense the results based on place to place.";
+		attribute<OD_key_set> OD_key                           := combine_data(OD_key_set, From_Place_rel, To_Place_rel);
+		unit<uint64>          uq_OD_key                        := unique(OD_key);
+		attribute<uq_OD_key>  uq_OD_key_rel                    := rlookup(OD_key, uq_OD_key/values); //attribuut om partitionering van price/traveltime etc te doen.
 		
-		attribute<string>                                   V_ModeClass_name            := Min_Index -> V_ModeClass_name;
-		attribute<string>                                   N_ModeClass_name            := Min_Index -> N_ModeClass_name;
-		
-		attribute<bool>                                     IsDirectTravel              := Min_Index -> IsDirectTravel;
-		
-		attribute<dam>                                      TravelDist_Bus              := Min_Index -> TravelDist_Bus;
-		attribute<dam>                                      Traveldist_Metro            := Min_Index -> Traveldist_Metro;
-		attribute<dam>                                      Traveldist_Tram             := Min_Index -> Traveldist_Tram;
-		attribute<dam>                                      Traveldist_Rail             := Min_Index -> Traveldist_Rail;
-		attribute<dam>                                      Traveldist_Ferry            := Min_Index -> Traveldist_Ferry;
-		
-		unit<uint64>          OD_key_set    := combine_unit_uint64(Places, Places);
-		attribute<OD_key_set> OD_key        := combine_data(OD_key_set, From_Place_rel, To_Place_rel);
-		unit<uint64>          uq_OD_key     := unique(OD_key);
-		attribute<uq_OD_key>  uq_OD_key_rel := rlookup(OD_key, uq_OD_key/values); //attribuut om partitionering van price/traveltime etc te doen.
-		
-		// issue #70 BEGIN
-		attribute<.> good_candidate_of_OD (uq_OD_key) := min_index(Price_augm, uq_OD_key_rel);
-		attribute<.> good_candidate_in_OD             := good_candidate_of_OD[uq_OD_key_rel];
-		
-		unit<uint8> ParetoAttr := Classifications/FinalParetoAttr;
-		
-		attribute<bool> pe_to_good_candidate   := = AsList(replace('@PA@ < good_candidate_in_OD->@PA@', '@PA@', ParetoAttr/Name), ' or ');
-		attribute<bool> is_also_good_candidate := pe_to_good_candidate or (ID(.) == good_candidate_in_OD);
+		attribute<.>          good_candidate_of_OD (uq_OD_key) := ='min_index('+first(ParetoAttr/Name)+', uq_OD_key_rel)', Descr = "do a pre-selection to limit the size of the pareto_candidate selection. Here, first select a point which is a good starting point from which to compare others.";
+		attribute<.>          good_candidate_in_OD             := good_candidate_of_OD[uq_OD_key_rel], Descr = "";
+		attribute<bool>       pe_compared_to_good_candidate    := =AsList(replace('@PA@ < good_candidate_in_OD->@PA@', '@PA@', ParetoAttr/Name), ' or '), Descr = "Option is Pareto efficient compared to good candidate.";
+		attribute<bool>       is_also_good_candidate           := pe_compared_to_good_candidate OR (ID(.) == good_candidate_in_OD), Descr = "";
 				
-		unit<uint64> Valid2 := select(is_also_good_candidate)
+		unit<uint64> Valid := select(is_also_good_candidate)
 		{
-			attribute<uq_OD_key> uq_OD_key_rel := collect_by_cond(., Result_withDuplicate_Places/uq_OD_key_rel);
-			attribute<s>         TravelTime    := collect_by_cond(., Result_withDuplicate_Places/TravelTime);
-			attribute<Ct>        Price_augm    := collect_by_cond(., Result_withDuplicate_Places/Price_augm);
+			attribute<uq_OD_key>  uq_OD_key_rel    := collect_by_cond(., ../uq_OD_key_rel);
+			attribute<s>          TravelTime       := collect_by_cond(., ../TravelTime);
+			attribute<Ct>         Price            := collect_by_cond(., ../Price);
+			attribute<Ct>         Price_augm       := collect_by_cond(., ../Price_augm);
 		}
-		unit<uint64> pareto_vergelijker := join_equal_values_uint64(Valid2/uq_OD_key_rel, Valid2/uq_OD_key_rel)
+		unit<uint64> pareto_vergelijker := join_equal_values_uint64(Valid/uq_OD_key_rel, Valid/uq_OD_key_rel)
 		{
-			attribute<bool> is_less_or_equal := =AsList('Valid2/'+ ParetoAttr/Name+'[./first_rel] <= Valid2/'+ParetoAttr/Name+'[./second_rel]',  ' and ');
-			attribute<bool> is_equal         := =AsList('Valid2/'+ ParetoAttr/Name+'[./first_rel] == Valid2/'+ParetoAttr/Name+'[./second_rel]',  ' and ');
-			attribute<bool> is_less          := is_less_or_equal && (not(is_equal) || first_rel < second_rel);
+			attribute<bool>       is_less_or_equal := =AsList('Valid/'+ ParetoAttr/Name+'[./first_rel] <= Valid/'+ParetoAttr/Name+'[./second_rel]',  ' and ');
+			attribute<bool>       is_equal         := =AsList('Valid/'+ ParetoAttr/Name+'[./first_rel] == Valid/'+ParetoAttr/Name+'[./second_rel]',  ' and ');
+			attribute<bool>       is_less          := is_less_or_equal && (not(is_equal) || first_rel < second_rel);
 		}
-		attribute<bool> Valid2_pareto_condition (Valid2) := not(any(pareto_vergelijker/is_less, pareto_vergelijker/second_rel));
-		attribute<bool> pareto_condition                 := recollect_by_cond(is_also_good_candidate, Valid2_pareto_condition, false);
-		// issue #70 END
+		attribute<bool>       Valid_pareto_condition   (Valid) := not(any(pareto_vergelijker/is_less, pareto_vergelijker/second_rel));
+		attribute<bool>       pareto_condition                 := recollect_by_cond(is_also_good_candidate, Valid_pareto_condition, false);
 	}
 	
-	unit<uint64> Result := select_with_org_rel(Result_withDuplicate_Places/pareto_condition)
+	unit<uint64> Result_AfterSecondCondensation := select(Result_AfterFirstCondensation/pareto_condition)
 	, Descr = "Final set"
 	{
-		// TODO: vervang gebruik min_index d.m.v. collect_by_cond 
-		attribute<Result_withDuplicate_Places>              Min_Index                   := org_rel; // min_index(Result_withDuplicate_Places/PriceTime_Score, Result_withDuplicate_Places/uq_OD_key_rel);
+		attribute<ct>                                       Price                       := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Price);
+		attribute<ct>                                       Price_augm                  := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Price_augm);
+		attribute<s>                                        Traveltime                  := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Traveltime);
+		// attribute<Toegestane_Ketens>                        Toegestane_Keten_rel        := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Toegestane_Keten_rel);
+		attribute<string>                                   ModeUsed                    := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/ModeUsed);
+		attribute<s>                                        W_time                      := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/W_time), Descr = "Waiting at home";
+		attribute<s>                                        V_time                      := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/V_time);
+		attribute<s>                                        PT_time                     := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/PT_time);
+		attribute<s>                                        N_time                      := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/N_time);
+		// attribute<Modes>                                    V_mode_rel                  := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/V_mode_rel);
+		// attribute<Modes>                                    N_mode_rel                  := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/N_mode_rel);
+		// attribute<VN_ModeClasses/Uq>                        V_ModeClass_rel             := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/V_ModeClass_rel);
+		// attribute<VN_ModeClasses/Uq>                        N_ModeClass_rel             := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/N_ModeClass_rel);
 		
-		attribute<ct>                                       Price                       := Min_Index -> Price;
-		attribute<ct>                                       Price_augm                  := Min_Index -> Price_augm;
-		attribute<s>                                        Traveltime                  := Min_Index -> Traveltime;
-		attribute<Toegestane_Ketens>                        Toegestane_Keten_rel        := Min_Index -> Toegestane_Keten_rel;
-		attribute<s>                                        W_time                      := Min_Index -> W_time, Descr = "Waiting at home";
-		attribute<s>                                        V_time                      := Min_Index -> V_time;
-		attribute<s>                                        PT_time                     := Min_Index -> PT_time;
-		attribute<s>                                        N_time                      := Min_Index -> N_time;
-		attribute<Modes>                                    V_mode_rel                  := Min_Index -> V_mode_rel;
-		attribute<Modes>                                    N_mode_rel                  := Min_Index -> N_mode_rel;
+		attribute<dam>                                      TravelDist_Bus              := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/TravelDist_Bus);
+		attribute<dam>                                      Traveldist_Metro            := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Traveldist_Metro);
+		attribute<dam>                                      Traveldist_Tram             := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Traveldist_Tram);
+		attribute<dam>                                      Traveldist_Rail             := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Traveldist_Rail);
+		attribute<dam>                                      Traveldist_Ferry            := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Traveldist_Ferry);
 		
-		attribute<string>                                   V_ModeClass_name            := Min_Index -> V_ModeClass_name;
-		attribute<string>                                   N_ModeClass_name            := Min_Index -> N_ModeClass_name;
-		
-		attribute<bool>                                     IsDirectTravel              := Min_Index -> IsDirectTravel;
-		
-		attribute<dam>                                      TravelDist_Bus              := Min_Index -> TravelDist_Bus;
-		attribute<dam>                                      Traveldist_Metro            := Min_Index -> Traveldist_Metro;
-		attribute<dam>                                      Traveldist_Tram             := Min_Index -> Traveldist_Tram;
-		attribute<dam>                                      Traveldist_Rail             := Min_Index -> Traveldist_Rail;
-		attribute<dam>                                      Traveldist_Ferry            := Min_Index -> Traveldist_Ferry;
-		
-		attribute<Time>                                     From_Time_rel               := Min_Index -> From_Time_rel;
-		attribute<Places>                                   From_Place_rel              := Min_Index -> From_Place_rel;
-		attribute<Time>                                     To_Time_rel                 := Min_Index -> To_Time_rel;
-		attribute<Places>                                   To_Place_rel                := Min_Index -> To_Place_rel;
-		// attribute<Stops>                                    From_Stop_rel               := Places/Stop_rel[From_Place_rel];
-		// attribute<Stops>                                    To_Stop_rel                 := Places/Stop_rel[To_Place_rel];
+		attribute<Places>                                   From_Place_rel              := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/From_Place_rel);
+		attribute<Places>                                   To_Place_rel                := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/To_Place_rel);
+		attribute<bool>                                     IsDirectTravel              := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/IsDirectTravel);
+
 		attribute<string>                                   OrgName                     := Places/label[From_Place_rel];
 		attribute<string>                                   DestName                    := Places/label[To_Place_rel];
 		attribute<string>                                   OrgDestName                 := OrgName + '_' + DestName;
 		// attribute<string>                                   ModeUsed                    := IsDirectTravel 
 																							// ? Modes/name_abbr[V_mode_rel]+Modes/name_abbr[V_mode_rel]
-																							// : MakeDefined(Modes/name_abbr[V_mode_rel],'') + '_' + MakeDefined(Toegestane_Ketens/name[Toegestane_Keten_rel],'') + '_' + MakeDefined(Modes/name_abbr[N_mode_rel],'');
-		attribute<string>                                   ModeUsed                    := IsDirectTravel 
-																							? Modes/name_abbr[V_mode_rel]+Modes/name_abbr[V_mode_rel]
-																							: MakeDefined(V_ModeClass_name,'') + '_' + MakeDefined(Toegestane_Ketens/name[Toegestane_Keten_rel],'') + '_' + MakeDefined(N_ModeClass_name,'');
+																							// : MakeDefined(VN_ModeClasses/Uq/name[V_ModeClass_rel],'') + '_' + MakeDefined(Toegestane_Ketens/name[Toegestane_Keten_rel],'') + '_' + MakeDefined(VN_ModeClasses/Uq/name[N_ModeClass_rel],'');
 	
-		//debug
-		attribute<bool>                                     IsDirect          := IsNull(N_mode_rel);
-		attribute<bool>                                     IsDirectWithPrice := IsDirect && price > 0[ct]; //zou allemaal false moeten zijn.
-		attribute<bool>                                     IsOVWithoutPrice  := NOT(IsDirect) && price == 0[ct] && TravelDist_Ferry == 0[dam]; //zou allemaal false moeten zijn.In Amsterdam komen dit voor vanwege gratis ferry.
+		attribute<bool>                                     IsDirectWithPrice := IsDirectTravel && price > 0[ct]; //zou allemaal false moeten zijn.
+		attribute<bool>                                     IsOVWithoutPrice  := NOT(IsDirectTravel) && price == 0[ct] && TravelDist_Ferry == 0[dam]; //zou allemaal false moeten zijn.In Amsterdam komen dit voor vanwege gratis ferry.
 	}
 	
 	container CreateExports
 	{
-		unit<uint64>       domain                                        := Result, IntegrityCheck = "NOT(Result/IsDirectWithPrice) && NOT(Result/IsOVWithoutPrice)";
+		unit<uint64>       domain                                        := Result_AfterSecondCondensation, IntegrityCheck = "NOT(Result_AfterSecondCondensation/IsDirectWithPrice) && NOT(Result_AfterSecondCondensation/IsOVWithoutPrice)";
 		attribute<string>  OrgName                              (domain) := domain/OrgName;
 		attribute<string>  DestName                             (domain) := domain/DestName;
 		attribute<string>  OrgDestName                          (domain) := OrgName + '_' + DestName;
@@ -394,32 +376,32 @@ Template PerVetrekMoment_T
 		{
 			attribute<string>  BodyLines_fullOD (domain) := domain/OrgName + ';' + domain/DestName + ';' + Traveltime + ';' + Price + ';' + Price_augm + ';' + ModeUsed + ';' + TravelDist_Bus + ';' + Traveldist_Metro + ';' + Traveldist_Tram + ';' + Traveldist_Rail + ';' + Traveldist_Ferry + ';' + W_time + ';' + V_time + ';' + PT_time + ';' + N_time;
 			parameter<string>  File_fullOD               := 
-				'OrgName;DestName;Traveltime_'+inTime_string+
-				';Price_'+inTime_string+
-				';Price_Augm_'+inTime_string+
-				';ModeUsed_'+inTime_string+
-				';TravelDist_Bus_'+inTime_string+
-				';TravelDist_Metro_'+inTime_string+
-				';TravelDist_Tram_'+inTime_string+
-				';TravelDist_Rail_'+inTime_string+
-				';TravelDist_Ferry_'+inTime_string+
-				';WaitingTime_'+inTime_string+
-				';VoortransTime_'+inTime_string+
-				';PTTime_'+inTime_string+
-				';NatransTime_'+inTime_string+'\n'+
+				'OrgName;DestName;Traveltime_'+inTime_str_short+
+				';Price_'+inTime_str_short+
+				';Price_Augm_'+inTime_str_short+
+				';ModeUsed_'+inTime_str_short+
+				';TravelDist_Bus_'+inTime_str_short+
+				';TravelDist_Metro_'+inTime_str_short+
+				';TravelDist_Tram_'+inTime_str_short+
+				';TravelDist_Rail_'+inTime_str_short+
+				';TravelDist_Ferry_'+inTime_str_short+
+				';WaitingTime_'+inTime_str_short+
+				';VoortransTime_'+inTime_str_short+
+				';PTTime_'+inTime_str_short+
+				';NatransTime_'+inTime_str_short+'\n'+
 				AsList(BodyLines_fullOD, '\n')
 			,	StorageName = "=fileNamePrefix+'tt'+fileNameSuffix +'.csv'", StorageType = "str";
 		
 			attribute<string>  BodyLines_woDistance (domain) := domain/OrgName + ';' + domain/DestName + ';' + Traveltime + ';' + Price + ';' + Price_augm + ';' + ModeUsed + ';' + W_time + ';' + V_time + ';' + PT_time + ';' + N_time;
 			parameter<string>  File_woDistance               :=
-				'OrgName;DestName;Traveltime_'+inTime_string+
-				';Price_'+inTime_string+
-				';Price_Augm_'+inTime_string+
-				';ModeUsed_'+inTime_string+
-				';WaitingTime_'+inTime_string+
-				';VoortransTime_'+inTime_string+
-				';PTTime_'+inTime_string+
-				';NatransTime_'+inTime_string+'\n'+
+				'OrgName;DestName;Traveltime_'+inTime_str_short+
+				';Price_'+inTime_str_short+
+				';Price_Augm_'+inTime_str_short+
+				';ModeUsed_'+inTime_str_short+
+				';WaitingTime_'+inTime_str_short+
+				';VoortransTime_'+inTime_str_short+
+				';PTTime_'+inTime_str_short+
+				';NatransTime_'+inTime_str_short+'\n'+
 				AsList(BodyLines_woDistance, '\n')
 			,	StorageName = "=fileNamePrefix+'tt'+fileNameSuffix +'.csv'", StorageType = "str";
 			
@@ -439,7 +421,7 @@ Template PerVetrekMoment_T
 				// parameter<string>  Generate := ='File_decay';
 			// }
 			
-			container Results_Traveltime_Fence := PhaseContainer(Results_Traveltime, 'Results in region '+regio_name_if_enkel_sub+' are finished calculating'); //
+			container Results_Traveltime_Fence := PhaseContainer(Results_Traveltime, 'Results in '+NetworkSetup/Impl/OrgBlockDomain/name[BlockDomain_id]+' are finished calculating'); //
 			// container Results_Decay_Fence      := PhaseContainer(Results_Decay, 'Results in region '+regio_name_if_enkel_sub+' are finished calculating'); //
 		}
 		
@@ -449,7 +431,7 @@ Template PerVetrekMoment_T
 		parameter<string> fileNameSuffix :=  
 			'_' + ModelParameters/Analysis_Date + 
 			'_' + inTime_str_short + 
-			'_ORG-'    + ModelParameters/Orgset + '-' + regio_name_if_enkel_sub + 
+			'_ORG-'    + ModelParameters/Orgset + '-' + NetworkSetup/Impl/OrgBlockDomain/name[BlockDomain_id] + 
 			'_DEST-'   + ModelParameters/Advanced/DestSet_string +
 			'_V-'   + V_typen +
 			'_N-'   + N_typen +
