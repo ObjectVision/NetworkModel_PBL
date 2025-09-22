@@ -2,7 +2,7 @@ container OSM : using = "classifications/OSM"
 {  
 	parameter<string> file_date   := rjoin(ModelParameters/AnalyseMoment, ModelParameters/Advanced/AnalyseMomentPresets/name, ModelParameters/Advanced/AnalyseMomentPresets/OSM_file_date);
 	parameter<string> dir         := '%NetworkModel_Dir%/Infrastructuur/OSM/'+file_date;
-	parameter<string> date        := file_date == '20221201' ? '-221201' : '-latest';
+	parameter<string> date        := file_date == '20221201' ? '-221201' : file_date == '20240101' ? '-240101' : '-latest';
 	parameter<bool>   OSM_NL_prov := rjoin(ModelParameters/AnalyseMoment, ModelParameters/Advanced/AnalyseMomentPresets/name,ModelParameters/Advanced/AnalyseMomentPresets/OSM_NL_prov), Descr = "";     
 	unit<uint32>      OSM_Regios  := =OSM_NL_prov ? 'ModelParameters/Advanced/OSM_impl/InProvincies' : 'ModelParameters/Advanced/OSM_impl/InEenBestand'
 	, Descr = ""
@@ -43,7 +43,6 @@ container OSM : using = "classifications/OSM"
 			attribute<string> name  := ../name[org_rel];
 			attribute<string> label := ../label[org_rel];
 		}
-		
 	}
 
 
@@ -65,27 +64,16 @@ container OSM : using = "classifications/OSM"
 		,	StorageType     = "gdal.vect"
 		,	StorageReadOnly = "True"
 		,	DialogType = "Map"
-		,	DialogData = "geometry_rd"	
+		,	DialogData = "geometry_rd"
 		{
 			attribute<wgs84_base>        geometry    (arc);
 			attribute<rdc>               geometry_rd (arc)   := LatLongWgs842RD(geometry, dpoint)[rdc];
 			attribute<string>            fclass;
 			attribute<string>            oneway;
 			attribute<int32>             maxspeed;
-			// unit<uint32> uq := unique(oneway);
-		// }
-		
-		// unit<uint32> Roads := Read_Roads_shp
-		// ,   StorageName = "='%LocalDataProjDir%/OSM/RegionFiles/'+Regio+'/Roads_'+file_date+'.fss'"
-		// {
-			// attribute<rdc>                         geometry (arc) := Read_Roads_shp/geometry_rd;
-			// attribute<string>                      fclass         := Read_Roads_shp/fclass;
-			// attribute<km_hr>                       maxspeed       := Read_Roads_shp/maxspeed[km_hr];
-			// attribute<string>                      OSM_id         := Read_Roads_shp/OSM_id;
-			attribute<Directions_OSM>              Direction      := MakeDefined(rlookup(Oneway, Directions_OSM/code), Directions_OSM/v/dual); 
-			attribute<bool>                        IsOneDirection := Direction == Directions_OSM/v/backwards || Direction == Directions_OSM/v/forwards;
-			attribute<wegtype>                     wegtype_rel    := rlookup(fclass, wegtype/name);  
-			
+			attribute<Directions_OSM>    Direction      := MakeDefined(rlookup(Oneway, Directions_OSM/code), Directions_OSM/v/dual); 
+			attribute<bool>              IsOneDirection := Direction == Directions_OSM/v/backwards || Direction == Directions_OSM/v/forwards;
+			attribute<wegtype>           wegtype_rel    := rlookup(fclass, wegtype/name);  
 		}
 	}
 	
@@ -118,123 +106,123 @@ container OSM : using = "classifications/OSM"
 				attribute<km_hr>                        maxspeed_edit0                                                 := wegtype_rel == classifications/OSM/wegtype/v/motorway && maxspeed_edit00 < 80[km_hr] ? rjoin(wegtype_rel, id(classifications/OSM/wegtype), rth_maxspeed_per_wegtype_Defined) : maxspeed_edit00;
 				attribute<km_hr>                        maxspeed                                                       := switch(case(maxspeed_edit0 == 0[km_hr], ModelParameters/Advanced/CarDefaultSpeed), case(maxspeed_edit0 < 15[km_hr], 15[km_hr]), maxspeed_edit0);
 			
-				attribute<km_hr>                        congestion_speed_MorningRush     := =country_name  == 'Netherlands' || country_name == 'Belgium' ? 'AddCongestionData/congestion_speed_MorningRush > ModelParameters/Advanced/CarSpeed_limit_kmhr ? ModelParameters/Advanced/CarSpeed_limit_kmhr : AddCongestionData/congestion_speed_MorningRush' : 'maxspeed';
-				attribute<km_hr>                        congestion_speed_NoonRush        := =country_name  == 'Netherlands' || country_name == 'Belgium' ? 'AddCongestionData/congestion_speed_NoonRush > ModelParameters/Advanced/CarSpeed_limit_kmhr ? ModelParameters/Advanced/CarSpeed_limit_kmhr : AddCongestionData/congestion_speed_NoonRush' : 'maxspeed';
-				attribute<km_hr>                        congestion_speed_LateEveningRush := =country_name  == 'Netherlands' || country_name == 'Belgium' ? 'AddCongestionData/congestion_speed_LateEveningRush > ModelParameters/Advanced/CarSpeed_limit_kmhr ? ModelParameters/Advanced/CarSpeed_limit_kmhr : AddCongestionData/congestion_speed_LateEveningRush' : 'maxspeed';
+				// attribute<km_hr>                        congestion_speed_MorningRush     := =country_name  == 'Netherlands' || country_name == 'Belgium' ? 'AddCongestionData/congestion_speed_MorningRush > ModelParameters/Advanced/CarSpeed_limit_kmhr ? ModelParameters/Advanced/CarSpeed_limit_kmhr : AddCongestionData/congestion_speed_MorningRush' : 'maxspeed';
+				// attribute<km_hr>                        congestion_speed_NoonRush        := =country_name  == 'Netherlands' || country_name == 'Belgium' ? 'AddCongestionData/congestion_speed_NoonRush > ModelParameters/Advanced/CarSpeed_limit_kmhr ? ModelParameters/Advanced/CarSpeed_limit_kmhr : AddCongestionData/congestion_speed_NoonRush' : 'maxspeed';
+				// attribute<km_hr>                        congestion_speed_LateEveningRush := =country_name  == 'Netherlands' || country_name == 'Belgium' ? 'AddCongestionData/congestion_speed_LateEveningRush > ModelParameters/Advanced/CarSpeed_limit_kmhr ? ModelParameters/Advanced/CarSpeed_limit_kmhr : AddCongestionData/congestion_speed_LateEveningRush' : 'maxspeed';
 
-				container AddCongestionData
-				{
-					attribute<bool>    isMotorWay                                 (..) := wegtype_rel == wegtype/v/motorway || wegtype_rel == wegtype/v/motorway_link;
-					attribute<bool>    isMajor                                    (..) := wegtype_rel == wegtype/v/primary_link || wegtype_rel == wegtype/v/secondary_link || wegtype_rel == wegtype/v/secondary || wegtype_rel == wegtype/v/primary; 
-					attribute<bool>    isStreet                                   (..) := !isMotorWay && !isMajor;
+				// container AddCongestionData
+				// {
+					// attribute<bool>    isMotorWay                                 (..) := wegtype_rel == wegtype/v/motorway || wegtype_rel == wegtype/v/motorway_link;
+					// attribute<bool>    isMajor                                    (..) := wegtype_rel == wegtype/v/primary_link || wegtype_rel == wegtype/v/secondary_link || wegtype_rel == wegtype/v/secondary || wegtype_rel == wegtype/v/primary; 
+					// attribute<bool>    isStreet                                   (..) := !isMotorWay && !isMajor;
 					
-					attribute<km_hr>   congestion_speed_motorways_MorningRush     (..) := recollect_by_cond(isMotorWay, Motorways/congestion_speed_MorningRush);
-					attribute<km_hr>   congestion_speed_majorways_MorningRush     (..) := recollect_by_cond(isMajor, Majorways/congestion_speed_MorningRush);
-					attribute<km_hr>   congestion_speed_streets_MorningRush       (..) := recollect_by_cond(isStreet, Streets/congestion_speed_MorningRush);
+					// attribute<km_hr>   congestion_speed_motorways_MorningRush     (..) := recollect_by_cond(isMotorWay, Motorways/congestion_speed_MorningRush);
+					// attribute<km_hr>   congestion_speed_majorways_MorningRush     (..) := recollect_by_cond(isMajor, Majorways/congestion_speed_MorningRush);
+					// attribute<km_hr>   congestion_speed_streets_MorningRush       (..) := recollect_by_cond(isStreet, Streets/congestion_speed_MorningRush);
 					
-					attribute<km_hr>   congestion_speed_motorways_NoonRush        (..) := recollect_by_cond(isMotorWay, Motorways/congestion_speed_NoonRush);
-					attribute<km_hr>   congestion_speed_majorways_NoonRush        (..) := recollect_by_cond(isMajor, Majorways/congestion_speed_NoonRush);
-					attribute<km_hr>   congestion_speed_streets_NoonRush          (..) := recollect_by_cond(isStreet, Streets/congestion_speed_NoonRush);
+					// attribute<km_hr>   congestion_speed_motorways_NoonRush        (..) := recollect_by_cond(isMotorWay, Motorways/congestion_speed_NoonRush);
+					// attribute<km_hr>   congestion_speed_majorways_NoonRush        (..) := recollect_by_cond(isMajor, Majorways/congestion_speed_NoonRush);
+					// attribute<km_hr>   congestion_speed_streets_NoonRush          (..) := recollect_by_cond(isStreet, Streets/congestion_speed_NoonRush);
 					
-					attribute<km_hr>   congestion_speed_motorways_LateEveningRush (..) := recollect_by_cond(isMotorWay, Motorways/congestion_speed_LateEveningRush);
-					attribute<km_hr>   congestion_speed_majorways_LateEveningRush (..) := recollect_by_cond(isMajor, Majorways/congestion_speed_LateEveningRush);
-					attribute<km_hr>   congestion_speed_streets_LateEveningRush   (..) := recollect_by_cond(isStreet, Streets/congestion_speed_LateEveningRush);
+					// attribute<km_hr>   congestion_speed_motorways_LateEveningRush (..) := recollect_by_cond(isMotorWay, Motorways/congestion_speed_LateEveningRush);
+					// attribute<km_hr>   congestion_speed_majorways_LateEveningRush (..) := recollect_by_cond(isMajor, Majorways/congestion_speed_LateEveningRush);
+					// attribute<km_hr>   congestion_speed_streets_LateEveningRush   (..) := recollect_by_cond(isStreet, Streets/congestion_speed_LateEveningRush);
 				
-					attribute<km_hr>   congestion_speed_MorningRush               (..) := 	switch(
-																								 case(IsDefined(congestion_speed_motorways_MorningRush) && congestion_speed_motorways_MorningRush != 0[km_hr], congestion_speed_motorways_MorningRush)
-																								,case(IsDefined(congestion_speed_majorways_MorningRush) && congestion_speed_majorways_MorningRush != 0[km_hr], congestion_speed_majorways_MorningRush)
-																								,case(IsDefined(congestion_speed_streets_MorningRush)   && congestion_speed_streets_MorningRush != 0[km_hr],   congestion_speed_streets_MorningRush)
-																								, maxspeed
-																							);
-					attribute<km_hr>   congestion_speed_NoonRush               (..) := 	switch(
-																								 case(IsDefined(congestion_speed_motorways_NoonRush) && congestion_speed_motorways_NoonRush != 0[km_hr], congestion_speed_motorways_NoonRush)
-																								,case(IsDefined(congestion_speed_majorways_NoonRush) && congestion_speed_majorways_NoonRush != 0[km_hr], congestion_speed_majorways_NoonRush)
-																								,case(IsDefined(congestion_speed_streets_NoonRush)   && congestion_speed_streets_NoonRush != 0[km_hr],   congestion_speed_streets_NoonRush)
-																								, maxspeed
-																							);
-					attribute<km_hr>   congestion_speed_LateEveningRush               (..) := 	switch(
-																								 case(IsDefined(congestion_speed_motorways_LateEveningRush) && congestion_speed_motorways_LateEveningRush != 0[km_hr], congestion_speed_motorways_LateEveningRush)
-																								,case(IsDefined(congestion_speed_majorways_LateEveningRush) && congestion_speed_majorways_LateEveningRush != 0[km_hr], congestion_speed_majorways_LateEveningRush)
-																								,case(IsDefined(congestion_speed_streets_LateEveningRush)   && congestion_speed_streets_LateEveningRush != 0[km_hr],   congestion_speed_streets_LateEveningRush)
-																								, maxspeed
-																							);
+					// attribute<km_hr>   congestion_speed_MorningRush               (..) := 	switch(
+																								 // case(IsDefined(congestion_speed_motorways_MorningRush) && congestion_speed_motorways_MorningRush != 0[km_hr], congestion_speed_motorways_MorningRush)
+																								// ,case(IsDefined(congestion_speed_majorways_MorningRush) && congestion_speed_majorways_MorningRush != 0[km_hr], congestion_speed_majorways_MorningRush)
+																								// ,case(IsDefined(congestion_speed_streets_MorningRush)   && congestion_speed_streets_MorningRush != 0[km_hr],   congestion_speed_streets_MorningRush)
+																								// , maxspeed
+																							// );
+					// attribute<km_hr>   congestion_speed_NoonRush               (..) := 	switch(
+																								 // case(IsDefined(congestion_speed_motorways_NoonRush) && congestion_speed_motorways_NoonRush != 0[km_hr], congestion_speed_motorways_NoonRush)
+																								// ,case(IsDefined(congestion_speed_majorways_NoonRush) && congestion_speed_majorways_NoonRush != 0[km_hr], congestion_speed_majorways_NoonRush)
+																								// ,case(IsDefined(congestion_speed_streets_NoonRush)   && congestion_speed_streets_NoonRush != 0[km_hr],   congestion_speed_streets_NoonRush)
+																								// , maxspeed
+																							// );
+					// attribute<km_hr>   congestion_speed_LateEveningRush               (..) := 	switch(
+																								 // case(IsDefined(congestion_speed_motorways_LateEveningRush) && congestion_speed_motorways_LateEveningRush != 0[km_hr], congestion_speed_motorways_LateEveningRush)
+																								// ,case(IsDefined(congestion_speed_majorways_LateEveningRush) && congestion_speed_majorways_LateEveningRush != 0[km_hr], congestion_speed_majorways_LateEveningRush)
+																								// ,case(IsDefined(congestion_speed_streets_LateEveningRush)   && congestion_speed_streets_LateEveningRush != 0[km_hr],   congestion_speed_streets_LateEveningRush)
+																								// , maxspeed
+																							// );
 
-					unit<uint32> Motorways := select_with_org_rel(isMotorWay)
-					{
-						attribute<geometries/rdc>              geometry (arc)                   := .../geometry[org_rel]; 
-						attribute<km_hr>                       congestion_speed_MorningRush     := mean(RoadPointSet/mean_speed_MorningRush, RoadPointSet/Arc_rel_motorways_MorningRush);
-						attribute<km_hr>                       congestion_speed_NoonRush        := mean(RoadPointSet/mean_speed_NoonRush, RoadPointSet/Arc_rel_motorways_NoonRush);
-						attribute<km_hr>                       congestion_speed_LateEveningRush := mean(RoadPointSet/mean_speed_LateEveningRush, RoadPointSet/Arc_rel_motorways_LateEveningRush);
-					}
-					unit<uint32> Majorways := select_with_org_rel(isMajor)
-					{
-						attribute<geometries/rdc>              geometry (arc)                   := .../geometry[org_rel];
-						attribute<km_hr>                       congestion_speed_MorningRush     := mean(RoadPointSet/mean_speed_MorningRush, RoadPointSet/Arc_rel_majorways_MorningRush);
-						attribute<km_hr>                       congestion_speed_NoonRush        := mean(RoadPointSet/mean_speed_NoonRush, RoadPointSet/Arc_rel_majorways_NoonRush);
-						attribute<km_hr>                       congestion_speed_LateEveningRush := mean(RoadPointSet/mean_speed_LateEveningRush, RoadPointSet/Arc_rel_majorways_LateEveningRush);
-					}
+					// unit<uint32> Motorways := select_with_org_rel(isMotorWay)
+					// {
+						// attribute<geometries/rdc>              geometry (arc)                   := .../geometry[org_rel]; 
+						// attribute<km_hr>                       congestion_speed_MorningRush     := mean(RoadPointSet/mean_speed_MorningRush, RoadPointSet/Arc_rel_motorways_MorningRush);
+						// attribute<km_hr>                       congestion_speed_NoonRush        := mean(RoadPointSet/mean_speed_NoonRush, RoadPointSet/Arc_rel_motorways_NoonRush);
+						// attribute<km_hr>                       congestion_speed_LateEveningRush := mean(RoadPointSet/mean_speed_LateEveningRush, RoadPointSet/Arc_rel_motorways_LateEveningRush);
+					// }
+					// unit<uint32> Majorways := select_with_org_rel(isMajor)
+					// {
+						// attribute<geometries/rdc>              geometry (arc)                   := .../geometry[org_rel];
+						// attribute<km_hr>                       congestion_speed_MorningRush     := mean(RoadPointSet/mean_speed_MorningRush, RoadPointSet/Arc_rel_majorways_MorningRush);
+						// attribute<km_hr>                       congestion_speed_NoonRush        := mean(RoadPointSet/mean_speed_NoonRush, RoadPointSet/Arc_rel_majorways_NoonRush);
+						// attribute<km_hr>                       congestion_speed_LateEveningRush := mean(RoadPointSet/mean_speed_LateEveningRush, RoadPointSet/Arc_rel_majorways_LateEveningRush);
+					// }
 					
-					unit<uint32> Streets := select_with_org_rel(isStreet)
-					{
-						attribute<geometries/rdc>              geometry (arc)                   := .../geometry[org_rel];
-						attribute<km_hr>                       congestion_speed_MorningRush     := mean(RoadPointSet/mean_speed_MorningRush, RoadPointSet/Arc_rel_streets_MorningRush);
-						attribute<km_hr>                       congestion_speed_NoonRush        := mean(RoadPointSet/mean_speed_NoonRush, RoadPointSet/Arc_rel_streets_NoonRush);
-						attribute<km_hr>                       congestion_speed_LateEveningRush := mean(RoadPointSet/mean_speed_LateEveningRush, RoadPointSet/Arc_rel_streets_LateEveningRush);
-					}
+					// unit<uint32> Streets := select_with_org_rel(isStreet)
+					// {
+						// attribute<geometries/rdc>              geometry (arc)                   := .../geometry[org_rel];
+						// attribute<km_hr>                       congestion_speed_MorningRush     := mean(RoadPointSet/mean_speed_MorningRush, RoadPointSet/Arc_rel_streets_MorningRush);
+						// attribute<km_hr>                       congestion_speed_NoonRush        := mean(RoadPointSet/mean_speed_NoonRush, RoadPointSet/Arc_rel_streets_NoonRush);
+						// attribute<km_hr>                       congestion_speed_LateEveningRush := mean(RoadPointSet/mean_speed_LateEveningRush, RoadPointSet/Arc_rel_streets_LateEveningRush);
+					// }
 					
 					
-					unit<uint32> RoadPointSet := TomTom/Roads_selection/RoadPointSet
-					{
-						attribute<km_hr>      mean_speed_MorningRush            := 	switch(
-																						 case(IsDefined(Link_OSM_Motorways_to_TomTom/mean_speed_MorningRush), Link_OSM_Motorways_to_TomTom/mean_speed_MorningRush)   
-																						,case(IsDefined(Link_OSM_Majorways_to_TomTom/mean_speed_MorningRush), Link_OSM_Majorways_to_TomTom/mean_speed_MorningRush)
-																						,Link_OSM_Streets_to_TomTom/mean_speed_MorningRush
-																					);                
-						attribute<km_hr>      mean_speed_NoonRush               := 	switch(
-																						 case(IsDefined(Link_OSM_Motorways_to_TomTom/mean_speed_NoonRush), Link_OSM_Motorways_to_TomTom/mean_speed_NoonRush)   
-																						,case(IsDefined(Link_OSM_Majorways_to_TomTom/mean_speed_NoonRush), Link_OSM_Majorways_to_TomTom/mean_speed_NoonRush)
-																						,Link_OSM_Streets_to_TomTom/mean_speed_NoonRush
-																					);                
-						attribute<km_hr>      mean_speed_LateEveningRush        := 	switch(
-																						 case(IsDefined(Link_OSM_Motorways_to_TomTom/mean_speed_LateEveningRush), Link_OSM_Motorways_to_TomTom/mean_speed_LateEveningRush)   
-																						,case(IsDefined(Link_OSM_Majorways_to_TomTom/mean_speed_LateEveningRush), Link_OSM_Majorways_to_TomTom/mean_speed_LateEveningRush)
-																						,Link_OSM_Streets_to_TomTom/mean_speed_LateEveningRush
-																					);                
+					// unit<uint32> RoadPointSet := TomTom/Roads_selection/RoadPointSet
+					// {
+						// attribute<km_hr>      mean_speed_MorningRush            := 	switch(
+																						 // case(IsDefined(Link_OSM_Motorways_to_TomTom/mean_speed_MorningRush), Link_OSM_Motorways_to_TomTom/mean_speed_MorningRush)   
+																						// ,case(IsDefined(Link_OSM_Majorways_to_TomTom/mean_speed_MorningRush), Link_OSM_Majorways_to_TomTom/mean_speed_MorningRush)
+																						// ,Link_OSM_Streets_to_TomTom/mean_speed_MorningRush
+																					// );                
+						// attribute<km_hr>      mean_speed_NoonRush               := 	switch(
+																						 // case(IsDefined(Link_OSM_Motorways_to_TomTom/mean_speed_NoonRush), Link_OSM_Motorways_to_TomTom/mean_speed_NoonRush)   
+																						// ,case(IsDefined(Link_OSM_Majorways_to_TomTom/mean_speed_NoonRush), Link_OSM_Majorways_to_TomTom/mean_speed_NoonRush)
+																						// ,Link_OSM_Streets_to_TomTom/mean_speed_NoonRush
+																					// );                
+						// attribute<km_hr>      mean_speed_LateEveningRush        := 	switch(
+																						 // case(IsDefined(Link_OSM_Motorways_to_TomTom/mean_speed_LateEveningRush), Link_OSM_Motorways_to_TomTom/mean_speed_LateEveningRush)   
+																						// ,case(IsDefined(Link_OSM_Majorways_to_TomTom/mean_speed_LateEveningRush), Link_OSM_Majorways_to_TomTom/mean_speed_LateEveningRush)
+																						// ,Link_OSM_Streets_to_TomTom/mean_speed_LateEveningRush
+																					// );                
 						
-						attribute<Motorways>  Arc_rel_motorways_MorningRush     := IsDefined(Link_OSM_Motorways_to_TomTom/mean_speed_MorningRush)     ? Link_OSM_Motorways_to_TomTom/arc_rel : (0/0)[Motorways];
-						attribute<Motorways>  Arc_rel_motorways_NoonRush        := IsDefined(Link_OSM_Motorways_to_TomTom/mean_speed_NoonRush)        ? Link_OSM_Motorways_to_TomTom/arc_rel : (0/0)[Motorways];
-						attribute<Motorways>  Arc_rel_motorways_LateEveningRush := IsDefined(Link_OSM_Motorways_to_TomTom/mean_speed_LateEveningRush) ? Link_OSM_Motorways_to_TomTom/arc_rel : (0/0)[Motorways];
+						// attribute<Motorways>  Arc_rel_motorways_MorningRush     := IsDefined(Link_OSM_Motorways_to_TomTom/mean_speed_MorningRush)     ? Link_OSM_Motorways_to_TomTom/arc_rel : (0/0)[Motorways];
+						// attribute<Motorways>  Arc_rel_motorways_NoonRush        := IsDefined(Link_OSM_Motorways_to_TomTom/mean_speed_NoonRush)        ? Link_OSM_Motorways_to_TomTom/arc_rel : (0/0)[Motorways];
+						// attribute<Motorways>  Arc_rel_motorways_LateEveningRush := IsDefined(Link_OSM_Motorways_to_TomTom/mean_speed_LateEveningRush) ? Link_OSM_Motorways_to_TomTom/arc_rel : (0/0)[Motorways];
 						
-						attribute<Majorways>  Arc_rel_majorways_MorningRush     := IsDefined(Link_OSM_Majorways_to_TomTom/mean_speed_MorningRush)     ? Link_OSM_Majorways_to_TomTom/arc_rel : (0/0)[Majorways];
-						attribute<Majorways>  Arc_rel_majorways_NoonRush        := IsDefined(Link_OSM_Majorways_to_TomTom/mean_speed_NoonRush)        ? Link_OSM_Majorways_to_TomTom/arc_rel : (0/0)[Majorways];
-						attribute<Majorways>  Arc_rel_majorways_LateEveningRush := IsDefined(Link_OSM_Majorways_to_TomTom/mean_speed_LateEveningRush) ? Link_OSM_Majorways_to_TomTom/arc_rel : (0/0)[Majorways];
+						// attribute<Majorways>  Arc_rel_majorways_MorningRush     := IsDefined(Link_OSM_Majorways_to_TomTom/mean_speed_MorningRush)     ? Link_OSM_Majorways_to_TomTom/arc_rel : (0/0)[Majorways];
+						// attribute<Majorways>  Arc_rel_majorways_NoonRush        := IsDefined(Link_OSM_Majorways_to_TomTom/mean_speed_NoonRush)        ? Link_OSM_Majorways_to_TomTom/arc_rel : (0/0)[Majorways];
+						// attribute<Majorways>  Arc_rel_majorways_LateEveningRush := IsDefined(Link_OSM_Majorways_to_TomTom/mean_speed_LateEveningRush) ? Link_OSM_Majorways_to_TomTom/arc_rel : (0/0)[Majorways];
 						
-						attribute<Streets>    Arc_rel_streets_MorningRush       := IsDefined(Link_OSM_Streets_to_TomTom/mean_speed_MorningRush)       ? Link_OSM_Streets_to_TomTom/arc_rel : (0/0)[Streets];
-						attribute<Streets>    Arc_rel_streets_NoonRush          := IsDefined(Link_OSM_Streets_to_TomTom/mean_speed_NoonRush)          ? Link_OSM_Streets_to_TomTom/arc_rel : (0/0)[Streets];
-						attribute<Streets>    Arc_rel_streets_LateEveningRush   := IsDefined(Link_OSM_Streets_to_TomTom/mean_speed_LateEveningRush)   ? Link_OSM_Streets_to_TomTom/arc_rel : (0/0)[Streets];
-					}
+						// attribute<Streets>    Arc_rel_streets_MorningRush       := IsDefined(Link_OSM_Streets_to_TomTom/mean_speed_MorningRush)       ? Link_OSM_Streets_to_TomTom/arc_rel : (0/0)[Streets];
+						// attribute<Streets>    Arc_rel_streets_NoonRush          := IsDefined(Link_OSM_Streets_to_TomTom/mean_speed_NoonRush)          ? Link_OSM_Streets_to_TomTom/arc_rel : (0/0)[Streets];
+						// attribute<Streets>    Arc_rel_streets_LateEveningRush   := IsDefined(Link_OSM_Streets_to_TomTom/mean_speed_LateEveningRush)   ? Link_OSM_Streets_to_TomTom/arc_rel : (0/0)[Streets];
+					// }
 					
-					container Link_OSM_Motorways_to_TomTom := connect_info(Motorways/geometry, RoadPointSet/Point, ModelParameters/Advanced/ConnectSearchDist)  
-					{ 
-						attribute<km_hr>      mean_speed_MorningRush          (RoadPointSet) := ='dist[uint32] < 10 ? SourceData/Infrastructuur/TomTom/Roads_selection/CalcTimes/MorningRush/PerMoment/'+ModelParameters/Advanced/CongestionSpeed_DaySelection+'/Speed_PerRPS : (0/0)[km_hr]';
-						attribute<km_hr>      mean_speed_NoonRush             (RoadPointSet) := ='dist[uint32] < 10 ? SourceData/Infrastructuur/TomTom/Roads_selection/CalcTimes/NoonRush/PerMoment/'+ModelParameters/Advanced/CongestionSpeed_DaySelection+'/Speed_PerRPS : (0/0)[km_hr]';
-						attribute<km_hr>      mean_speed_LateEveningRush      (RoadPointSet) := ='dist[uint32] < 10 ? SourceData/Infrastructuur/TomTom/Roads_selection/CalcTimes/LateEveningRush/PerMoment/'+ModelParameters/Advanced/CongestionSpeed_DaySelection+'/Speed_PerRPS : (0/0)[km_hr]';
-					}
+					// container Link_OSM_Motorways_to_TomTom := connect_info(Motorways/geometry, RoadPointSet/Point, ModelParameters/Advanced/ConnectSearchDist)  
+					// { 
+						// attribute<km_hr>      mean_speed_MorningRush          (RoadPointSet) := ='dist[uint32] < 10 ? SourceData/Infrastructuur/TomTom/Roads_selection/CalcTimes/MorningRush/PerMoment/'+ModelParameters/Advanced/CongestionSpeed_DaySelection+'/Speed_PerRPS : (0/0)[km_hr]';
+						// attribute<km_hr>      mean_speed_NoonRush             (RoadPointSet) := ='dist[uint32] < 10 ? SourceData/Infrastructuur/TomTom/Roads_selection/CalcTimes/NoonRush/PerMoment/'+ModelParameters/Advanced/CongestionSpeed_DaySelection+'/Speed_PerRPS : (0/0)[km_hr]';
+						// attribute<km_hr>      mean_speed_LateEveningRush      (RoadPointSet) := ='dist[uint32] < 10 ? SourceData/Infrastructuur/TomTom/Roads_selection/CalcTimes/LateEveningRush/PerMoment/'+ModelParameters/Advanced/CongestionSpeed_DaySelection+'/Speed_PerRPS : (0/0)[km_hr]';
+					// }
 					
-					container Link_OSM_Majorways_to_TomTom := connect_info(Majorways/geometry, RoadPointSet/Point, ModelParameters/Advanced/ConnectSearchDist)
-					{
-						attribute<km_hr>      mean_speed_MorningRush          (RoadPointSet) := ='dist[uint32] < 10 ? SourceData/Infrastructuur/TomTom/Roads_selection/CalcTimes/MorningRush/PerMoment/'+ModelParameters/Advanced/CongestionSpeed_DaySelection+'/Speed_PerRPS : (0/0)[km_hr]';
-						attribute<km_hr>      mean_speed_NoonRush             (RoadPointSet) := ='dist[uint32] < 10 ? SourceData/Infrastructuur/TomTom/Roads_selection/CalcTimes/NoonRush/PerMoment/'+ModelParameters/Advanced/CongestionSpeed_DaySelection+'/Speed_PerRPS : (0/0)[km_hr]';
-						attribute<km_hr>      mean_speed_LateEveningRush      (RoadPointSet) := ='dist[uint32] < 10 ? SourceData/Infrastructuur/TomTom/Roads_selection/CalcTimes/LateEveningRush/PerMoment/'+ModelParameters/Advanced/CongestionSpeed_DaySelection+'/Speed_PerRPS : (0/0)[km_hr]';
-					}
+					// container Link_OSM_Majorways_to_TomTom := connect_info(Majorways/geometry, RoadPointSet/Point, ModelParameters/Advanced/ConnectSearchDist)
+					// {
+						// attribute<km_hr>      mean_speed_MorningRush          (RoadPointSet) := ='dist[uint32] < 10 ? SourceData/Infrastructuur/TomTom/Roads_selection/CalcTimes/MorningRush/PerMoment/'+ModelParameters/Advanced/CongestionSpeed_DaySelection+'/Speed_PerRPS : (0/0)[km_hr]';
+						// attribute<km_hr>      mean_speed_NoonRush             (RoadPointSet) := ='dist[uint32] < 10 ? SourceData/Infrastructuur/TomTom/Roads_selection/CalcTimes/NoonRush/PerMoment/'+ModelParameters/Advanced/CongestionSpeed_DaySelection+'/Speed_PerRPS : (0/0)[km_hr]';
+						// attribute<km_hr>      mean_speed_LateEveningRush      (RoadPointSet) := ='dist[uint32] < 10 ? SourceData/Infrastructuur/TomTom/Roads_selection/CalcTimes/LateEveningRush/PerMoment/'+ModelParameters/Advanced/CongestionSpeed_DaySelection+'/Speed_PerRPS : (0/0)[km_hr]';
+					// }
 					
-					container Link_OSM_Streets_to_TomTom := connect_info(Streets/geometry, RoadPointSet/Point, ModelParameters/Advanced/ConnectSearchDist)
-					{
-						attribute<km_hr>      mean_speed_MorningRush          (RoadPointSet) := ='dist[uint32] < 10 ? SourceData/Infrastructuur/TomTom/Roads_selection/CalcTimes/MorningRush/PerMoment/'+ModelParameters/Advanced/CongestionSpeed_DaySelection+'/Speed_PerRPS : (0/0)[km_hr]';
-						attribute<km_hr>      mean_speed_NoonRush             (RoadPointSet) := ='dist[uint32] < 10 ? SourceData/Infrastructuur/TomTom/Roads_selection/CalcTimes/NoonRush/PerMoment/'+ModelParameters/Advanced/CongestionSpeed_DaySelection+'/Speed_PerRPS : (0/0)[km_hr]';
-						attribute<km_hr>      mean_speed_LateEveningRush      (RoadPointSet) := ='dist[uint32] < 10 ? SourceData/Infrastructuur/TomTom/Roads_selection/CalcTimes/LateEveningRush/PerMoment/'+ModelParameters/Advanced/CongestionSpeed_DaySelection+'/Speed_PerRPS : (0/0)[km_hr]';
-					}
-				}
+					// container Link_OSM_Streets_to_TomTom := connect_info(Streets/geometry, RoadPointSet/Point, ModelParameters/Advanced/ConnectSearchDist)
+					// {
+						// attribute<km_hr>      mean_speed_MorningRush          (RoadPointSet) := ='dist[uint32] < 10 ? SourceData/Infrastructuur/TomTom/Roads_selection/CalcTimes/MorningRush/PerMoment/'+ModelParameters/Advanced/CongestionSpeed_DaySelection+'/Speed_PerRPS : (0/0)[km_hr]';
+						// attribute<km_hr>      mean_speed_NoonRush             (RoadPointSet) := ='dist[uint32] < 10 ? SourceData/Infrastructuur/TomTom/Roads_selection/CalcTimes/NoonRush/PerMoment/'+ModelParameters/Advanced/CongestionSpeed_DaySelection+'/Speed_PerRPS : (0/0)[km_hr]';
+						// attribute<km_hr>      mean_speed_LateEveningRush      (RoadPointSet) := ='dist[uint32] < 10 ? SourceData/Infrastructuur/TomTom/Roads_selection/CalcTimes/LateEveningRush/PerMoment/'+ModelParameters/Advanced/CongestionSpeed_DaySelection+'/Speed_PerRPS : (0/0)[km_hr]';
+					// }
+				// }
 			}
 		}
 
@@ -246,9 +234,9 @@ container OSM : using = "classifications/OSM"
 			attribute<string>                       OSM_id             := ='union_data(., '+AsList('Merge_Roads_perCountry/'+OSM_Regios/Countries/name+'/Merge_CountryRegion_Roads/OSM_id', ',')+')';
 			attribute<bool>                         IsOneDirection     := ='union_data(., '+AsList('Merge_Roads_perCountry/'+OSM_Regios/Countries/name+'/Merge_CountryRegion_Roads/IsOneDirection', ',')+')';
 			
-			attribute<km_hr>                        congestion_speed_MorningRush     := ='union_data(., '+AsList('Merge_Roads_perCountry/'+OSM_Regios/Countries/name+'/Merge_CountryRegion_Roads/congestion_speed_MorningRush', ',')+')';
-			attribute<km_hr>                        congestion_speed_NoonRush        := ='union_data(., '+AsList('Merge_Roads_perCountry/'+OSM_Regios/Countries/name+'/Merge_CountryRegion_Roads/congestion_speed_NoonRush', ',')+')';
-			attribute<km_hr>                        congestion_speed_LateEveningRush := ='union_data(., '+AsList('Merge_Roads_perCountry/'+OSM_Regios/Countries/name+'/Merge_CountryRegion_Roads/congestion_speed_LateEveningRush', ',')+')';
+			// attribute<km_hr>                        congestion_speed_MorningRush     := ='union_data(., '+AsList('Merge_Roads_perCountry/'+OSM_Regios/Countries/name+'/Merge_CountryRegion_Roads/congestion_speed_MorningRush', ',')+')';
+			// attribute<km_hr>                        congestion_speed_NoonRush        := ='union_data(., '+AsList('Merge_Roads_perCountry/'+OSM_Regios/Countries/name+'/Merge_CountryRegion_Roads/congestion_speed_NoonRush', ',')+')';
+			// attribute<km_hr>                        congestion_speed_LateEveningRush := ='union_data(., '+AsList('Merge_Roads_perCountry/'+OSM_Regios/Countries/name+'/Merge_CountryRegion_Roads/congestion_speed_LateEveningRush', ',')+')';
 		}
 	}
 	
@@ -266,9 +254,9 @@ container OSM : using = "classifications/OSM"
 		attribute<bool>                         IsOneDirection := NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/IsOneDirection[ConnectedNetwork_rel];
 		
 		attribute<km_hr>                        congestion_speed_bike            := recollect_by_cond(wegtype/isPartOfBikeNetwork[wegtype_rel], AddBikeCongestionSpeeds/Impl/bike_speed_OSM);
-		attribute<km_hr>                        congestion_speed_MorningRush     := NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/congestion_speed_MorningRush[ConnectedNetwork_rel];
-		attribute<km_hr>                        congestion_speed_NoonRush        := NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/congestion_speed_NoonRush[ConnectedNetwork_rel];
-		attribute<km_hr>                        congestion_speed_LateEveningRush := NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/congestion_speed_LateEveningRush[ConnectedNetwork_rel];
+		// attribute<km_hr>                        congestion_speed_MorningRush     := NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/congestion_speed_MorningRush[ConnectedNetwork_rel];
+		// attribute<km_hr>                        congestion_speed_NoonRush        := NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/congestion_speed_NoonRush[ConnectedNetwork_rel];
+		// attribute<km_hr>                        congestion_speed_LateEveningRush := NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/congestion_speed_LateEveningRush[ConnectedNetwork_rel];
 		
 		unit<uint32> AddBikeCongestionSpeeds := select_with_org_rel(wegtype/isPartOfBikeNetwork[wegtype_rel])
 		{
@@ -298,9 +286,9 @@ container OSM : using = "classifications/OSM"
 		attribute<km_hr>                        freeflow_speed_cycling           := const(ModelParameters/Advanced/CyclingSpeed_kmhr,.);
 		attribute<km_hr>                        freeflow_speed_walking           := const(ModelParameters/Advanced/WalkingSpeed_kmhr,.);
 		attribute<km_hr>                        congestion_speed_bike;
-		attribute<km_hr>                        congestion_speed_MorningRush;
-		attribute<km_hr>                        congestion_speed_NoonRush;
-		attribute<km_hr>                        congestion_speed_LateEveningRush;
+		// attribute<km_hr>                        congestion_speed_MorningRush;
+		// attribute<km_hr>                        congestion_speed_NoonRush;
+		// attribute<km_hr>                        congestion_speed_LateEveningRush;
 		
 		attribute<bool>                         isPartOfCarNetwork        := wegtype/IsPartOfCarNetwork[wegtype_rel];
 		attribute<bool>                         isPartOfCyclingNetwork    := wegtype/isPartOfBikeNetwork[wegtype_rel];
@@ -360,9 +348,9 @@ container OSM : using = "classifications/OSM"
 		attribute<km_hr>                        speed_max_walking                := const((0/0)[km_hr],.);
 		attribute<km_hr>                        speed_congested_cycling          := const((0/0)[km_hr],.);
 		attribute<km_hr>                        speed_congested_e_bike           := const((0/0)[km_hr],.);
-		attribute<km_hr>                        speed_congested_morning_car      := Read_Final_Network/congestion_speed_MorningRush[org_rel];
-		attribute<km_hr>                        speed_congested_noon_car         := Read_Final_Network/congestion_speed_NoonRush[org_rel];
-		attribute<km_hr>                        speed_congested_late_car         := Read_Final_Network/congestion_speed_LateEveningRush[org_rel];
+		// attribute<km_hr>                        speed_congested_morning_car      := Read_Final_Network/congestion_speed_MorningRush[org_rel];
+		// attribute<km_hr>                        speed_congested_noon_car         := Read_Final_Network/congestion_speed_NoonRush[org_rel];
+		// attribute<km_hr>                        speed_congested_late_car         := Read_Final_Network/congestion_speed_LateEveningRush[org_rel];
 		
 		unit<uint32> isVerbonden := select_with_attr_by_cond(., Connectiveness/isVerbonden);
 		
