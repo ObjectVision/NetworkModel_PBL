@@ -1,164 +1,341 @@
-container PostAnalysis : using = "units;geometries"
+container PostAnalysis : using = "units;geometries;modelparameters;classifications;sourcedata"
 {
-/* 	Template Merge_Times_T
+	container Halte_analyse_RuimteScanner
 	{
-		container src;
-		unit<uint32> org;
-		unit<uint32> dest;
-		//
+		parameter<m> Afstand_Halte_clustering := 100[m];
 		
-		unit<uint64> Combine_OrgDest        := combine_uint64(org, dest)
+		parameter<string> domain_str   := '1000m';
+		unit<spoint>      grid_domain  := ='rdc_'+domain_str;
+		
+		unit<uint8> Modes                    := GTFS_Modes/Selectie;
+
+		attribute<Modes>   Mode_perstop (Infrastructuur/GTFS/RelevantSelection/StopTimes)  := Infrastructuur/GTFS/RelevantSelection/StopTimes/Mode_perstop;
+
+		unit<uint32> Stops_totaal := Infrastructuur/GTFS/RelevantSelection/Stops
+		, FreeData = "false"
 		{
-			attribute<string> OrgName  := org/name[first_rel];
-			attribute<string> DestName := dest/name[second_rel];
-			attribute<string> Label    := OrgName +'_'+DestName, DialogType = "LabelText";
+			attribute<rdc>              geometry              := Infrastructuur/GTFS/RelevantSelection/Stops/geometry;
+			attribute<string>           Mode_naam             := Modes/name[Mode_rel];
+
+			attribute<uint32>           Cluster_NrTripsPerDay := Cluster_NrTripsPerDay_Tram + Cluster_NrTripsPerDay_Metro + Cluster_NrTripsPerDay_Rail + Cluster_NrTripsPerDay_Bus + Cluster_NrTripsPerDay_Ferry;
+			attribute<uint32>           Cluster_CountStops    := Cluster_Count_Tram + Cluster_Count_Metro + Cluster_Count_Rail + Cluster_Count_Bus + Cluster_Count_Ferry;
 			
-			attribute<min_f> shortest_avg_traveltime (org) := min(GetAverageTimes/avg_traveltime, first_rel);
+			attribute<uint32>           Cluster_NrTripsPerDay_Tram   := MakeDefined(rjoin(geometry, Stop_per_mode/Tram/Per_mode_subset/geometry, Stop_per_mode/Tram/Per_mode_subset/Cluster_NrTripsPerDay),0);
+			attribute<uint32>           Cluster_NrTripsPerDay_Metro  := MakeDefined(rjoin(geometry, Stop_per_mode/Metro/Per_mode_subset/geometry, Stop_per_mode/Metro/Per_mode_subset/Cluster_NrTripsPerDay),0);
+			attribute<uint32>           Cluster_NrTripsPerDay_Rail   := MakeDefined(rjoin(geometry, Stop_per_mode/Rail/Per_mode_subset/geometry, Stop_per_mode/Rail/Per_mode_subset/Cluster_NrTripsPerDay),0);
+			attribute<uint32>           Cluster_NrTripsPerDay_Bus    := MakeDefined(rjoin(geometry, Stop_per_mode/Bus/Per_mode_subset/geometry, Stop_per_mode/Bus/Per_mode_subset/Cluster_NrTripsPerDay),0);
+			attribute<uint32>           Cluster_NrTripsPerDay_Ferry  := MakeDefined(rjoin(geometry, Stop_per_mode/Ferry/Per_mode_subset/geometry, Stop_per_mode/Ferry/Per_mode_subset/Cluster_NrTripsPerDay),0);
 			
-			container GetAverageTimes := 
-				for_each_nedv(
-					ModelParameters/Advanced/MeasureMoments/name
-					, 'rjoin(Label, src/'+ModelParameters/Advanced/MeasureMoments/name+'/ReadCSV/Data/OrgDestName, src/'+ModelParameters/Advanced/MeasureMoments/name+'/ReadCSV/Data/Traveltime)'
-					, Combine_OrgDest
-					, min_f
-				)
-			{
-				attribute<min_f> avg_traveltime (Combine_OrgDest) := ='add('+AsItemList('IsDefined('+ModelParameters/Advanced/MeasureMoments/name+') ? '+ModelParameters/Advanced/MeasureMoments/name+' : 0f')+') / float32(count_values)';
-				attribute<uint32> count_values (Combine_OrgDest) := ='add('+AsItemList('uint32(IsDefined('+ModelParameters/Advanced/MeasureMoments/name+'))')+')';
-			}
+			attribute<uint32>           Cluster_Count_Tram   := MakeDefined(rjoin(geometry, Stop_per_mode/Tram/Per_mode_subset/geometry, Stop_per_mode/Tram/Per_mode_subset/Cluster_CountStops),0);
+			attribute<uint32>           Cluster_Count_Metro  := MakeDefined(rjoin(geometry, Stop_per_mode/Metro/Per_mode_subset/geometry, Stop_per_mode/Metro/Per_mode_subset/Cluster_CountStops),0);
+			attribute<uint32>           Cluster_Count_Rail   := MakeDefined(rjoin(geometry, Stop_per_mode/Rail/Per_mode_subset/geometry, Stop_per_mode/Rail/Per_mode_subset/Cluster_CountStops),0);
+			attribute<uint32>           Cluster_Count_Bus    := MakeDefined(rjoin(geometry, Stop_per_mode/Bus/Per_mode_subset/geometry, Stop_per_mode/Bus/Per_mode_subset/Cluster_CountStops),0);
+			attribute<uint32>           Cluster_Count_Ferry  := MakeDefined(rjoin(geometry, Stop_per_mode/Ferry/Per_mode_subset/geometry, Stop_per_mode/Ferry/Per_mode_subset/Cluster_CountStops),0);
 		}
-	}
- */	
-	
-	// container ReadExport_Car_PC4         := ReadExport_PrivateTransport_T('car','PC4','PC4')
-	// {
-		// unit<uint64> Combine_OrgDest        := combine_uint64(SourceData/BAG/Adressen/Woon_Voorraad/PC4_centroids, SourceData/BAG/Adressen/Woon_Voorraad/PC4_centroids)
-		// {
-			// attribute<string> OrgName  := SourceData/BAG/Adressen/Woon_Voorraad/PC4_centroids/name[first_rel];
-			// attribute<string> DestName := SourceData/BAG/Adressen/Woon_Voorraad/PC4_centroids/name[second_rel];
-			// attribute<string> Label    := OrgName +'_'+DestName, DialogType = "LabelText";
-			// attribute<min_f>  Traveltime := convert(rjoin(Label, ReadCSV/data/org + '_' + ReadCSV/data/dst, value(ReadCSV/data/maxspeed,s_f)), min_f);
-		// }
 		
-		// attribute<uint32> Count_Reached_Dests (SourceData/BAG/Adressen/Woon_Voorraad/PC4_centroids) := sum(uint32(IsDefined(Combine_OrgDest/Traveltime)), Combine_OrgDest/second_rel);
-	// }
-	
-	// container ReadExport_OV_RSL := 
-		// for_each_ne(
-			// ModelParameters/Advanced/Export_CombinationTypes/name
-			// , 'Per_Export_CombinationTypes_T('+quote(ModelParameters/Advanced/Export_CombinationTypes/name)+')'
-		// ) 
-	// {
-		// parameter<string> Generate := 'Ready', ExplicitSuppliers = "=AsList(ModelParameters/Advanced/Export_CombinationTypes/name+'/ReadExport_OV/generate', ';')";
-	// } 
-	
-	// container ReadExport_OV_Groen := 
-		// for_each_ne(
-			// ModelParameters/Advanced/Export_CombinationTypes/name
-			// , 'Per_Export_CombinationTypes_T('+quote(ModelParameters/Advanced/Export_CombinationTypes/name)+')'
-		// ) 
-	// {
-		// parameter<string> Generate := 'Ready', ExplicitSuppliers = "=AsList(ModelParameters/Advanced/Export_CombinationTypes/name+'/ReadExport_OV/generate', ';')";
-	// } 
-	
-	// container ReadExport_Pedestrian_Groen  := ReadExport_PrivateTransport_T('pedestrian')
-	// {
-		// parameter<string> Generate := 'Ready', ExplicitSuppliers = "ExportTable_Traveltimes/File";
-	// }
-	// container ReadExport_Bike_Groen        := ReadExport_PrivateTransport_T('bike')
-	// {
-		// parameter<string> Generate := 'Ready', ExplicitSuppliers = "ExportTable_Traveltimes/File";
-	// }
-	// container ReadExport_Car_Groen         := ReadExport_PrivateTransport_T('car')
-	// {
-		// parameter<string> Generate := 'Ready', ExplicitSuppliers = "ExportTable_Traveltimes/File";
-	// }
-	
-/* 	Template Per_Export_CombinationTypes_T
-	{
-		parameter<string> Export_CombinationTypes;
-		///
-		
-		container ReadExport_OV := 
-			for_each_ne(
-				ModelParameters/Advanced/MeasureMoments/name
-				, 'ReadExport_OV_T('+quote(/ModelParameters/Advanced/MeasureMoments/name)+', '+quote(Export_CombinationTypes)+')'
-			)
+		container Generate_tiffs
 		{
-			parameter<string> Generate := 'Ready', ExplicitSuppliers = "=AsList(ModelParameters/Advanced/MeasureMoments/name+'/ExportTable_Traveltimes/File', ';')";
-		}
-		container ReadExport_OV_mergeTimes := 
-			for_each_ne(
-				ModelParameters/Advanced/MeasureMoments/name
-				, 'ReadExport_OV_mergeTimes_T('+quote(/ModelParameters/Advanced/MeasureMoments/name)+', '+quote(Export_CombinationTypes)+')'
-			)
-		{
-			// parameter<string> Generate := 'Ready', ExplicitSuppliers = "=AsList(ModelParameters/Advanced/MeasureMoments/name+'/ExportTable_Traveltimes/File', ';')";
+			parameter<String> Reistijd_Pedestrian := 'Ready',
+			ExplicitSuppliers = "=AsList('Dijkstras/Per_ModeVertrekK/'+Mode_X_Vertrekmomenten3K/name+'/CreateODperNetwerkType/pedestrian/OD_reistijd_grid',';')";
+			parameter<String> Reistijd_Bike := 'Ready',
+			ExplicitSuppliers = "=AsList('Dijkstras/Per_ModeVertrekK/'+Mode_X_Vertrekmomenten3K/name+'/CreateODperNetwerkType/bike/OD_reistijd_grid',';')";
+			parameter<String> Reistijd_Car := 'Ready',
+			ExplicitSuppliers = "=AsList('Dijkstras/Per_ModeVertrekK/'+Mode_X_Vertrekmomenten3K/name+'/CreateODperNetwerkType/car/OD_reistijd_grid',';')";
 			
-			unit<uint64> Combine_OrgDest        := combine_uint64(/NetworkSetup/ConfigurationPerRegio/all/org, /NetworkSetup/ConfigurationPerRegio/all/dest)
+			parameter<String> Afstand_Pedestrian := 'Ready',
+			ExplicitSuppliers = "=AsList('Dijkstras/Per_ModeVertrekK/'+Mode_X_Vertrekmomenten3K/name+'/CreateODperNetwerkType/pedestrian/OD_Afstand_grid',';')";
+			parameter<String> Afstand_Bike := 'Ready',
+			ExplicitSuppliers = "=AsList('Dijkstras/Per_ModeVertrekK/'+Mode_X_Vertrekmomenten3K/name+'/CreateODperNetwerkType/bike/OD_Afstand_grid',';')";
+			parameter<String> Afstand_Car := 'Ready',
+			ExplicitSuppliers = "=AsList('Dijkstras/Per_ModeVertrekK/'+Mode_X_Vertrekmomenten3K/name+'/CreateODperNetwerkType/car/OD_Afstand_grid',';')";
+		}
+		
+		container Dijkstras
+		{
+			container Per_ModeVertrekK := 
+				for_each_ne(
+					Mode_X_Vertrekmomenten3K/name
+					, 'Per_ModeVertrekK_T(
+							 '+quote(Mode_X_Vertrekmomenten3K/mode_name)+'
+							,'+quote(Mode_X_Vertrekmomenten3K/VertrekmomentK_name)+'
+							, perGridsize/size_'+domain_str+'/points
+							, ModeVertrekK/'+string(Mode_X_Vertrekmomenten3K/mode_name)+'_'+string(Mode_X_Vertrekmomenten3K/VertrekmomentK_name)+'/Subset
+						)'
+				);
+				
+			Template Per_ModeVertrekK_T
 			{
-				attribute<string> OrgName  := /NetworkSetup/ConfigurationPerRegio/all/org/name[first_rel];
-				attribute<string> DestName := /NetworkSetup/ConfigurationPerRegio/all/dest/name[second_rel];
-				attribute<string> Label    := OrgName +'_'+DestName, DialogType = "LabelText";
+				parameter<string> Mode_naam;
+				parameter<string> Vertrekmomenten3K_naam;
+				unit<uint32> org;
+				unit<uint32> dest;
 				
-				attribute<min_f> shortest_avg_traveltime (/NetworkSetup/ConfigurationPerRegio/all/org) := min(GetAverageTimes/avg_traveltime, first_rel);
 				
-				container GetAverageTimes := 
-					for_each_nedv(
-						ModelParameters/Advanced/MeasureMoments/name
-						, 'rjoin(Label, ReadExport_OV_mergeTimes/'+ModelParameters/Advanced/MeasureMoments/name+'/ReadCSV/Data/OrgDestName, ReadExport_OV_mergeTimes/'+ModelParameters/Advanced/MeasureMoments/name+'/ReadCSV/Data/Traveltime)'
-						, Combine_OrgDest
-						, min_f
-					)
-				{
-					attribute<min_f> avg_traveltime (Combine_OrgDest) := ='add('+AsItemList('IsDefined('+ModelParameters/Advanced/MeasureMoments/name+') ? '+ModelParameters/Advanced/MeasureMoments/name+' : 0f')+') / float32(count_values)';
+				container CreateODperNetwerkType := 
+					for_each_ne(
+						classifications/OSM/netwerk_type/name
+						,'MakeFSS(org, dest,'+quote(classifications/OSM/netwerk_type/name_alt)+')'
+					);
 					
-					attribute<uint32> count_values (Combine_OrgDest) := ='add('+AsItemList('uint32(IsDefined('+ModelParameters/Advanced/MeasureMoments/name+'))')+')';
+				Template MakeFSS
+				{
+					unit<uint32>       org;
+					unit<uint32>       dest;
+					parameter<string>  netwerk_type;
+					//////
+					container Create_Optimised_Network  := ='Templates/CreateNetwork_Efficient_T(Org, Dest, SourceData/Infrastructuur/OSM/Network_'+netwerk_type+', '+quote(netwerk_type)+', FALSE)', Descr = "Network for pre- and post-transport.";
+					
+					unit<uint32>       LinkSet := Create_Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet;
+					unit<uint32>       NodeSet := Create_Optimised_Network/CreateMoreEfficientNetwork/FinalNodeSet
+					{
+						attribute<.>   OrgNode_rel   (org) := rlookup(org/geometry,  geometry);
+						attribute<.>   DestNode_rel (dest) := rlookup(dest/geometry, geometry);
+					}
+
+					attribute<min_f> impedance (LinkSet) := ='convert(LinkSet/Impedance_per_ImpedanceType/max_'+netwerk_type+', min_f)';
+					attribute<km>    distance  (LinkSet) := ='LinkSet/Distance_per_ImpedanceType/max_'+netwerk_type;
+
+					attribute<min_f> OD_reistijd (NodeSet) := 
+						impedance_table(
+							  'bidirectional(link_flag);startPoint(Node_rel)'
+							, impedance
+							, LinkSet/F1
+							, LinkSet/F2
+							
+							, NOT(LinkSet/IsOneDirection)
+							, NodeSet/DestNode_rel
+						);
+					attribute<min_f>  OD_reistijd_org          (org) := OD_reistijd[NodeSet/OrgNode_rel];
+					attribute<min_f>  OD_reistijd_grid (grid_domain) := sum(OD_reistijd_org, org/grid_rel), StorageName = "='%LocalDataProjDir%/Output/OD_korste_reistijd_'+netwerk_type+'_eerstehaltevan_'+mode_naam+'_'+Vertrekmomenten3K_naam+'.tif'", StorageType = "gdalwrite.grid";
+					
+					attribute<km> OD_afstand (NodeSet) := 
+						impedance_table(
+							  'bidirectional(link_flag);startPoint(Node_rel)'
+							, distance
+							, LinkSet/F1
+							, LinkSet/F2
+							
+							, NOT(LinkSet/IsOneDirection)
+							, NodeSet/DestNode_rel
+						);
+					attribute<km>  OD_afstand_org          (org) := OD_afstand[NodeSet/OrgNode_rel];
+					attribute<km>  OD_afstand_grid (grid_domain) := sum(OD_afstand_org, org/grid_rel), StorageName = "='%LocalDataProjDir%/Output/OD_korste_afstand_'+netwerk_type+'_eerstehaltevan_'+mode_naam+'_'+Vertrekmomenten3K_naam+'.tif'", StorageType = "gdalwrite.grid";
+					
 				}
 			}
-			
-			
-			unit<uint64> ExportTable_Traveltimes := select_with_org_rel(IsDefined(Combine_OrgDest/GetAverageTimes/avg_traveltime))
+		}
+		
+		container ModeVertrekK :=
+			for_each_ne(
+				Mode_X_Vertrekmomenten3K/name
+				, 'ModeVertrekK_T('+quote(Mode_X_Vertrekmomenten3K/Mode_name)+','+quote(Mode_X_Vertrekmomenten3K/VertrekmomentK_name)+','+string(Mode_X_Vertrekmomenten3K/Class_onder)+','+string(Mode_X_Vertrekmomenten3K/Class_boven)+')'
+			);	
+		
+		Template ModeVertrekK_T
+		{
+			parameter<string> Mode;
+			parameter<string> VertrekmomentK;
+			parameter<uint32> Class_ondergrens;
+			parameter<uint32> Class_bovengrens;
+
+			unit<uint32> subset := ='select_with_org_rel(Stop_per_mode/'+Mode+'/Per_mode_subset/Cluster_NrTripsPerDay >= Class_ondergrens && Stop_per_mode/'+Mode+'/Per_mode_subset/Cluster_NrTripsPerDay < Class_bovengrens)'
 			{
-				attribute<min_f>  avg_traveltime_piek := Combine_OrgDest/GetAverageTimes/avg_traveltime[org_rel];
-				attribute<string> OrgName             := Combine_OrgDest/OrgName[org_rel];
-				attribute<string> DestName            := Combine_OrgDest/OrgName[org_rel];
-				attribute<string> Label               := OrgName +'_'+DestName, DialogType = "LabelText";
-				
-				attribute<string> BodyLines :=
-					OrgName + ';' + 
-					DestName + ';' + 
-					string(avg_traveltime_piek);
-				parameter<string> File := 'OrgName;DestName;avg_traveltime_piek\n'++AsList(BodyLines, '\n'), StorageName = "=ModelParameters/Advanced/fileNamePrefix+'Traveltime_'+Export_CombinationTypes+''+fileNameSuffix+'_avg_traveltime.csv'", StorageType = "str";
-			
-				parameter<string> fileNameSuffix :=  
-					'_' + ModelParameters/Analysis_Date + 
-					'_ORG-'    + ModelParameters/Orgset + '-All' + 
-					'_DEST-'   + ModelParameters/Advanced/DestSet_string +
-					'_O2SWtime-' + string(ModelParameters/MaxWalkingTime_Org2Stop)+'min';
+				attribute<rdc>              geometry              := ='Stop_per_mode/'+Mode+'/Per_mode_subset/geometry[org_rel]';
+				attribute<string>           Label                 := ='Stop_per_mode/'+Mode+'/Per_mode_subset/Label[org_rel]', DialogType = "LabelText";
+				attribute<uint32>           NrTripsPerDay         := ='Stop_per_mode/'+Mode+'/Per_mode_subset/NrTripsPerDay[org_rel]';
+				attribute<uint32>           Cluster_NrTripsPerDay := ='Stop_per_mode/'+Mode+'/Per_mode_subset/Cluster_NrTripsPerDay[org_rel]';
+				attribute<uint32>           Cluster_CountStops    := ='Stop_per_mode/'+Mode+'/Per_mode_subset/Cluster_CountStops[org_rel]';
 			}
 		}
-	}
- */	
- 
-/* 	Template ReadExport_OV_T
-	{
-		parameter<string> Time;
-		parameter<string> Export_CombinationTypes;
-
-		///
 		
-		container ReadCSV
-		{ 
-			parameter<string> filename       := ModelParameters/Advanced/fileNamePrefix+'Traveltime_Long_'+Export_CombinationTypes+''+fileNameSuffix+'.csv';
+		container Stop_per_mode :=
+			for_each_ne(
+				Modes/name
+				, 'Stop_per_mode_T('+quote(Modes/name)+')'
+			);	
+		
+		Template Stop_per_mode_T
+		{
+			parameter<string> Mode;
 			
+			unit<uint32> Per_mode_subset := select_with_org_rel(Stops_totaal/Mode_naam == Mode)
+			{
+				attribute<rdc>              geometry              := Stops_totaal/geometry[org_rel];
+				attribute<RegioIndelingen/Provincie> prov_rel              := MakeDefined(point_in_polygon(geometry, RegioIndelingen/Provincie/Geometry),12);
+				attribute<string>           Label                 := Stops_totaal/Label[org_rel];
+				attribute<uint32>           NrTripsPerDay         := Stops_totaal/NrTripsPerDay[org_rel];
+				attribute<uint32>           Cluster_NrTripsPerDay := rjoin(geometry, StopMatrix_merged/geometry, StopMatrix_merged/Cluster_NrTripsPerDay);
+				attribute<uint32>           Cluster_CountStops    := rjoin(geometry, StopMatrix_merged/geometry, StopMatrix_merged/Cluster_CountStops);
+				
+				attribute<uint32>           classify_ClusterTrips (VertrekMomenten_3K) := ClassifyJenksFisher(Cluster_NrTripsPerDay, VertrekMomenten_3K);
+				
+				unit<uint32> StopMatrix_merged := ='union_unit('+AsItemList('StopsMatrix_PerProv/'+RegioIndelingen/Provincie/name+'/Stops_subset')+')'
+				{
+					attribute<rdc>         geometry              := ='union_data(., '+AsItemList('StopsMatrix_PerProv/'+RegioIndelingen/Provincie/name+'/Stops_subset/geometry')+')';
+					attribute<string>      Stop_naam             := ='union_data(., '+AsItemList('StopsMatrix_PerProv/'+RegioIndelingen/Provincie/name+'/Stops_subset/stop_name')+')';
+					attribute<uint32>      Cluster_NrTripsPerDay := ='union_data(., '+AsItemList('StopsMatrix_PerProv/'+RegioIndelingen/Provincie/name+'/Stops_subset/Cluster_NrTripsPerDay')+')';
+					attribute<uint32>      Cluster_CountStops    := ='union_data(., '+AsItemList('StopsMatrix_PerProv/'+RegioIndelingen/Provincie/name+'/Stops_subset/Cluster_CountStops')+')';
+				}
+
+				container StopsMatrix_PerProv :=
+					for_each_ne(
+						RegioIndelingen/Provincie/name
+						, 'StopsMatrix_PerProv_T('+string(id(RegioIndelingen/Provincie))+')'
+					);
+				
+				Template StopsMatrix_PerProv_T
+				{
+					parameter<uint32> prov_rel;
+					
+					unit<uint32> Stops_subset := select_with_org_rel(Per_mode_subset/prov_rel == prov_rel)
+					{
+						attribute<rdc>          geometry       := Per_mode_subset/geometry[org_rel];
+						attribute<string>       stop_name      := Per_mode_subset/Label[org_rel];
+						attribute<uint32>       NrTripsPerDay  := Per_mode_subset/NrTripsPerDay[org_rel];
+						
+						attribute<uint32>       Cluster_NrTripsPerDay  := StopsClustered/SumTrips;
+						attribute<uint32>       Cluster_CountStops     := StopsClustered/CountStops;
+					}
+					
+					unit<uint32> StopsMatrix := combine(Stops_subset, Stops_subset)
+					{
+						attribute<rdc>      point_1              := Stops_subset/geometry[first_rel];
+						attribute<rdc>      point_2              := Stops_subset/geometry[second_rel];
+						attribute<string>   stop_1_name          := Stops_subset/stop_name[first_rel];
+						attribute<string>   stop_2_name          := Stops_subset/stop_name[second_rel];
+						attribute<uint32>   NrTripsPerDay_stop_1 := Stops_subset/NrTripsPerDay[first_rel];
+						attribute<uint32>   NrTripsPerDay_stop_2 := Stops_subset/NrTripsPerDay[second_rel];
+						
+						attribute<float32>  x_1      := PointCol(point_1);
+						attribute<float32>  y_1      := PointRow(point_1);
+						attribute<float32>  x_2      := PointCol(point_2);
+						attribute<float32>  y_2      := PointRow(point_2);
+						attribute<float32>  delta_x  := abs(x_1 - x_2)^2f;
+						attribute<float32>  delta_y  := abs(y_1 - y_2)^2f;
+						attribute<m>        dist     := MakeDefined(sqrt(delta_x + delta_y)[m],0[m]);
+					}
+					
+					unit<uint32> StopsClustered := select_with_org_rel(StopsMatrix/dist < Afstand_Halte_clustering) 
+					{
+						attribute<rdc>      point_1         := StopsMatrix/point_1[org_rel];
+						attribute<rdc>      point_2         := StopsMatrix/point_2[org_rel];
+						attribute<uint32>   stop_rel        := rlookup(point_1, Stops_subset/geometry);
+						attribute<string>   stop_1_name     := StopsMatrix/stop_1_name[org_rel];
+						attribute<string>   stop_2_name     := StopsMatrix/stop_2_name[org_rel];
+						attribute<uint32>   NrTripsPerDay_stop_1 := StopsMatrix/NrTripsPerDay_stop_1[org_rel];
+						attribute<uint32>   NrTripsPerDay_stop_2 := StopsMatrix/NrTripsPerDay_stop_2[org_rel];
+						attribute<m>        dist                 := StopsMatrix/dist[org_rel];
+						
+						attribute<uint32>   SumTrips   (Stops_subset) := sum(NrTripsPerDay_stop_2, stop_rel);
+						attribute<uint32>   CountStops (Stops_subset) := count(NrTripsPerDay_stop_2, stop_rel);
+					}
+				}
+			}
+		}
+		
+		unit<uint32> VertrekMomenten_3K : nrofrows = 3
+		{
+			attribute<string> Name           : ['Weinig','Gemiddeld','Veel'];
+			attribute<uint32> Tram_onder     := Stop_per_mode/Tram/Per_mode_subset/classify_ClusterTrips;
+			attribute<uint32> Metro_onder    := Stop_per_mode/Metro/Per_mode_subset/classify_ClusterTrips;
+			attribute<uint32> Rail_onder     := Stop_per_mode/Rail/Per_mode_subset/classify_ClusterTrips;
+			attribute<uint32> Bus_onder      := Stop_per_mode/Bus/Per_mode_subset/classify_ClusterTrips;
+			attribute<uint32> Ferry_onder    := Stop_per_mode/Ferry/Per_mode_subset/classify_ClusterTrips;
+			
+			attribute<uint32> Tram_boven     := MakeDefined(Tram_onder[id(.) + 1],20000);
+			attribute<uint32> Metro_boven    := MakeDefined(Metro_onder[id(.) + 1],20000);
+			attribute<uint32> Rail_boven     := MakeDefined(Rail_onder[id(.) + 1],20000);
+			attribute<uint32> Bus_boven      := MakeDefined(Bus_onder[id(.) + 1],20000);
+			attribute<uint32> Ferry_boven    := MakeDefined(Ferry_onder[id(.) + 1],20000);
+			
+			container V := for_each_nedv(Name, string(id(.)), void, .);
+		}
+		
+		unit<uint32> Mode_X_Vertrekmomenten3K := combine(GTFS_Modes/selectie,VertrekMomenten_3K)
+		{
+			attribute<string> Mode_name            := GTFS_Modes/selectie/name[first_rel];
+			attribute<string> VertrekmomentK_name  := VertrekMomenten_3K/name[second_rel];
+			attribute<string> name                 := Mode_name + '_' + VertrekmomentK_name;
+			
+			attribute<uint32> Class_onder          := Mode_name == 'Tram' 
+														? VertrekMomenten_3K/Tram_onder[second_rel]
+														: Mode_name == 'Metro'
+															? VertrekMomenten_3K/Metro_onder[second_rel]
+															: Mode_name == 'Rail'
+																? VertrekMomenten_3K/Rail_onder[second_rel]
+																: Mode_name == 'Bus'
+																	? VertrekMomenten_3K/Bus_onder[second_rel]
+																	: VertrekMomenten_3K/Ferry_onder[second_rel];
+			attribute<uint32> Class_boven          := Mode_name == 'Tram' 
+														? VertrekMomenten_3K/Tram_boven[second_rel]
+														: Mode_name == 'Metro'
+															? VertrekMomenten_3K/Metro_boven[second_rel]
+															: Mode_name == 'Rail'
+																? VertrekMomenten_3K/Rail_boven[second_rel]
+																: Mode_name == 'Bus'
+																	? VertrekMomenten_3K/Bus_boven[second_rel]
+																	: VertrekMomenten_3K/Ferry_boven[second_rel];
+		}
+	
+	}
+
+
+
+
+	unit<uint32> ReadResult := FindMedian/Org
+	, StorageName = "C:/Users/JipClaassens/OneDrive - Objectvision/Object Vision/Projecten/202510-Nieuwsuur Bereikbaarheid/Buurt2022_Bereikbaarheid.xlsx"
+	, StorageType = "gdal.vect"
+	, StorageReadOnly = "true"
+	{
+		attribute<float32> ZH_Change      := (float32(Ziekenhuizen_2025) - float32(Ziekenhuizen_2022)) / float32(Ziekenhuizen_2022);
+		attribute<float32> HAVOVWO_Change := (float32(HAVOVWO_2025) - float32(HAVOVWO_2022)) / float32(HAVOVWO_2022);
+		attribute<float32> VMBO_Change    := (float32(VMBO_2025) - float32(VMBO_2022)) / float32(VMBO_2022);
+		
+		attribute<int32>   Delta_ZH       := Ziekenhuizen_2025 - Ziekenhuizen_2022;
+	}
+	
+	
+	container FindMedian
+	{
+		parameter<min_f> SearchLimit := 30[min_f];
+	
+		unit<uint32> Dest := /NetworkSetup/PublicTransport_Prep/Impl/dest_src;
+		unit<uint32> Org  := SourceData/RegioIndelingen/Buurt
+		{
+			attribute<string> Name                  := statcode;
+			attribute<uint32> NumberOfDestReachable := pcount(Result/Origin_rel);
+		}
+		
+		unit<uint32> c_Org_Dest := combine_unit(Org, Dest)
+		{
+			attribute<min_f>  MedianTT     := rth_element(ReadCSV/LimitMaxTraveltime/Traveltime, 0.5f, ReadCSV/LimitMaxTraveltime/c_Org_Dest_rel);
+			attribute<Org>    Origin_rel   := value(id(.) / uint32(#Dest), Org);
+			attribute<Dest>   Dest_rel     := value(id(.) % uint32(#Dest), Dest);
+		}
+		
+		unit<uint32> Result := select_with_org_rel(IsDefined(c_Org_Dest/MedianTT))
+		{
+			attribute<min_f>  MedianTT     := org_rel -> MedianTT;
+			attribute<Org>    Origin_rel   := org_rel -> Origin_rel;
+			attribute<Dest>   Dest_rel     := org_rel -> Dest_rel;
+			attribute<string> BU_CODE      := Org/name[Origin_rel];
+			attribute<string> Dest_name    := Dest/name[Dest_rel];
+		}
+		
+		container ReadCSV 
+		{
+			parameter<string> fileNamePrefix := '%LocalDataProjDir%/Output/';
 			parameter<string> fileNameSuffix :=  
-				'_' + ModelParameters/Analysis_Date + 
-				'_' + ModelParameters/Arrival_or_Departure_at_time + 
-				'_' + Time + 
-				'_ORG-'    + ModelParameters/Orgset + '-All' + 
-				'_DEST-'   + ModelParameters/Advanced/DestSet_string +
-				'_O2SWtime-' + string(ModelParameters/MaxWalkingTime_Org2Stop)+'min';
+				'_' + Analysis_Date + 
+				'_ORG-' + ModelParameters/Orgset + 
+				'_DEST-' + /ModelParameters/Destset +
+				'_'+ /NetworkSetup/ConfigurationPerBlock/Merge_Output/CombinationType +
+				'_Trsf-' + string(ModelParameters/Advanced/Max_overstappen) +
+				'_MinCrit-' + AsList(Classifications/FinalParetoAttr/FileNameElement, '_') +
+				'_MaxOV-' + string(ModelParameters/MaxOVTime) + 'min'
+				;
+			
+			parameter<string> filename       := fileNamePrefix+'tt'+fileNameSuffix +'.csv';
 			
 			unit<uint64>      domain         := range(uint64, 0[uint64], count_rows);
 			parameter<string> fieldseparator := ';';
@@ -186,136 +363,18 @@ container PostAnalysis : using = "units;geometries"
 					,string
 				)
 			{
-				attribute<uint32>              Groen_id                (domain) := rjoin(DestName[uint32], /NetworkSetup/ConfigurationPerRegio/all/dest/GROEN_pnt_ID, NetworkSetup/ConfigurationPerRegio/all/dest/GROEN_ID);
-				attribute<string>              org_groen_id_key        (domain) := OrgName + '_' + string(groen_id);
-				attribute<min_f>               Traveltime              (domain) := ='Traveltime_m_'+Time+'[float32] * 1[min_f]';
-				attribute<string>              groen_id_tt_key         (domain) := string(groen_id) + '_' + string(Traveltime);
-				attribute<uq_org_groen_id_key> uq_org_groen_id_key_rel (domain) := rlookup(org_groen_id_key, uq_org_groen_id_key/values);
-				
-				
-				unit<uint64> uq_org_groen_id_key := unique(org_groen_id_key)
-				{
-					attribute<string>  org                       := first(data/OrgName, data/uq_org_groen_id_key_rel);
-					attribute<uint32>  groen_id                  := first(data/Groen_id, data/uq_org_groen_id_key_rel);
-					attribute<string>  groen_id_tt_key           := string(groen_id) + '_' + string(Traveltime);
-					attribute<uint32>  groen_pnt_id              := rjoin(groen_id_tt_key, data/groen_id_tt_key, DestName[uint32]);
-					attribute<string>  ModeUsed                  := ='rjoin(groen_id_tt_key, data/groen_id_tt_key, ModeUsed_'+Time+')';
-					attribute<min_f>   Traveltime                := min(data/Traveltime, data/uq_org_groen_id_key_rel);
-					
-				}
+				attribute<min_f>      Traveltime_val (domain) := Traveltime[float32] * 1[min_f];
 			}
-		}
-		
-		unit<uint64> ExportTable_Traveltimes := ReadCSV/Data/uq_org_groen_id_key
-		{
-			attribute<string> BodyLines :=
-				org + ';' + 
-				string(groen_pnt_id) + ';' +
-				string(groen_id) + ';' +
-				string(Traveltime) + ';' +
-				ModeUsed;
-			parameter<string> File := 'OrgName;DestName;Groen_ID;Traveltime_'+Time+';ModeUsed_'+Time+'\n'++AsList(BodyLines, '\n'), StorageName = "=ModelParameters/Advanced/fileNamePrefix+'Traveltime_Long_'+Export_CombinationTypes+''+ReadCSV/fileNameSuffix+'_GroenAggr.csv'", StorageType = "str";
+			
+			unit<uint64> LimitMaxTraveltime := select_with_org_rel(data/Traveltime_val <= SearchLimit)
+			{
+				attribute<min_f>      Traveltime      := org_rel -> data/Traveltime_val;
+				attribute<string>     OrgName         := org_rel -> data/OrgName;
+				attribute<string>     DestName        := org_rel -> data/DestName;
+				attribute<Org>        Orgin_rel       := rlookup(OrgName, Org/Name); 
+				attribute<Dest>       Dest_rel        := rlookup(DestName, Dest/Name); 
+				attribute<c_Org_Dest> c_Org_Dest_rel  := combine_data(c_Org_Dest, Orgin_rel, Dest_rel);
+			}
 		}
 	}
-	
- */	
-	
-	
-
-	
-/* 	Template ReadExport_PrivateTransport_T
-	{
-		parameter<string> NetwerkType;
-		parameter<string> org_str;
-		parameter<string> dest_str;
-		///
-		parameter<string> MaxTravelTime := NetwerkType == 'car' 
-											? string(ModelParameters/MaxCarTime)
-											: NetwerkType == 'bike'
-												? string(ModelParameters/MaxBikeTime_Org2Dest)  
-												: NetwerkType == 'pedestrian'
-													? string(ModelParameters/MaxPedestrianTime_Org2Dest)
-													: '';
-	
-		parameter<string> fileNameSuffix := NetwerkType == 'car' 
-												? fileNameSuffix_car
-												: fileNameSuffix_other;
-		
-		parameter<string> fileNameSuffix_car :=  
-			'_ORG-'      + org_str + '-All' + 
-			'_DEST-'     + dest_str +
-			'_NETWERK-'  + NetwerkType + 
-			'_DayGroup-' + ModelParameters/CongestionSpeed_DaygroupSelection +
-			'_MaxTime-'  + MaxTravelTime+'min';
-			
-		parameter<string> fileNameSuffix_other :=  
-			'_ORG-'      + org_str + '-All' + 
-			'_DEST-'     + dest_str +
-			'_NETWERK-'  + NetwerkType + 
-			'_MaxTime-'  + MaxTravelTime+'min';
-			
-		container ReadCSV
-		{ 
-			parameter<string> filename       := ModelParameters/Advanced/fileNamePrefix+'Traveltimes'+fileNameSuffix+'.csv';
-			
-			unit<uint64>      domain         := range(uint64, 0[uint64], count_rows);
-			parameter<string> fieldseparator := ';';
-			parameter<string> filedata       :  StorageType   = "str",  StorageName = "=filename",  StorageReadOnly = "true";
-			parameter<uint64> count_rows     := (strcount(filedata, fieldseparator) / strcount(headerline, fieldseparator))[uint64] - 1[uint64];
-			parameter<string> headerline     := readLines(filedata, void, 0);
-			
-			unit<uint32> field := Range(uint32, 0, strcount(headerline, fieldseparator) + 1)
-			{
-				attribute<string> name := ReadArray(headerline , field, string, 0);
-			}
-				
-			attribute<string> bodylines (domain) := readLines(filedata, domain, headerline/ReadPos);
-
-			container data := 
-				for_each_nedv(
-					field/name
-					,'ReadElems(
-						BodyLines
-						,string
-						,'+ MakeDefined(field/name[sub_or_null(id(field),1)] + '/ReadPos','const(0, domain)')+'
-						, 17
-					)'
-					,domain
-					,string
-				)
-			{
-				// attribute<uint32>              Groen_id                (domain) := rjoin(Dst[uint32], /NetworkSetup/ConfigurationPerRegio/all/dest/GROEN_pnt_ID, NetworkSetup/ConfigurationPerRegio/all/dest/GROEN_ID);
-				// attribute<string>              org_groen_id_key        (domain) := org + '_' + string(groen_id);
-				
-				// attribute<uq_org_groen_id_key> uq_org_groen_id_key_rel (domain) := rlookup(org_groen_id_key, uq_org_groen_id_key/values);
-				
-				
-				// unit<uint64> uq_org_groen_id_key := unique(org_groen_id_key)
-				// {
-					// attribute<string>  org                  := first(data/org, data/uq_org_groen_id_key_rel);
-					// attribute<uint32>  groen_id             := first(data/Groen_id, data/uq_org_groen_id_key_rel);
-					// attribute<min_f>   max_speed_min        := min(data/maxspeed[float32] / 60f * 1[min_f], data/uq_org_groen_id_key_rel);
-					// attribute<min_f>   MorningRush_min      := min(data/MorningRush[float32] / 60f * 1[min_f], data/uq_org_groen_id_key_rel);
-					// attribute<min_f>   NoonRush_min         := min(data/NoonRush[float32] / 60f * 1[min_f], data/uq_org_groen_id_key_rel);
-					// attribute<min_f>   LateEveningRush_min  := min(data/LateEveningRush[float32] / 60f * 1[min_f], data/uq_org_groen_id_key_rel);
-					
-				// }
-			}
-		}
- */		
-/* 		unit<uint64> ExportTable_Traveltimes := ReadCSV/Data/uq_org_groen_id_key
-		{
-			attribute<string> BodyLines :=
-				org + ';' + 
-				string(groen_id) + ';' +
-				// string(max_speed_min);
-				string(max_speed_min) + ';' + 
-				string(MorningRush_min)+';' +
-				string(NoonRush_min)+';' +
-				string(LateEveningRush_min);
-			parameter<string> File := 'Org;Dst;MaxSpeed;MorningRush;NoonRush;LateEveningRush\n'++AsList(BodyLines, '\n'), StorageName = "=ModelParameters/Advanced/fileNamePrefix+'Traveltimes'+ReadCSV/fileNameSuffix+'_GroenAggr.csv'", StorageType = "str";
-			// parameter<string> File := 'Org;Dst;MaxSpeed\n'++AsList(BodyLines, '\n'), StorageName = "=ModelParameters/Advanced/fileNamePrefix+'Traveltimes'+ReadCSV/fileNameSuffix+'_GroenAggr.csv'", StorageType = "str";
-		}
- }
- */	
 }
