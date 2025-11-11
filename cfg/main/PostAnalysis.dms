@@ -2,9 +2,10 @@ container PostAnalysis : using = "units;geometries;modelparameters;classificatio
 {
 	container Halte_analyse_RuimteScanner
 	{
-		parameter<m> Afstand_Halte_clustering := 100[m];
+		parameter<m>     Afstand_Halte_clustering := 100[m];
+		parameter<min_f> MaxReistijd              := 60[min_f];
 		
-		parameter<string> domain_str   := '1000m';
+		parameter<string> domain_str   := '100m';
 		unit<spoint>      grid_domain  := ='rdc_'+domain_str;
 		
 		unit<uint8> Modes                    := GTFS_Modes/Selectie;
@@ -97,26 +98,30 @@ container PostAnalysis : using = "units;geometries;modelparameters;classificatio
 
 					attribute<min_f> OD_reistijd (NodeSet) := 
 						impedance_table(
-							  'bidirectional(link_flag);startPoint(Node_rel)'
+							  'bidirectional(link_flag);startPoint(Node_rel);cut(OrgZone_max_imp)'
 							, impedance
 							, LinkSet/F1
 							, LinkSet/F2
 							
 							, NOT(LinkSet/IsOneDirection)
 							, NodeSet/DestNode_rel
+							, MaxReistijd
 						);
 					attribute<min_f>  OD_reistijd_org          (org) := OD_reistijd[NodeSet/OrgNode_rel];
 					attribute<min_f>  OD_reistijd_grid (grid_domain) := sum(OD_reistijd_org, org/grid_rel), StorageName = "='%LocalDataProjDir%/Output/OD_korste_reistijd_'+netwerk_type+'_eerstehaltevan_'+mode_naam+'_'+Vertrekmomenten3K_naam+'.tif'", StorageType = "gdalwrite.grid";
 					
+					parameter<km> MaxReisAfstand := ='convert(MaxReistijd, hr_f) * /ModelParameters/Advanced/'+netwerk_type+'Speed_kmhr';
+					
 					attribute<km> OD_afstand (NodeSet) := 
 						impedance_table(
-							  'bidirectional(link_flag);startPoint(Node_rel)'
+							  'bidirectional(link_flag);startPoint(Node_rel);cut(OrgZone_max_imp)'
 							, distance
 							, LinkSet/F1
 							, LinkSet/F2
 							
 							, NOT(LinkSet/IsOneDirection)
 							, NodeSet/DestNode_rel
+							, MaxReisAfstand
 						);
 					attribute<km>  OD_afstand_org          (org) := OD_afstand[NodeSet/OrgNode_rel];
 					attribute<km>  OD_afstand_grid (grid_domain) := sum(OD_afstand_org, org/grid_rel), StorageName = "='%LocalDataProjDir%/Output/OD_korste_afstand_'+netwerk_type+'_eerstehaltevan_'+mode_naam+'_'+Vertrekmomenten3K_naam+'.tif'", StorageType = "gdalwrite.grid";
