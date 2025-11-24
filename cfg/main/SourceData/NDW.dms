@@ -1,0 +1,99 @@
+container NDW : using = "regioindelingen"
+{
+	parameter<string> TypeOfDay := 'WorkdayExclHoliday';
+	parameter<string> Year      := '2023';
+
+	container Read_Network_PerProvincie :=
+		for_each_ne(
+			Provincie/name
+			, 'Read_Network_PerProvincie_T('+quote(Provincie/name)+')'
+		);
+		
+	Template Read_Network_PerProvincie_T
+	{
+		parameter<string> name;
+		
+		
+		unit<uint32> json 
+		: StorageName = "='%NetworkModel_Dir%/Infrastructuur/NDW/Lijnennetwerk/output_'+name+'.json'"
+		, StorageType = "gdal.vect"
+		, StorageReadOnly = "true"
+		, DialogData = "wgs84_base"
+		{
+			attribute<rdc> geometry_rd (arc) := LatLongWgs842RD(geometry, dpoint)[rdc];
+		}
+	}
+
+	unit<uint32> Network := ='union_unit('+AsItemList('Read_Network_PerProvincie/'+Provincie/name+'/json')+')'
+	{
+		attribute<rdc>     geometry_rd (arc) := ='union_data(.,'+AsItemList('Read_Network_PerProvincie/'+Provincie/name+'/json/geometry_rd')+')';
+		attribute<uint32>  segment_id        := ='union_data(.,'+AsItemList('Read_Network_PerProvincie/'+Provincie/name+'/json/segmentid')+')[uint32]';
+		attribute<uint16>  bearing           := ='union_data(.,'+AsItemList('Read_Network_PerProvincie/'+Provincie/name+'/json/bearing')+')[uint16]';
+		attribute<uint8>   roadclass         := ='union_data(.,'+AsItemList('Read_Network_PerProvincie/'+Provincie/name+'/json/roadclass')+')[uint8]';
+		attribute<float32> speed             := lookup(YearAverages/network_rel, YearAverages/Speed);
+	}
+
+	container Read_YearAverages_PerProvincie :=
+		for_each_ne(
+			Provincie/name
+			, 'Read_YearAverages_PerProvincie_T('+quote(Provincie/name)+')'
+		);
+		
+	Template Read_YearAverages_PerProvincie_T
+	{
+		parameter<string> name;
+		//
+		
+		unit<uint32>      domain             := range(uint32, 0, count_rows), freedata = "false";
+		parameter<string> csv_filename       := '%NetworkModel_Dir%/Infrastructuur/NDW/Jaargemiddelden/fcd_'+TypeOfDay+'_'+name+'_'+Year+'.csv';
+		parameter<string> fieldseparator     := ';';
+		
+		parameter<string> filedata_src
+		:  StorageType   = "str"
+		,  StorageName = "=csv_filename"
+		,  StorageReadOnly = "true";
+		parameter<string> filedata    := replace(filedata_src, ',', '', '\''',''); 
+		parameter<uint32> count_rows  := strcount(filedata, '\n') - 1;  
+		parameter<string> headerline  := readLines(filedata, void, 0u64);
+		
+		unit<uint32> field := Range(uint32, 0, strcount(headerline, fieldseparator) + 1)
+		{
+			attribute<string> name := ReadArray(headerline , field, string, 0);
+		}
+			
+		attribute<string> bodylines (domain) := readLines(filedata, domain, headerline/ReadPos);
+
+		container data := 
+			for_each_nedv(
+				field/name
+				,'ReadElems(
+					BodyLines
+					,string
+					,'+ MakeDefined(field/name[sub_or_null(id(field),1)] + '/ReadPos','const(0, domain)')+' 
+					,16
+				)'
+				,domain
+				,string
+			)
+		{
+			attribute<network> network_rel (domain) := rlookup(uint32(segment_id), network/segment_id); 
+		}
+		
+	}
+
+	unit<uint32> YearAverages := ='union_unit('+AsItemList('Read_YearAverages_PerProvincie/'+Provincie/name+'/domain')+')'
+	{
+		// attribute<rdc>     geometry_rd     (arc) := ='union_data(.,'+AsItemList('Read_YearAverages_PerProvincie/'+Provincie/name+'/data/geometry_rd')+')';
+		attribute<network> network_rel           := ='union_data(.,'+AsItemList('Read_YearAverages_PerProvincie/'+Provincie/name+'/data/network_rel')+')';
+		attribute<float32> max_speed_allowed     := ='union_data(.,'+AsItemList('Read_YearAverages_PerProvincie/'+Provincie/name+'/data/max_speed_allowed')+')[float32]';
+		attribute<uint8>   availability          := ='union_data(.,'+AsItemList('Read_YearAverages_PerProvincie/'+Provincie/name+'/data/availability')+')[uint8]';
+		attribute<float32> speed                 := ='union_data(.,'+AsItemList('Read_YearAverages_PerProvincie/'+Provincie/name+'/data/speed')+')[float32]';
+		attribute<float32> travel_time           := ='union_data(.,'+AsItemList('Read_YearAverages_PerProvincie/'+Provincie/name+'/data/travel_time')+')[float32]';
+		attribute<float32> median_speed          := ='union_data(.,'+AsItemList('Read_YearAverages_PerProvincie/'+Provincie/name+'/data/median_speed')+')[float32]';
+		attribute<float32> free_flow_speed       := ='union_data(.,'+AsItemList('Read_YearAverages_PerProvincie/'+Provincie/name+'/data/free_flow_speed')+')[float32]';
+		attribute<float32> free_flow_travel_time := ='union_data(.,'+AsItemList('Read_YearAverages_PerProvincie/'+Provincie/name+'/data/free_flow_travel_time')+')[float32]';
+		attribute<float32> number_of_minutes     := ='union_data(.,'+AsItemList('Read_YearAverages_PerProvincie/'+Provincie/name+'/data/number_of_minutes')+')[float32]';
+	}
+
+	
+}
