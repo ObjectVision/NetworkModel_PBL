@@ -7,44 +7,18 @@ container Classifications: Using = "Units"
 		attribute<int16>  col      : [1,0,-1,0,0];
 		attribute<spoint> geometry := point_xy(row, col, spoint);
 	}
-
-	unit<uint32> OD_Modes : NrOfRows = 6
-	{
-		unit<uint32> Matrix := Range(uint32, 0, nrAttr*#.)
-		{
-			attribute<string> Values: 
-			[
-				'NS-kort'    , 'Rail'    ,'Nk',
-				'NS-lang'    , 'Rail'    ,'Nl',
-				'Niet-NS-OV' , ''        ,'R', //een groep waarin het opstaptarief blijft gelden bij overstappen (en je mits 35[min] overstapt). e.g. 1.08 euro voor bus betalen en daarna 'gratis' op de metro stappen.
-				'Transfer'   , 'Walking' ,'T',
-				'Walking'    , 'Walking' ,'W',
-				'Cycling'    , 'Cycling' ,'C'
-			];
-		}
-		
-		// Ketens: https://github.com/ObjectVision/NetworkModel_PBL/issues/31
-		
-		attribute<string>               Label         := Matrix/Values[value(id(.)* nrAttr + 0, Matrix)];
-		attribute<string>               Mode          := Matrix/Values[value(id(.)* nrAttr + 1, Matrix)];
-		// attribute<GTFS_Modes/Selectie>  Mode_rel      := rlookup(Mode, GTFS_Modes/Selectie/name);
-		attribute<string>               Name          := AsItemName(label);
-		
-		container V := for_each_nedv(Name, String(ID(.))+'[..]', void, .);
-		parameter<uint32> nrAttr := 3;
-	}
 	
-	container Ketens
+	container Chains
 	{
-		parameter<uint16> max_ketens       := ModelParameters/Advanced/max_overstappen + 1w;
+		parameter<uint16> max_Chains       := ModelParameters/Advanced/Max_transfers + 1w;
 		
-		unit<uint16> Keten_range := range(0w, ModelParameters/Advanced/max_overstappen)
+		unit<uint16> Chain_range := range(0w, ModelParameters/Advanced/Max_transfers)
 		{
 			attribute<string> name      := 'r'+string(id(.)+1w);
-			attribute<string> prev_name := MakeDefined(name[sub_or_null(id(.),1w)]+'/Result','TariefGroep');
+			attribute<string> prev_name := MakeDefined(name[sub_or_null(id(.),1w)]+'/Result','FareGroup');
 		}
 		
-		unit<uint16> TariefGroep := range(0w, 2w)
+		unit<uint16> FareGroup := range(0w, 2w)
 		{
 			attribute<string> name          : ['R', 'L'];
 			attribute<string> left          := name;
@@ -52,60 +26,44 @@ container Classifications: Using = "Units"
 			attribute<string> transfer_name := const('xxx', .);
 		}
 
-		container Generate_keten_reeks := 
+		container Generate_Chain_Range := 
 			for_each_ne(
-				Keten_range/name
-				, 'Keten_T('+Keten_range/prev_name+')'
+				Chain_range/name
+				, 'Chain_T('+Chain_range/prev_name+')'
 			)
 		{
 			container r0
 			{
-				unit<uint16> Result := TariefGroep;
+				unit<uint16> Result := FareGroup;
 			}
 		}
 		
-		Template Keten_T
+		Template Chain_T
 		{
 			unit<uint16> Prev;
 			///
-			unit<uint16> Result := combine_uint16(Prev, TariefGroep), Descr = "*"
+			unit<uint16> Result := combine_uint16(Prev, FareGroup), Descr = "*"
 			{
-				attribute<string> name  :=  Prev/name[first_rel] + TariefGroep/Name[second_rel];
+				attribute<string> name  :=  Prev/name[first_rel] + FareGroup/Name[second_rel];
 			}
 		}
 		
-		unit<uint16> Keten := ='union_unit_uint16(TariefGroep, '+AsList('Generate_keten_reeks/'+Keten_range/name+'/Result', ',')+')'
+		unit<uint16> Chain := ='union_unit_uint16(FareGroup, '+AsList('Generate_Chain_Range/'+Chain_range/name+'/Result', ',')+')'
 		{
-			attribute<string> name                 := ='union_data(.,TariefGroep/name, '+AsList('Generate_keten_reeks/'+Keten_range/name+'/Result/name', ',')+')';
+			attribute<string> name                 := ='union_data(.,FareGroup/name, '+AsList('Generate_Chain_Range/'+Chain_range/name+'/Result/name', ',')+')';
 			attribute<string> label                := name;
-			attribute<uint32> keten_breakpoint_pos := strlen(name) <= 2 ? 1 : sub_or_null(strlen(name),1); // vanaf links
+			attribute<uint32> chain_breakpoint_pos := strlen(name) <= 2 ? 1 : sub_or_null(strlen(name),1); // vanaf links
 			
-			attribute<string> left                 := left(name, keten_breakpoint_pos);
-			attribute<string> right                := right(name, strlen(name) - keten_breakpoint_pos);
+			attribute<string> left                 := left(name, chain_breakpoint_pos);
+			attribute<string> right                := right(name, strlen(name) - chain_breakpoint_pos);
 			attribute<string> transfer_name        := 'Transfers_'+right(left, 1)+'_'+left(right, 1);
 			
 			attribute<uint32> pos_first_R          := strpos(name, 'R');
-			
-			// attribute<bool>   IsToegestaan         := NOT(IsDefined(strpos(Keten/name, 'KK'))) 
-												   // && NOT(IsDefined(strpos(Keten/name, 'KL')))
-												   // && NOT(IsDefined(strpos(Keten/name, 'LK')));
-														// && NOT(IsDefined(strpos(Keten/name, 'RR'))) //rr mag niet, dan zou de tweede altijd een o moeten zijn. EDIT: niet waar, je zou > 35min kunnen wachten.
-														// && NOT(IsDefined(strpos(Keten/name, 'OR'))) //een r mag niet volgen direct na een o. EDIT: niet waar, je zou > 35min kunnen wachten.
-														// && NOT(left(Keten/name, 1) == 'O') //keten mag nooit beginnen met een o, je moet immers eerst betalen voor r; overbodig door cond_ro?
-														// && cond_ro
-												
-//			unit<uint16> Toegestaan := select_with_attr_by_cond(.,IsToegestaan);
 		}
 		
 		//NOTE: this could later fail due to missing indirect calculated needs. 
-		unit<uint16> ToBeCalculated := Keten, Descr = "Alle ketens die nodig zijn om langere ketens mee te maken of om reizen uit te kiezen.";
-		unit<uint16> Toegestaan := Keten, Descr = "Zonder ketens waaruit geen reizen samengesteld kunnen worden";
-		// {
-			// attribute<string> name          := Keten/name[org_rel];
-			// attribute<string> left          := Keten/left[org_rel];
-			// attribute<string> right         := Keten/right[org_rel];
-			// attribute<string> transfer_name := Keten/transfer_name[org_rel];
-		// }
+		unit<uint16> ToBeCalculated := Chain, Descr = "Alle Chains die nodig zijn om langere Chains mee te maken of om reizen uit te kiezen.";
+		unit<uint16> Allowed        := Chain, Descr = "Zonder Chains waaruit geen reizen samengesteld kunnen worden";
 	}
 	
 	
@@ -122,7 +80,7 @@ container Classifications: Using = "Units"
 		attribute<string> Label          := ConnectionType + '_' + Mode;
 		attribute<string> Name           := AsItemName(label);
 		attribute<string> Name_short     := ConnectionType + '_' + Mode_abbrev;
-		attribute<GTFS_Modes/selectie>  Mode_rel       := rlookup(Mode_Abbrev, GTFS_Modes/selectie/name_abbr);
+		attribute<GTFS_Modes/Selection>  Mode_rel       := rlookup(Mode_Abbrev, GTFS_Modes/Selection/name_abbr);
 		attribute<bool>   IsOVfiets      := lowercase(StopClass) == lowercase('OVf');
 		attribute<min_f>  MaxTime        := ='union_data(.,'+AsList('ModelParameters/Max'+Mode+'Time_'+ConnectionType, ',')+')';
 		
@@ -148,7 +106,7 @@ container Classifications: Using = "Units"
 			];
 		}
 		
-		// Ketens: https://github.com/ObjectVision/NetworkModel_PBL/issues/31
+		// Chains: https://github.com/ObjectVision/NetworkModel_PBL/issues/31
 		
 		attribute<string> OriginSet         := Matrix/Values[value(id(.)* nrAttr + 0, Matrix)];
 		attribute<string> DestinationSet    := Matrix/Values[value(id(.)* nrAttr + 1, Matrix)];
@@ -169,9 +127,9 @@ container Classifications: Using = "Units"
 		attribute<string> NetworkType : ['Walking', 'Cycling'];
 	}
 	
-	unit<uint8> VN_ModeClasses := union_unit_uint8(/ModelParameters/Advanced/OV_Voortransport_Typen,/ModelParameters/Advanced/OV_Natransport_Typen)
+	unit<uint8> VN_ModeClasses := union_unit_uint8(/ModelParameters/Advanced/OV_PreTransport_Typen,/ModelParameters/Advanced/OV_PostTransport_Typen)
 	{
-		attribute<string> name := union_data(., ModelParameters/Advanced/OV_Voortransport_Typen/ExportName, ModelParameters/Advanced/OV_Natransport_Typen/ExportName);
+		attribute<string> name := union_data(., ModelParameters/Advanced/OV_PreTransport_Typen/ExportName, ModelParameters/Advanced/OV_PostTransport_Typen/ExportName);
 		
 		unit<uint8> uq := unique_uint8(name)
 		{	
@@ -217,7 +175,7 @@ container Classifications: Using = "Units"
 		container v := for_each_nedv(Name, string(id(.)), void, .);
 	}
 	
- 	unit<uint32> Agencies := unique(lowercase(SourceData/Infrastructuur/GTFS/LoadFeeds/ReadFSS/Agency/data/agency_name))
+ 	unit<uint32> Agencies := unique(lowercase(SourceData/Infrastructure/GTFS/LoadFeeds/ReadFSS/Agency/data/agency_name))
 	{
 		attribute<string> name  := AsItemName(values);
 		attribute<string> label := values;
@@ -280,11 +238,11 @@ container Classifications: Using = "Units"
 		
 		container V := for_each_nedv(name, String(ID(.))+'[..]', void, .);
 	}
-	unit<uint8> KetenRijgerParetoAttr: nrofrows = 3
+	unit<uint8> ChainJoinerParetoAttr: nrofrows = 3
 	{
 		// note that TraveTime constant is binnen iedere keuze-set die door de ketenrijger wordt gemaakt tbv de volgende stap in het proces
 		// toevoeging van TravelTime hier heeft dus geen invloed op de resultaten, wel op de rekentijd en memory attr.
-		attribute<string> Name : [ 'Price_augm', 'resttijd_zonder_RO_overstap', 'resttijd_zonder_NS_overstap' ];
+		attribute<string> Name : [ 'Price_augm', 'remaining_time_excl_RO_transfer', 'remaining_time_excl_NS_transfer' ];
 	}	
 	
 	unit<uint8> CandidateParetoAttr: nrofrows = 3

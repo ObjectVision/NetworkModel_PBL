@@ -27,9 +27,9 @@ Template PrivateTransport_Car_T
 		parameter<string> logit_weights_expr  := logit_weight_prefix+'_a, ' + logit_weight_prefix+'_b, ' + logit_weight_prefix+'_c';
 	}
 
-	unit<uint32> RoadDomain_OSM        := SourceData/Infrastructuur/OSM/Network_Car/isVerbonden;
-	unit<uint32> RoadDomain_TomTom     := /SourceData/Infrastructuur/TomTom/Roads_selection;
-	unit<uint32> JunctionDomain_TomTom := /SourceData/Infrastructuur/TomTom/Junctions;
+	unit<uint32> RoadDomain_OSM        := SourceData/Infrastructure/OSM/Network_Car/isVerbonden;
+	unit<uint32> RoadDomain_TomTom     := /SourceData/Infrastructure/TomTom/Roads_selection;
+	unit<uint32> JunctionDomain_TomTom := /SourceData/Infrastructure/TomTom/Junctions;
 	
 	container Create_Optimised_Network_OSM  := Templates/CreateNetwork_Efficient_T(org, dest, RoadDomain_OSM, netwerk_type_OSM, FALSE); //instantiated for OSM
 	container Create_Network_TomTom     := Templates/CreateNetwork_TomTom_T(org, dest, RoadDomain_TomTom, JunctionDomain_TomTom, FALSE); //instantiated for TomTom
@@ -164,7 +164,7 @@ Template PrivateTransport_Car_T
 			{
 				attribute<string> Org_Dest := string(OrgZone_rel)+'_'+string(DstZone_rel);
 				
-				unit<uint32> AfgelegdeReis := sequence2points(LinkSet) //vertaling van LinkSet attribute (afgelegde route in OD), naar onderdelen van de reis
+				unit<uint32> TravelledJourney := sequence2points(LinkSet) //vertaling van LinkSet attribute (afgelegde route in OD), naar onderdelen van de reis
 				{
 					attribute<rdc>         Route (arc)    := points2sequence(LinkPoints/Point, LinkPoints/Sequence_rel, LinkPoints/Ordinal);
 					attribute<rdc>         FromPoint      := LinkSet_dom/FromPoint[point];
@@ -175,8 +175,8 @@ Template PrivateTransport_Car_T
 						attribute<rdc>                  Point        := union_data(., FromPoint, ToPoint);
 						attribute<..>                   Sequence_rel := union_data(., id(..), id(..));
 						attribute<uint32>               Ordinal      := union_data(., const(0,..,uint32), const(1,..,uint32));
-						attribute<...>                  Sequence_rel_old := AfgelegdeReis/Sequence_rel[Sequence_rel];
-						attribute<uint32>               Ordinal_old      := AfgelegdeReis/Ordinal[Sequence_rel];
+						attribute<...>                  Sequence_rel_old := TravelledJourney/Sequence_rel[Sequence_rel];
+						attribute<uint32>               Ordinal_old      := TravelledJourney/Ordinal[Sequence_rel];
 					}
 				}
 			}
@@ -253,10 +253,10 @@ Template PrivateTransport_Car_T
 	
 	
 	parameter<string> ExportTable_Traveltimes_str := 	 switch(
-															 case(ModelParameters/UseTomTomNetworkForCars  && ModelParameters/Export_AfgelegdeAfstand  , 'Traveltimes/Freeflow_TomTom_w_AltImp/impedanceMatrix')
-															,case(ModelParameters/UseTomTomNetworkForCars  && !ModelParameters/Export_AfgelegdeAfstand , 'Traveltimes/Freeflow_TomTom/impedanceMatrix')
-															,case(!ModelParameters/UseTomTomNetworkForCars && ModelParameters/Export_AfgelegdeAfstand  , 'Traveltimes/MaxSpeed_OSM_w_AltImp/impedanceMatrix')
-															,case(!ModelParameters/UseTomTomNetworkForCars && !ModelParameters/Export_AfgelegdeAfstand , 'Traveltimes/MaxSpeed_OSM/impedanceMatrix')
+															 case(ModelParameters/UseTomTomNetworkForCars  && ModelParameters/Export_TravelledDistance  , 'Traveltimes/Freeflow_TomTom_w_AltImp/impedanceMatrix')
+															,case(ModelParameters/UseTomTomNetworkForCars  && !ModelParameters/Export_TravelledDistance , 'Traveltimes/Freeflow_TomTom/impedanceMatrix')
+															,case(!ModelParameters/UseTomTomNetworkForCars && ModelParameters/Export_TravelledDistance  , 'Traveltimes/MaxSpeed_OSM_w_AltImp/impedanceMatrix')
+															,case(!ModelParameters/UseTomTomNetworkForCars && !ModelParameters/Export_TravelledDistance , 'Traveltimes/MaxSpeed_OSM/impedanceMatrix')
 															,''
 														);
 														
@@ -264,7 +264,7 @@ Template PrivateTransport_Car_T
 	unit<uint64> ExportTable_Traveltimes := =ExportTable_Traveltimes_str
 	{
 		parameter<string> NetworkTypeSuffix := ModelParameters/UseTomTomNetworkForCars ? '_TomTom' : '_OSM';
-		parameter<string> Include_AltImp    := ModelParameters/Export_AfgelegdeAfstand ? '_w_AltImp' : '';
+		parameter<string> Include_AltImp    := ModelParameters/Export_TravelledDistance ? '_w_AltImp' : '';
 	
 		attribute<org > Org_rel := OrgZone_rel;
 		attribute<dest> Dst_rel := DstZone_rel;
@@ -313,6 +313,6 @@ Template PrivateTransport_Car_T
 		parameter<string> File_woDistance   := 'Org;Dst;MaxSpeed;MorningRush;NoonRush;LateEveningRush\n'++AsList(BodyLines_woDistance, '\n'), StorageName = "=settings/fileNamePrefix+'Traveltimes'+replace(settings/fileNameSuffix, '@@', 'Car', '##',  string(ModelParameters/MaxCarTime))+'.csv'", StorageType = "str";
 		parameter<string> File_woCongestion := 'Org;Dst;MaxSpeed;MaxSpeed_km\n'++AsList(BodyLines_woCongestion, '\n'), StorageName = "=settings/fileNamePrefix+'Traveltimes'+replace(settings/fileNameSuffix, '@@', 'Car', '##',  string(ModelParameters/MaxCarTime))+'.csv'", StorageType = "str"; 
 		
-		parameter<string> File              := =ModelParameters/Export_AfgelegdeAfstand ? 'File_full' : 'File_woDistance';
+		parameter<string> File              := =ModelParameters/Export_TravelledDistance ? 'File_full' : 'File_woDistance';
 	}
 }

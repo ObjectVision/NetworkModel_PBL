@@ -4,7 +4,7 @@ unit<uint32> OD_L :=
 		, Set_L/Set/F1
 		, Set_L/Set/F2
 		
-		, convert(ModelParameters/MaxOVTime, s_f)
+		, convert(ModelParameters/MaxPTTime, s_f)
 		, Set_L/Set/Length
 	), using = "impl"
 {
@@ -13,17 +13,17 @@ unit<uint32> OD_L :=
 	#include<../OD_extra_attributen.dms>
 	
 	//NS specifiek
-	attribute<bool>          NS_Station_Prijs_IntegrityCheck := =ModelParameters/Advanced/PrijsExportsAndIntegrityChecksNodig
+	attribute<bool>          NS_Station_Price_IntegrityCheck := =ModelParameters/Advanced/PriceExportsAndIntegrityChecksNeeded
 																	? 'Agencies/IsNS[Agency_rel] ? IsDefined(impl/c_NS_start_end_rel) : TRUE' //is er een start-end rel gedefineerd om een prijs mee te berekenen?
 																	: 'const(TRUE, .)';
-	attribute<Ct>            Price_L                         := rjoin(impl/c_NS_start_end_rel, TariefEenhedenMatrix/c_NS_start_end_rel, TariefEenhedenMatrix/Prijs_Ct)
-																, IntegrityCheck = "all(NS_Station_Prijs_IntegrityCheck)";
+	attribute<Ct>            Price_L                         := rjoin(impl/c_NS_start_end_rel, TariffUnitsMatrix/c_NS_start_end_rel, TariffUnitsMatrix/Prijs_Ct)
+																, IntegrityCheck = "all(NS_Station_Price_IntegrityCheck)";
 	attribute<Ct>            Price                           := Price_L;
 	
 	unit<uint32> Result := select_with_org_rel_with_attr_by_cond(., !impl/IsStartEndWithinSameStopCluster)
 	{
-		attribute<Time>               Instaptijd_RO              := const(null_u,.);
-		attribute<Time>               Instaptijd_NS              := From_time_rel;
+		attribute<Time>               BoardingTime_RO              := const(null_u,.);
+		attribute<Time>               BoardingTime_NS              := From_time_rel;
 		attribute<Ct>                 Price_NonNS                 := const(0, ., Ct);
 		attribute<Ct>                 Price_F                     := const(0[Ct],.), Descr = "Final costs, not subject to subsequent recalculation";
 		attribute<Ct>                 Price_T                     := const(0[Ct],.), Descr = "Augmented costs for tranfers";
@@ -32,8 +32,8 @@ unit<uint32> OD_L :=
 		attribute<Stops>              Last_Stop_rel               := ThisSet/NodeSet/Stop_rel[DstZone_rel];
 		attribute<NS_Stations>        First_NS_Station            := impl/From_NS_Stations_rel[org_rel];
 		attribute<NS_Stations>        Last_NS_Station             := impl/To_NS_Stations_rel[org_rel];
-		attribute<Time>               Laatste_NS_Uitstap_Tijd     := To_Time_rel;
-		attribute<Time>               Laatste_RO_Uitstap_Tijd     := const(null_u,.), Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
+		attribute<Time>               Last_NS_AlightTime     := To_Time_rel;
+		attribute<Time>               Last_RO_AlightTime     := const(null_u,.), Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
 		// attribute<s>                  WaitingAtStop_time          := const(0w,.,s);
 		// attribute<s>                  Walking_time                := const(0w,.,s);
 
@@ -49,15 +49,15 @@ unit<uint32> OD_R :=
 		, Set_R/Set/F1
 		, Set_R/Set/F2
 		
-		, convert(ModelParameters/MaxOVTime, s_f)
+		, convert(ModelParameters/MaxPTTime, s_f)
 		, Set_R/Set/Length
 	), using = "impl"
 {
 	unit<uint32>                 ThisSet                          := Set_R/Set;
 	
 	// R specifiek
-	attribute<Ct>                Price_I                          := rounded_convert(PrijsTabel/VastePrijs[impl/PrijsTabel_rel], Ct), IntegrityCheck = "all(impl/Prijs_IntegrityCheck)";
-	attribute<Ct>                Price_O                          := rounded_convert(PrijsTabel/VariabelePrijs[impl/PrijsTabel_rel] * impl/Afgelegde_afstand_OV, Ct), IntegrityCheck = "all(impl/Prijs_IntegrityCheck)";
+	attribute<Ct>                Price_I                          := rounded_convert(FareTable/FixedPrice[impl/FareTable_rel], Ct), IntegrityCheck = "all(impl/Price_IntegrityCheck)";
+	attribute<Ct>                Price_O                          := rounded_convert(FareTable/VariablePrice[impl/FareTable_rel] * impl/PT_TravelledDistance, Ct), IntegrityCheck = "all(impl/Price_IntegrityCheck)";
 	attribute<Ct>                Price_F                          := const(0[Ct],.), Descr = "Final costs, not subject to subsequent recalculation";
 	attribute<Ct>                Price_T                          := const(0[Ct],.), Descr = "Augmented costs for tranfers";
 	attribute<Ct>                Price                            := Price_I + Price_O;
@@ -67,12 +67,12 @@ unit<uint32> OD_R :=
 
 	unit<uint32> Result := select_with_org_rel_with_attr_by_cond(., !impl/IsOD_completely_foreign && !impl/IsStartEndWithinSameStopCluster)
 	{
-		attribute<Time>               Instaptijd_NS              := const(null_u,.);
-		attribute<Time>               Instaptijd_RO              := From_time_rel;
-		attribute<Time>               Laatste_NS_Uitstap_Tijd     := const(null_u,.);
-		attribute<Time>               Laatste_RO_Uitstap_Tijd     := To_Time_rel, Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
-		attribute<NS_Stations>        First_NS_Station            := const(null_u,.);
-		attribute<NS_Stations>        Last_NS_Station             := const(null_u,.);
+		attribute<Time>               BoardingTime_NS              := const(null_u,.);
+		attribute<Time>               BoardingTime_RO              := From_time_rel;
+		attribute<Time>               Last_NS_AlightTime      := const(null_u,.);
+		attribute<Time>               Last_RO_AlightTime           := To_Time_rel, Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
+		attribute<NS_Stations>        First_NS_Station             := const(null_u,.);
+		attribute<NS_Stations>        Last_NS_Station              := const(null_u,.);
 		// attribute<s>                  WaitingAtStop_time          := const(0w,.,s);
 		// attribute<s>                  Walking_time                := const(0w,.,s);
 

@@ -1,4 +1,4 @@
-Template KetenRijger_T
+Template ChainJoiner_T
 {
 	unit<uint32> Left; 
 	unit<uint32> Right;
@@ -15,15 +15,15 @@ Template KetenRijger_T
 	parameter<bool>   Has_NS        := HasLeft_NS || HasRight_NS;
 	parameter<bool>   HasBoth       := Has_RO && Has_NS;
 	
-	parameter<bool>   NS_overstap_mogelijk := HasLeft_NS && HasRight_NS;
-	parameter<bool>   NS_overstap_zeker    := right(LeftStr, 1)=='L' && left(RightStr, 1)=='L';
-	parameter<bool>   RO_overstap_mogelijk := HasLeft_RO && HasRight_RO;
+	parameter<bool>   NS_transfer_possible := HasLeft_NS && HasRight_NS;
+	parameter<bool>   NS_through_fare_certain    := right(LeftStr, 1)=='L' && left(RightStr, 1)=='L';
+	parameter<bool>   RO_transfer_possible := HasLeft_RO && HasRight_RO;
 
-	parameter<Time>   MaxOverstapTijdBinnenPrijsReis  := convert(/ModelParameters/Advanced/MaxOverstapTijdVoorBasistarief,s_f)[Time]; // MOVE to ModelParameters/Advanced
+	parameter<Time>   MaxTransferTimeWithinFareJourney  := convert(/ModelParameters/Advanced/MaxTransferTimeForBoardingSurcharge,s_f)[Time]; // MOVE to ModelParameters/Advanced
 
 
-	container StartCalc0{parameter<string> KetenName := Leftstr+RightStr;}
-	container StartCalc := PhaseContainer(StartCalc0, 'Start calculating '+string(StartCalc0/KetenName)+' for '+BlockDomain/name[BlockDomain_id]);
+	container StartCalc0{parameter<string> ChainName := Leftstr+RightStr;}
+	container StartCalc := PhaseContainer(StartCalc0, 'Start calculating '+string(StartCalc0/ChainName)+' for '+BlockDomain/name[BlockDomain_id]);
 	
 	unit<uint64> Join_Left_Transf   := join_equal_values_uint64(Left/uq_c_ToTime_Stop_rel, Transfers/uq_c_Exit_rel)
 	, Descr = "join left To_rel met de de transfer from_rel"
@@ -60,11 +60,11 @@ Template KetenRijger_T
 																						? TRUE
 																						: (0/0)[bool];
 		attribute<s>                  Traveltime                      := NeedsTranferTimePenalty 
-																			? Traveltime_wo_Penalty + convert(ModelParameters/Advanced/OngelijkvloersPenalty, s) 
+																			? Traveltime_wo_Penalty + convert(ModelParameters/Advanced/GradeSeparatedTransferPenalty, s) 
 																			: Traveltime_wo_Penalty;
 		
 		attribute<bool>               IsTravelToSameStop              := from_Stop_rel == To_Stop_rel;
-		attribute<bool>               IsJourneyLongerThanAllowed      := Traveltime > convert(/ModelParameters/MaxOVTime, s);
+		attribute<bool>               IsJourneyLongerThanAllowed      := Traveltime > convert(/ModelParameters/MaxPTTime, s);
 		attribute<bool>               Is_valid_connection             := NOT(IsTravelToSameStop) && NOT(IsJourneyLongerThanAllowed);
 
 		unit<uint64> Valid1 := select(is_valid_connection)
@@ -75,41 +75,41 @@ Template KetenRijger_T
 			attribute<Transfers>        Transfers_rel                   := collect_by_cond(., Join_LeftT_Right/Transfers_rel);
 			attribute<Right>            Right_rel                       := collect_by_cond(., Join_LeftT_Right/Right_rel);
 			
-			attribute<bool>             RO_overstap_toegestaan          := =RO_overstap_mogelijk ? 'Left_rel->Laatste_RO_Uitstap_Tijd + MaxOverstapTijdBinnenPrijsReis >= Right_rel->Instaptijd_RO' : 'const(false,. )';
+			attribute<bool>             RO_continuation_allowed          := =RO_transfer_possible ? 'Left_rel->Last_RO_AlightTime + MaxTransferTimeWithinFareJourney >= Right_rel->BoardingTime_RO' : 'const(false,. )';
 			attribute<Ct>               Price_I                         := 
-					= RO_overstap_mogelijk ? 'RO_overstap_toegestaan ? max_elem(Left_rel->price_I, Right_rel->price_I) : Left_rel->price_I + Right_rel->price_I'
+					= RO_transfer_possible ? 'RO_continuation_allowed ? max_elem(Left_rel->price_I, Right_rel->price_I) : Left_rel->price_I + Right_rel->price_I'
 					: HasLeft_RO           ? 'Left_rel->price_I' 
 					: HasRight_RO          ? 'Right_rel->price_I' 
 					: 'const(9999[Ct], .)';
 			attribute<Ct>               Price_O                         :=
-					= RO_overstap_mogelijk ? 'Left_rel->Price_O + Right_rel->Price_O'
+					= RO_transfer_possible ? 'Left_rel->Price_O + Right_rel->Price_O'
 					: HasLeft_RO  ? 'Left_rel->Price_O' 
 					: HasRight_RO ? 'Right_rel->Price_O' 
 					: 'const(9999[Ct], .)';
 			attribute<Ct>               Price_T                         := Left_rel->Price_T + Transfers_rel->Time_cost + Right_rel->Price_T;
 			
-			// deze tussenstapppen zijn alleen nodig indien NS_overstap_mogelijk t.b.v. herberekeking van het treinkaartje		
-			attribute<c_NS_start_end>   c_NS_start_end_rel              := =NS_overstap_mogelijk  ? 'combine_data(c_NS_start_end, left_rel ->First_NS_Station, right_rel-> Last_NS_Station)' : 'const(null_u, .)';
+			// deze tussenstapppen zijn alleen nodig indien NS_transfer_possible t.b.v. herberekeking van het treinkaartje		
+			attribute<c_NS_start_end>   c_NS_start_end_rel              := =NS_transfer_possible  ? 'combine_data(c_NS_start_end, left_rel ->First_NS_Station, right_rel-> Last_NS_Station)' : 'const(null_u, .)';
 					
-			attribute<Ct>               Price_NS                        := =NS_overstap_mogelijk  ? 'rjoin(c_NS_start_end_rel, TariefEenhedenMatrix/c_NS_start_end_rel, TariefEenhedenMatrix/Prijs_Ct)' : 'const(9999[Ct], .)' ;
+			attribute<Ct>               Price_NS                        := =NS_transfer_possible  ? 'rjoin(c_NS_start_end_rel, TariffUnitsMatrix/c_NS_start_end_rel, TariffUnitsMatrix/Prijs_Ct)' : 'const(9999[Ct], .)' ;
 																			
-			attribute<bool>             NS_overstap_toegestaan          := =NS_overstap_mogelijk ? 'Left_rel->Laatste_NS_Uitstap_Tijd + MaxOverstapTijdBinnenPrijsReis >= Right_rel->Instaptijd_NS' : 'const(false,. )';
-			attribute<bool>             NS_overstap_voordelig           := =NS_overstap_mogelijk ? NS_overstap_zeker?'const(true, .)':'NS_overstap_toegestaan && IsDefined(Price_NS) && Price_NS < Left_rel->Price_L + Right_rel->Price_L' : 'const(false,. )';
-			attribute<Ct>               Price_L                         := =NS_overstap_zeker ? 'Price_NS' : NS_overstap_mogelijk ? 'NS_overstap_voordelig ? Price_NS : Right_rel->Price_L' : HasLeft_NS ? 'Left_rel->price_L' : HasRight_NS ? 'Right_rel->price_L' : 'const(0[Ct], .)';
+			attribute<bool>             NS_transfer_allowed          := =NS_transfer_possible ? 'Left_rel->Last_NS_AlightTime + MaxTransferTimeWithinFareJourney >= Right_rel->BoardingTime_NS' : 'const(false,. )';
+			attribute<bool>             NS_through_fare_cheaper           := =NS_transfer_possible ? NS_through_fare_certain ?'const(true, .)':'NS_transfer_allowed && IsDefined(Price_NS) && Price_NS < Left_rel->Price_L + Right_rel->Price_L' : 'const(false,. )';
+			attribute<Ct>               Price_L                         := =NS_through_fare_certain ? 'Price_NS' : NS_transfer_possible ? 'NS_through_fare_cheaper ? Price_NS : Right_rel->Price_L' : HasLeft_NS ? 'Left_rel->price_L' : HasRight_NS ? 'Right_rel->price_L' : 'const(0[Ct], .)';
 			attribute<Ct>               Price_F_inherited               := ='Left_rel->Price_F' + (strlen(RightStr) > 1 ? '+ Right_rel->Price_F' : ''), Descr = "Final costs inherited from left and right sources";
-			attribute<Ct>               Price_F                         := =NS_overstap_zeker or not(NS_overstap_mogelijk) ? 'Price_F_inherited' : 'NS_overstap_voordelig ? Price_F_inherited : Price_F_inherited + Left_rel->Price_L', Descr = "Final costs, not subject to subsequent recalculation";
+			attribute<Ct>               Price_F                         := =NS_through_fare_certain or not(NS_transfer_possible) ? 'Price_F_inherited' : 'NS_through_fare_cheaper ? Price_F_inherited : Price_F_inherited + Left_rel->Price_L', Descr = "Final costs, not subject to subsequent recalculation";
 			attribute<Ct>               Price                           := = (Has_RO ? 'Price_O + Price_I ':'')+(HasBoth?'+':'')+(Has_NS?'Price_L':'')+(HasLeft_NS?' + Price_F':''), Descr = "te betalen prijs";
 			attribute<Ct>               Price_augm                      := Price + Price_T;
 					
-			attribute<Time> resttijd_zonder_NS_overstap := 
-				= HasRight_NS ? 'MakeDefined(sub_or_null(impl/LaatsteAankomstMoment, right_rel->Laatste_NS_Uitstap_Tijd + MaxOverstapTijdBinnenPrijsReis), 0[Time])'
-				: HasLeft_NS ? 'MakeDefined(sub_or_null(impl/LaatsteAankomstMoment, iif(left_rel->Laatste_NS_Uitstap_Tijd + MaxOverstapTijdBinnenPrijsReis > right_rel->To_Time_rel, left_rel->Laatste_NS_Uitstap_Tijd + MaxOverstapTijdBinnenPrijsReis, 0[Time])), 0[Time])'
-				: 'const(impl/LaatsteAankomstMoment, .)';
+			attribute<Time> remaining_time_excl_NS_transfer := 
+				= HasRight_NS ? 'MakeDefined(sub_or_null(impl/LastArrivalMoment, right_rel->Last_NS_AlightTime + MaxTransferTimeWithinFareJourney), 0[Time])'
+				: HasLeft_NS ? 'MakeDefined(sub_or_null(impl/LastArrivalMoment, iif(left_rel->Last_NS_AlightTime + MaxTransferTimeWithinFareJourney > right_rel->To_Time_rel, left_rel->Last_NS_AlightTime + MaxTransferTimeWithinFareJourney, 0[Time])), 0[Time])'
+				: 'const(impl/LastArrivalMoment, .)';
 				
-			attribute<Time> resttijd_zonder_RO_overstap :=
-				= HasRight_RO ? 'MakeDefined(sub_or_null(impl/LaatsteAankomstMoment, right_rel->Laatste_RO_Uitstap_Tijd + MaxOverstapTijdBinnenPrijsReis), 0[Time])'
-				: HasLeft_RO ? 'MakeDefined(sub_or_null(impl/LaatsteAankomstMoment, iif(left_rel->Laatste_RO_Uitstap_Tijd + MaxOverstapTijdBinnenPrijsReis > right_rel->To_Time_rel, left_rel->Laatste_RO_Uitstap_Tijd + MaxOverstapTijdBinnenPrijsReis, 0[Time])), 0[Time])'
-				: 'const(impl/LaatsteAankomstMoment, .)';
+			attribute<Time> remaining_time_excl_RO_transfer :=
+				= HasRight_RO ? 'MakeDefined(sub_or_null(impl/LastArrivalMoment, right_rel->Last_RO_AlightTime + MaxTransferTimeWithinFareJourney), 0[Time])'
+				: HasLeft_RO ? 'MakeDefined(sub_or_null(impl/LastArrivalMoment, iif(left_rel->Last_RO_AlightTime + MaxTransferTimeWithinFareJourney > right_rel->To_Time_rel, left_rel->Last_RO_AlightTime + MaxTransferTimeWithinFareJourney, 0[Time])), 0[Time])'
+				: 'const(impl/LastArrivalMoment, .)';
 			
 			attribute<uq_c_FromTime_Stop>   uq_c_FromTime_Stop_rel      := Left_rel ->uq_c_FromTime_Stop_rel;
 			attribute<uq_c_ToTime_Stop>     uq_c_ToTime_Stop_rel        := Right_rel->uq_c_ToTime_Stop_rel;
@@ -124,15 +124,15 @@ Template KetenRijger_T
 			attribute<bool>       pe_compared_to_good_candidate    := =AsList(replace('@PA@ < good_candidate_in_OD->@PA@', '@PA@', ParetoAttr/Name), ' or '), Descr = "Option is Pareto efficient compared to good candidate.";
 			attribute<bool>       is_also_good_candidate           := pe_compared_to_good_candidate OR (ID(.) == good_candidate_in_OD), Descr = "";
 			
-			unit<uint8>  ParetoAttr := KetenRijgerParetoAttr;
+			unit<uint8>  ParetoAttr := ChainJoinerParetoAttr;
 			
 			unit<uint64> Valid2 := select(is_also_good_candidate)
 			{
 				attribute<OD_Pair>    OD_pair_rel   := collect_by_cond(., valid1/OD_pair_rel);
 				attribute<s>          TravelTime    := collect_by_cond(., Valid1/TravelTime);
 				attribute<Ct>         Price_augm    := collect_by_cond(., Valid1/Price_augm);
-				attribute<Time>       resttijd_zonder_NS_overstap    := collect_by_cond(., Valid1/resttijd_zonder_NS_overstap);
-				attribute<Time>       resttijd_zonder_RO_overstap    := collect_by_cond(., Valid1/resttijd_zonder_RO_overstap);
+				attribute<Time>       remaining_time_excl_NS_transfer    := collect_by_cond(., Valid1/remaining_time_excl_NS_transfer);
+				attribute<Time>       remaining_time_excl_RO_transfer    := collect_by_cond(., Valid1/remaining_time_excl_RO_transfer);
 			}
 			unit<uint64> pareto_vergelijker := join_equal_values_uint64(valid2/OD_pair_rel, valid2/OD_pair_rel)
 			{
@@ -160,11 +160,11 @@ Template KetenRijger_T
 			
 			attribute<string>                  ModeUsed                        := collect_by_cond(., Join_LeftT_Right/ModeUsed);
 			attribute<Modes>                   Mode_rel                        := collect_by_cond(., Join_LeftT_Right/Mode_rel);
-			attribute<bool>                    NS_overstap_voordelig           := Valid1_rel->NS_overstap_voordelig;
+			attribute<bool>                    NS_through_fare_cheaper           := Valid1_rel->NS_through_fare_cheaper;
 
 			attribute<NS_Stations>             First_NS_Station                : Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden van de eerste en laaste ns-stations zijn.",
-				=	= NS_overstap_zeker    ? 'left_rel ->First_NS_Station'
-					: NS_overstap_mogelijk ? 'NS_overstap_voordelig ? left_rel ->First_NS_Station : Right_rel->First_NS_Station' 
+				=	= NS_through_fare_certain    ? 'left_rel ->First_NS_Station'
+					: NS_transfer_possible ? 'NS_through_fare_cheaper ? left_rel ->First_NS_Station : Right_rel->First_NS_Station' 
 					: HasRight_NS ? 'right_rel->First_NS_Station' 
 					: HasLeft_NS  ? 'left_rel->First_NS_Station' 
 					: 'const(null_u,.)';
@@ -192,11 +192,11 @@ Template KetenRijger_T
 			attribute<dam>                     TravelDist_Rail                 := Left_rel -> Traveldist_Rail  + Right_rel -> Traveldist_Rail;
 			attribute<dam>                     TravelDist_Ferry                := Left_rel -> Traveldist_Ferry + Right_rel -> Traveldist_Ferry;
 					
-			attribute<Time>                    Laatste_NS_Uitstap_Tijd         := =HasRight_NS ? 'Right_rel->Laatste_NS_Uitstap_Tijd' : 'Left_rel->Laatste_NS_Uitstap_Tijd', Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
-			attribute<Time>                    Laatste_RO_Uitstap_Tijd         := =HasRight_RO ? 'Right_rel->Laatste_RO_Uitstap_Tijd' : 'Left_rel->Laatste_RO_Uitstap_Tijd', Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";			
+			attribute<Time>                    Last_NS_AlightTime         := =HasRight_NS ? 'Right_rel->Last_NS_AlightTime' : 'Left_rel->Last_NS_AlightTime', Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
+			attribute<Time>                    Last_RO_AlightTime         := =HasRight_RO ? 'Right_rel->Last_RO_AlightTime' : 'Left_rel->Last_RO_AlightTime', Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";			
 		}
 	}
 	
-	container Fence := PhaseContainer(x, 'Calculated: '+StartCalc/KetenName+' for keten '+BlockDomain/name[BlockDomain_id]);
+	container Fence := PhaseContainer(x, 'Calculated: '+StartCalc/ChainName+' for keten '+BlockDomain/name[BlockDomain_id]);
 	unit<uint32> Result := Fence/Result;
 }

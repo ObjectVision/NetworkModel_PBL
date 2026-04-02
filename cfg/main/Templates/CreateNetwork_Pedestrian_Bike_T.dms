@@ -1,15 +1,15 @@
 Template CreateNetwork_Pedestrian_Bike_T : using = "geometries"
 {
 	unit<uint32>      inStart;
-	unit<uint32>      inEind;
+	unit<uint32>      inEnd;
 	unit<uint32>      Roads;
 	parameter<string> TravelMode;
 	parameter<string> NetworkType;
 	parameter<string> ConnectionType;
 	container         Optimised_Network;
 	////
-	parameter<min_f> MaxDistSelectie_min := ='ModelParameters/Max'+TravelMode+'Time_'+ConnectionType;
-	parameter<s_f>   MaxDistSelectie_sec := convert(MaxDistSelectie_min, s_f);
+	parameter<min_f> MaxDistSelection_min := ='ModelParameters/Max'+TravelMode+'Time_'+ConnectionType;
+	parameter<s_f>   MaxDistSelection_sec := convert(MaxDistSelection_min, s_f);
 	
 	unit<uint32> LinkSet0 := Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet;
 	unit<uint32> LinkSet  := select_with_org_rel(IsDefined(LinkSet0/F1) && IsDefined(LinkSet0/F2))
@@ -21,7 +21,7 @@ Template CreateNetwork_Pedestrian_Bike_T : using = "geometries"
 	unit<uint32> NodeSet := Optimised_Network/CreateMoreEfficientNetwork/FinalNodeSet
 	{
 		attribute<.>   OrgNode_rel  (inStart)    := rlookup(inStart/geometry, geometry);
-		attribute<.>   DestNode_rel (inEind)     := rlookup(inEind/geometry, geometry);
+		attribute<.>   DestNode_rel (inEnd)     := rlookup(inEnd/geometry, geometry);
 	}
 	unit<uint32> Places  := impl/Places;
 	
@@ -36,7 +36,7 @@ Template CreateNetwork_Pedestrian_Bike_T : using = "geometries"
 			, LinkSet/F2
 			, NodeSet/OrgNode_rel
 			, NodeSet/DestNode_rel
-			, MaxDistSelectie_sec //cut impedance      
+			, MaxDistSelection_sec //cut impedance      
 			, distance //alt imp
 		)
 	{
@@ -44,26 +44,28 @@ Template CreateNetwork_Pedestrian_Bike_T : using = "geometries"
 		attribute<s_f>     Duration_seconds                 := Impedance;
 		attribute<float32> Duration_minutes                 := Impedance / 60f;
 		attribute<inStart> Start_rel                        := OrgZone_rel; 
-		attribute<inEind>  Eind_rel                         := DstZone_rel; 
+		attribute<inEnd>   End_rel                          := DstZone_rel; 
 		attribute<string>  StartName                        := inStart/name[Start_rel];
-		attribute<string>  EindName                         := inEind/name[Eind_rel];
+		attribute<string>  EndName                          := inEnd/name[End_rel];
 		attribute<km>      LengthKm                         := alt_imp; 
 		attribute<rdc>     FromPoint                        := inStart/geometry[Start_rel];
-		attribute<rdc>     ToPoint                          := inEind/geometry[Eind_rel];
+		attribute<rdc>     ToPoint                          := inEnd/geometry[End_rel];
 		attribute<rdc>     geometry (arc)                   := points2sequence(LinkPoints/geometry, LinkPoints/ODPathRel, LinkPoints/CumulOrdinal);
-		attribute<string>  Label                            := TravelMode+' path from: ' + StartName + ' to ' + EindName;
+		attribute<string>  Label                            := TravelMode+' path from: ' + StartName + ' to ' + EndName;
 
 		parameter<string>  OriginSetStr                     := OriginSet == 'Org' ? 'Origin' : OriginSet;
 
 		attribute<Places>  From_Place_rel                   := ='rlookup(Start_rel, Places/'+OriginSetStr+'_rel)';
-		attribute<Places>  To_Place_rel                     := ='rlookup(Eind_rel,  Places/'+DestinationSet+'_rel)';
+		attribute<Places>  To_Place_rel                     := ='rlookup(End_rel,  Places/'+DestinationSet+'_rel)';
 		attribute<ct>      Price                            := =IsOVFiets 
-																	? 'const(rounded_convert(/ModelParameters/Advanced/OVFiets_huurprijs, ct),.)'
-																	: 'rounded_convert(impedance[min_f] * ModelParameters/'+VoortransportStr+'_'+TravelMode+'_Time_Costs, ct)';
+																	? 'const(rounded_convert(ModelParameters/Advanced/OVFiets_RentalPrice, ct),.)'
+																	: .../Mode_rel == Modes/v/cycling && ModelParameters/Advanced/UseOVFietsPriceForAllCyclingPostTransport
+																		? 'const(rounded_convert(ModelParameters/Advanced/OVFiets_RentalPrice, ct),.)'
+																		: 'rounded_convert(impedance[min_f] * ModelParameters/'+PreTransportStr+'_'+TravelMode+'_Time_Costs, ct)';
 		parameter<bool>               IsOVFiets                      := TimeInvariantTypes/IsOVfiets[TimeInvariantTypes_rel];
 		parameter<TimeInvariantTypes> Current_TimeInvariantTypes_rel := TimeInvariantTypes_rel;
-		parameter<bool>               IsVoorTransport                := VN_Transport == 'V';
-		parameter<string>             VoortransportStr               := IsVoorTransport ? 'Voortransport' : 'Natransport';
+		parameter<bool>               IsPreTransport                := VN_Transport == 'V';
+		parameter<string>             PreTransportStr               := IsPreTransport ? 'PreTransport' : 'PostTransport';
 		attribute<Modes>              Mode_rel                       := const(.../Mode_rel,.);
 		
 		unit<uint32> LinkPoints := union_unit(., .)
@@ -73,7 +75,7 @@ Template CreateNetwork_Pedestrian_Bike_T : using = "geometries"
 			attribute<uint32>               CumulOrdinal := union_data(., const(0,..,uint32), const(1,..,uint32));
 		}
 		
-/* 		unit<uint32> AfgelegdeReis := sequence2points(LinkSet) //vertaling van LinkSet attribute (afgelegde route in OD), naar onderdelen van de reis
+/* 		unit<uint32> TravelledJourney := sequence2points(LinkSet) //vertaling van LinkSet attribute (afgelegde route in OD), naar onderdelen van de reis
 		{
 			// voor visuaisatie
 			attribute<rdc>         Route (arc) := points2sequence(LinkPoints/Point, LinkPoints/Sequence_rel, LinkPoints/Ordinal);

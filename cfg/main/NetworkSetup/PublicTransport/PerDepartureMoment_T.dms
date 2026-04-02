@@ -1,14 +1,14 @@
-Template PerVetrekMoment_T
+Template PerDepartureMoment_T
 {
 	parameter<uint32>   inTime;
 	parameter<string>   inTime_string;
 	///
-	parameter<min>      Max_V_Time := max(/ModelParameters/Advanced/OV_Voortransport_Typen/MaxTime[min]);
+	parameter<min>      Max_V_Time := max(/ModelParameters/Advanced/OV_PreTransport_Typen/MaxTime[min]);
 	unit<uint8>         ParetoAttr := Classifications/FinalParetoAttr;
-	attribute<bool>     Within_VW_Window_SelectionCriterium (PublicTransport_Prep/PT) := PublicTransport_Prep/PT/From_Time_rel <= inTime + convert(Max_V_Time, s_f)[Time] + ModelParameters/Advanced/MaxWachttijdThuis;
+	attribute<bool>     Within_VW_Window_SelectionCriterium (PublicTransport_Prep/PT) := PublicTransport_Prep/PT/From_Time_rel <= inTime + convert(Max_V_Time, s_f)[Time] + ModelParameters/Advanced/MaxWaitingTimeAtOrigin;
 	
 	unit<uint64> Within_VW_Window := select(Within_VW_Window_SelectionCriterium)
-	, Descr = "Opties binnen voortransport + wachten thuis window"
+	, Descr = "Opties binnen PreTransport + wachten thuis window"
 	{
 		attribute<ct>                Price                       := collect_by_cond(., Within_VW_Window_SelectionCriterium, PublicTransport_Prep/PT/Price);
 		attribute<ct>                Price_augm                  := collect_by_cond(., Within_VW_Window_SelectionCriterium, PublicTransport_Prep/PT/Price_augm);
@@ -36,7 +36,7 @@ Template PerVetrekMoment_T
 		attribute<Time>                                        V_From_Time_rel_org              := const(inTime[Time],V)[V_rel], Descr = "Departure time from org, excluding waiting at first stop.";
 		attribute<Time>                                        V_To_Time_rel_org                := V_From_Time_rel_org + V_time[Time];
 		
-		attribute<Time>                                        V_From_Time_rel                  := V_From_Time_rel_org + Wachttijd_Time_rel, Descr = "Departure time from origin, excluding waiting at first stop.";
+		attribute<Time>                                        V_From_Time_rel                  := V_From_Time_rel_org + WaitingTime_rel, Descr = "Departure time from origin, excluding waiting at first stop.";
 		attribute<Places>                                      V_From_Place_rel                 := V/From_Place_rel[V_rel];
 		attribute<c_Time_Places>                               V_c_fromTime_Place_rel           := combine_data(c_Time_Places, V_From_Time_rel, V_From_Place_rel);
 		
@@ -47,23 +47,23 @@ Template PerVetrekMoment_T
 		attribute<c_Time_Places>                               PT_c_toTime_Place_rel            := Within_VW_Window/c_toTime_Place_rel[PT_rel];
 		
 		attribute<c_Time_Stops>                                PT_c_fromTime_Stop_rel           := combine_data(c_Time_Stops, PT_From_Time_rel, PT_From_Stop_rel);
-		attribute</SourceData/Infrastructuur/GTFS/RelevantSelection/ScheduledLinks> IsPT_departureEvent_ActualPT0     := rlookup(PT_c_fromTime_Stop_rel, /SourceData/Infrastructuur/GTFS/RelevantSelection/ScheduledLinks/c_fromTime_Stop_rel), Descr = "the departure event should be a depature event, and not waiting or already a transfer. To make sure, this check is built in.";
+		attribute</SourceData/Infrastructure/GTFS/RelevantSelection/ScheduledLinks> IsPT_departureEvent_ActualPT0     := rlookup(PT_c_fromTime_Stop_rel, /SourceData/Infrastructure/GTFS/RelevantSelection/ScheduledLinks/c_fromTime_Stop_rel), Descr = "the departure event should be a depature event, and not waiting or already a transfer. To make sure, this check is built in.";
 		attribute<bool>                                        IsPT_departureEvent_ActualPT                           := IsDefined(IsPT_departureEvent_ActualPT0);
 		
-		attribute<Time>                                        StartWacht_Time_rel              := V_To_Time_rel_org;
-		attribute<Time>                                        EindWacht_Time_rel               := value(PT_c_fromTime_Place_rel / uint64(#Places), Time);
-		attribute<bool>                                        IsWachttijdValid                 := StartWacht_Time_rel < EindWacht_Time_rel;
+		attribute<Time>                                        WaitingStart_Time_rel              := V_To_Time_rel_org;
+		attribute<Time>                                        WaitingEnd_Time_rel               := value(PT_c_fromTime_Place_rel / uint64(#Places), Time);
+		attribute<bool>                                        IsWaitingTimeValid                 := WaitingStart_Time_rel < WaitingEnd_Time_rel;
 		
 		attribute<s>                                           V_time_wo_Penalty                := V/impedance[V_rel];
 		attribute<Modes>                                       V_mode_rel                       := V/Mode_rel[V_rel];
 		attribute<VN_ModeClasses/Uq>                           V_ModeClass_rel                  := V/ModeClass_rel[V_rel];
 		attribute<ct>                                          V_price                          := V/Price[V_rel];
 		attribute<s>                                           V_time                           := V_mode_rel == Modes/v/Cycling 
-																									? V_time_wo_Penalty + convert(ModelParameters/Advanced/FietsVoortransport_Penalty, s) 
+																									? V_time_wo_Penalty + convert(ModelParameters/Advanced/Cycling_PreTransport_Penalty, s) 
 																									: V_time_wo_Penalty;
 		
-		attribute<Time>                                        Wachttijd_Time_rel               := MakeDefined(sub_or_null(EindWacht_Time_rel, StartWacht_Time_rel), 0[Time]);
-		attribute<s>                                           W_time                           := Wachttijd_Time_rel[s];
+		attribute<Time>                                        WaitingTime_rel               := MakeDefined(sub_or_null(WaitingEnd_Time_rel, WaitingStart_Time_rel), 0[Time]);
+		attribute<s>                                           W_time                           := WaitingTime_rel[s];
 		
 		attribute<c_Time_Places>                               c_fromTime_Place_rel             := V_c_fromTime_Place_rel;
 		attribute<c_Time_Places>                               c_toTime_Place_rel               := PT_c_toTime_Place_rel;
@@ -74,8 +74,7 @@ Template PerVetrekMoment_T
 		attribute<ct>                                          Price_augm                       := Within_VW_Window/Price_augm[PT_rel] + V_price;
 		attribute<s>                                           PT_time                          := Within_VW_Window/Traveltime[PT_rel];
 		attribute<string>                                      ModeUsed                         := VN_ModeClasses/Uq/name[V_ModeClass_rel] + '_' + Within_VW_Window/ModeUsed[PT_rel];
-		// attribute<Toegestane_Ketens>                           Toegestane_Keten_rel             := Within_VW_Window/Toegestane_Keten_rel[PT_rel];
-		attribute<s>                                           Traveltime                       := (uint16(ModelParameters/Advanced/WachttijdThuisMeetellen) * W_time) + V_time + PT_time;
+		attribute<s>                                           Traveltime                       := (uint16(ModelParameters/Advanced/IncludeWaitingAtHomeInTravelTime) * W_time) + V_time + PT_time;
 		
 		attribute<dam>                                         TravelDist_Bus                   := Within_VW_Window/TravelDist_Bus[PT_rel];
 		attribute<dam>                                         Traveldist_Metro                 := Within_VW_Window/Traveldist_Metro[PT_rel];
@@ -88,7 +87,7 @@ Template PerVetrekMoment_T
 																										, case(V_mode_rel == Modes/v/Cycling, V_time <= convert(ModelParameters/MaxCyclingTime_Org2Stops, s))
 																										, FALSE
 																									);
-		attribute<bool>                                        IsValid                          := Wachttijd_Time_rel <= ModelParameters/Advanced/MaxWachttijdThuis && IsWachttijdValid && IsVTimeNotTooLong && IsPT_departureEvent_ActualPT;
+		attribute<bool>                                        IsValid                          := WaitingTime_rel <= ModelParameters/Advanced/MaxWaitingTimeAtOrigin && IsWaitingTimeValid && IsVTimeNotTooLong && IsPT_departureEvent_ActualPT;
 		
 		unit<uint64> Result := select(IsValid)
 		{
@@ -318,12 +317,12 @@ Template PerVetrekMoment_T
 		attribute<bool>                                     IsDirectTravel              := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/IsDirectTravel);
 		attribute<bool>                                     HasFerryInTrip              := strcount(ModeUsed, 'F') > 0;
 	
-		attribute<bool>                                     IsOVWithoutPrice  := NOT(IsDirectTravel) && price == 0[ct] && NOT(HasFerryInTrip); //zou allemaal false moeten zijn.In Amsterdam komen dit voor vanwege gratis ferry.
+		attribute<bool>                                     IsPTWithoutPrice            := NOT(IsDirectTravel) && price == 0[ct] && NOT(HasFerryInTrip); //zou allemaal false moeten zijn.In Amsterdam komen dit voor vanwege gratis ferry.
 	}
 	
 	container CreateExports
 	{
-		unit<uint64>       domain                                        := Result_AfterSecondCondensation, IntegrityCheck = "NOT(Result_AfterSecondCondensation/IsOVWithoutPrice)";
+		unit<uint64>       domain                                        := Result_AfterSecondCondensation, IntegrityCheck = "NOT(Result_AfterSecondCondensation/IsPTWithoutPrice)";
 		attribute<string>  OrgName                              (domain) := domain/OrgName;
 		attribute<string>  DestName                             (domain) := domain/DestName;
 		attribute<string>  OrgDestName                          (domain) := OrgName + '_' + DestName;
@@ -356,9 +355,9 @@ Template PerVetrekMoment_T
 				';TravelDist_Rail_'+inTime_str_short+
 				';TravelDist_Ferry_'+inTime_str_short+
 				';WaitingTime_'+inTime_str_short+
-				';VoortransTime_'+inTime_str_short+
+				';PretransTime_'+inTime_str_short+
 				';PTTime_'+inTime_str_short+
-				';NatransTime_'+inTime_str_short+'\n'+
+				';PosttransTime_'+inTime_str_short+'\n'+
 				AsList(BodyLines_fullOD, '\n')
 			,	StorageName = "=fileNamePrefix+'tt'+fileNameSuffix +'.csv'", StorageType = "str";
 			
@@ -372,9 +371,9 @@ Template PerVetrekMoment_T
 				';TravelDist_Rail_'+inTime_str_short+
 				';TravelDist_Ferry_'+inTime_str_short+
 				';WaitingTime_'+inTime_str_short+
-				';VoortransTime_'+inTime_str_short+
+				';PretransTime_'+inTime_str_short+
 				';PTTime_'+inTime_str_short+
-				';NatransTime_'+inTime_str_short+'\n'+
+				';PosttransTime_'+inTime_str_short+'\n'+
 				AsList(BodyLines_woPrice, '\n')
 			,	StorageName = "=fileNamePrefix+'tt'+fileNameSuffix +'.csv'", StorageType = "str";
 		
@@ -385,9 +384,9 @@ Template PerVetrekMoment_T
 				';Price_Augm_'+inTime_str_short+
 				';ModeUsed_'+inTime_str_short+
 				';WaitingTime_'+inTime_str_short+
-				';VoortransTime_'+inTime_str_short+
+				';PretransTime_'+inTime_str_short+
 				';PTTime_'+inTime_str_short+
-				';NatransTime_'+inTime_str_short+'\n'+
+				';PosttransTime_'+inTime_str_short+'\n'+
 				AsList(BodyLines_woDistance, '\n')
 			,	StorageName = "=fileNamePrefix+'tt'+fileNameSuffix +'.csv'", StorageType = "str";
 			
@@ -396,16 +395,16 @@ Template PerVetrekMoment_T
 				'OrgName;DestName;Traveltime_'+inTime_str_short+
 				';ModeUsed_'+inTime_str_short+
 				';WaitingTime_'+inTime_str_short+
-				';VoortransTime_'+inTime_str_short+
+				';PretransTime_'+inTime_str_short+
 				';PTTime_'+inTime_str_short+
-				';NatransTime_'+inTime_str_short+'\n'+
+				';PosttransTime_'+inTime_str_short+'\n'+
 				AsList(BodyLines_woDistance_woPrice, '\n')
 			,	StorageName = "=fileNamePrefix+'tt'+fileNameSuffix +'.csv'", StorageType = "str";
 			
 			parameter<string>  File              := =switch(
-														 case(ModelParameters/Export_AfgelegdeAfstand && ModelParameters/Export_Prijsinformatie, 'File_fullOD')
-														,case(ModelParameters/Export_AfgelegdeAfstand, 'File_woPrice')
-														,case(ModelParameters/Export_Prijsinformatie,  'File_woDistance')
+														 case(ModelParameters/Export_TravelledDistance && ModelParameters/Export_PriceInformation, 'File_fullOD')
+														,case(ModelParameters/Export_TravelledDistance, 'File_woPrice')
+														,case(ModelParameters/Export_PriceInformation,  'File_woDistance')
 														, 'File_woDistance_woPrice'
 													);
 		
@@ -437,13 +436,13 @@ Template PerVetrekMoment_T
 			'_DEST-'   + ModelParameters/Advanced/DestSet_string +
 			'_V-'   + V_typen +
 			'_N-'   + N_typen +
-			'_Trsf-' + string(ModelParameters/Advanced/Max_overstappen) +
+			'_Trsf-' + string(ModelParameters/Advanced/Max_transfers) +
 			'_MinCrit-' + AsList(Classifications/FinalParetoAttr/FileNameElement, '_') +
-			'_MaxOV-' + string(ModelParameters/MaxOVTime) + 'min'
+			'_MaxPT-' + string(ModelParameters/MaxPTTime) + 'min'
 			;
 		
 		parameter<string> Direct_str := ModelParameters/Advanced/AllowDirectCyclingOverWalking ? 'CC' : 'WW';
-		parameter<string> V_typen := Direct_str+','+AsList(ModelParameters/Advanced/OV_Voortransport_Typen/ExportName, ',');
-		parameter<string> N_typen := AsList(ModelParameters/Advanced/OV_Natransport_Typen/ExportName, ',');
+		parameter<string> V_typen := Direct_str+','+AsList(ModelParameters/Advanced/OV_PreTransport_Typen/ExportName, ',');
+		parameter<string> N_typen := AsList(ModelParameters/Advanced/OV_PostTransport_Typen/ExportName, ',');
 	}
 }

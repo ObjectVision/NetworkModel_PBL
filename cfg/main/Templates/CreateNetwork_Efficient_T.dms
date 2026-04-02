@@ -6,7 +6,7 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 	unit<uint32> DestDomain;
 	unit<uint32> RoadDomain;
 	parameter<string> NetworkType;
-	parameter<bool>   IsVoorNaTransport;
+	parameter<bool>   IsVoorPostTransport;
 	// end case parameters
 	container root := .;
 	
@@ -23,7 +23,7 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 		attribute<bool>                            IsDest                         := union_data(.,const(FALSE, OrgDomain), const(TRUE ,DestDomain));
 	}
 	
-	unit<uint32> UniqueLocations    := =IsVoorNaTransport ? 'unique(Locations_wStops/geometry)' : 'unique(Locations_woStops/geometry)'
+	unit<uint32> UniqueLocations    := =IsVoorPostTransport ? 'unique(Locations_wStops/geometry)' : 'unique(Locations_woStops/geometry)'
 	{ 
 		attribute<rdc>                          geometry       := values;
 		attribute<OrgDomain>                    OrgDomain_rel  := rlookup(geometry, orgDomain/geometry);
@@ -41,7 +41,7 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 					, km_hr
 				);
 			attribute<bool>               Connectable          := sequence_rel->Connectable;
-			attribute<wegtype>            wegtype_rel          := sequence_rel->wegtype_rel;
+			attribute<roadType>            roadType_rel          := sequence_rel->roadType_rel;
 			attribute<bool>               IsOneDirection       := sequence_rel->IsOneDirection;
 			
 			unit<uint32> PointSet := union_unit(., .)
@@ -68,7 +68,7 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 		unit<uint32> LinkSet := connect_ne(Roads_Connected/geometry, uint32(Roads_Connected/Connectable), UniqueLocations/geometry, const(0, UniqueLocations))
 		{
 			attribute<rdc>     geometry(arc);
-			attribute<Classifications/OSM/wegtype> wegtype_rel          := arc_rel->wegtype_rel;
+			attribute<Classifications/OSM/roadType> roadType_rel          := arc_rel->roadType_rel;
 			attribute<bool>    IsOneDirection          := arc_rel->IsOneDirection;
 			
 			container Speed_per_ImpedanceType :=
@@ -86,7 +86,7 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 			attribute<km>      LengthKm             := convert(dist(first_point, last_point)[m], km);
 			attribute<bool>    IsOD_connection_road := !IsDefined(arc_rel); // connect gives arc_rel which gives the rel to the original link, in case of existing link. Is new link, this is undefined.
 			
-			attribute<bool>    IsLangzaamRijdendVerkeerWeg :=  Classifications/OSM/wegtype/IsLangzaamRijdendVerkeerWeg[wegtype_rel];
+			attribute<bool>    IsSlowTrafficRoad :=  Classifications/OSM/roadType/IsSlowTrafficRoad[roadType_rel];
 			
 			container Impedance_per_ImpedanceType :=
 				for_each_nedv(
@@ -114,9 +114,9 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 		{
 			attribute<rdc>    geometry         := values;
 			attribute<uint32> NrConnectedLinks := pcount(LinkSet/F1) + pcount(LinkSet/F2);
-			attribute<uint32> NrConnectedLinks_metLangzaamrijdendverkeerweg := pcount(LinkSet/IsLangzaamRijdendVerkeerWeg ? LinkSet/F1 : null_u) + pcount(LinkSet/IsLangzaamRijdendVerkeerWeg ? LinkSet/F2 : null_u);
+			attribute<uint32> NrConnectedLinks_withSlowTrafficRoad := pcount(LinkSet/IsSlowTrafficRoad ? LinkSet/F1 : null_u) + pcount(LinkSet/IsSlowTrafficRoad ? LinkSet/F2 : null_u);
 			
-			attribute<bool>   Crossroad_could_result_in_lower_speed_penalty := NrConnectedLinks == NrConnectedLinks_metLangzaamrijdendverkeerweg;
+			attribute<bool>   Crossroad_could_result_in_lower_speed_penalty := NrConnectedLinks == NrConnectedLinks_withSlowTrafficRoad;
 		}
 					
 		container CorrectImpedanceForCrossroads
