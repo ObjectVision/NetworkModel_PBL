@@ -11,8 +11,8 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 17.0900" // format
 
 	container ChecksBeforeRunning
 	{
-		parameter<string> PT_FSS_CheckBlocks      := MakeUnlinkedData/PublicTransportNet/CheckEerstDezeIntegrityCheck_1;
-		parameter<string> PT_FSS_CheckPrices      := MakeUnlinkedData/PublicTransportNet/CheckEerstDezeIntegrityCheck_2;
+		parameter<string> PT_CheckBlocks      := MakeUnlinkedData/PublicTransportNet/CheckEerstDezeIntegrityCheck_1;
+		parameter<string> PT_CheckPrices      := MakeUnlinkedData/PublicTransportNet/CheckEerstDezeIntegrityCheck_2;
 		parameter<string> Check_OriginBlocks      := ModelParameters/Advanced/NumberOfOrgBlocks * ModelParameters/Advanced/MaxOrgBlockSize >= #/NetworkSetup/Impl/OrgBlockSelections 
 																												? 'PASS: block numbers and size are adequate.' 
 																												: 'FAIL: you need more or larger blocks to accomodate all origins. It needs to be at least '+string(#/NetworkSetup/Impl/OrgBlockSelections )+' and now it is '+string(ModelParameters/Advanced/MaxOrgBlockSize)+' * '+string(ModelParameters/Advanced/NumberOfOrgBlocks)+' = '+string(uint64(ModelParameters/Advanced/MaxOrgBlockSize) * uint64(ModelParameters/Advanced/NumberOfOrgBlocks))+'';
@@ -30,18 +30,20 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 17.0900" // format
 		{
 			parameter<String> GetFilesName_network                           := 'Ready', ExplicitSuppliers = "SourceData/Infrastructure/TomTom/impl/GetFileNames_Network/WriteFilesCSV";
 			parameter<String> GetFilesName_profiles                          := 'Ready', ExplicitSuppliers = "SourceData/Infrastructure/TomTom/impl/GetFileNames_Speedprofiles/WriteFilesCSV";
-			parameter<String> Generate_FSS                                   := 'Ready', ExplicitSuppliers = "SourceData/Infrastructure/TomTom/impl/Generate_FSS";
+			parameter<String> Generate                                       := 'Ready', ExplicitSuppliers = "SourceData/Infrastructure/TomTom/impl/Generate_FSS";
 		} 
 		
-		container GTFS_2_FSS
+		container GTFS
 		{
-			parameter<String> Generate_GTSF_FSS                              := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/GTFS/LoadFeeds/storefss";
+			parameter<String> Generate_GTFS                              := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/GTFS/LoadFeeds/store";
+			parameter<String> Export_OV_Knooppunten                      := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/GTFS/OV_Knooppunten/Export_Knooppunten";
+			parameter<String> Export_Reistijd_OV_Knooppunt_tif          := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/GTFS/OV_Knooppunten/Bereikbaarheid_Auto/Reistijd";
 		}
 		
 		container PublicTransportNet
 		{
 			parameter<string> CheckEerstDezeIntegrityCheck_1               := uint64(ModelParameters/Advanced/MaxStopBlockSize) * uint64(ModelParameters/Advanced/NumberOfStopBlocks) > uint64(#/NetworkSetup/PublicTransport_Prep/Impl/BlockSelections) 
-																																	? 'PASS: block numbers and size are adequate.' 
+																																	? 'PASS: block numbers and size are adequate. It needs to be at least '+string(#/NetworkSetup/PublicTransport_Prep/Impl/BlockSelections)+' and now it is '+string(ModelParameters/Advanced/MaxStopBlockSize)+' * '+string(ModelParameters/Advanced/NumberOfStopBlocks)+' = '+string(uint64(ModelParameters/Advanced/MaxStopBlockSize) * uint64(ModelParameters/Advanced/NumberOfStopBlocks)) 
 																																	: 'FAIL: you need more or larger blocks to accomodate all stops. It needs to be at least '+string(#/NetworkSetup/PublicTransport_Prep/Impl/BlockSelections)+' and now it is '+string(ModelParameters/Advanced/MaxStopBlockSize)+' * '+string(ModelParameters/Advanced/NumberOfStopBlocks)+' = '+string(uint64(ModelParameters/Advanced/MaxStopBlockSize) * uint64(ModelParameters/Advanced/NumberOfStopBlocks))+''
 																																, Descr = "Is the number of stops smaller or equal to the number of blocks times the size of the blocks. If this fails, check the size";
 			parameter<string> CheckEerstDezeIntegrityCheck_2               := all(NetworkSetup/PublicTransport_Prep/Impl/OD_R/Impl/Price_IntegrityCheck) && all(/NetworkSetup/PublicTransport_Prep/Impl/OD_L/NS_Station_Price_IntegrityCheck)  ? 'PASS: all links have a valid price (or no prices are needed)' : 'FAIL: you need to check the prices (or turn of prices)', Descr = "Check whether all links have a valid price, if prices are necessary (i.e. given model parameters). If this fails, go the paths in this expression to trace where it fails. Hint: does the price information match the study period?";
@@ -96,12 +98,13 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 17.0900" // format
 			attribute<rdc> polygon (poly)      := points2sequence(point_set/point, point_set/sequence_rel, point_set/ordinal);
 		}
 		
-		unit<uint32> Gridsizes : nrofrows = 6
+		unit<uint32> Gridsizes : nrofrows = 7
 		{
-			attribute<m>      size : [100, 500, 1000, 5000, 10000, 50000];
+			attribute<m>      size : [25, 100, 500, 1000, 5000, 10000, 50000];
 			attribute<string> name := 'size_'+string(size)+'m';
 		}
-		
+
+		unit<spoint> rdc_25m    := perGridsize/size_25m/domain;
 		unit<spoint> rdc_100m   := perGridsize/size_100m/domain;
 		unit<spoint> rdc_500m   := perGridsize/size_500m/domain;
 		unit<spoint> rdc_1000m  := perGridsize/size_1000m/domain;
@@ -169,6 +172,60 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 17.0900" // format
 				attribute<domain>               grid_rel  := geometry[domain];	
 			}
 		}
+
+		unit<uint8> Matrix : nrofrows = 23
+		{
+			attribute<m>      Size : [ 0, 17, 25, 50, 100, 150, 200, 300, 500, 625, 1000, 1250, 1500, 2000, 2250, 2500, 3250, 5000, 5250, 10000, 10250, 20000, 20250 ];
+			attribute<string> name := 'pot'+string(size)+'m';
+		}
+		
+		container Distmatrices_25m  := for_each_nex(Matrix/name, 'Distmatrices/Impl_25m/'+Matrix/name+'/PotRange', spoint);
+		container Distmatrices_100m := for_each_nex(Matrix/name, 'Distmatrices/Impl_100m/'+Matrix/name+'/PotRange', spoint);
+		
+		container Distmatrices 
+		{
+			unit<uint32> Dist2Range;
+			
+			template potrange
+			{
+				parameter<m>       gridgrootte;
+				parameter<m>       afkapstraal;
+				parameter<float32> straal       := afkapstraal / gridgrootte;
+				parameter<float32> oppervlakte  := pi()[float32] * straal^2f;
+				
+				unit<spoint> tmpRange := range(spoint, point_yx(-int16(straal), -int16(straal)), point_yx(int16(straal) + 1s, int16(straal) + 1s));
+				unit<spoint> potRange := tmpRange
+				{
+					attribute<Dist2Range> distMatr          := dist2(point_yx(0s, 0s, tmpRange), Dist2Range);
+					attribute<float32>    dist              := sqrt(float32(distMatr));
+					attribute<float32>    dist_scaled       := dist / straal;
+					
+					attribute<float32>    rev_dist          := max_elem(straal - dist, 0f);
+					parameter<float32>    rev_dist_max      := max(rev_dist);
+					attribute<float32>    rev_dist_scaled   := rev_dist / rev_dist_max;
+					attribute<float32>    AbsWeight         := distMatr[float32] <= (straal * straal) 
+																? distMatr[float32] != 0f 
+																	? 1f / (distMatr[float32] ^ 2f) 
+																	: 1f
+																: 0f;
+					attribute<float32>    AbsWeight_ln      := distMatr[float32] <= (straal * straal) 
+																? distMatr[float32] != 0f 
+																	? 1f / (distMatr[float32] / straal) 
+																	: 1f 
+																: 0f;
+					attribute<float32>    RelWeight         := scalesum(     AbsWeight , 1.0f);
+					attribute<float32>    RelWeightSqrt     := scalesum(Sqrt(AbsWeight), 1.0f);
+					attribute<float32>    Flat2             := float32(distMatr <= uint32(straal * straal));
+					attribute<float32>    Flat_Visualisatie := dist <= 1.5f ? 1f : 0f;
+					attribute<float32>    neighbourhood     := distMatr > 0 ? 1f : 0f;
+					parameter<float32>    oppervlakte       := sum(Flat2);
+					attribute<float32>    binair            := distMatr <= 100 ? 1f : 0f;
+				}
+			}
+			
+			container Impl_25m  := for_each_ne(Matrix/name, 'potrange(25[m],'+string(Matrix/size)+'[m])');
+			container Impl_100m := for_each_ne(Matrix/name, 'potrange(100[m],'+string(Matrix/size)+'[m])');
+		}	
 	}
 	
 	#include<Classifications.dms>

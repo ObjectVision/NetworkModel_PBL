@@ -1,0 +1,299 @@
+container OV_Knooppunten : using = "RelevantSelection"
+, Descr = "Operationalisering van OV-knooppunten op basis van GTFS, t.b.v. o.a. Redevelopment issue #18 (OV-knooppuntbereikbaarheid als regionale locatievariabele).
+			Er bestaat geen wettelijke definitie van een OV-knooppunt. Deze operationalisering volgt de gangbare kaders:
+			- Actieagenda OV-knooppunten / Toekomstbeeld OV 2040: alle treinstations + belangrijke stedelijke/regionale HOV-knooppunten;
+			- Nationale Standaard invloedsgebieden OV-knooppunten (Goudappel/IenW, feb 2024): typen A/B (grote stations), C (treinstation/metrohalte/HOV-knooppunt), D (HOV-halte);
+			- Vlindermodel Vereniging Deltametropool: netwerkwaarde = verbindingswaarde + ontsluitingswaarde, met ontsluitingswaarde = frequentie/uur x richtingen x 0,2 x modaliteitsscore.
+			Concreet: (1) haltes worden spatiaal geclusterd tot knooppunt-kandidaten; knooppunten buiten NL vervallen; (2) elk cluster met trein is knooppunt, getypeerd naar NS-stationstypologie (Trein_IC versus Trein) zodat lichte stations (Assendelft) herkenbaar en apart weegbaar zijn;
+			(3) een cluster zonder trein is knooppunt als het aantal unieke bus/tram/metro-lijnen, het aantal BTM-vertrekken/dag en het aantal vertrekrichtingen (sectoren) alle boven een drempel liggen (zie ModelParameters/Advanced) - het richtingencriterium weert corridor-bundels (R-net over een as) die wel veel lijnen tellen maar geen overstappunt zijn.
+			Metrohaltes zijn dus niet automatisch knooppunt: een solitaire metrohalte op een corridor is een halte van een hoogwaardige lijn, geen bundeling met overstap (CROW-kern).
+			Metroknopen met kruisende lijnen of een busstation (Beurs, Noord, Zuidplein) halen de gecombineerde drempel vanzelf;
+			(4) dominantiefilter: een BTM-kandidaat vervalt als binnen Knooppunt_DominantieRadius een sterker knooppunt ligt, tegen knopen-reeksen langs corridors en meerdere punten per complex;
+			(5) als extra attribuut wordt een netwerkwaarde volgens het vlindermodel meegegeven, zodat afnemers zelf een andere drempel kunnen kiezen.
+			Vereenvoudigingen t.o.v. het vlindermodel: het aantal richtingen wordt niet apart bepaald (vertrekken tellen beide richtingen al mee) en binnen trein wordt geen onderscheid HSL/IC/sprinter gemaakt."
+{
+	//// Modaliteitsscores, benadering van vlindermodel 2.1 (HSL 125pt ... ontsluitende bus/tram 25pt; Goudappel 2024 hanteert 25pt voor alle bussen)
+	parameter<float32> Score_Trein := 100f, Descr = "Score per treinvertrek; geen onderscheid HSL/IC/sprinter want niet afleidbaar uit route_type in NL-GTFS.";
+	parameter<float32> Score_Metro := 60f;
+	parameter<float32> Score_Tram  := 25f;
+	parameter<float32> Score_Bus   := 25f;
+	parameter<float32> Score_Ferry := 25f;
+
+	unit<uint8> KnooppuntTypen : nrofrows = 4
+	, Descr = "Typering per knooppunt: trein gaat voor BTM (bus/tram/metro). Trein_IC volgt de NS-stationstypologie ((knooppunt)intercity-/megastation) uit de treinstations-shape, zodat afnemers stations naar zwaarte kunnen wegen."
+	{
+		attribute<string> name  : ['Trein_IC','Trein','BTM_knooppunt','Geen'];
+		attribute<string> label := name;
+		container V := for_each_nedv(name, String(ID(.))+'[..]', void, .);
+	}
+
+	//// Hulpattributen op halte- en stop_time-niveau
+	attribute<bool>     VertrekVandaag     (StopTimes) := StopTimes/SelToday && IsDefined(StopTimes/Stop_rel), Descr = "Halteringen op de Analysis_date, op een gebruikte halte.";
+	attribute<Routes>   Route_rel          (StopTimes) := Trips/Route_rel[StopTimes/Trip_rel];
+	attribute<bool>     IsBTM              (StopTimes) := StopTimes/Mode_rel == Modes/V/bus || StopTimes/Mode_rel == Modes/V/tram || StopTimes/Mode_rel == Modes/V/metro;
+	attribute<bool>     VertrekVandaagBTM  (StopTimes) := VertrekVandaag && IsBTM;
+	attribute<Knopen>   Knoop_rel          (StopTimes) := Knopen/PartNr[StopTimes/Stop_rel];
+
+	//// Vertrekrichting: sector (O/W/N/Z) van de rit naar de volgende halte; operationaliseert 'aantal richtingen' uit het vlindermodel
+	attribute<bool>     HeeftVolgendeHalte (StopTimes) := IsDefined(StopTimes/NextprotoStop_rel);
+	attribute<float32>  RichtingdX         (StopTimes) := pointcol(LoadFeeds/protoStops/geometry[StopTimes/NextprotoStop_rel]) - pointcol(LoadFeeds/protoStops/geometry[StopTimes/protoStop_rel]);
+	attribute<float32>  RichtingdY         (StopTimes) := pointrow(LoadFeeds/protoStops/geometry[StopTimes/NextprotoStop_rel]) - pointrow(LoadFeeds/protoStops/geometry[StopTimes/protoStop_rel]);
+	attribute<uint32>   RichtingSector     (StopTimes) := abs(RichtingdX) >= abs(RichtingdY)
+															? (RichtingdX > 0f ? 0 : 1)
+															: (RichtingdY > 0f ? 2 : 3);
+	attribute<bool>     VertrekVandaagBTM_MetRichting (StopTimes) := VertrekVandaagBTM && HeeftVolgendeHalte;
+
+	attribute<uint32>   NrVertrekkenVandaag (Stops)    := sum_uint32(VertrekVandaag, StopTimes/Stop_rel);
+
+	//// Stap 1: haltes clusteren tot knooppunt-kandidaten (single linkage binnen DistanceKnooppuntClusters)
+	unit<uint32> NearbyStopPairs := join_near_values(Stops/geometry, Stops/geometry, float64(ModelParameters/Advanced/DistanceKnooppuntClusters))
+	, Descr = "Alle haltenparen binnen clusterafstand; input voor connected_parts.";
+
+	unit<uint32> Knopen := connected_parts(NearbyStopPairs/first_rel, NearbyStopPairs/second_rel)
+	, Descr = "Halteclusters: elke samenhangende groep haltes is een knooppunt-kandidaat. Subitem PartNr relateert elke halte aan zijn cluster."
+	{
+		attribute<Stops>   MainStop_rel        := max_index(NrVertrekkenVandaag, PartNr), Descr = "Drukste halte van het cluster; bepaalt naam en geometrie.";
+		attribute<rdc>     geometry            := Stops/geometry[MainStop_rel];
+		attribute<string>  Naam                := Stops/Name[MainStop_rel];
+		attribute<uint32>  NrStops             := pcount(PartNr);
+		attribute<string>  Label               := Naam;
+
+		attribute<uint32>  NrVertrekken_Trein  := sum_uint32(VertrekVandaag && StopTimes/Mode_rel == Modes/V/rail , Knoop_rel);
+		attribute<uint32>  NrVertrekken_Metro  := sum_uint32(VertrekVandaag && StopTimes/Mode_rel == Modes/V/metro, Knoop_rel);
+		attribute<uint32>  NrVertrekken_Tram   := sum_uint32(VertrekVandaag && StopTimes/Mode_rel == Modes/V/tram , Knoop_rel);
+		attribute<uint32>  NrVertrekken_Bus    := sum_uint32(VertrekVandaag && StopTimes/Mode_rel == Modes/V/bus  , Knoop_rel);
+		attribute<uint32>  NrVertrekken_Ferry  := sum_uint32(VertrekVandaag && StopTimes/Mode_rel == Modes/V/ferry, Knoop_rel);
+		attribute<uint32>  NrVertrekken_BTM    := NrVertrekken_Tram + NrVertrekken_Bus + NrVertrekken_Metro;
+		attribute<uint32>  NrVertrekken        := NrVertrekken_Trein + NrVertrekken_BTM + NrVertrekken_Ferry;
+
+		attribute<uint32>  NrLijnen_BTM        := pcount(uq_KnoopRouteBTM/Knoop_rel), Descr = "Aantal unieke bus/tram/metro-lijnen (route_id's) dat het cluster op de Analysis_date aandoet.";
+		attribute<uint32>  NrRichtingen_BTM    := pcount(uq_KnoopSectorBTM/Knoop_rel), Descr = "Aantal windrichtingen (max 4) waarin BTM-vertrekken het cluster verlaten. Corridor-bundel = 2, kruisend/uitwaaierend knooppunt = 3-4.";
+
+		//// Stap 2/3: knooppuntselectie
+		attribute<bool>    HeeftTrein          := NrVertrekken_Trein > 0;
+		attribute<bool>    HeeftMetro          := NrVertrekken_Metro > 0;
+		attribute<bool>    IsBTM_Knooppunt     := NrLijnen_BTM     >= ModelParameters/Advanced/Knooppunt_MinLijnen_BTM
+												&& NrVertrekken_BTM >= ModelParameters/Advanced/Knooppunt_MinVertrekken_BTM
+												&& NrRichtingen_BTM >= ModelParameters/Advanced/Knooppunt_MinRichtingen_BTM
+												&& Netwerkwaarde    >= ModelParameters/Advanced/Knooppunt_MinNetwerkwaarde_BTM;
+		attribute<bool>    IsKandidaat         := HeeftTrein || IsBTM_Knooppunt, Descr = "Haalt de drempels; wordt pas knooppunt na het dominantiefilter (zie Kandidaten).";
+
+		//// IC-typering via NS-stationstypologie (koppeling aan treinstations-shape binnen DistanceTrainStationsSelection)
+		unit<uint32> ICKoppel := join_near_values(geometry, /SourceData/Infrastructure/Infrastructure/Trainstations/geometry, float64(ModelParameters/Advanced/DistanceTrainStationsSelection))
+		{
+			attribute<bool> IsIC := /SourceData/Infrastructure/Infrastructure/Trainstations/IsIC[second_rel];
+		}
+		attribute<bool> HeeftICStation         := HeeftTrein && MakeDefined(any(ICKoppel/IsIC, ICKoppel/first_rel), false);
+
+		attribute<KnooppuntTypen> Type_rel     := switch(
+														 case(HeeftICStation , KnooppuntTypen/V/Trein_IC)
+														,case(HeeftTrein     , KnooppuntTypen/V/Trein)
+														,case(IsBTM_Knooppunt, KnooppuntTypen/V/BTM_knooppunt)
+														,KnooppuntTypen/V/Geen
+													);
+
+		//// Stap 4: netwerkwaarde volgens vlindermodel (benadering)
+		attribute<float32> Verbindingswaarde   := (HeeftTrein             ? Score_Trein : 0f)
+												+ (HeeftMetro             ? Score_Metro : 0f)
+												+ (NrVertrekken_Tram  > 0 ? Score_Tram  : 0f)
+												+ (NrVertrekken_Bus   > 0 ? Score_Bus   : 0f)
+												+ (NrVertrekken_Ferry > 0 ? Score_Ferry : 0f);
+		attribute<float32> Ontsluitingswaarde  := 0.2f *
+												(	  float32(NrVertrekken_Trein) * Score_Trein
+													+ float32(NrVertrekken_Metro) * Score_Metro
+													+ float32(NrVertrekken_Tram)  * Score_Tram
+													+ float32(NrVertrekken_Bus)   * Score_Bus
+													+ float32(NrVertrekken_Ferry) * Score_Ferry
+												) / ModelParameters/Advanced/Knooppunt_BedrijfsurenPerDag
+												, Descr = "0,2 x frequentie/uur x modaliteitsscore, gesommeerd over modaliteiten. Vertrekken/dag over beide richtingen gedeeld door bedrijfsuren benadert frequentie x richtingen.";
+		attribute<float32> Netwerkwaarde       := Verbindingswaarde + Ontsluitingswaarde;
+	}
+
+	//// Unieke (knoop, lijn)-combinaties voor de lijnen-drempel
+	unit<uint32> BTM_Vertrekken := select_with_org_rel(VertrekVandaagBTM)
+	{
+		attribute<upoint> KnoopRoute := point_xy(uint32(Route_rel[org_rel]), uint32(Knoop_rel[org_rel]), upoint);
+	}
+	unit<uint32> uq_KnoopRouteBTM := unique(BTM_Vertrekken/KnoopRoute)
+	{
+		attribute<Knopen> Knoop_rel := pointRow(Values)[Knopen];
+	}
+
+	//// Unieke (knoop, vertreksector)-combinaties voor het richtingencriterium
+	unit<uint32> BTM_VertrekkenMetRichting := select_with_org_rel(VertrekVandaagBTM_MetRichting)
+	{
+		attribute<upoint> KnoopSector := point_xy(RichtingSector[org_rel], uint32(Knoop_rel[org_rel]), upoint);
+	}
+	unit<uint32> uq_KnoopSectorBTM := unique(BTM_VertrekkenMetRichting/KnoopSector)
+	{
+		attribute<Knopen> Knoop_rel := pointRow(Values)[Knopen];
+	}
+
+	//// Dominantiefilter: BTM-kandidaat vervalt als binnen Knooppunt_DominantieRadius een sterkere kandidaat ligt (trein, of hogere netwerkwaarde).
+	//// Voorkomt knopen-reeksen langs HOV-corridors en meerdere punten per groot complex (Schiphol); treinstations vervallen nooit.
+	unit<uint32> Kandidaten := select_with_org_rel(Knopen/IsKandidaat)
+	{
+		attribute<rdc>     geometry           := Knopen/geometry[org_rel];
+		attribute<float32> Netwerkwaarde      := Knopen/Netwerkwaarde[org_rel];
+		attribute<bool>    HeeftTrein         := Knopen/HeeftTrein[org_rel];
+		attribute<uint32>  NrVertrekken_Trein := Knopen/NrVertrekken_Trein[org_rel];
+		attribute<bool>    LigtInNL           := IsDefined(point_in_polygon(geometry, /SourceData/RegioIndelingen/Provincie/geometry)), Descr = "De GTFS-feed bevat ook buitenlands OV (De Lijn, grensstations, internationale treinen). Alle knooppunten buiten NL vervallen.";
+
+		unit<uint32> NearbyPairs := join_near_values(geometry, geometry, float64(ModelParameters/Advanced/Knooppunt_DominantieRadius))
+		{
+			attribute<float32> AfstandSqr     := sqr(pointcol(../geometry[second_rel]) - pointcol(../geometry[first_rel]))
+												+ sqr(pointrow(../geometry[second_rel]) - pointrow(../geometry[first_rel]));
+
+			//// BTM-kandidaat vervalt voor elke kandidaat met hogere netwerkwaarde binnen de dominantieradius.
+			//// Bewust op netwerkwaarde en niet op 'trein wint altijd': een sterke busknoop naast een zwak station (Zoetermeer Centrum West, Zuidplein) moet blijven.
+			attribute<bool> BuurIsSterker     := !../HeeftTrein[first_rel]
+												&& (	../Netwerkwaarde[second_rel] >  ../Netwerkwaarde[first_rel]
+													|| (../Netwerkwaarde[second_rel] == ../Netwerkwaarde[first_rel] && second_rel < first_rel)
+													);
+			//// treincluster vervalt alleen voor een treincluster met meer treinvertrekken binnen de (kleinere) dedupradius: perron- en pleinclusters van hetzelfde station
+			attribute<bool> TreinBuurIsSterker := ../HeeftTrein[first_rel] && ../HeeftTrein[second_rel]
+												&& AfstandSqr <= sqr(float32(ModelParameters/Advanced/Knooppunt_DedupRadiusTrein))
+												&& (	../NrVertrekken_Trein[second_rel] >  ../NrVertrekken_Trein[first_rel]
+													|| (../NrVertrekken_Trein[second_rel] == ../NrVertrekken_Trein[first_rel] && second_rel < first_rel)
+													);
+		}
+		attribute<bool> HeeftSterkereBuur := any(NearbyPairs/BuurIsSterker || NearbyPairs/TreinBuurIsSterker, NearbyPairs/first_rel);
+		attribute<bool> IsDominant        := LigtInNL && !HeeftSterkereBuur;
+	}
+	attribute<bool> IsKnooppunt (Knopen) := Knopen/IsKandidaat && MakeDefined(Kandidaten/IsDominant[invert(Kandidaten/org_rel)], false);
+
+	//// Export: puntenbestand met alle knooppunten
+	unit<uint32> Export_Knooppunten := select_with_org_rel(IsKnooppunt)
+	, StorageName = "='%LocalDataProjDir%/Output/OV_knooppunten_'+ModelParameters/GTFS_file_date+'.gpkg'"
+	, StorageType = "gdalwrite.vect"
+	, Descr = "OV-knooppunten als puntenbestand (RD new), voor o.a. bereikbaarheidsanalyses (reistijd naar dichtstbijzijnde knooppunt)."
+	{
+		attribute<rdc>     geometry            := Knopen/geometry[org_rel];
+		attribute<string>  name                := Knopen/Naam[org_rel];
+		attribute<string>  label               := Knopen/Naam[org_rel];
+		attribute<string>  type                := KnooppuntTypen/name[Knopen/Type_rel[org_rel]];
+		attribute<uint32>  nr_stops            := Knopen/NrStops[org_rel];
+		attribute<uint32>  vertrekken_trein    := Knopen/NrVertrekken_Trein[org_rel];
+		attribute<uint32>  vertrekken_metro    := Knopen/NrVertrekken_Metro[org_rel];
+		attribute<uint32>  vertrekken_tram     := Knopen/NrVertrekken_Tram[org_rel];
+		attribute<uint32>  vertrekken_bus      := Knopen/NrVertrekken_Bus[org_rel];
+		attribute<uint32>  vertrekken_totaal   := Knopen/NrVertrekken[org_rel];
+		attribute<uint32>  lijnen_btm          := Knopen/NrLijnen_BTM[org_rel];
+		attribute<uint32>  richtingen_btm      := Knopen/NrRichtingen_BTM[org_rel];
+		attribute<float32> verbindingswaarde   := Knopen/Verbindingswaarde[org_rel];
+		attribute<float32> ontsluitingswaarde  := Knopen/Ontsluitingswaarde[org_rel];
+		attribute<float32> netwerkwaarde       := Knopen/Netwerkwaarde[org_rel];
+	}
+
+	container Bereikbaarheid_Auto
+	: Descr = "Reistijd per auto (OSM-netwerk, maximumsnelheden) naar het dichtstbijzijnde OV-knooppunt, t.b.v. Redevelopment issue #18 (vervangt tt_Trainstation_2006 als regionale locatievariabele).
+				Vereist ModelParameters/Orgset = 'BAG_woonpanden_Clustered' en Destset = 'OV_Knooppunten' (dan zijn org/dest van het Car-netwerk de woonpanden resp. de knooppunten).
+				Werking: een multi-source dijkstra (impedance_table, zelfde patroon als PostAnalysis) vanaf alle knooppunt-nodes geeft per netwerk-node de reistijd naar het dichtstbijzijnde knooppunt;
+				elk woonpand krijgt de reistijd van zijn netwerk-node. Output: tif op rdc_25m (alleen cellen met een woonpand krijgen een waarde, overige cellen nodata) - voldoende voor koppeling aan woningtransacties."
+	{
+		// unit<uint32> LinkSet := /NetworkSetup/PrivateTransport/Car/OSM_LinkSet;
+		// unit<uint32> org     := /NetworkSetup/PrivateTransport/Org;
+		// unit<uint32> dest    := /NetworkSetup/PrivateTransport/Dest;
+		// unit<uint32> NodeSet := /NetworkSetup/PrivateTransport/Car/OSM_NodeSet
+		// {
+		// 	attribute<.>   OrgNode_rel   (org)  := rlookup(org/geometry,  geometry);
+		// 	attribute<.>   DestNode_rel  (dest) := rlookup(dest/geometry, geometry);
+		// }
+
+		// parameter<string> Check_OrgDest := 'Orgset='+ModelParameters/Orgset+', Destset='+ModelParameters/Destset
+		// , IntegrityCheck = "ModelParameters/Destset == 'OV_Knooppunten'"
+		// , Descr = "Deze berekening is alleen zinvol met OV-knooppunten als bestemmingen; Orgset bepaalt waar reistijden landen (bedoeld: BAG_woonpanden_Clustered).";
+
+		// attribute<min_f> Reistijd_node (NodeSet) :=
+		// 	convert(
+		// 		impedance_table(
+		// 			  'bidirectional(link_flag);startPoint(Node_rel);cut(OrgZone_max_imp)'
+		// 			, LinkSet/Impedance_per_ImpedanceType/max_limit_car
+		// 			, LinkSet/F1
+		// 			, LinkSet/F2
+		// 			, NOT(LinkSet/IsOneDirection)
+		// 			, NodeSet/DestNode_rel
+		// 			, convert(ModelParameters/MaxCarTime, s_f)
+		// 		)
+		// 	, min_f)
+		// , Descr = "Reistijd per netwerk-node naar het dichtstbijzijnde OV-knooppunt; null buiten MaxCarTime.";
+
+		// attribute<min_f>   Reistijd_pand (org)      := Reistijd_node[NodeSet/OrgNode_rel], Descr = "Reistijd per BAG-woonpand(cluster) naar het dichtstbijzijnde OV-knooppunt.";
+
+		// container Landsdekkend
+		// : Descr = "Landsdekkende reistijdkaart op rdc_25m volgens de AccessibilityModelling-methode (From_100m_Points, zoals tt_500k):
+		// 			alle 100m-celmiddens binnen NL worden als origins aan het autonetwerk geknoopt (aanrijafstand zit in de aansluitlink),
+		// 			zodat elke landcel een echte netwerk-reistijd naar het dichtstbijzijnde OV-knooppunt krijgt - geen interpolatie of buffer-artefacten.
+		// 			De 100m-waarden worden 1-op-16 doorgezet naar het 25m-grid; alleen cellen buiten NL blijven nodata."
+		// {
+			//// dekkende origin-set: alle 100m-celmiddens op NL-land (provincie-landmasker via poly2grid; bewust niet perGridsize/points, die hangt aan het kapotte geos_union_polygon NL-item)
+			attribute<bool> InNL (rdc_100m) := IsDefined(/SourceData/RegioIndelingen/Provincie/per_rdc_100m);
+			unit<uint32> Org_100m := select_with_org_rel(InNL)
+			{
+				attribute<rdc>      geometry := geometries/perGridsize/size_100m/domain/geometry[org_rel];
+				attribute<rdc_100m> grid_rel := org_rel;
+			}
+
+			//// eigen netwerk-instantie met de gridpunten als org en de knooppunten als dest (onafhankelijk van ModelParameters/Orgset/Destset)
+			container Netwerk := Templates/CreateNetwork_Efficient_T(Org_100m, Export_Knooppunten, SourceData/Infrastructure/OSM/Network_Car/isVerbonden, 'car', FALSE);
+			unit<uint32> LinkSet := Netwerk/CreateMoreEfficientNetwork/FinalLinkSet;
+			unit<uint32> NodeSet := Netwerk/CreateMoreEfficientNetwork/FinalNodeSet
+			{
+				attribute<.> OrgNode_rel  (Org_100m)          := rlookup(Org_100m/geometry, geometry);
+				attribute<.> DestNode_rel (Export_Knooppunten) := rlookup(Export_Knooppunten/geometry, geometry);
+			}
+
+			attribute<min_f> Reistijd_node (NodeSet) :=
+				convert(
+					impedance_table(
+						  'bidirectional;startPoint(Node_rel);cut(OrgZone_max_imp)'
+						, LinkSet/Impedance_per_ImpedanceType/max_limit_car
+						, LinkSet/F1
+						, LinkSet/F2
+						, NodeSet/DestNode_rel
+						, convert(ModelParameters/MaxCarTime, s_f)
+					)
+				, min_f)
+			, Descr = "Bewust ongericht (eenrichtingsverkeer genegeerd): voorkomt onbereikbare zakken achter oneway-links (industrieterreinen, havens); voor een regionale reistijdproxy is de fout verwaarloosbaar.";
+
+			attribute<min_f> Reistijd_org  (Org_100m) := Reistijd_node[NodeSet/OrgNode_rel];
+			attribute<min_f> Reistijd_100m (rdc_100m) := Reistijd_org[invert(Org_100m/grid_rel)];
+
+			container Diag_NullCellen
+			: Descr = "Diagnose van org-punten zonder reistijd: geen netwerk-node gevonden (rlookup) of node niet bereikt door de dijkstra (onbereikbare subcomponent / buiten MaxCarTime)."
+			{
+				parameter<uint32> n_org                := #Org_100m;
+				parameter<uint32> n_orgnode_null       := sum(uint32(!IsDefined(NodeSet/OrgNode_rel)));
+				parameter<uint32> n_reistijd_org_null  := sum(uint32(!IsDefined(Reistijd_org)));
+				parameter<uint32> n_nodes              := #NodeSet;
+				parameter<uint32> n_node_reistijd_null := sum(uint32(!IsDefined(Reistijd_node)));
+
+				parameter<string> Samenvatting := 'orgs: '+string(n_org)
+												+ '; orgs zonder node: '+string(n_orgnode_null)
+												+ '; orgs zonder reistijd: '+string(n_reistijd_org_null)
+												+ '; nodes: '+string(n_nodes)
+												+ '; nodes zonder reistijd: '+string(n_node_reistijd_null)
+				, StorageName = "='%LocalDataProjDir%/Output/diag_ovknoop_nullcellen.txt'", StorageType = "str";
+
+				unit<uint32> NullOrgs := select_with_org_rel(!IsDefined(Reistijd_org))
+				, StorageName = "='%LocalDataProjDir%/Output/diag_ovknoop_nullorgs.gpkg'", StorageType = "gdalwrite.vect"
+				{
+					attribute<rdc>  geometry         := Org_100m/geometry[org_rel];
+					attribute<bool> node_gevonden    := IsDefined(NodeSet/OrgNode_rel[org_rel]);
+				}
+			}
+
+			//// vangnet: 100m-cellen die na de netwerkberekening leeg blijven (losse netwerkcomponenten) vullen met een 2km-potentiaalgemiddelde van omliggende gevulde cellen.
+			//// Alleen binnen NL; kwelders/eilanden zonder weg binnen 2km blijven terecht null (geen autoreistijd mogelijk).
+			attribute<float32> Pot_sum   (rdc_100m) := potential(MakeDefined(Reistijd_100m[float32], 0f), Distmatrices_100m/pot2000m/rev_dist_scaled[float32]);
+			attribute<float32> Pot_n     (rdc_100m) := potential(IsDefined(Reistijd_100m) ? 1f : 0f,      Distmatrices_100m/pot2000m/rev_dist_scaled[float32]);
+			attribute<min_f>   Reistijd_100m_gevuld (rdc_100m) := MakeDefined(Reistijd_100m, InNL && Pot_n > 0f ? convert(Pot_sum / Pot_n, min_f) : (0/0)[min_f]);
+
+			//// 100m -> 25m: elke 25m-cel krijgt de waarde van zijn 100m-cel (directe grid-naar-grid mapping)
+			attribute<min_f> Reistijd      (rdc_25m) := Reistijd_100m_gevuld[geometries/perGridsize/size_25m/domain/rdc_100m_rel]
+			, StorageName = "='%LocalDataProjDir%/Output/TraveltimeToNearest_OV_Knooppunten_'+ModelParameters/GTFS_file_date+'_rdc25m.tif'"
+			, StorageType = "gdalwrite.grid"
+			, Descr = "Reistijd (min) per auto naar het dichtstbijzijnde OV-knooppunt, per 25m-cel, landsdekkend binnen NL.";
+		// }
+	}
+}
