@@ -1,81 +1,91 @@
 container LoadFeeds
 : Descr = "Load data from GTFS-files"
 { 
-	parameter<bool>              StoreFSS         := True, ExplicitSuppliers = "= asList('WriteFSS/'+File_Structure/Name+'/MakeFSS',';')";
+	parameter<bool>              Store         := True, ExplicitSuppliers = "= asList('Write/'+File_Structure/Name+'/Data',';')";
 	
 	unit<uint32>                 File_Structure   : NrOfRows = 8
 	{
-		// attribute<string> Name: ['agency','calendar','calendar_dates','routes','shapes','stop_times','stops','transfers','trips'];
 		attribute<string> Name: ['agency','calendar','calendar_dates','routes','shapes','stop_times','stops','trips'];
 	}
 	
 	unit<uint32>                 Attribute_Structure   : NrOfRows = 32
 	{
-		// attribute<string> Name: ['agency_name','agency_id','stop_id','stop_lat','stop_lon','stop_name','route_id','route_type','route_short_name','route_long_name','trip_id','route_id','service_id','stop_sequence','departure_time','arrival_time','monday','tuesday','wednesday','thursday','friday','saturday','sunday','start_date','end_date','date','exception_type','wheelchair_boarding', 'shape_id', 'shape_pt_sequence', 'shape_pt_lat', 'shape_pt_lon', 'shape_dist_traveled'];
 		attribute<string> Name: ['agency_name','agency_id','stop_id','stop_lat','stop_lon','stop_name','route_id','route_type','route_short_name','route_long_name','trip_id','route_id','service_id','stop_sequence','departure_time','arrival_time','monday','tuesday','wednesday','thursday','friday','saturday','sunday','start_date','end_date','date','exception_type', 'shape_id', 'shape_pt_sequence', 'shape_pt_lat', 'shape_pt_lon', 'shape_dist_traveled'];
 	}
 	
-	container WriteFSS := 
+	container Load := 
 		for_each_ne(
 			File_Structure/Name
-			, 'Templates/LoadCSVThroughGDAL_T(File_Structure,'+string(id(File_Structure))+')'
-		);
-	
-	container ReadFSS := 
-		for_each_ne(
-			File_Structure/Name
-			, 'ReadFSS_T(File_Structure,'+string(id(File_Structure))+')'
+			, 'LoadCSVThroughGDAL_T(File_Structure,'+string(id(File_Structure))+')'
 		);
 		
-	Template ReadFSS_T
+	Template LoadCSVThroughGDAL_T
 	{
 		unit<uint32> File_Structure;
 		parameter<File_Structure> inFile;
+		//
 		
-		container read_domain
-		: StorageName = "= '%NetworkModel_dir%/Infrastructuur/GTFS/'+ModelParameters/GTFS_file_date+'/fss/'+File_Structure/Name[inFile]+'_domain.fss'"
-		, StorageReadOnly = "True"
-		{
-			unit<uint32> domain;
-		}
-		
-		container data := 
-			for_each_ndv(
-				Attribute_Structure/name
-				, read_domain/domain
-				, string
-			)
-		, StorageName = "= '%NetworkModel_dir%/Infrastructuur/GTFS/'+ModelParameters/GTFS_file_date+'/fss/'+File_Structure/Name[inFile]+'.fss'"
+		unit<uint32> ReadCSV
+		: StorageName     = "= '%NetworkModel_dir%/Infrastructuur/GTFS/'+ModelParameters/GTFS_file_date+'/'+File_Structure/Name[inFile]+'.csv'"
+		, StorageType     = "gdal.vect"
 		, StorageReadOnly = "True";
+
+		unit<uint32> CSV_attributes := SubItem_PropValues(ReadCSV,'name');
 	}
-	
-	unit<uint32> Calendar_dates := ReadFSS/Calendar_dates/read_domain/domain  
+
+	container Write := 
+		for_each_ne(
+			File_Structure/Name
+			, 'LoadDataForWriting_T('+string(id(File_Structure))+')'
+		), StorageName = "= '%NetworkModel_dir%/Infrastructuur/GTFS/'+ModelParameters/GTFS_file_date+'.mmd'";
+		
+	Template LoadDataForWriting_T
+	{
+		parameter<File_Structure> inFile : DisableStorage = "TRUE";
+		//
+		container Data := 
+			for_each_nedv(
+				CSV_attributes/name
+				, 'Load/'+File_Structure/Name[inFile]+'/ReadCSV/' + CSV_attributes/name
+				, Domain
+				, string
+			);
+		
+		unit<uint32> Domain         := ='Load/'+File_Structure/Name[inFile]+'/ReadCSV';
+		unit<uint32> CSV_attributes := ='Load/'+File_Structure/Name[inFile]+'/CSV_attributes', DisableStorage = "TRUE";
+	}
+		
+	container Read 
+	: StorageName = "= '%NetworkModel_dir%/Infrastructuur/GTFS/'+ModelParameters/GTFS_file_date+'.mmd'"
+	, StorageReadOnly = "true";
+		
+	unit<uint32> Calendar_dates := Read/Calendar_dates/domain  
 	, Descr = "Exceptions for the services defined in the calendar.txt."
 	{
-		attribute<uint32>   nDate       := uint32(ReadFSS/Calendar_dates/data/date), Descr = "Date when service exception occurs";
-		attribute<uint32>   nType       := uint32(ReadFSS/Calendar_dates/data/exception_type), Descr = "exception_type = 1 -> Service has been added for the specified date; exception_type = 2 -> Service has been removed for the specified date.";
-		attribute<Services> Services_rel := rlookup(ReadFSS/Calendar_dates/data/service_id, Services/Values), Descr = "Identifies a set of dates when a service exception occurs for one or more routes.";
+		attribute<uint32>   nDate       := uint32(Read/Calendar_dates/data/date), Descr = "Date when service exception occurs";
+		attribute<uint32>   nType       := uint32(Read/Calendar_dates/data/exception_type), Descr = "exception_type = 1 -> Service has been added for the specified date; exception_type = 2 -> Service has been removed for the specified date.";
+		attribute<Services> Services_rel := rlookup(Read/Calendar_dates/data/service_id, Services/Values), Descr = "Identifies a set of dates when a service exception occurs for one or more routes.";
 		attribute<uint32>   Today       := uint32(uint32(ModelParameters/Analysis_date) = nDate);  
 		attribute<uint32>   Yesterday   := uint32(uint32(ModelParameters/Analysis_date) - 1 = nDate);
 	}
 	
-	unit<uint32> protoStops := ReadFSS/Stops/read_domain/domain
+	unit<uint32> protoStops := Read/Stops/domain
 	{
-		attribute<float64>           stop_lat            := float64(ReadFSS/Stops/data/stop_lat);
-		attribute<float64>           stop_lon            := float64(ReadFSS/Stops/data/stop_lon);
-		attribute<string>            stop_id             := ReadFSS/Stops/data/stop_id;
-		attribute<string>            stop_name           := ReadFSS/Stops/data/stop_name;
+		attribute<float64>           stop_lat            := float64(Read/Stops/data/stop_lat);
+		attribute<float64>           stop_lon            := float64(Read/Stops/data/stop_lon);
+		attribute<string>            stop_id             := Read/Stops/data/stop_id;
+		attribute<string>            stop_name           := Read/Stops/data/stop_name;
 		attribute<dpoint>            point_wgs           := point_xy(float64(stop_lon), float64(stop_lat), wgs84_base);
 		attribute<rdc>               geometry            := LatLongWgs842RD(point_wgs[fpoint], rdc);
 		attribute<string>            Label               := stop_name;
 		attribute<bool>              StopUsed            := (any(protoStopTimes/SelToday, protoStopTimes/protoStop_rel) || any(protoStopTimes/SelYesterday, protoStopTimes/protoStop_rel));
 	}
 	
-	unit<uint32> protoTrips  := ReadFSS/Trips/read_domain/domain
+	unit<uint32> protoTrips  := Read/Trips/domain
 	{
-		attribute<string>                  trip_id         := ReadFSS/Trips/data/trip_id;
-		attribute<uint32>                  shape_id        := uint32(ReadFSS/Trips/data/shape_id);
-		attribute<string>                  service_id      := ReadFSS/Trips/data/service_id;
+		attribute<string>                  trip_id         := Read/Trips/data/trip_id;
+		attribute<uint32>                  shape_id        := uint32(Read/Trips/data/shape_id);
+		attribute<string>                  service_id      := Read/Trips/data/service_id;
 		attribute<Services>                Services_rel     := rlookup(service_id, Services/Values);
 		attribute<bool>                    sel_today       := Services/Today_exc[Services_rel] = 1;
 		attribute<bool>                    sel_yesterday   := Services/Yesterday_exc[Services_rel] = 1;
@@ -83,17 +93,16 @@ container LoadFeeds
 		attribute<shapes>                  shape_rel       := rlookup(shape_id, shapes/shape_id);
 	}
 	
-	
-	unit<uint32> protoStopTimes := ReadFSS/Stop_times/read_domain/domain //StopTimes
+	unit<uint32> protoStopTimes := Read/Stop_times/domain //StopTimes
 	, Descr = "Times that a vehicle arrives at and departs from stops for each trip."
 	{
-		attribute<protoTrips>              protoTrip_rel            := rlookup(ReadFSS/Stop_times/data/trip_id, protoTrips/trip_id);
+		attribute<protoTrips>              protoTrip_rel            := rlookup(Read/Stop_times/data/trip_id, protoTrips/trip_id);
 		attribute<bool>                    SelToday                 := protoTrips/sel_today[protoTrip_rel];
 		attribute<bool>                    SelYesterday             := protoTrips/sel_yesterday[protoTrip_rel] && (Time/Day[departureTime/TimesVector/Time_rel] > 0);
-		attribute<protoStops>              protoStop_rel            := rlookup(ReadFSS/Stop_times/data/stop_id, protoStops/stop_id);
+		attribute<protoStops>              protoStop_rel            := rlookup(Read/Stop_times/data/stop_id, protoStops/stop_id);
 		attribute<protoStops>              NextprotoStop_rel        := protoStop_rel[NextStopId];
-		attribute<uint32>                  Stop_Sequence            := uint32(ReadFSS/Stop_times/data/stop_sequence);
-		attribute<uint32>                  shape_dist_traveled      := uint32(ReadFSS/Stop_times/data/shape_dist_traveled);
+		attribute<uint32>                  Stop_Sequence            := uint32(Read/Stop_times/data/stop_sequence);
+		attribute<uint32>                  shape_dist_traveled      := uint32(Read/Stop_times/data/shape_dist_traveled);
 		attribute<uint32>                  next_shape_dist_traveled := shape_dist_traveled[NextStopId];
 		
 		attribute<upoint>                  Trip_x_Ordinal           := point_xy(Stop_Sequence, protoTrip_rel, upoint);
@@ -110,8 +119,8 @@ container LoadFeeds
 		// attribute<c_shape_seqnr>           c_shape_seqnr_rel      := rjoin(shape_dist_iden, shapes/shape_dist_iden, shapes/c_shape_seqnr_rel);
 		// attribute<c_shape_seqnr>           next_c_shape_seqnr_rel := c_shape_seqnr_rel[NextStopId];
 		
-		container departureTime := Templates/GTFS_getTimes_T(.,ReadFSS/Stop_times/data/departure_time);
-		container arrivalTime   := Templates/GTFS_getTimes_T(.,ReadFSS/Stop_times/data/arrival_time);
+		container departureTime := Templates/GTFS_getTimes_T(.,Read/Stop_times/data/departure_time);
+		container arrivalTime   := Templates/GTFS_getTimes_T(.,Read/Stop_times/data/arrival_time);
 	
 		container Yesterday 
 		{
@@ -175,15 +184,15 @@ container LoadFeeds
 		attribute<uint32>  Yesterday_exc := sum(Calendar_dates/Yesterday * Calendar_dates/nType, Calendar_dates/Services_rel);
 	}
 	
-	unit<uint32> Shapes := ReadFSS/Shapes/read_domain/domain
+	unit<uint32> Shapes := Read/Shapes/domain
 	, Descr = "Rules for mapping vehicle travel paths, sometimes referred to as route alignments."
 	{
-		attribute<uint32>  shape_id                      := uint32(ReadFSS/Shapes/data/shape_id);
-		attribute<uint32>  shape_pt_sequence             := uint32(ReadFSS/Shapes/data/shape_pt_sequence);
+		attribute<uint32>  shape_id                      := uint32(Read/Shapes/data/shape_id);
+		attribute<uint32>  shape_pt_sequence             := uint32(Read/Shapes/data/shape_pt_sequence);
 		attribute<shape_seqnrs>  shape_seqnrs_rel        := rlookup(shape_pt_sequence, id(shape_seqnrs));
-		attribute<float64> shape_pt_lat                  := float64(ReadFSS/Shapes/data/shape_pt_lat);
-		attribute<float64> shape_pt_lon                  := float64(ReadFSS/Shapes/data/shape_pt_lon);
-		attribute<uint32>  shape_dist_traveled_cum       := uint32(ReadFSS/Shapes/data/shape_dist_traveled);
+		attribute<float64> shape_pt_lat                  := float64(Read/Shapes/data/shape_pt_lat);
+		attribute<float64> shape_pt_lon                  := float64(Read/Shapes/data/shape_pt_lon);
+		attribute<uint32>  shape_dist_traveled_cum       := uint32(Read/Shapes/data/shape_dist_traveled);
 		
 		attribute<uint32>  shape_dist_traveled_cum_prev  := shape_dist_traveled_cum[sub_or_null(id(.),1)];
 		attribute<uint32>  shape_id_prev                 := shape_id[sub_or_null(id(.),1)];
