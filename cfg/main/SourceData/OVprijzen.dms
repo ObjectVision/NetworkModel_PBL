@@ -11,10 +11,10 @@ container OVprijzen
 	// unit<uint32> Provincies        := SourceData/RegioIndelingen/Provincie;
 	unit<uint8>  Concessiegebieden := SourceData/RegioIndelingen/Concessiegebied;
 	
-	unit<uint8> FareTable := ='FareTable_'+ModelParameters/FareTable_year;
+	unit<uint8> FareTable := =ModelParameters/Advanced/PriceMethod == 'DOVA' ? 'FareTable_DOVA' : 'FareTable_'+ModelParameters/FareTable_year;
 	
 	unit<uint32> Read_DOVA_kmtarieven
-	: StorageName = "%ProjDir%/data/DOVA_Overzicht km-tarieven 2013-2025_edit.xlsx"
+	: StorageName = "%ProjDir%/data/DOVA_Overzicht km-tarieven 2013-2026_edit.xlsx"
 	, StorageType = "gdal.vect"
 	, StorageReadOnly = "true"
 	, SqlString   = "SELECT * FROM kmtarief"
@@ -39,7 +39,7 @@ container OVprijzen
 	}
 	
 	unit<uint32> Read_DOVA_basistarieven
-	: StorageName = "%ProjDir%/data/DOVA_Overzicht km-tarieven 2013-2025_edit.xlsx"
+	: StorageName = "%ProjDir%/data/DOVA_Overzicht km-tarieven 2013-2026_edit.xlsx"
 	, StorageType = "gdal.vect"
 	, StorageReadOnly = "true"
 	, SqlString   = "SELECT * FROM basistarief"
@@ -47,7 +47,38 @@ container OVprijzen
 		attribute<Euro>         FixedPrice       := ='y'+ModelParameters/FareTable_year+'[Euro]';
 		parameter<Euro>         FixedPrice_param := first(FixedPrice);
 	}
-	
+
+	unit<uint8> ModeKlasse : NrOfRows = 3
+	{
+		attribute<string> name : ['BTM','Rail','Ferry'], Descr = "Mode-klassen voor DOVA-prijzen: BTM=bus/tram/metro, Rail=regionale trein, Ferry=veer. NS-trein loopt via het L-net (NS-tariefstructuur), niet via deze FareTable.";
+	}
+
+	// Eén canonieke DOVA-rij per (concessie, mode-klasse) (kolom use_for_price=1 in de xlsx).
+	// Harmonisatie DOVA->shape-concessie via kolom Concessiegebied_model (byte-exact), mode-klasse via kolom Mode_klasse.
+	unit<uint32> Read_DOVA_kmtarieven_Priced := select_with_attr_by_cond(Read_DOVA_kmtarieven, uint8(Read_DOVA_kmtarieven/use_for_price) > 0b)
+	{
+		attribute<string>       MC_CG_key := Mode_klasse + '_' + AsItemName(Concessiegebied_model);
+	}
+
+	// FareTable uit DOVA-overzicht, gekeyd op (concessie x mode-klasse); geselecteerd wanneer ModelParameters/Advanced/PriceMethod == 'DOVA'.
+	// BTM (bus/tram/metro) krijgt het concessie-km-tarief; Rail (regionale trein) krijgt DOVA's aparte rail-km-tarief; Ferry idem waar beschikbaar.
+	// Ontbrekende (concessie,klasse)-combinaties vallen terug op het BTM-tarief van dezelfde concessie (MakeDefined).
+	unit<uint8> FareTable_DOVA := combine_uint8(Concessiegebieden, ModeKlasse)
+	{
+		attribute<string>       CG_name                := Concessiegebieden/name[first_rel];
+		attribute<string>       MC_name                := ModeKlasse/name[second_rel];
+		attribute<string>       MC_CG_key              := MC_name + '_' + CG_name;
+		attribute<Euro>         FixedPrice             := const(Read_DOVA_basistarieven/FixedPrice_param, .);
+		attribute<Euro_km>      VariablePrice_specific := rjoin(MC_CG_key,      Read_DOVA_kmtarieven_Priced/MC_CG_key, Read_DOVA_kmtarieven_Priced/VariablePrice);
+		attribute<Euro_km>      VariablePrice_BTM      := rjoin('BTM_'+CG_name, Read_DOVA_kmtarieven_Priced/MC_CG_key, Read_DOVA_kmtarieven_Priced/VariablePrice);
+		attribute<Euro_km>      VariablePrice          := MakeDefined(VariablePrice_specific, VariablePrice_BTM);
+		// dummy-identifiers voor compatibiliteit met FareTable_rel_initial/augmented in OD_extra_attributen (niet gebruikt in DOVA-modus).
+		attribute<string>       Mode_Agency_CG_Lijn_identifier := MC_CG_key;
+		attribute<string>       Mode_Agency_CG_identifier      := MC_CG_key;
+		attribute<string>       Mode_Agency_identifier         := MC_CG_key;
+		attribute<string>       label                          := MC_CG_key;
+	}
+
 	unit<uint8> FareTable_2023 : NrOfRows = 137, URL = "https://github.com/ObjectVision/NetworkModel_PBL/issues/2"
 	{
 		unit<uint32> Elements  := Range(uint32, 0, nrAttr*#.)

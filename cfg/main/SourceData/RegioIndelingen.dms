@@ -646,46 +646,43 @@ container RegioIndelingen : using = "geometries"
 	}
 	unit<uint8> Concessiegebied := ='Concessiegebieden/'+Modelparameters/Advanced/Concessiegebied_year+'/Concessiegebied';
 	
-	container Concessiegebieden 
+	// Concessie-shapes bestaan voor 2020 t/m 2026 (Concessie_YYYY.shp). Gegenereerd per jaar zodat
+	// Concessiegebied_year='Y'+FareTable_year werkt voor elk beschikbaar jaar (relevant voor PriceMethod='DOVA').
+	// LET OP: voor jaren < 2020 (DOVA-km-tarieven gaan terug tot 2013) bestaat geen shape; kies dan een proxy-jaar.
+	unit<uint32> Concessie_jaren := range(uint32, 2020, 2027)
 	{
-		container Y2023 
+		attribute<uint32> jaar     := id(.);
+		attribute<string> jaar_str := string(jaar);
+		attribute<string> name     := 'Y'+jaar_str;
+	}
+
+	Template Read_Concessie_T
+	{
+		parameter<string> jaar;
+		//
+		unit<uint32> shape
+		: StorageName = "='%NetworkModel_dir%/RegioIndelingen/Concessiegebieden/Concessie_'+jaar+'.shp'"
+		, StorageType = "gdal.vect"
+		, StorageReadOnly = "true"
+		, DialogData = "rdc"
 		{
-			unit<uint32> shape
-			: StorageName = "%NetworkModel_dir%/RegioIndelingen/Concessiegebieden/Concessie_2023.shp"
-			, StorageType = "gdal.vect"
-			, StorageReadOnly = "true"
-			, DialogData = "rdc"
-			{
-				attribute<string>          name                := AsItemName(concessie);
-				attribute<Concessiegebied> Concessiegebied_rel := rlookup(name, Concessiegebied/name);
-			}
-			
-			unit<uint8> Concessiegebied := union_unit_uint8(shape)
-			{
-				attribute<rdc>    geometry (poly) := union_data(., shape/geometry);
-				attribute<string> name            := union_data(., shape/name);
-				attribute<string> label           := name;
-			}
+			attribute<string>          name                := AsItemName(concessie);
+			attribute<Concessiegebied> Concessiegebied_rel := rlookup(name, Concessiegebied/name);
 		}
-		container Y2024 
+
+		unit<uint8> Concessiegebied := union_unit_uint8(shape)
 		{
-			unit<uint32> shape
-			: StorageName = "%NetworkModel_dir%/RegioIndelingen/Concessiegebieden/Concessie_2024.shp"
-			, StorageType = "gdal.vect"
-			, StorageReadOnly = "true"
-			, DialogData = "rdc"
-			{
-				attribute<string>          name                := AsItemName(concessie);
-				attribute<Concessiegebied> Concessiegebied_rel := rlookup(name, Concessiegebied/name);
-			}
-			
-			unit<uint8> Concessiegebied := union_unit_uint8(shape)
-			{
-				attribute<rdc>    geometry (poly) := union_data(., shape/geometry);
-				attribute<string> name            := union_data(., shape/name);
-			}
+			attribute<rdc>    geometry (poly) := union_data(., shape/geometry);
+			attribute<string> name            := union_data(., shape/name);
+			attribute<string> label           := name;
 		}
 	}
+
+	container Concessiegebieden :=
+		for_each_ne(
+			Concessie_jaren/name
+			, 'Read_Concessie_T('+quote(Concessie_jaren/jaar_str)+')'
+		);
 	
 	Template Per_Prov_T
 	{
