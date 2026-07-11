@@ -11,7 +11,7 @@ container OVprijzen
 	// unit<uint32> Provincies        := SourceData/RegioIndelingen/Provincie;
 	unit<uint8>  Concessiegebieden := SourceData/RegioIndelingen/Concessiegebied;
 	
-	unit<uint8> FareTable := =ModelParameters/Advanced/PriceMethod == 'DOVA' ? 'FareTable_DOVA' : 'FareTable_'+ModelParameters/FareTable_year;
+	unit<uint8> FareTable := =ModelParameters/Advanced/PriceMethod_effective == 'DOVA' ? 'FareTable_DOVA' : 'FareTable_'+ModelParameters/FareTable_year;
 	
 	unit<uint32> Read_DOVA_kmtarieven
 	: StorageName = "%ProjDir%/data/DOVA_Overzicht km-tarieven 2013-2026_edit.xlsx"
@@ -22,7 +22,7 @@ container OVprijzen
 		// attribute<string>       Mode            := ;
 		// attribute<string>       Lijn            := Elements/Text[value(UInt32(ID(.))* nrAttr + 4, Elements)];
 		attribute<Euro>         FixedPrice      := const(Read_DOVA_basistarieven/FixedPrice_param,.);
-		attribute<Euro_km>      VariablePrice   := ='y'+ModelParameters/FareTable_year+'[Euro_km]';
+		attribute<Euro_km>      VariablePrice   := ='y'+ModelParameters/Advanced/DOVA_year+'[Euro_km]';
 		// attribute<string>       Opmerking       := Elements/Text[value(UInt32(ID(.))* nrAttr + 7, Elements)];
 		
 		// attribute<Modes>             Mode_rel               := rlookup(Mode, Modes/name);
@@ -44,26 +44,28 @@ container OVprijzen
 	, StorageReadOnly = "true"
 	, SqlString   = "SELECT * FROM basistarief"
 	{
-		attribute<Euro>         FixedPrice       := ='y'+ModelParameters/FareTable_year+'[Euro]';
+		attribute<Euro>         FixedPrice       := ='y'+ModelParameters/Advanced/DOVA_year+'[Euro]';
 		parameter<Euro>         FixedPrice_param := first(FixedPrice);
 	}
 
 	unit<uint8> ModeKlasse : NrOfRows = 3
 	{
 		attribute<string> name : ['BTM','Rail','Ferry'], Descr = "Mode-klassen voor DOVA-prijzen: BTM=bus/tram/metro, Rail=regionale trein, Ferry=veer. NS-trein loopt via het L-net (NS-tariefstructuur), niet via deze FareTable.";
+		attribute<Euro_km> VariablePrice_landelijk := mean(Read_DOVA_kmtarieven_Priced/VariablePrice, Read_DOVA_kmtarieven_Priced/ModeKlasse_rel), Descr = "Landelijk gemiddeld km-tarief per mode-klasse (volgt het gekozen jaar); fallback voor concessies zonder DOVA-rij en voor het Buitenland-vangnet.";
 	}
 
 	// Eén canonieke DOVA-rij per (concessie, mode-klasse) (kolom use_for_price=1 in de xlsx).
 	// Harmonisatie DOVA->shape-concessie via kolom Concessiegebied_model (byte-exact), mode-klasse via kolom Mode_klasse.
 	unit<uint32> Read_DOVA_kmtarieven_Priced := select_with_attr_by_cond(Read_DOVA_kmtarieven, uint8(Read_DOVA_kmtarieven/use_for_price) > 0b)
 	{
-		attribute<string>       MC_CG_key := Mode_klasse + '_' + AsItemName(Concessiegebied_model);
+		attribute<string>       MC_CG_key     := Mode_klasse + '_' + AsItemName(Concessiegebied_model);
+		attribute<ModeKlasse>   ModeKlasse_rel := rlookup(Mode_klasse, ModeKlasse/name);
 	}
 
 	// FareTable uit DOVA-overzicht, gekeyd op (concessie x mode-klasse); geselecteerd wanneer ModelParameters/Advanced/PriceMethod == 'DOVA'.
 	// BTM (bus/tram/metro) krijgt het concessie-km-tarief; Rail (regionale trein) krijgt DOVA's aparte rail-km-tarief; Ferry idem waar beschikbaar.
 	// Ontbrekende (concessie,klasse)-combinaties vallen terug op het BTM-tarief van dezelfde concessie (MakeDefined).
-	unit<uint8> FareTable_DOVA := combine_uint8(Concessiegebieden, ModeKlasse)
+	unit<uint8> FareTable_DOVA_NL := combine_uint8(Concessiegebieden, ModeKlasse)
 	{
 		attribute<string>       CG_name                := Concessiegebieden/name[first_rel];
 		attribute<string>       MC_name                := ModeKlasse/name[second_rel];
@@ -71,7 +73,19 @@ container OVprijzen
 		attribute<Euro>         FixedPrice             := const(Read_DOVA_basistarieven/FixedPrice_param, .);
 		attribute<Euro_km>      VariablePrice_specific := rjoin(MC_CG_key,      Read_DOVA_kmtarieven_Priced/MC_CG_key, Read_DOVA_kmtarieven_Priced/VariablePrice);
 		attribute<Euro_km>      VariablePrice_BTM      := rjoin('BTM_'+CG_name, Read_DOVA_kmtarieven_Priced/MC_CG_key, Read_DOVA_kmtarieven_Priced/VariablePrice);
-		attribute<Euro_km>      VariablePrice          := MakeDefined(VariablePrice_specific, VariablePrice_BTM);
+		// laatste fallback: landelijk klassegemiddelde, voor shape-concessies zonder DOVA-rij (bv. Stadsvervoer Lelystad in de 2023-shape).
+		attribute<Euro_km>      VariablePrice          := MakeDefined(MakeDefined(VariablePrice_specific, VariablePrice_BTM), ModeKlasse/VariablePrice_landelijk[second_rel]);
+	}
+
+	// Vangnet voor legs buiten alle concessie-polygonen (buitenlandse trajectdelen De Lijn/DB/Eurobahn/NIAG en
+	// eventuele rand-artefacten): 1 rij per mode-klasse, key '<klasse>_Buitenland' (zie MC_CG_key_DOVA in
+	// OD_extra_attributen). km-tarief = landelijk DOVA-gemiddelde van de klasse (volgt het gekozen jaar),
+	// opstap = landelijk basistarief. Zonder dit vangnet faalt Price_IntegrityCheck in DOVA-modus op die legs.
+	unit<uint8> FareTable_DOVA := union_unit(FareTable_DOVA_NL, ModeKlasse)
+	{
+		attribute<string>       MC_CG_key              := union_data(., FareTable_DOVA_NL/MC_CG_key, ModeKlasse/name + '_Buitenland');
+		attribute<Euro>         FixedPrice             := union_data(., FareTable_DOVA_NL/FixedPrice, const(Read_DOVA_basistarieven/FixedPrice_param, ModeKlasse));
+		attribute<Euro_km>      VariablePrice          := union_data(., FareTable_DOVA_NL/VariablePrice, ModeKlasse/VariablePrice_landelijk);
 		// dummy-identifiers voor compatibiliteit met FareTable_rel_initial/augmented in OD_extra_attributen (niet gebruikt in DOVA-modus).
 		attribute<string>       Mode_Agency_CG_Lijn_identifier := MC_CG_key;
 		attribute<string>       Mode_Agency_CG_identifier      := MC_CG_key;
@@ -79,153 +93,156 @@ container OVprijzen
 		attribute<string>       label                          := MC_CG_key;
 	}
 
-	unit<uint8> FareTable_2023 : NrOfRows = 137, URL = "https://github.com/ObjectVision/NetworkModel_PBL/issues/2"
+	unit<uint8> FareTable_2023 : NrOfRows = 142, URL = "https://github.com/ObjectVision/NetworkModel_PBL/issues/2"
 	{
 		unit<uint32> Elements  := Range(uint32, 0, nrAttr*#.)
 		{
 			attribute<String> Text:
 			[
-				//Mode    , Vervoerder           , Provincie      , Concessiegebied                        , Lijn                               , Ritpr, Kmprijs ,Opmerking
-				'Rail'    ,'NS'                  ,'Alle'          ,''                                      ,''                                  ,''    ,''      ,'TariffUnits in NS tabel',
-				'Bus'     ,'NS'                  ,'Alle'          ,''                                      ,''                                  ,''    ,''      ,'TariffUnits in NS tabel',
-				'Bus'     ,'Overal_Connexxion_'  ,'Alle'          ,''                                      ,''                                  ,'1.08','0.239' ,'kopie van Zeeland, om overal te genereren',
-				'Rail'    ,'Blauwnet'            ,'Drenthe'       ,'Groningen_Drenthe'                     ,''                                  ,'1.08','0.208' ,'2e klas Arriva Blauwnet',
-				'Bus'     ,'Qbuzz'               ,'Drenthe'       ,'Groningen_Drenthe'                     ,''                                  ,'1.08','0.188' ,'',
-				'Bus'     ,'Arriva'              ,'Flevoland'     ,'Busvervoer_Almere'                     ,''                                  ,'1.68','0'      ,'Binnen de ring',
-				'Bus'     ,'Arriva'              ,'Flevoland'     ,'Busvervoer_Almere'                     ,''                                  ,'2.52','0'      ,'Buiten de ring',
-				'Bus'     ,'allGo_Keolis_'       ,'Flevoland'     ,'Busvervoer_Almere'                     ,''                                  ,'1.08','0.161' ,'2022 prijs!, Almere',
-				'Bus'     ,'EBS'                 ,'Flevoland'     ,'IJssel_Vecht'                          ,''                                  ,'1.08','0.196' ,'',
-				'Bus'     ,'OV_Regio_IJsselmond' ,'Flevoland'     ,'IJsselmond'                            ,''                                  ,'1.08','0.185' ,'',
-				'Bus'     ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'           ,'Buurtbus NZW-Fryslan'              ,'1.08','0.079' ,'buurtbussen Noordzuidwest-Fryslan',
-				'Bus'     ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'           ,'Buurtbus ZO-Fryslan'               ,'1.08','0.187' ,'buurtbussen Zuidoost-Fryslan',
-				'Bus'     ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'           ,'Opstapper'                         ,'2.50','0'      ,'',
-				'Bus'     ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'           ,'315'                               ,'1.08','0.213' ,'Qliner',
-				'Bus'     ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'           ,'324'                               ,'1.08','0.213' ,'Qliner',
-				'Bus'     ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'           ,'320'                               ,'1.08','0.213' ,'Qliner',
-				'Bus'     ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'           ,'350'                               ,'1.08','0.213' ,'Qliner Friese deel',
-				'Bus'     ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'           ,'355'                               ,'1.08','0.213' ,'Qliner',
-				'Bus'     ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'           ,'356'                               ,'1.08','0.213' ,'Qliner',
-				'Bus'     ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'           ,'Stad Leeuwarden'                   ,'1.08','0.187' ,'',
-				'Bus'     ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'           ,'Streek'                            ,'1.08','0.187' ,'',
-				'Bus'     ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'           ,'Ameland 2 zones'                   ,'2.82','0'     ,'',
-				'Bus'     ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'           ,'Terschelling 2 zones'              ,'2.82','0'     ,'',
-				'Bus'     ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'           ,'Ameland 1 zone'                    ,'1.82','0'     ,'',
-				'Bus'     ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'           ,'Terschelling 1 zone'               ,'1.82','0'     ,'',
-				'Bus'     ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'           ,'Vlieland 1 zone'                   ,'1.82','0'     ,'',
-				'Bus'     ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'           ,'Schiermonnikoog'                   ,'2.27','0'     ,'',
-				'Bus'     ,'NIAG'                ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'             ,''                                  ,'1.08','0.186' ,'https://ovinnederland.nl/viewtopic.php?f=37&t=17145&sid=f96cd0bbb0a712d22b2c97ec8fbbf980',
-				'Bus'     ,'EBS'                 ,'Gelderland'    ,'IJssel_Vecht'                          ,''                                  ,'1.08','0.196' ,'',
-				'Rail'    ,'Valleilijn'          ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'             ,''                                  ,'1.08','0.161' ,'door Connexxion',
-				'Rail'    ,'VIAS'                ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'             ,''                                  ,'2.60','0'     ,'handmatig iets vergelijkbaars met NS maken: eerste 8km 2.60eu, het gaat om NL deel.',
-				'Bus'     ,'Arriva'              ,'Gelderland'    ,'Achterhoek Rivierenland'               ,''                                  ,'1.08','0.186' ,'',
-				'Bus'     ,'Arriva'              ,'Gelderland'    ,'Achterhoek Rivierenland'               ,'27'                                ,'1.08','0.186' ,'',
-				'Bus'     ,'Breng'               ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'             ,'29'                                ,'1.08','0.186' ,'',
-				'Bus'     ,'Arriva'              ,'Gelderland'    ,'Achterhoek Rivierenland'               ,'440'                               ,'2.60','0'     ,'',
-				'Bus'     ,'Arriva'              ,'Gelderland'    ,'Achterhoek Rivierenland'               ,'450'                               ,'2.60','0'     ,'',
-				'Bus'     ,'Arriva'              ,'Gelderland'    ,'Achterhoek Rivierenland'               ,'458'                               ,'2.60','0'     ,'',
-				'Bus'     ,'Arriva'              ,'Gelderland'    ,'Twente'                                ,'53'                                ,'1.08','0.223' ,'voor ritten in Twente',
-				'Bus'     ,'Arriva'              ,'Gelderland'    ,'Twente'                                ,'73'                                ,'1.08','0.223' ,'voor ritten in Twente',
-				'Bus'     ,'Arriva'              ,'Gelderland'    ,'Twente'                                ,'74'                                ,'1.08','0.223' ,'voor ritten in Twente',
-				'Bus'     ,'Arriva'              ,'Gelderland'    ,'Twente'                                ,'85'                                ,'1.08','0.186' ,'voor ritten in Twente',
-				'Rail'    ,'Breng'               ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'             ,''                                  ,'1.08','0.228' ,'Uitvoerder Hermes/Connexxion',
-				'Rail'    ,'Arriva'              ,'Gelderland'    ,'Achterhoek Rivierenland'               ,''                                  ,'1.08','0.228' ,'2e klas',
-				'Bus'     ,'Arriva'              ,'Gelderland'    ,'Achterhoek Rivierenland'               ,'Vlinder'                           ,'2.60','0'     ,'',
-				'Rail'    ,'Arriva'              ,'Groningen'     ,'Groningen-Drenthe'                     ,''                                  ,'1.08','0.228' ,'2e klas, kopie van Gelderland. Kan geen andere prijzen vinden',
-				'Bus'     ,'Qbuzz'               ,'Groningen'     ,''                                      ,''                                  ,'1.08','0.188' ,'',
-				'Bus'     ,'Arriva'              ,'Groningen'     ,'Groningen-Drenthe'                     ,'315'                               ,'1.08','0.213' ,'Qliner',
-				'Bus'     ,'Arriva'              ,'Groningen'     ,'Groningen-Drenthe'                     ,'324'                               ,'1.08','0.213' ,'Qliner',
-				'Bus'     ,'Arriva'              ,'Limburg'       ,'Limburg'                               ,'Avondvlinder'                      ,'1.75','0'     ,'',
-				'Bus'     ,'Arriva'              ,'Limburg'       ,'Limburg'                               ,''                                  ,'1.08','0.204' ,'',
-				'Bus'     ,'Arriva'              ,'Limburg'       ,'Limburg'                               ,'83'                                ,'1.08','0.186' ,'vanaf halte Milsbeek Helweg',
-				'Rail'    ,'Arriva'              ,'Limburg'       ,'Limburg'                               ,''                                  ,'1.08','0.220' ,'2e klas',
-				'Bus'     ,'De_Lijn'             ,'Limburg'       ,'Limburg'                               ,''                                  ,'2.50','0'     ,'https://www.delijn.be/nl/content/vervoerbewijzen/kortingen/ ',
-				'Rail'    ,'Eurobahn'            ,'Limburg'       ,'Limburg'                               ,''                                  ,'1.08','0.186' ,'handmatig iets vergelijkbaars met NS maken: eerste 8km 2.60eu, het gaat om NL deel.',
-				'Rail'    ,'NMBS'                ,'Limburg'       ,'Limburg'                               ,''                                  ,'2.50','0'     ,'eerste 7km 2.50eu, het gaat om NL deel. https://www.belgiantrain.be/-/media/files/pdf/productfiches/tarieven-20240201.ashx',
-				'Bus'     ,'Arriva'              ,'Noord_Brabant' ,'West-Brabant'                          ,'820'                               ,'3.50','0'     ,'Bergen op Zoom kris kras',
-				'Bus'     ,'Arriva'              ,'Noord_Brabant' ,'West-Brabant'                          ,'820'                               ,'1.50','0'     ,'Bergen op Zoom van-naar station',
-				'Bus'     ,'Arriva'              ,'Noord_Brabant' ,'Oost-Brabant'                          ,'99'                                ,'1.08','0.187' ,'',
-				'Bus'     ,'Arriva'              ,'Noord_Brabant' ,''                                      ,'Nightliner'                        ,'5.58','0'     ,'',
-				'Bus'     ,'Bravo_Arriva_'       ,'Noord_Brabant' ,''                                      ,''                                  ,'1.08','0.188' ,'',
-				'Bus'     ,'Hermes'              ,'Noord_Brabant' ,''                                      ,''                                  ,'1.08','0.188' ,'Kopie van Bravo_Hermes NoordBrabant voor concessies Utrecht/Veluwe/ArnhemNijmegen/etc eind 2023',
-				'Bus'     ,'Bravo_Hermes_'       ,'Noord_Brabant' ,''                                      ,''                                  ,'1.08','0.188' ,'Merk van Connexxion',
-				'Rail'    ,'NMBS'                ,'Noord_Brabant' ,'West_Brabant'                          ,''                                  ,'2.50','0'     ,'eerste 7km 2.50eu, het gaat om NL deel. https://www.belgiantrain.be/-/media/files/pdf/productfiches/tarieven-20240201.ashx',
-				'Bus'     ,'Arriva'              ,'Noord_Holland' ,'Zuid-Holland Noord'                    ,'350'                               ,'1.08','0.179' ,'Qliner Noord-Hollandse deel',
-				'Tram'    ,'GVB'                 ,'Noord_Holland' ,''                                      ,''                                  ,'1.08','0.196' ,'',
-				'Metro'   ,'GVB'                 ,'Noord_Holland' ,''                                      ,''                                  ,'1.08','0.196' ,'',
-				'Bus'     ,'GVB'                 ,'Noord_Holland' ,''                                      ,''                                  ,'1.08','0.196' ,'',
-				'Ferry'   ,'GVB'                 ,'Noord_Holland' ,''                                      ,''                                  ,'0.00','0.000' ,'',
-				'Bus'     ,'EBS'                 ,'Noord_Holland' ,'Zaanstreek_Waterland'                  ,''                                  ,'1.08','0.196' ,'',
-				'Bus'     ,'Syntus_Utrecht'      ,'Noord_Holland' ,''                                      ,''                                  ,'1.08','0.187' ,'kopie van Utrecht, want prov_rel bij omgekeerde reis?',
-				'Bus'     ,'Connexxion'          ,'Noord_Holland' ,'Amstelland_Meerlanden'                 ,''                                  ,'1.08','0.198' ,'',
-				'Bus'     ,'Connexxion'          ,'Noord_Holland' ,'Haarlem_IJmond'                        ,''                                  ,'1.08','0.179' ,'',
-				'Bus'     ,'Connexxion'          ,'Noord_Holland' ,'Noord_Holland_Noord'                   ,''                                  ,'1.08','0.179' ,'',
-				'Bus'     ,'Connexxion'          ,'Noord_Holland' ,'Zaanstreek'                            ,''                                  ,'1.08','0.196' ,'',
-				'Bus'     ,'Connexxion'          ,'Noord_Holland' ,'Waterland'                             ,''                                  ,'1.08','0.196' ,'',
-				'Bus'     ,'Connexxion'          ,'Noord_Holland' ,'Zaanstreek_Waterland'                  ,''                                  ,'1.08','0.196' ,'',
-				'Bus'     ,'Transdev'            ,'Noord_Holland' ,'Concessie_Amsterdam'                   ,''                                  ,'1.08','0.179' ,'',
-				'Bus'     ,'Transdev'            ,'Noord_Holland' ,'Gooi_en_Vechtstreek'                   ,''                                  ,'1.08','0.179' ,'',
-				'Bus'     ,'Transdev'            ,'Noord_Holland' ,'Provincie_Utrecht'                     ,''                                  ,'1.08','0.179' ,'',
-				'Bus'     ,'Transdev'            ,'Noord_Holland' ,'Tram_en_Bus_Regio_Utrecht'             ,''                                  ,'1.08','0.179' ,'',
-				'Bus'     ,'Texelhopper'         ,'Noord_Holland' ,'Noord_Holland_Noord'                   ,''                                  ,'1.08','0.215' ,'',
-				'Bus'     ,'EBS'                 ,'Overijssel'    ,'IJssel_Vecht'                          ,''                                  ,'1.08','0.196' ,'',
-				'Rail'    ,'Blauwnet'            ,'Overijssel'    ,''                                      ,'Zuthpen-Oldenzaal'                 ,'1.08','0.246' ,'Keolis, ook bekend als Twents',
-				'Rail'    ,'Blauwnet'            ,'Overijssel'    ,''                                      ,''                                  ,'1.08','0.207' ,'Keolis, rest van de lijnen, ook bekend als Twents',
-				'Bus'     ,'Blauwnet'            ,'Overijssel'    ,'IJssel_Vecht'                          ,''                                  ,'1.08','0.208' ,'Vervangend vervoer van rail',
-				'Bus'     ,'Twents_Keolis_'      ,'Overijssel'    ,'Achterhoek_Rivierenland'               ,''                                  ,'1.08','0.223' ,'Twents, service van Syntus, wat nu Keolis is',
-				'Bus'     ,'Twents_Keolis_'      ,'Overijssel'    ,'IJssel_Vecht'                          ,''                                  ,'1.08','0.223' ,'Twents, service van Syntus, wat nu Keolis is',
-				'Bus'     ,'Twents_Keolis_'      ,'Overijssel'    ,'Twente'                                ,''                                  ,'1.08','0.223' ,'Twents, service van Syntus, wat nu Keolis is',
-				'Bus'     ,'OV_Regio_IJsselmond' ,'Overijssel'    ,''                                      ,''                                  ,'1.08','0.211' ,'',
-				'Rail'    ,'DB'                  ,'Overijssel'    ,'Twente'                                ,''                                  ,'2.60','0'     ,'handmatig iets vergelijkbaars met NS maken: eerste 8km 2.60eu, het gaat om NL deel.',
-				'Rail'    ,'Eurobahn'            ,'Overijssel'    ,'Twente'                                ,''                                  ,'1.08','0.186' ,'handmatig iets vergelijkbaars met NS maken: eerste 8km 2.60eu, het gaat om NL deel.',
-				'Bus'     ,'Qbuzz'               ,'Utrecht'       ,''                                      ,''                                  ,'1.08','0.200' ,'kopie van Zuid_Holland, want prov_rel bij omgekeerde reis?',
-				'Bus'     ,'Keolis'              ,'Utrecht'       ,''                                      ,'295'                               ,'1.08','0.187' ,'Utrecht - Schoonhoven Lopikerplein vv',
-				'Tram'    ,'U_OV'                ,'Utrecht'       ,''                                      ,''                                  ,'1.08','0.187' ,'',
-				'Bus'     ,'U_OV'                ,'Utrecht'       ,'Tram_en_Bus_Regio_Utrecht'             ,''                                  ,'1.08','0.187' ,'',
-				'Bus'     ,'U_OV'                ,'Utrecht'       ,'Provincie_Utrecht'                     ,''                                  ,'1.08','0.187' ,'',
-				'Bus'     ,'U_OV'                ,'Utrecht'       ,'Gooi_en_Vechtstreek'                   ,''                                  ,'1.08','0.187' ,'',
-				'Bus'     ,'Syntus_Utrecht'      ,'Utrecht'       ,''                                      ,''                                  ,'1.08','0.187' ,'Syntus is nu Keolis',
-				'Bus'     ,'Connexxion'          ,'Zeeland'       ,''                                      ,''                                  ,'1.08','0.239' ,'',
-				'Ferry'   ,'Westerschelde_Ferry' ,'Zeeland'       ,''                                      ,''                                  ,'5.20','0'     ,'',
-				'Bus'     ,'De_Lijn'             ,'Zeeland'       ,'Zeeland'                               ,''                                  ,'2.50','0'     ,'https://www.delijn.be/nl/content/vervoerbewijzen/kortingen/ ',
-				'Bus'     ,'Bravo_Arriva_'       ,'Zuid_Holland'  ,''                                      ,''                                  ,'1.08','0.188' ,'kopie van NoordBrabant, want prov_rel bij omgekeerde reis?', 
-				'Bus'     ,'Arriva'              ,'Zuid_Holland'  ,''                                      ,'Buurtbus'                          ,'1.08','0.121' ,'',
-				'Bus'     ,'Arriva'              ,'Zuid_Holland'  ,''                                      ,'852'                               ,'8.60','0'     ,'Keukenhof lijn',
-				'Bus'     ,'Arriva'              ,'Zuid_Holland'  ,''                                      ,'854'                               ,'5.00','0'     ,'Keukenhof lijn',
-				'Bus'     ,'Arriva'              ,'Zuid_Holland'  ,''                                      ,'858'                               ,'5.60','0'     ,'Keukenhof lijn',
-				'Bus'     ,'Arriva'              ,'Zuid_Holland'  ,''                                      ,'295'                               ,'1.08','0.156' ,'Rotterdam - Schoonhoven Lopikerplein vv',
-				'Bus'     ,'Arriva'              ,'Zuid_Holland'  ,''                                      ,'Qliner'                            ,'1.08','0.200' ,'',
-				'Bus'     ,'R_net'               ,'Zuid_Holland'  ,''                                      ,''                                  ,'1.08','0.200' ,'Uitgezonderd lijnen 430, 431, 432',
-				'Bus'     ,'R_net'               ,'Zuid_Holland'  ,''                                      ,'430'                               ,'1.08','0.156' ,'',
-				'Bus'     ,'R_net'               ,'Zuid_Holland'  ,''                                      ,'431'                               ,'1.08','0.156' ,'',
-				'Bus'     ,'R_net'               ,'Zuid_Holland'  ,''                                      ,'432'                               ,'1.08','0.156' ,'',
-				'Bus'     ,'Arriva'              ,'Zuid_Holland'  ,''                                      ,''                                  ,'1.08','0.156' ,'',
-				'Bus'     ,'Arriva'              ,'Zuid_Holland'  ,''                                      ,'Vlinder'                           ,'1.08','0.156' ,'',
-				'Rail'    ,'R_net'               ,'Zuid_Holland'  ,''                                      ,'MerwedeLingeLijn'                  ,'1.08','0.217' ,'',
-				'Bus'     ,'Qbuzz'               ,'Zuid_Holland'  ,''                                      ,'387'                               ,'1.08','0.200' ,'',
-				'Bus'     ,'Qbuzz'               ,'Zuid_Holland'  ,''                                      ,'388'                               ,'1.08','0.200' ,'',
-				'Bus'     ,'R_net'               ,'Zuid_Holland'  ,''                                      ,'416'                               ,'1.08','0.200' ,'',
-				'Bus'     ,'R_net'               ,'Zuid_Holland'  ,''                                      ,'488'                               ,'1.08','0.200' ,'',
-				'Bus'     ,'R_net'               ,'Zuid_Holland'  ,''                                      ,'489'                               ,'1.08','0.200' ,'',
-				'Bus'     ,'R_net'               ,'Zuid_Holland'  ,''                                      ,'491'                               ,'1.08','0.200' ,'',
-				'Bus'     ,'R_net'               ,'Zuid_Holland'  ,'Drechtsteden_Molenlanden_Gorinchem'    ,'stadsBuzz'                         ,'1.08','0.180' ,'',
-				'Bus'     ,'R_net'               ,'Zuid_Holland'  ,''                                      ,'streekBuzz buurtBuzz'              ,'1.08','0.155' ,'',
-				'Bus'     ,'U_OV'                ,'Zuid_Holland'  ,'Drechtsteden_Molenlanden_Gorinchem'    ,''                                  ,'1.08','0.187' ,'kopie van Utrecht, want prov_rel bij omgekeerde reis?',
-				'Bus'     ,'EBS'                 ,'Zuid_Holland'  ,'Haaglanden_Streek'                     ,''                                  ,'1.08','0.196' ,'',
-				'Bus'     ,'EBS'                 ,'Zuid_Holland'  ,'Voorne_Putten_en_Rozenburg'            ,''                                  ,'1.08','0.196' ,'',
-				'Bus'     ,'HTM'                 ,'Zuid_Holland'  ,''                                      ,''                                  ,'1.08','0.187' ,'',
-				'Tram'    ,'HTM'                 ,'Zuid_Holland'  ,''                                      ,''                                  ,'1.08','0.187' ,'',
-				'Bus'     ,'Syntus_Utrecht'      ,'Zuid_Holland'  ,''                                      ,''                                  ,'1.08','0.187' ,'kopie van Utrecht, want prov_rel bij omgekeerde reis?',
-				'Bus'     ,'Connexxion'          ,'Zuid_Holland'  ,''                                      ,''                                  ,'1.08','0.155' ,'',
-				'Bus'     ,'RET'                 ,'Zuid_Holland'  ,'Bus_Rotterdam_e_o'                     ,''                                  ,'1.08','0.166' ,'',
-				'Tram'    ,'RET'                 ,'Zuid_Holland'  ,''                                      ,''                                  ,'1.08','0.166' ,'',
-				'Metro'   ,'RET'                 ,'Zuid_Holland'  ,''                                      ,''                                  ,'1.08','0.166' ,'',
-				'Ferry'   ,'Blue_Amigo'          ,'Zuid_Holland'  ,''                                      ,''                                  ,'2.00','0'     ,'Waterbus Drechtsteden - Rotterdam',
-				'Ferry'   ,'Blue_Amigo'          ,'Zuid_Holland'  ,'Drechtsteden_Molenlanden_Gorinchem'    ,''                                  ,'2.00','0'     ,'Waterbus Drechtsteden - Rotterdam',
-				'Ferry'   ,'Watertaxi_Rotterdam' ,'Zuid_Holland'  ,''                                      ,''                                  ,'6.00','0'     ,'',
-				
-				'Rail'    ,'NS_International'    ,''              ,''                                      ,''                                  ,'2.60','0'     ,'handmatig iets vergelijkbaars met NS maken: eerste 8km 2.60eu, het gaat om NL deel.'
-				
-				
+				//de    ,Vervoerder            ,Provincie       ,Concessiegebied                      ,Lijn                   ,Ritprijs ,Kmprijs ,Opmerking (bron per rij; 'GEEN BRON GEVONDEN' = niet online te vinden)                                                      
+				'Rail'  ,'NS'                  ,'Alle'          ,''                                   ,''                     ,''     ,''      ,'TariffUnits in NS tabel',
+				'Bus'   ,'NS'                  ,'Alle'          ,''                                   ,''                     ,''     ,''      ,'TariffUnits in NS tabel',
+				'Bus'   ,'Overal_Connexxion_'  ,'Alle'          ,''                                   ,''                     ,'1.08' ,'0.239' ,'kopie van Zeeland, om overal te genereren',
+				'Rail'  ,'Blauwnet'            ,'Drenthe'       ,'Groningen_Drenthe'                  ,''                     ,'1.08' ,'0.208' ,'2e klas Arriva Blauwnet',
+				'Bus'   ,'Qbuzz'               ,'Drenthe'       ,'Groningen_Drenthe'                  ,''                     ,'1.08' ,'0.188' ,'',
+				'Bus'   ,'Arriva'              ,'Flevoland'     ,'Busvervoer_Almere'                  ,''                     ,'1.68' ,'0'     ,'Binnen de ring',
+				'Bus'   ,'Arriva'              ,'Flevoland'     ,'Busvervoer_Almere'                  ,''                     ,'2.52' ,'0'     ,'Buiten de ring',
+				'Bus'   ,'allGo_Keolis_'       ,'Flevoland'     ,'Busvervoer_Almere'                  ,''                     ,'1.08' ,'0.177' ,'Almere | 2023-val: 0,161 was 2022-prijs; Keolis Almere 2023 = 0,177',
+				'Bus'   ,'EBS'                 ,'Flevoland'     ,'IJssel_Vecht'                       ,''                     ,'1.08' ,'0.196' ,'',
+				'Bus'   ,'OV_Regio_IJsselmond' ,'Flevoland'     ,'IJsselmond'                         ,''                     ,'1.08' ,'0.185' ,'',
+				'Bus'   ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Buurtbus NZW-Fryslan' ,'1.08' ,'0.079' ,'buurtbussen Noordzuidwest-Fryslan',
+				'Bus'   ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Buurtbus ZO-Fryslan'  ,'1.08' ,'0.187' ,'buurtbussen Zuidoost-Fryslan',
+				'Bus'   ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Opstapper'            ,'2.50' ,'0'     ,'',
+				'Bus'   ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'315'                  ,'1.08' ,'0.213' ,'Qliner',
+				'Bus'   ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'324'                  ,'1.08' ,'0.213' ,'Qliner',
+				'Bus'   ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'320'                  ,'1.08' ,'0.213' ,'Qliner',
+				'Bus'   ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'350'                  ,'1.08' ,'0.213' ,'Qliner Friese deel',
+				'Bus'   ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'355'                  ,'1.08' ,'0.213' ,'Qliner',
+				'Bus'   ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'356'                  ,'1.08' ,'0.213' ,'Qliner',
+				'Bus'   ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Stad Leeuwarden'      ,'1.08' ,'0.187' ,'',
+				'Bus'   ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Streek'               ,'1.08' ,'0.187' ,'',
+				'Bus'   ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Ameland 2 zones'      ,'2.82' ,'0'     ,'',
+				'Bus'   ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Terschelling 2 zones' ,'2.82' ,'0'     ,'',
+				'Bus'   ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Ameland 1 zone'       ,'1.82' ,'0'     ,'',
+				'Bus'   ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Terschelling 1 zone'  ,'1.82' ,'0'     ,'',
+				'Bus'   ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Vlieland 1 zone'      ,'1.82' ,'0'     ,'',
+				'Bus'   ,'Arriva'              ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Schiermonnikoog'      ,'2.27' ,'0'     ,'',
+				'Bus'   ,'NIAG'                ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'          ,''                     ,'1.08' ,'0.186' ,'https://ovinnederland.nl/viewtopic.php?f=37&t=17145&sid=f96cd0bbb0a712d22b2c97ec8fbbf980',
+				'Bus'   ,'EBS'                 ,'Gelderland'    ,'IJssel_Vecht'                       ,''                     ,'1.08' ,'0.196' ,'',
+				'Rail'  ,'Valleilijn'          ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'          ,''                     ,'1.08' ,'0.202' ,'door Connexxion | 2023-val: treinreiziger.nl (Valleilijn-trein = 0,202, geen streektarief)',
+				'Rail'  ,'VIAS'                ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'          ,''                     ,'2.60' ,'0'     ,'handmatig iets vergelijkbaars met NS maken: eerste 8km 2.60eu, het gaat om NL deel.',
+				'Bus'   ,'Arriva'              ,'Gelderland'    ,'Achterhoek Rivierenland'            ,''                     ,'1.08' ,'0.186' ,'',
+				'Bus'   ,'Arriva'              ,'Gelderland'    ,'Achterhoek Rivierenland'            ,'27'                   ,'1.08' ,'0.186' ,'',
+				'Bus'   ,'Breng'               ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'          ,'29'                   ,'1.08' ,'0.186' ,'',
+				'Bus'   ,'Arriva'              ,'Gelderland'    ,'Achterhoek Rivierenland'            ,'440'                  ,'2.60' ,'0'     ,'',
+				'Bus'   ,'Arriva'              ,'Gelderland'    ,'Achterhoek Rivierenland'            ,'450'                  ,'2.60' ,'0'     ,'',
+				'Bus'   ,'Arriva'              ,'Gelderland'    ,'Achterhoek Rivierenland'            ,'458'                  ,'2.60' ,'0'     ,'',
+				'Bus'   ,'Arriva'              ,'Gelderland'    ,'Twente'                             ,'53'                   ,'1.08' ,'0.223' ,'voor ritten in Twente',
+				'Bus'   ,'Arriva'              ,'Gelderland'    ,'Twente'                             ,'73'                   ,'1.08' ,'0.223' ,'voor ritten in Twente',
+				'Bus'   ,'Arriva'              ,'Gelderland'    ,'Twente'                             ,'74'                   ,'1.08' ,'0.223' ,'voor ritten in Twente',
+				'Bus'   ,'Arriva'              ,'Gelderland'    ,'Twente'                             ,'85'                   ,'1.08' ,'0.186' ,'voor ritten in Twente',
+				'Rail'  ,'Breng'               ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'          ,''                     ,'1.08' ,'0.228' ,'Uitvoerder Hermes/Connexxion',
+				'Rail'  ,'Arriva'              ,'Gelderland'    ,'Achterhoek Rivierenland'            ,''                     ,'1.08' ,'0.228' ,'2e klas',
+				'Bus'   ,'Arriva'              ,'Gelderland'    ,'Achterhoek Rivierenland'            ,'Vlinder'              ,'2.60' ,'0'     ,'',
+				'Rail'  ,'Arriva'              ,'Groningen'     ,'Groningen-Drenthe'                  ,''                     ,'1.08' ,'0.228' ,'2e klas, kopie van Gelderland. Kan geen andere prijzen vinden',
+				'Bus'   ,'Qbuzz'               ,'Groningen'     ,''                                   ,''                     ,'1.08' ,'0.188' ,'',
+				'Bus'   ,'Qbuzz'               ,'Groningen'     ,'Groningen-Drenthe'                  ,'315'                  ,'1.08' ,'0.213' ,'Qliner [feed: vh. Arriva]',
+				'Bus'   ,'Qbuzz'               ,'Groningen'     ,'Groningen-Drenthe'                  ,'324'                  ,'1.08' ,'0.213' ,'Qliner [feed: vh. Arriva]',
+				'Bus'   ,'Arriva'              ,'Limburg'       ,'Limburg'                            ,'Avondvlinder'         ,'1.75' ,'0'     ,'',
+				'Bus'   ,'Arriva'              ,'Limburg'       ,'Limburg'                            ,''                     ,'1.08' ,'0.204' ,'',
+				'Bus'   ,'Arriva'              ,'Limburg'       ,'Limburg'                            ,'83'                   ,'1.08' ,'0.204' ,'vanaf halte Milsbeek Helweg | 2023-val: ROL adviesaanvraag 2023 (Limburg bus 0,204)',
+				'Rail'  ,'Arriva'              ,'Limburg'       ,'Limburg'                            ,''                     ,'1.08' ,'0.220' ,'2e klas',
+				'Bus'   ,'De_Lijn'             ,'Limburg'       ,'Limburg'                            ,''                     ,'2.50' ,'0'     ,'https://www.delijn.be/nl/content/vervoerbewijzen/kortingen/',
+				'Rail'  ,'Eurobahn'            ,'Limburg'       ,'Limburg'                            ,''                     ,'1.08' ,'0.186' ,'handmatig iets vergelijkbaars met NS maken: eerste 8km 2.60eu, het gaat om NL deel.',
+				'Rail'  ,'NMBS'                ,'Limburg'       ,'Limburg'                            ,''                     ,'2.50' ,'0'     ,'eerste 7km 2.50eu, het gaat om NL deel. https://www.belgiantrain.be/-/media/files/pdf/productfiches/tarieven-20240201.ashx',
+				'Bus'   ,'Bravo_Arriva_'       ,'Noord_Brabant' ,'West-Brabant'                       ,'820'                  ,'3.50' ,'0'     ,'Bergen op Zoom kris kras [feed: vh. Arriva]',
+				'Bus'   ,'Bravo_Arriva_'       ,'Noord_Brabant' ,'West-Brabant'                       ,'820'                  ,'1.50' ,'0'     ,'Bergen op Zoom van-naar station [feed: vh. Arriva]',
+				'Bus'   ,'Bravo_Arriva_'       ,'Noord_Brabant' ,'Oost-Brabant'                       ,'99'                   ,'1.08' ,'0.188' ,'2023-val: bravo.info tarieven 2023 (0,188) [feed: vh. Arriva]',
+				'Bus'   ,'Bravo_Arriva_'       ,'Noord_Brabant' ,''                                   ,'Nightliner'           ,'5.58' ,'0'     ,'[feed: vh. Arriva]',
+				'Bus'   ,'Bravo_Arriva_'       ,'Noord_Brabant' ,''                                   ,''                     ,'1.08' ,'0.188' ,'',
+				'Bus'   ,'Hermes'              ,'Noord_Brabant' ,''                                   ,''                     ,'1.08' ,'0.188' ,'Kopie van Bravo_Hermes NoordBrabant voor concessies Utrecht/Veluwe/ArnhemNijmegen/etc eind 2023',
+				'Bus'   ,'Bravo_Hermes_'       ,'Noord_Brabant' ,''                                   ,''                     ,'1.08' ,'0.188' ,'Merk van Connexxion',
+				'Rail'  ,'NMBS'                ,'Noord_Brabant' ,'West_Brabant'                       ,''                     ,'2.50' ,'0'     ,'eerste 7km 2.50eu, het gaat om NL deel. https://www.belgiantrain.be/-/media/files/pdf/productfiches/tarieven-20240201.ashx',
+				'Bus'   ,'Arriva'              ,'Noord_Holland' ,'Zuid-Holland Noord'                 ,'350'                  ,'1.08' ,'0.179' ,'Qliner Noord-Hollandse deel',
+				'Tram'  ,'GVB'                 ,'Noord_Holland' ,''                                   ,''                     ,'1.08' ,'0.196' ,'',
+				'Metro' ,'GVB'                 ,'Noord_Holland' ,''                                   ,''                     ,'1.08' ,'0.196' ,'',
+				'Bus'   ,'GVB'                 ,'Noord_Holland' ,''                                   ,''                     ,'1.08' ,'0.196' ,'',
+				'Ferry' ,'GVB'                 ,'Noord_Holland' ,''                                   ,''                     ,'0.00' ,'0.000' ,'',
+				'Bus'   ,'EBS'                 ,'Noord_Holland' ,'Zaanstreek_Waterland'               ,''                     ,'1.08' ,'0.196' ,'',
+				'Bus'   ,'Syntus_Utrecht'      ,'Noord_Holland' ,''                                   ,''                     ,'1.08' ,'0.187' ,'kopie van Utrecht, want prov_rel bij omgekeerde reis?',
+				'Bus'   ,'Connexxion'          ,'Noord_Holland' ,'Amstelland_Meerlanden'              ,''                     ,'1.08' ,'0.198' ,'',
+				'Bus'   ,'Connexxion'          ,'Noord_Holland' ,'Haarlem_IJmond'                     ,''                     ,'1.08' ,'0.179' ,'',
+				'Bus'   ,'Connexxion'          ,'Noord_Holland' ,'Noord_Holland_Noord'                ,''                     ,'1.08' ,'0.179' ,'',
+				'Bus'   ,'Connexxion'          ,'Noord_Holland' ,'Zaanstreek'                         ,''                     ,'1.08' ,'0.196' ,'',
+				'Bus'   ,'Connexxion'          ,'Noord_Holland' ,'Waterland'                          ,''                     ,'1.08' ,'0.196' ,'',
+				'Bus'   ,'Connexxion'          ,'Noord_Holland' ,'Zaanstreek_Waterland'               ,''                     ,'1.08' ,'0.196' ,'',
+				'Bus'   ,'Transdev'            ,'Noord_Holland' ,'Concessie_Amsterdam'                ,''                     ,'1.08' ,'0.179' ,'',
+				'Bus'   ,'Transdev'            ,'Noord_Holland' ,'Gooi_en_Vechtstreek'                ,''                     ,'1.08' ,'0.179' ,'',
+				'Bus'   ,'Transdev'            ,'Noord_Holland' ,'Provincie_Utrecht'                  ,''                     ,'1.08' ,'0.179' ,'',
+				'Bus'   ,'Transdev'            ,'Noord_Holland' ,'Tram_en_Bus_Regio_Utrecht'          ,''                     ,'1.08' ,'0.179' ,'',
+				'Bus'   ,'Texelhopper'         ,'Noord_Holland' ,'Noord_Holland_Noord'                ,''                     ,'1.08' ,'0.215' ,'',
+				'Bus'   ,'EBS'                 ,'Overijssel'    ,'IJssel_Vecht'                       ,''                     ,'1.08' ,'0.196' ,'',
+				'Rail'  ,'Blauwnet'            ,'Overijssel'    ,''                                   ,'Zuthpen-Oldenzaal'    ,'1.08' ,'0.246' ,'Keolis, ook bekend als Twents',
+				'Rail'  ,'Blauwnet'            ,'Overijssel'    ,''                                   ,''                     ,'1.08' ,'0.207' ,'Keolis, rest van de lijnen, ook bekend als Twents',
+				'Bus'   ,'Blauwnet'            ,'Overijssel'    ,'IJssel_Vecht'                       ,''                     ,'1.08' ,'0.207' ,'Vervangend vervoer van rail | 2023-val: keolisblauwnet.nl archief 2022-12-29',
+				'Bus'   ,'Twents_Keolis_'      ,'Overijssel'    ,'Achterhoek_Rivierenland'            ,''                     ,'1.08' ,'0.223' ,'Twents, service van Syntus, wat nu Keolis is',
+				'Bus'   ,'Twents_Keolis_'      ,'Overijssel'    ,'IJssel_Vecht'                       ,''                     ,'1.08' ,'0.223' ,'Twents, service van Syntus, wat nu Keolis is',
+				'Bus'   ,'Twents_Keolis_'      ,'Overijssel'    ,'Twente'                             ,''                     ,'1.08' ,'0.223' ,'Twents, service van Syntus, wat nu Keolis is',
+				'Bus'   ,'OV_Regio_IJsselmond' ,'Overijssel'    ,''                                   ,''                     ,'1.08' ,'0.211' ,'',
+				'Rail'  ,'DB'                  ,'Overijssel'    ,'Twente'                             ,''                     ,'2.60' ,'0'     ,'handmatig iets vergelijkbaars met NS maken: eerste 8km 2.60eu, het gaat om NL deel.',
+				'Rail'  ,'Eurobahn'            ,'Overijssel'    ,'Twente'                             ,''                     ,'1.08' ,'0.186' ,'handmatig iets vergelijkbaars met NS maken: eerste 8km 2.60eu, het gaat om NL deel.',
+				'Bus'   ,'Qbuzz'               ,'Utrecht'       ,''                                   ,''                     ,'1.08' ,'0.200' ,'kopie van Zuid_Holland, want prov_rel bij omgekeerde reis?',
+				'Bus'   ,'Syntus_Utrecht'      ,'Utrecht'       ,''                                   ,'295'                  ,'1.08' ,'0.187' ,'Utrecht - Schoonhoven Lopikerplein vv [feed: vh. Keolis]',
+				'Tram'  ,'U_OV'                ,'Utrecht'       ,''                                   ,''                     ,'1.08' ,'0.187' ,'',
+				'Bus'   ,'U_OV'                ,'Utrecht'       ,'Tram_en_Bus_Regio_Utrecht'          ,''                     ,'1.08' ,'0.187' ,'',
+				'Bus'   ,'U_OV'                ,'Utrecht'       ,'Provincie_Utrecht'                  ,''                     ,'1.08' ,'0.187' ,'',
+				'Bus'   ,'U_OV'                ,'Utrecht'       ,'Gooi_en_Vechtstreek'                ,''                     ,'1.08' ,'0.187' ,'',
+				'Bus'   ,'Syntus_Utrecht'      ,'Utrecht'       ,''                                   ,''                     ,'1.08' ,'0.187' ,'Syntus is nu Keolis',
+				'Bus'   ,'Connexxion'          ,'Zeeland'       ,''                                   ,''                     ,'1.08' ,'0.239' ,'',
+				'Ferry' ,'Westerschelde_Ferry' ,'Zeeland'       ,''                                   ,''                     ,'5.20' ,'0'     ,'',
+				'Bus'   ,'De_Lijn'             ,'Zeeland'       ,'Zeeland'                            ,''                     ,'2.50' ,'0'     ,'https://www.delijn.be/nl/content/vervoerbewijzen/kortingen/',
+				'Bus'   ,'Bravo_Arriva_'       ,'Zuid_Holland'  ,''                                   ,''                     ,'1.08' ,'0.188' ,'kopie van NoordBrabant, want prov_rel bij omgekeerde reis?',
+				'Bus'   ,'Arriva'              ,'Zuid_Holland'  ,''                                   ,'Buurtbus'             ,'1.08' ,'0.121' ,'',
+				'Bus'   ,'Arriva'              ,'Zuid_Holland'  ,''                                   ,'852'                  ,'8.60' ,'0'     ,'Keukenhof lijn',
+				'Bus'   ,'Arriva'              ,'Zuid_Holland'  ,''                                   ,'854'                  ,'5.00' ,'0'     ,'Keukenhof lijn',
+				'Bus'   ,'Arriva'              ,'Zuid_Holland'  ,''                                   ,'858'                  ,'5.60' ,'0'     ,'Keukenhof lijn',
+				'Bus'   ,'Arriva'              ,'Zuid_Holland'  ,''                                   ,'295'                  ,'1.08' ,'0.156' ,'Rotterdam - Schoonhoven Lopikerplein vv',
+				'Bus'   ,'Arriva'              ,'Zuid_Holland'  ,''                                   ,'Qliner'               ,'1.08' ,'0.200' ,'',
+				'Bus'   ,'R_net'               ,'Zuid_Holland'  ,''                                   ,''                     ,'1.08' ,'0.200' ,'Uitgezonderd lijnen 430, 431, 432',
+				'Bus'   ,'Arriva'              ,'Zuid_Holland'  ,''                                   ,'430'                  ,'1.08' ,'0.156' ,'[feed: vh. R_net]',
+				'Bus'   ,'Arriva'              ,'Zuid_Holland'  ,''                                   ,'431'                  ,'1.08' ,'0.156' ,'[feed: vh. R_net]',
+				'Bus'   ,'Arriva'              ,'Zuid_Holland'  ,''                                   ,'432'                  ,'1.08' ,'0.156' ,'[feed: vh. R_net]',
+				'Bus'   ,'Arriva'              ,'Zuid_Holland'  ,''                                   ,''                     ,'1.08' ,'0.156' ,'',
+				'Bus'   ,'Arriva'              ,'Zuid_Holland'  ,''                                   ,'Vlinder'              ,'1.08' ,'0.156' ,'',
+				'Rail'  ,'R_net'               ,'Zuid_Holland'  ,''                                   ,'MerwedeLingeLijn'     ,'1.08' ,'0.217' ,'',
+				'Bus'   ,'Qbuzz'               ,'Zuid_Holland'  ,''                                   ,'387'                  ,'1.08' ,'0.200' ,'',
+				'Bus'   ,'Qbuzz'               ,'Zuid_Holland'  ,''                                   ,'388'                  ,'1.08' ,'0.200' ,'',
+				'Bus'   ,'Qbuzz'               ,'Zuid_Holland'  ,''                                   ,'416'                  ,'1.08' ,'0.200' ,'[feed: vh. R_net]',
+				'Bus'   ,'Qbuzz'               ,'Zuid_Holland'  ,''                                   ,'488'                  ,'1.08' ,'0.200' ,'[feed: vh. R_net]',
+				'Bus'   ,'Qbuzz'               ,'Zuid_Holland'  ,''                                   ,'489'                  ,'1.08' ,'0.200' ,'[feed: vh. R_net]',
+				'Bus'   ,'Qbuzz'               ,'Zuid_Holland'  ,''                                   ,'491'                  ,'1.08' ,'0.200' ,'[feed: vh. R_net]',
+				'Bus'   ,'Qbuzz'               ,'Zuid_Holland'  ,'Drechtsteden_Molenlanden_Gorinchem' ,'stadsBuzz'            ,'1.08' ,'0.180' ,'[feed: vh. R_net]',
+				'Bus'   ,'Qbuzz'               ,'Zuid_Holland'  ,''                                   ,'streekBuzz buurtBuzz' ,'1.08' ,'0.155' ,'[feed: vh. R_net]',
+				'Bus'   ,'U_OV'                ,'Zuid_Holland'  ,'Drechtsteden_Molenlanden_Gorinchem' ,''                     ,'1.08' ,'0.187' ,'kopie van Utrecht, want prov_rel bij omgekeerde reis?',
+				'Bus'   ,'EBS'                 ,'Zuid_Holland'  ,'Haaglanden_Streek'                  ,''                     ,'1.08' ,'0.187' ,'2023-val: 0,196 was fout Amsterdam/RRReis-tarief; Haaglanden = 0,187',
+				'Bus'   ,'EBS'                 ,'Zuid_Holland'  ,'Voorne_Putten_en_Rozenburg'         ,''                     ,'1.08' ,'0.166' ,'2023-val: 0,196 was fout Amsterdam-tarief; VPR = 0,166',
+				'Bus'   ,'HTM'                 ,'Zuid_Holland'  ,''                                   ,''                     ,'1.08' ,'0.187' ,'',
+				'Tram'  ,'HTM'                 ,'Zuid_Holland'  ,''                                   ,''                     ,'1.08' ,'0.187' ,'',
+				'Bus'   ,'Syntus_Utrecht'      ,'Zuid_Holland'  ,''                                   ,''                     ,'1.08' ,'0.187' ,'kopie van Utrecht, want prov_rel bij omgekeerde reis?',
+				'Bus'   ,'Connexxion'          ,'Zuid_Holland'  ,''                                   ,''                     ,'1.08' ,'0.155' ,'',
+				'Bus'   ,'RET'                 ,'Zuid_Holland'  ,'Bus_Rotterdam_e_o'                  ,''                     ,'1.08' ,'0.166' ,'',
+				'Tram'  ,'RET'                 ,'Zuid_Holland'  ,''                                   ,''                     ,'1.08' ,'0.166' ,'',
+				'Metro' ,'RET'                 ,'Zuid_Holland'  ,''                                   ,''                     ,'1.08' ,'0.166' ,'',
+				'Ferry' ,'Blue_Amigo'          ,'Zuid_Holland'  ,''                                   ,''                     ,'2.00' ,'0'     ,'Waterbus Drechtsteden - Rotterdam',
+				'Ferry' ,'Blue_Amigo'          ,'Zuid_Holland'  ,'Drechtsteden_Molenlanden_Gorinchem' ,''                     ,'2.00' ,'0'     ,'Waterbus Drechtsteden - Rotterdam',
+				'Rail'  ,'NS_International'    ,''              ,''                                   ,''                     ,'2.60' ,'0'     ,'handmatig iets vergelijkbaars met NS maken: eerste 8km 2.60eu, het gaat om NL deel.',
+				'Bus'   ,'Bravo_Arriva_'       ,'Noord_Brabant' ,'West-Brabant'                       ,''                     ,'1.08' ,'0.188' ,'2023-val toegevoegd: regulier West-Brabant streek-km (naast 820-flatfare); bron bravo.info 2023 [feed: vh. Arriva]',
+				'Bus'   ,'Transdev'            ,'Zuid_Holland'  ,'Haaglanden_Streek'                  ,''                     ,'1.08' ,'0.187' ,'2023-val toegevoegd: Connexxion/Transdev regionaal busvervoer Haaglanden (MRDH 2023)',
+				'Bus'   ,'Transdev'            ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'          ,''                     ,'1.08' ,'0.186' ,'2023-val toegevoegd: Hermes/Breng (Transdev) bus Arnhem-Nijmegen',
+				'Rail'  ,'Breng'               ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'          ,'Arnhem-Doetinchem'    ,'1.08' ,'0.228' ,'2023-val toegevoegd: Breng/Hermes (Transdev) rail Arnhem-Doetinchem [feed: vh. Transdev]',
+				'Bus'   ,'Connexxion'          ,'Zuid_Holland'  ,''                                   ,'Parkshuttle Rivium'   ,'1.08' ,'0.79'  ,'2023-val toegevoegd: Parkshuttle Rivium bijzonder hoog km-tarief (Connexxion, MRDH)',
+				'Bus'   ,'Keolis'              ,'Overijssel'    ,''                                   ,''                     ,'1.08' ,'0.207' ,'TVV-lijnen 822-824 (treinvervangend Zwolle/Kampen/Enschede); tarief = Blauwnet-analogie'
+
 // 'Rail_NS_International_Amstelland_Meerlanden'
 // 'Rail_NS_International_Concessie_Amsterdam'
 // 'Rail_NS_International_Concessie_Arnhem_Nijmegen'
@@ -236,7 +253,6 @@ container OVprijzen
 // 'Rail_NS_International_Tram_en_Bus_Regio_Utrecht'
 // 'Rail_NS_International_Twente'
 // 'Rail_NS_International_West_Brabant'
-
 				//vervoerders die wel in GTFS zitten maar niet in deze lijst zijn niet opgenomen omdat ze in het buitenland opereren (De Lijn, DB, Eurobahn, NIAG, NMBS, VIAS)
 			];
 		}
@@ -266,10 +282,541 @@ container OVprijzen
 		parameter<uint32> nrAttr := 8;
 	}
 	
+
+	unit<uint8> FareTable_2024 : NrOfRows = 144, URL = "https://github.com/ObjectVision/NetworkModel_PBL/issues/112"
+	{
+		unit<uint32> Elements  := Range(uint32, 0, nrAttr*#.)
+		{
+			attribute<String> Text:
+			[
+				//de    ,Vervoerder                     ,Provincie       ,Concessiegebied                      ,Lijn                   ,Ritprijs ,Kmprijs ,Opmerking (bron per rij; 'GEEN BRON GEVONDEN' = niet online te vinden)                                                                                                                                                                                               
+				'Rail'  ,'NS'                           ,'Alle'          ,''                                   ,''                     ,'0'     ,'0'     ,'TariffUnits in NS tabel | prijs via NS-tariefnet (L-net), niet via deze FareTable',
+				'Bus'   ,'NS'                           ,'Alle'          ,''                                   ,''                     ,'0'     ,'0'     ,'TariffUnits in NS tabel | prijs via NS-tariefnet (L-net), niet via deze FareTable',
+				'Bus'   ,'Overal_Connexxion_'           ,'Alle'          ,''                                   ,''                     ,'1.08'  ,'0.239' ,'bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx (kopie->connexxion)',
+				'Rail'  ,'Blauwnet'                     ,'Drenthe'       ,'Groningen_Drenthe'                  ,''                     ,'1.08'  ,'0.188' ,'2e klas Arriva Blauwnet | bron(deepdive): https://gemeenteraad.groningen.nl/Documenten/Bijlage/Bijlage-1-Tarieven-busvervoer-Groningen-Drenthe-1.pdf',
+				'Bus'   ,'Qbuzz'                        ,'Drenthe'       ,'Groningen_Drenthe'                  ,''                     ,'1.08'  ,'0.188' ,'bron(deepdive): https://gemeenteraad.groningen.nl/Documenten/Bijlage/Bijlage-1-Tarieven-busvervoer-Groningen-Drenthe-1.pdf',
+				'Bus'   ,'Arriva'                       ,'Flevoland'     ,'Busvervoer_Almere'                  ,''                     ,'1.68'  ,'0'     ,'Binnen de ring | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Arriva'                       ,'Flevoland'     ,'Busvervoer_Almere'                  ,''                     ,'2.52'  ,'0'     ,'Buiten de ring | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'allGo_Keolis_'                ,'Flevoland'     ,'Busvervoer_Almere'                  ,''                     ,'1.08'  ,'0.177' ,'Almere | 2023-val: 0,161 was 2022-prijs; Keolis Almere 2023 = 0,177',
+				'Bus'   ,'EBS'                          ,'Flevoland'     ,'IJssel_Vecht'                       ,''                     ,'1.08'  ,'0.196' ,'bron: https://zoek.officielebekendmakingen.nl/prb-2024-19228.pdf',
+				'Bus'   ,'RRReis'                       ,'Flevoland'     ,'IJsselmond'                         ,''                     ,'1.08'  ,'0.185' ,'GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive) [feed: vh. OV_Regio_IJsselmond]',
+				'Bus'   ,'Arriva'                       ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Buurtbus NZW-Fryslan' ,'1.08'  ,'0.079' ,'buurtbussen Noordzuidwest-Fryslan | bron: Arriva Tarievensheet 2024 (regio N-NF, officieel)',
+				'Bus'   ,'Arriva'                       ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Buurtbus ZO-Fryslan'  ,'1.08'  ,'0.079' ,'buurtbussen Zuidoost-Fryslan | bron: Arriva Tarievensheet 2024 (regio N-NF, officieel)',
+				'Bus'   ,'Arriva'                       ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Opstapper'            ,'2.50'  ,'0'     ,'GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Arriva'                       ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'315'                  ,'1.08'  ,'0.213' ,'Qliner | bron: Arriva Tarievensheet 2024 (regio N-NF, officieel)',
+				'Bus'   ,'Arriva'                       ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'324'                  ,'1.08'  ,'0.213' ,'Qliner | bron: Arriva Tarievensheet 2024 (regio N-NF, officieel)',
+				'Bus'   ,'Arriva'                       ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'320'                  ,'1.08'  ,'0.213' ,'Qliner | bron: Arriva Tarievensheet 2024 (regio N-NF, officieel)',
+				'Bus'   ,'Arriva'                       ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'350'                  ,'1.08'  ,'0.213' ,'Qliner Friese deel | bron: Arriva Tarievensheet 2024 (regio N-NF, officieel)',
+				'Bus'   ,'Arriva'                       ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'355'                  ,'1.08'  ,'0.213' ,'Qliner | bron: Arriva Tarievensheet 2024 (regio N-NF, officieel)',
+				'Bus'   ,'Arriva'                       ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'356'                  ,'1.08'  ,'0.213' ,'Qliner | bron: Arriva Tarievensheet 2024 (regio N-NF, officieel)',
+				'Bus'   ,'Arriva'                       ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Stad Leeuwarden'      ,'1.08'  ,'0.187' ,'bron: Arriva Tarievensheet 2024 (regio N-NF, officieel)',
+				'Bus'   ,'Arriva'                       ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Streek'               ,'1.08'  ,'0.187' ,'bron: Arriva Tarievensheet 2024 (regio N-NF, officieel)',
+				'Bus'   ,'Arriva'                       ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Ameland 2 zones'      ,'2.82'  ,'0'     ,'bron(deepdive): http://web.archive.org/web/20240104183648/https://www.arriva.nl/kaartjes-abonnementen/losse-kaartjes/reizen-op-de-waddeneilanden/',
+				'Bus'   ,'Arriva'                       ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Terschelling 2 zones' ,'2.82'  ,'0'     ,'bron(deepdive): http://web.archive.org/web/20240104183648/https://www.arriva.nl/kaartjes-abonnementen/losse-kaartjes/reizen-op-de-waddeneilanden/',
+				'Bus'   ,'Arriva'                       ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Ameland 1 zone'       ,'1.82'  ,'0'     ,'bron(deepdive): http://web.archive.org/web/20240104183648/https://www.arriva.nl/kaartjes-abonnementen/losse-kaartjes/reizen-op-de-waddeneilanden/',
+				'Bus'   ,'Arriva'                       ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Terschelling 1 zone'  ,'1.82'  ,'0'     ,'bron(deepdive): http://web.archive.org/web/20240104183648/https://www.arriva.nl/kaartjes-abonnementen/losse-kaartjes/reizen-op-de-waddeneilanden/',
+				'Bus'   ,'Arriva'                       ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Vlieland 1 zone'      ,'1.82'  ,'0'     ,'bron(deepdive): http://web.archive.org/web/20240104183648/https://www.arriva.nl/kaartjes-abonnementen/losse-kaartjes/reizen-op-de-waddeneilanden/',
+				'Bus'   ,'Arriva'                       ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Schiermonnikoog'      ,'2.27'  ,'0'     ,'bron(deepdive): http://web.archive.org/web/20240104183648/https://www.arriva.nl/kaartjes-abonnementen/losse-kaartjes/reizen-op-de-waddeneilanden/',
+				'Bus'   ,'EBS'                          ,'Gelderland'    ,'IJssel_Vecht'                       ,''                     ,'1.08'  ,'0.196' ,'bron: https://zoek.officielebekendmakingen.nl/prb-2024-19228.pdf',
+				'Rail'  ,'RRReis'                       ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'          ,''                     ,'1.08'  ,'0.202' ,'door Connexxion | 2023-val: treinreiziger.nl (Valleilijn-trein = 0,202, geen streektarief) [feed: vh. Valleilijn]',
+				'Rail'  ,'VIAS'                         ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'          ,''                     ,'2.60'  ,'0'     ,'handmatig iets vergelijkbaars met NS maken: eerste 8km 2.60eu, het gaat om NL deel. | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Arriva'                       ,'Gelderland'    ,'Achterhoek Rivierenland'            ,''                     ,'1.08'  ,'0.192' ,'bron: Arriva Tarievensheet 2024 (regio O-GLD, officieel)',
+				'Bus'   ,'Arriva'                       ,'Gelderland'    ,'Achterhoek Rivierenland'            ,'27'                   ,'1.08'  ,'0.192' ,'bron: Arriva Tarievensheet 2024 (regio O-GLD, officieel)',
+				'Bus'   ,'Breng'                        ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'          ,'29'                   ,'1.08'  ,'0.186' ,'= concessie-basistarief; bron: https://zoek.officielebekendmakingen.nl/prb-2024-19228.pdf',
+				'Bus'   ,'Arriva'                       ,'Gelderland'    ,'Achterhoek Rivierenland'            ,'440'                  ,'1.08'  ,'0'     ,'bron: https://zoek.officielebekendmakingen.nl/prb-2024-19228.pdf',
+				'Bus'   ,'Arriva'                       ,'Gelderland'    ,'Achterhoek Rivierenland'            ,'450'                  ,'1.08'  ,'0'     ,'bron: https://zoek.officielebekendmakingen.nl/prb-2024-19228.pdf',
+				'Bus'   ,'Arriva'                       ,'Gelderland'    ,'Achterhoek Rivierenland'            ,'458'                  ,'1.08'  ,'0'     ,'bron: https://zoek.officielebekendmakingen.nl/prb-2024-19228.pdf',
+				'Bus'   ,'Arriva'                       ,'Gelderland'    ,'Twente'                             ,'53'                   ,'1.08'  ,'0.223' ,'voor ritten in Twente | bron(deepdive): https://wiki.ovinnederland.nl/wiki/Lijn_53_Hengelo_Centraal_Station_-_Eibergen_Viersprong',
+				'Bus'   ,'Arriva'                       ,'Gelderland'    ,'Twente'                             ,'73'                   ,'1.08'  ,'0.223' ,'voor ritten in Twente | bron(deepdive): https://wiki.ovinnederland.nl/wiki/Lijn_53_Hengelo_Centraal_Station_-_Eibergen_Viersprong',
+				'Bus'   ,'Arriva'                       ,'Gelderland'    ,'Twente'                             ,'74'                   ,'1.08'  ,'0.223' ,'voor ritten in Twente | bron(deepdive): https://wiki.ovinnederland.nl/wiki/Lijn_53_Hengelo_Centraal_Station_-_Eibergen_Viersprong',
+				'Bus'   ,'Arriva'                       ,'Gelderland'    ,'Twente'                             ,'85'                   ,'1.08'  ,'0.223' ,'voor ritten in Twente | bron(deepdive): https://wiki.ovinnederland.nl/wiki/Lijn_53_Hengelo_Centraal_Station_-_Eibergen_Viersprong',
+				'Rail'  ,'Breng'                        ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'          ,''                     ,'1.08'  ,'0.228' ,'Uitvoerder Hermes/Connexxion | bron: https://zoek.officielebekendmakingen.nl/prb-2024-19228.pdf',
+				'Rail'  ,'Arriva_OVR_'                  ,'Gelderland'    ,'Achterhoek Rivierenland'            ,''                     ,'1.08'  ,'0.228' ,'2e klas | bron: Arriva Tarievensheet 2024 (regio O-GLD, officieel) [feed: vh. Arriva]',
+				'Bus'   ,'Arriva'                       ,'Gelderland'    ,'Achterhoek Rivierenland'            ,'Vlinder'              ,'1.08'  ,'0'     ,'bron: https://zoek.officielebekendmakingen.nl/prb-2024-19228.pdf',
+				'Rail'  ,'Arriva_OVR_'                  ,'Groningen'     ,'Groningen-Drenthe'                  ,''                     ,'1.08'  ,'0.188' ,'2e klas | bron(deepdive): https://gemeenteraad.groningen.nl/Documenten/Bijlage/Bijlage-1-Tarieven-busvervoer-Groningen-Drenthe-1.pdf [feed: vh. Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Groningen'     ,''                                   ,''                     ,'1.08'  ,'0.188' ,'bron: https://gemeenteraad.groningen.nl/Documenten/OV-bureau-Groningen-Drenthe-bustarieven-2025.pdf',
+				'Bus'   ,'Qbuzz'                        ,'Groningen'     ,'Groningen-Drenthe'                  ,'315'                  ,'1.08'  ,'0.188' ,'Qliner | bron(deepdive): https://gemeenteraad.groningen.nl/Documenten/Bijlage/Bijlage-1-Tarieven-busvervoer-Groningen-Drenthe-1.pdf [feed: vh. Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Groningen'     ,'Groningen-Drenthe'                  ,'324'                  ,'1.08'  ,'0.188' ,'Qliner | bron(deepdive): https://gemeenteraad.groningen.nl/Documenten/Bijlage/Bijlage-1-Tarieven-busvervoer-Groningen-Drenthe-1.pdf [feed: vh. Arriva]',
+				'Bus'   ,'Arriva'                       ,'Limburg'       ,'Limburg'                            ,'Avondvlinder'         ,'1.75'  ,'0'     ,'GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Arriva'                       ,'Limburg'       ,'Limburg'                            ,''                     ,'1.08'  ,'0.228' ,'bron(deepdive): https://reizigersoverleglimburg.nl/wp-content/uploads/2023/09/20230707-Adviesaanvraag-tarieven-Limburg-2024.pdf',
+				'Bus'   ,'Arriva'                       ,'Limburg'       ,'Limburg'                            ,'83'                   ,'1.08'  ,'0.204' ,'vanaf halte Milsbeek Helweg | 2023-val: ROL adviesaanvraag 2023 (Limburg bus 0,204)',
+				'Rail'  ,'Arriva_OVR_'                  ,'Limburg'       ,'Limburg'                            ,''                     ,'1.08'  ,'0.228' ,'2e klas | bron(deepdive): https://reizigersoverleglimburg.nl/wp-content/uploads/2023/09/20230707-Adviesaanvraag-tarieven-Limburg-2024.pdf [feed: vh. Arriva]',
+				'Bus'   ,'De_Lijn'                      ,'Limburg'       ,'Limburg'                            ,''                     ,'3.50'  ,'0'     ,'https://www.delijn.be/nl/content/vervoerbewijzen/kortingen/ | bron(deepdive): https://www.bravo.info/reizen/diensten/bravoflex/bravoflex-bergen-op-zoom/veelgestelde-vragen-bravoflex-bergen-op-zoom',
+				'Rail'  ,'Eurobahn'                     ,'Limburg'       ,'Limburg'                            ,''                     ,'1.08'  ,'0.228' ,'RE13 (alleen Venlo in NL, geen NL-interne OD); NL-deel | bron(deepdive): https://reizigersoverleglimburg.nl/wp-content/uploads/2023/09/20230707-Adviesaanvraag-tarieven-Limburg-2024.pdf',
+				'Rail'  ,'NMBS'                         ,'Limburg'       ,'Limburg'                            ,''                     ,'3.50'  ,'0'     ,'eerste 7km 2.50eu, het gaat om NL deel. https://www.belgiantrain.be/-/media/files/pdf/productfiches/tarieven-20240201.ashx | bron(deepdive): https://www.bravo.info/reizen/diensten/bravoflex/bravoflex-bergen-op-zoom/veelgestelde-vragen-bravoflex-bergen-op-zoom',
+				'Bus'   ,'Bravo_Arriva_'                ,'Noord_Brabant' ,'West-Brabant'                       ,'820'                  ,'3.50'  ,'0'     ,'Bergen op Zoom kris kras | bron(deepdive): https://www.bravo.info/reizen/diensten/bravoflex/bravoflex-bergen-op-zoom/veelgestelde-vragen-bravoflex-bergen-op-zoom [feed: vh. Arriva]',
+				'Bus'   ,'Bravo_Arriva_'                ,'Noord_Brabant' ,'Oost-Brabant'                       ,'99'                   ,'1.08'  ,'0.188' ,'bron: Arriva Tarievensheet 2024 (regio Z-BO, officieel) [feed: vh. Arriva]',
+				'Bus'   ,'Bravo_Arriva_'                ,'Noord_Brabant' ,''                                   ,'Nightliner'           ,'5.00'  ,'0'     ,'bron(deepdive): https://extra.katwijk.nl/projecten/mobiliteit/nachtbus [feed: vh. Arriva]',
+				'Bus'   ,'Bravo_Arriva_'                ,'Noord_Brabant' ,''                                   ,''                     ,'1.08'  ,'0.192' ,'bron: https://zoek.officielebekendmakingen.nl/prb-2024-19228.pdf (kopie->arriva)',
+				'Bus'   ,'Hermes'                       ,'Noord_Brabant' ,''                                   ,''                     ,'1.08'  ,'0.188' ,'bron: https://zoek.officielebekendmakingen.nl/prb-2023-15312.pdf',
+				'Bus'   ,'Bravo_Hermes_'                ,'Noord_Brabant' ,''                                   ,''                     ,'1.08'  ,'0.188' ,'Merk van Connexxion | bron: https://zoek.officielebekendmakingen.nl/prb-2023-15312.pdf (kopie->hermes)',
+				'Rail'  ,'NMBS'                         ,'Noord_Brabant' ,'West_Brabant'                       ,''                     ,'3.50'  ,'0'     ,'eerste 7km 2.50eu, het gaat om NL deel. https://www.belgiantrain.be/-/media/files/pdf/productfiches/tarieven-20240201.ashx | bron(deepdive): https://www.bravo.info/reizen/diensten/bravoflex/bravoflex-bergen-op-zoom/veelgestelde-vragen-bravoflex-bergen-op-zoom',
+				'Bus'   ,'Arriva'                       ,'Noord_Holland' ,'Zuid-Holland Noord'                 ,'350'                  ,'1.08'  ,'0.179' ,'Qliner Noord-Hollandse deel | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Tram'  ,'GVB'                          ,'Noord_Holland' ,''                                   ,''                     ,'1.08'  ,'0.196' ,'bron: https://www.diemernieuws.nl/vervoer-verkeer/vervoer-verkeer/346656/tarieven-openbaar-vervoer-gaan-in-2025-met-gemiddeld-3-34-omhoog',
+				'Metro' ,'GVB'                          ,'Noord_Holland' ,''                                   ,''                     ,'1.08'  ,'0.196' ,'bron: https://www.diemernieuws.nl/vervoer-verkeer/vervoer-verkeer/346656/tarieven-openbaar-vervoer-gaan-in-2025-met-gemiddeld-3-34-omhoog',
+				'Bus'   ,'GVB'                          ,'Noord_Holland' ,''                                   ,''                     ,'1.08'  ,'0.196' ,'bron: https://www.diemernieuws.nl/vervoer-verkeer/vervoer-verkeer/346656/tarieven-openbaar-vervoer-gaan-in-2025-met-gemiddeld-3-34-omhoog',
+				'Ferry' ,'GVB'                          ,'Noord_Holland' ,''                                   ,''                     ,'0'     ,'0'     ,'gratis',
+				'Bus'   ,'EBS'                          ,'Noord_Holland' ,'Zaanstreek_Waterland'               ,''                     ,'1.08'  ,'0.196' ,'bron: https://www.vervoerregio.nl/artikel/20241119-ov-tarieven-vervoerregio-voor-2025-vastgesteld',
+				'Bus'   ,'Syntus_Utrecht'               ,'Noord_Holland' ,''                                   ,''                     ,'1.08'  ,'0.187' ,'kopie van Utrecht, want prov_rel bij omgekeerde reis? | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Connexxion'                   ,'Noord_Holland' ,'Amstelland_Meerlanden'              ,''                     ,'1.08'  ,'0.198' ,'bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx',
+				'Bus'   ,'Connexxion'                   ,'Noord_Holland' ,'Haarlem_IJmond'                     ,''                     ,'1.08'  ,'0.179' ,'bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx',
+				'Bus'   ,'Connexxion'                   ,'Noord_Holland' ,'Noord_Holland_Noord'                ,''                     ,'1.08'  ,'0.179' ,'bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx',
+				'Bus'   ,'Connexxion'                   ,'Noord_Holland' ,'Zaanstreek'                         ,''                     ,'1.08'  ,'0.196' ,'bron(deepdive): https://vervoerregio.bestuurlijkeinformatie.nl/Document/View/7c30343b-cd68-442e-b6d2-89c037f4fa28',
+				'Bus'   ,'Connexxion'                   ,'Noord_Holland' ,'Waterland'                          ,''                     ,'1.08'  ,'0.196' ,'bron(deepdive): https://vervoerregio.bestuurlijkeinformatie.nl/Document/View/7c30343b-cd68-442e-b6d2-89c037f4fa28',
+				'Bus'   ,'Connexxion'                   ,'Noord_Holland' ,'Zaanstreek_Waterland'               ,''                     ,'1.08'  ,'0.196' ,'bron(deepdive): https://vervoerregio.bestuurlijkeinformatie.nl/Document/View/7c30343b-cd68-442e-b6d2-89c037f4fa28',
+				'Bus'   ,'Transdev'                     ,'Noord_Holland' ,'Concessie_Amsterdam'                ,''                     ,'1.08'  ,'0.179' ,'GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Transdev'                     ,'Noord_Holland' ,'Gooi_en_Vechtstreek'                ,''                     ,'1.08'  ,'0.179' ,'bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx',
+				'Bus'   ,'Transdev'                     ,'Noord_Holland' ,'Provincie_Utrecht'                  ,''                     ,'1.08'  ,'0.179' ,'GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Transdev'                     ,'Noord_Holland' ,'Tram_en_Bus_Regio_Utrecht'          ,''                     ,'1.08'  ,'0.179' ,'GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Connexxion'                   ,'Noord_Holland' ,'Noord_Holland_Noord'                ,''                     ,'1.08'  ,'0.215' ,'GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive) [feed: vh. Texelhopper]',
+				'Bus'   ,'EBS'                          ,'Overijssel'    ,'IJssel_Vecht'                       ,''                     ,'1.08'  ,'0.196' ,'bron: https://zoek.officielebekendmakingen.nl/prb-2024-19228.pdf',
+				'Rail'  ,'Blauwnet'                     ,'Overijssel'    ,''                                   ,'Zuthpen-Oldenzaal'    ,'1.08'  ,'0.207' ,'Keolis, ook bekend als Twents | = concessie-basistarief; bron: http://web.archive.org/web/20240413100258/https://www.keolisblauwnet.nl/vervoerbewijzen/reizen-op-saldo-nl/',
+				'Rail'  ,'Blauwnet'                     ,'Overijssel'    ,''                                   ,''                     ,'1.08'  ,'0.207' ,'Keolis, rest van de lijnen, ook bekend als Twents | bron: http://web.archive.org/web/20240413100258/https://www.keolisblauwnet.nl/vervoerbewijzen/reizen-op-saldo-nl/',
+				'Bus'   ,'Blauwnet'                     ,'Overijssel'    ,'IJssel_Vecht'                       ,''                     ,'1.08'  ,'0.207' ,'Vervangend vervoer van rail | bron(deepdive): http://web.archive.org/web/20250119042849/https://www.keolisblauwnet.nl/getmedia/4e485bb4-8c0e-44c0-823f-0b5dc8ee96fc/Tarieftabellen-website-Blauwnet-2024.pdf',
+				'Bus'   ,'RRReis'                       ,'Overijssel'    ,'Achterhoek_Rivierenland'            ,''                     ,'1.08'  ,'0.223' ,'Twents, service van Syntus, wat nu Keolis is | bron(deepdive): https://wiki.ovinnederland.nl/wiki/Lijn_53_Hengelo_Centraal_Station_-_Eibergen_Viersprong [feed: vh. Twents_Keolis_]',
+				'Bus'   ,'RRReis'                       ,'Overijssel'    ,'IJssel_Vecht'                       ,''                     ,'1.08'  ,'0.223' ,'Twents, service van Syntus, wat nu Keolis is | bron(deepdive): https://wiki.ovinnederland.nl/wiki/Lijn_53_Hengelo_Centraal_Station_-_Eibergen_Viersprong [feed: vh. Twents_Keolis_]',
+				'Bus'   ,'RRReis'                       ,'Overijssel'    ,'Twente'                             ,''                     ,'1.08'  ,'0.223' ,'Twents, service van Syntus, wat nu Keolis is | bron(deepdive): https://wiki.ovinnederland.nl/wiki/Lijn_53_Hengelo_Centraal_Station_-_Eibergen_Viersprong [feed: vh. Twents_Keolis_]',
+				'Bus'   ,'RRReis'                       ,'Overijssel'    ,''                                   ,''                     ,'1.08'  ,'0.196' ,'bron: https://zoek.officielebekendmakingen.nl/prb-2024-19228.pdf [feed: vh. OV_Regio_IJsselmond]',
+				'Rail'  ,'DB'                           ,'Overijssel'    ,'Twente'                             ,''                     ,'2.60'  ,'0'     ,'grens-stoptrein Enschede-Dortmund (NL-deel Enschede-Glanerbrug); vast tarief analoog VIAS/NS_Int | GEEN BRON GEVONDEN (NL-deeltarief niet gepubliceerd)',
+				'Rail'  ,'Eurobahn'                     ,'Overijssel'    ,'Twente'                             ,''                     ,'1.08'  ,'0.223' ,'RB61 Hengelo-Oldenzaal(-Bielefeld); NL-deel | GEEN BRON GEVONDEN (km-tarief = Twente-analogie)',
+				'Bus'   ,'Qbuzz'                        ,'Utrecht'       ,''                                   ,''                     ,'1.08'  ,'0.188' ,'bron: https://gemeenteraad.groningen.nl/Documenten/OV-bureau-Groningen-Drenthe-bustarieven-2025.pdf',
+				'Bus'   ,'Syntus_Utrecht'               ,'Utrecht'       ,''                                   ,'295'                  ,'1.08'  ,'0.187' ,'Utrecht - Schoonhoven Lopikerplein vv | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive) [feed: vh. Keolis]',
+				'Tram'  ,'U_OV'                         ,'Utrecht'       ,''                                   ,''                     ,'1.08'  ,'0.187' ,'bron: https://www.stateninformatie.provincie-utrecht.nl/documenten/1-Tarievenplan-2024.pdf',
+				'Bus'   ,'U_OV'                         ,'Utrecht'       ,'Tram_en_Bus_Regio_Utrecht'          ,''                     ,'1.08'  ,'0.187' ,'bron: https://www.stateninformatie.provincie-utrecht.nl/documenten/1-Tarievenplan-2024.pdf',
+				'Bus'   ,'U_OV'                         ,'Utrecht'       ,'Provincie_Utrecht'                  ,''                     ,'1.08'  ,'0.187' ,'bron: https://www.stateninformatie.provincie-utrecht.nl/documenten/1-Tarievenplan-2024.pdf',
+				'Bus'   ,'U_OV'                         ,'Utrecht'       ,'Gooi_en_Vechtstreek'                ,''                     ,'1.08'  ,'0.187' ,'GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Syntus_Utrecht'               ,'Utrecht'       ,''                                   ,''                     ,'1.08'  ,'0.187' ,'Syntus is nu Keolis | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Connexxion'                   ,'Zeeland'       ,''                                   ,''                     ,'1.08'  ,'0.239' ,'bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx',
+				'Ferry' ,'Westerschelde_Ferry'          ,'Zeeland'       ,''                                   ,''                     ,'5.20'  ,'0'     ,'GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'De_Lijn'                      ,'Zeeland'       ,'Zeeland'                            ,''                     ,'2.50'  ,'0'     ,'https://www.delijn.be/nl/content/vervoerbewijzen/kortingen/ | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Bravo_Arriva_'                ,'Zuid_Holland'  ,''                                   ,''                     ,'1.08'  ,'0.192' ,'bron: https://zoek.officielebekendmakingen.nl/prb-2024-19228.pdf (kopie->arriva)',
+				'Bus'   ,'Arriva'                       ,'Zuid_Holland'  ,''                                   ,'Buurtbus'             ,'1.08'  ,'0.192' ,'bron: https://zoek.officielebekendmakingen.nl/prb-2024-19228.pdf',
+				'Bus'   ,'Arriva'                       ,'Zuid_Holland'  ,''                                   ,'852'                  ,'8.60'  ,'0'     ,'Keukenhof lijn | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Arriva'                       ,'Zuid_Holland'  ,''                                   ,'854'                  ,'5.00'  ,'0'     ,'Keukenhof lijn | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Arriva'                       ,'Zuid_Holland'  ,''                                   ,'858'                  ,'5.60'  ,'0'     ,'Keukenhof lijn | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Arriva'                       ,'Zuid_Holland'  ,''                                   ,'295'                  ,'1.08'  ,'0.192' ,'Rotterdam - Schoonhoven Lopikerplein vv | = concessie-basistarief; bron: https://zoek.officielebekendmakingen.nl/prb-2024-19228.pdf',
+				'Bus'   ,'Arriva'                       ,'Zuid_Holland'  ,''                                   ,'Qliner'               ,'1.08'  ,'0.192' ,'= concessie-basistarief; bron: https://zoek.officielebekendmakingen.nl/prb-2024-19228.pdf',
+				'Bus'   ,'R_net'                        ,'Zuid_Holland'  ,''                                   ,''                     ,'1.08'  ,'0.2'   ,'Uitgezonderd lijnen 430, 431, 432 | bron: https://nl.wikipedia.org/wiki/Stads-_en_streekvervoer_in_Zuid-Holland',
+				'Bus'   ,'Arriva'                       ,'Zuid_Holland'  ,''                                   ,'430'                  ,'1.08'  ,'0.156' ,'bron: https://nl.wikipedia.org/wiki/Stads-_en_streekvervoer_in_Zuid-Holland [feed: vh. R_net]',
+				'Bus'   ,'Arriva'                       ,'Zuid_Holland'  ,''                                   ,'431'                  ,'1.08'  ,'0.156' ,'bron: https://nl.wikipedia.org/wiki/Stads-_en_streekvervoer_in_Zuid-Holland [feed: vh. R_net]',
+				'Bus'   ,'Arriva'                       ,'Zuid_Holland'  ,''                                   ,'432'                  ,'1.08'  ,'0.156' ,'bron: https://nl.wikipedia.org/wiki/Stads-_en_streekvervoer_in_Zuid-Holland [feed: vh. R_net]',
+				'Bus'   ,'Arriva'                       ,'Zuid_Holland'  ,''                                   ,''                     ,'1.08'  ,'0.192' ,'bron: https://zoek.officielebekendmakingen.nl/prb-2024-19228.pdf',
+				'Bus'   ,'Arriva'                       ,'Zuid_Holland'  ,''                                   ,'Vlinder'              ,'1.08'  ,'0.192' ,'bron: https://zoek.officielebekendmakingen.nl/prb-2024-19228.pdf',
+				'Rail'  ,'R_net'                        ,'Zuid_Holland'  ,''                                   ,'MerwedeLingeLijn'     ,'1.08'  ,'0.217' ,'bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx',
+				'Bus'   ,'Qbuzz'                        ,'Zuid_Holland'  ,''                                   ,'387'                  ,'1.08'  ,'0.188' ,'= concessie-basistarief; bron: https://gemeenteraad.groningen.nl/Documenten/OV-bureau-Groningen-Drenthe-bustarieven-2025.pdf',
+				'Bus'   ,'Qbuzz'                        ,'Zuid_Holland'  ,''                                   ,'388'                  ,'1.08'  ,'0.188' ,'= concessie-basistarief; bron: https://gemeenteraad.groningen.nl/Documenten/OV-bureau-Groningen-Drenthe-bustarieven-2025.pdf',
+				'Bus'   ,'Qbuzz'                        ,'Zuid_Holland'  ,''                                   ,'416'                  ,'1.08'  ,'0.2'   ,'= concessie-basistarief; bron: https://nl.wikipedia.org/wiki/Stads-_en_streekvervoer_in_Zuid-Holland [feed: vh. R_net]',
+				'Bus'   ,'Qbuzz'                        ,'Zuid_Holland'  ,''                                   ,'488'                  ,'1.08'  ,'0.2'   ,'= concessie-basistarief; bron: https://nl.wikipedia.org/wiki/Stads-_en_streekvervoer_in_Zuid-Holland [feed: vh. R_net]',
+				'Bus'   ,'Qbuzz'                        ,'Zuid_Holland'  ,''                                   ,'489'                  ,'1.08'  ,'0.2'   ,'= concessie-basistarief; bron: https://nl.wikipedia.org/wiki/Stads-_en_streekvervoer_in_Zuid-Holland [feed: vh. R_net]',
+				'Bus'   ,'Qbuzz'                        ,'Zuid_Holland'  ,''                                   ,'491'                  ,'1.08'  ,'0.2'   ,'= concessie-basistarief; bron: https://nl.wikipedia.org/wiki/Stads-_en_streekvervoer_in_Zuid-Holland [feed: vh. R_net]',
+				'Bus'   ,'Qbuzz'                        ,'Zuid_Holland'  ,'Drechtsteden_Molenlanden_Gorinchem' ,'stadsBuzz'            ,'1.08'  ,'0.2'   ,'= concessie-basistarief; bron: https://nl.wikipedia.org/wiki/Stads-_en_streekvervoer_in_Zuid-Holland [feed: vh. R_net]',
+				'Bus'   ,'Qbuzz'                        ,'Zuid_Holland'  ,''                                   ,'streekBuzz buurtBuzz' ,'1.08'  ,'0.155' ,'bron: https://nl.wikipedia.org/wiki/Stads-_en_streekvervoer_in_Zuid-Holland [feed: vh. R_net]',
+				'Bus'   ,'U_OV'                         ,'Zuid_Holland'  ,'Drechtsteden_Molenlanden_Gorinchem' ,''                     ,'1.08'  ,'0.187' ,'kopie van Utrecht, want prov_rel bij omgekeerde reis? | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'EBS'                          ,'Zuid_Holland'  ,'Haaglanden_Streek'                  ,''                     ,'1.08'  ,'0.187' ,'bron: https://mrdh.nl/nieuws/ov-tarieven-2025',
+				'Bus'   ,'EBS'                          ,'Zuid_Holland'  ,'Voorne_Putten_en_Rozenburg'         ,''                     ,'1.08'  ,'0.166' ,'bron: https://mrdh.nl/nieuws/ov-tarieven-2025',
+				'Bus'   ,'HTM'                          ,'Zuid_Holland'  ,''                                   ,''                     ,'1.08'  ,'0.187' ,'bron: https://bestanden.ret.nl/user_upload/Documenten/PDF/Productvoorwaarden/2024/2024_Saldo_reizen.pdf',
+				'Tram'  ,'HTM'                          ,'Zuid_Holland'  ,''                                   ,''                     ,'1.08'  ,'0.187' ,'bron: https://bestanden.ret.nl/user_upload/Documenten/PDF/Productvoorwaarden/2024/2024_Saldo_reizen.pdf',
+				'Bus'   ,'Syntus_Utrecht'               ,'Zuid_Holland'  ,''                                   ,''                     ,'1.08'  ,'0.187' ,'kopie van Utrecht, want prov_rel bij omgekeerde reis? | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Connexxion'                   ,'Zuid_Holland'  ,''                                   ,''                     ,'1.08'  ,'0.155' ,'bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx',
+				'Bus'   ,'RET'                          ,'Zuid_Holland'  ,'Bus_Rotterdam_e_o'                  ,''                     ,'1.08'  ,'0.166' ,'bron: https://bestanden.ret.nl/user_upload/Documenten/PDF/Productvoorwaarden/2024/2024_Saldo_reizen.pdf',
+				'Tram'  ,'RET'                          ,'Zuid_Holland'  ,''                                   ,''                     ,'1.08'  ,'0.166' ,'bron: https://bestanden.ret.nl/user_upload/Documenten/PDF/Productvoorwaarden/2024/2024_Saldo_reizen.pdf',
+				'Metro' ,'RET'                          ,'Zuid_Holland'  ,''                                   ,''                     ,'1.08'  ,'0.166' ,'bron: https://bestanden.ret.nl/user_upload/Documenten/PDF/Productvoorwaarden/2024/2024_Saldo_reizen.pdf',
+				'Ferry' ,'Waterbus'                     ,'Zuid_Holland'  ,''                                   ,''                     ,'2.13'  ,'0'     ,'enkele reis Rotterdam-Drechtsteden (afstandsmatrix) | bron: https://wiki.ovinnederland.nl/w/index.php?title=Waterbus_Tarieftabel&oldid=71124 [feed: vh. Blue Amigo]',
+				'Ferry' ,'Waterbus'                     ,'Zuid_Holland'  ,'Drechtsteden_Molenlanden_Gorinchem' ,''                     ,'1.43'  ,'0'     ,'Waterbus Drechtsteden - Rotterdam | bron: https://wiki.ovinnederland.nl/w/index.php?title=Waterbus_Tarieftabel&oldid=711248 [feed: vh. Blue_Amigo]',
+				'Rail'  ,'NS_International'             ,''              ,''                                   ,''                     ,'2.60'  ,'0'     ,'handmatig iets vergelijkbaars met NS maken: eerste 8km 2.60eu, het gaat om NL deel. | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Bravo_Arriva_'                ,'Noord_Brabant' ,'West-Brabant'                       ,''                     ,'1.08'  ,'0.188' ,'bron: Arriva Tarievensheet 2024 (regio Z-BW, officieel) [feed: vh. Arriva]',
+				'Bus'   ,'Transdev'                     ,'Zuid_Holland'  ,'Haaglanden_Streek'                  ,''                     ,'1.08'  ,'0.187' ,'bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx',
+				'Bus'   ,'Transdev'                     ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'          ,''                     ,'1.08'  ,'0.186' ,'2023-val toegevoegd: Hermes/Breng (Transdev) bus Arnhem-Nijmegen',
+				'Rail'  ,'Breng'                        ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'          ,'Arnhem-Doetinchem'    ,'1.08'  ,'0.228' ,'2023-val toegevoegd: Breng/Hermes (Transdev) rail Arnhem-Doetinchem [feed: vh. Transdev]',
+				'Bus'   ,'Connexxion'                   ,'Zuid_Holland'  ,''                                   ,'Parkshuttle Rivium'   ,'1.08'  ,'0.239' ,'= concessie-basistarief; bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx',
+				'Ferry' ,'TESO'                         ,'Noord_Holland' ,'Noord_Holland_Noord'                ,''                     ,'1.25'  ,'0'     ,'enkele-reis-equivalent Den Helder-Texel; retour voetganger EUR2,50 / 2 | bron: https://www.texelsecourant.nl/nieuws/algemeen/330119/tarieven-teso-met-10-procent-omhoog',
+				'Ferry' ,'Rederij_Doeksen'              ,'Fryslân'       ,''                                   ,''                     ,'20.12' ,'0'     ,'enkele-reis-equivalent Harlingen-Terschelling/Vlieland | bron: https://hellovlieland.eu/boot-vlieland/kosten-boot-vlieland/',
+				'Ferry' ,'Wagenborg_Passagiersdiensten' ,'Fryslân'       ,''                                   ,''                     ,'7.23'  ,'0'     ,'enkele reis Holwerd-Ameland / Lauwersoog-Schiermonnikoog | bron: https://www.wpd.nl/assets/89915d7f-c45d-4fd4-af1f-1e7a595df744.pdf',
+				'Bus'   ,'Bravo'                        ,'Noord_Brabant' ,''                                   ,''                     ,'1.08'  ,'0.188' ,'alleen lijn 323 Gemert-Eindhoven (Zuidoost-Brabant); tarief = Bravo (Hermes)-analogie',
+				'Bus'   ,'ZTM'                          ,'Zuid_Holland'  ,''                                   ,'800'                  ,'6.50'  ,'0'     ,'nachtbus gemeente Zoetermeer (uitv. Verhoef), pin-only, vast EUR6,50 | bron: https://wiki.ovinnederland.nl/wiki/Lijn_800_Zoetermeer_Centrum_West_-_Leiden_Centraal_Station'
+			];
+		}
+		
+		attribute<string>       Mode            := Elements/Text[value(UInt32(ID(.))* nrAttr + 0, Elements)];
+		attribute<string>       Vervoerder      := Elements/Text[value(UInt32(ID(.))* nrAttr + 1, Elements)], Descr = "/SourceData/Infrastructure/GTFS/LoadFeeds/ReadFSS/agency/Data/agency_name";
+		attribute<string>       Concessiegebied := Elements/Text[value(UInt32(ID(.))* nrAttr + 3, Elements)];
+		attribute<string>       Lijn            := Elements/Text[value(UInt32(ID(.))* nrAttr + 4, Elements)];
+		attribute<Euro>         FixedPrice      := Elements/Text[value(UInt32(ID(.))* nrAttr + 5, Elements)][Euro];
+		attribute<Euro_km>      VariablePrice   := Elements/Text[value(UInt32(ID(.))* nrAttr + 6, Elements)][Euro_km];
+		attribute<string>       Opmerking       := Elements/Text[value(UInt32(ID(.))* nrAttr + 7, Elements)];
+		
+		attribute<Modes>             Mode_rel               := rlookup(Mode, Modes/name);
+		attribute<Agencies>          Agency_rel             := rlookup(lowercase(Vervoerder), Agencies/name);
+		attribute<Concessiegebieden> Concessiegebieden_rel  := rlookup(AsItemName(Concessiegebied), Concessiegebieden/name);
+		
+		attribute<string>       Concessiegebied_str := AsItemName(Concessiegebied != '' ? ''+Concessiegebied : '');
+		attribute<string>       Lijn_str            := Lijn != '' ? '_'+Lijn : '';
+		
+		attribute<string>       Mode_Agency_CG_Lijn_identifier := Mode +'_'+ lowercase(Vervoerder) +'_'+ Concessiegebied_str + Lijn_str;
+		attribute<string>       Mode_Agency_CG_identifier      := Mode +'_'+ lowercase(Vervoerder) +'_'+ Concessiegebied_str;
+		attribute<string>       Mode_Agency_identifier         := Mode +'_'+ lowercase(Vervoerder);
+		attribute<string>       label                          := Mode_Agency_CG_Lijn_identifier;
+
+		parameter<uint32> nrAttr := 8;
+	}
+
+	unit<uint8> FareTable_2025 : NrOfRows = 143, URL = "https://github.com/ObjectVision/NetworkModel_PBL/issues/112"
+	{
+		unit<uint32> Elements  := Range(uint32, 0, nrAttr*#.)
+		{
+			attribute<String> Text:
+			[
+				//de    ,Vervoerder                     ,Provincie       ,Concessiegebied                      ,Lijn                   ,Ritprijs ,Kmprijs ,Opmerking (bron per rij; 'GEEN BRON GEVONDEN' = niet online te vinden)                                                                                                                                                   
+				'Rail'  ,'NS'                           ,'Alle'          ,''                                   ,''                     ,'0'     ,'0'     ,'TariffUnits in NS tabel | prijs via NS-tariefnet (L-net), niet via deze FareTable',
+				'Bus'   ,'NS'                           ,'Alle'          ,''                                   ,''                     ,'0'     ,'0'     ,'TariffUnits in NS tabel | prijs via NS-tariefnet (L-net), niet via deze FareTable',
+				'Bus'   ,'Connexxion'                   ,'Alle'          ,''                                   ,''                     ,'1.12'  ,'0.247' ,'bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx (kopie->connexxion) [feed: vh. Overal_Connexxion_]',
+				'Rail'  ,'Blauwnet'                     ,'Drenthe'       ,'Groningen_Drenthe'                  ,''                     ,'1.12'  ,'0.194' ,'2e klas Arriva Blauwnet | bron(deepdive): https://provinciegroningen.bestuurlijkeinformatie.nl/Document/View/04c1488f-abaf-4b7d-9e85-29f9f2973970',
+				'Bus'   ,'Qbuzz'                        ,'Drenthe'       ,'Groningen_Drenthe'                  ,''                     ,'1.12'  ,'0.194' ,'bron(deepdive): https://provinciegroningen.bestuurlijkeinformatie.nl/Document/View/04c1488f-abaf-4b7d-9e85-29f9f2973970',
+				'Bus'   ,'Arriva'                       ,'Flevoland'     ,'Busvervoer_Almere'                  ,''                     ,'1.74'  ,'0'     ,'Binnen de ring | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Arriva'                       ,'Flevoland'     ,'Busvervoer_Almere'                  ,''                     ,'2.61'  ,'0'     ,'Buiten de ring | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'allGo_Keolis_'                ,'Flevoland'     ,'Busvervoer_Almere'                  ,''                     ,'1.12'  ,'0.177' ,'Almere | 2023-val: 0,161 was 2022-prijs; Keolis Almere 2023 = 0,177',
+				'Bus'   ,'EBS'                          ,'Flevoland'     ,'IJssel_Vecht'                       ,''                     ,'1.12'  ,'0.203' ,'bron: https://zoek.officielebekendmakingen.nl/prb-2024-19228.pdf',
+				'Bus'   ,'RRReis'                       ,'Flevoland'     ,'IJsselmond'                         ,''                     ,'1.12'  ,'0.185' ,'GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive) [feed: vh. OV_Regio_IJsselmond]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Buurtbus NZW-Fryslan' ,'1.12'  ,'0.082' ,'buurtbussen Noordzuidwest-Fryslan | bron(deepdive): http://web.archive.org/web/20250513130316/https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Buurtbus ZO-Fryslan'  ,'1.12'  ,'0.082' ,'buurtbussen Zuidoost-Fryslan | bron(deepdive): http://web.archive.org/web/20250513130316/https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Opstapper'            ,'2.50'  ,'0'     ,'bron(deepdive): http://web.archive.org/web/20250513130316/https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'315'                  ,'1.12'  ,'0.22'  ,'Qliner | bron(deepdive): http://web.archive.org/web/20250513130316/https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'324'                  ,'1.12'  ,'0.22'  ,'Qliner | bron(deepdive): http://web.archive.org/web/20250513130316/https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'320'                  ,'1.12'  ,'0.22'  ,'Qliner | bron(deepdive): http://web.archive.org/web/20250513130316/https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'350'                  ,'1.12'  ,'0.22'  ,'Qliner Friese deel | bron(deepdive): http://web.archive.org/web/20250513130316/https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'355'                  ,'1.12'  ,'0.22'  ,'Qliner | bron(deepdive): http://web.archive.org/web/20250513130316/https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'356'                  ,'1.12'  ,'0.22'  ,'Qliner | bron(deepdive): http://web.archive.org/web/20250513130316/https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Stad Leeuwarden'      ,'1.12'  ,'0.193' ,'bron(deepdive): http://web.archive.org/web/20250513130316/https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Streek'               ,'1.12'  ,'0.193' ,'bron(deepdive): http://web.archive.org/web/20250513130316/https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Ameland 2 zones'      ,'2.91'  ,'0'     ,'bron(deepdive): http://web.archive.org/web/20250513130316/https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Terschelling 2 zones' ,'2.91'  ,'0'     ,'bron(deepdive): http://web.archive.org/web/20250513130316/https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Ameland 1 zone'       ,'1.88'  ,'0'     ,'bron(deepdive): http://web.archive.org/web/20250513130316/https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Terschelling 1 zone'  ,'1.88'  ,'0'     ,'bron(deepdive): http://web.archive.org/web/20250513130316/https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Vlieland 1 zone'      ,'1.88'  ,'0'     ,'bron(deepdive): http://web.archive.org/web/20250513130316/https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Schiermonnikoog'      ,'2.35'  ,'0'     ,'bron(deepdive): http://web.archive.org/web/20250513130316/https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'EBS'                          ,'Gelderland'    ,'IJssel_Vecht'                       ,''                     ,'1.12'  ,'0.203' ,'bron: https://zoek.officielebekendmakingen.nl/prb-2024-19228.pdf',
+				'Rail'  ,'RRReis'                       ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'          ,''                     ,'1.12'  ,'0.202' ,'door Connexxion | 2023-val: treinreiziger.nl (Valleilijn-trein = 0,202, geen streektarief) [feed: vh. Valleilijn]',
+				'Rail'  ,'VIAS'                         ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'          ,''                     ,'2.70'  ,'0'     ,'handmatig iets vergelijkbaars met NS maken: eerste 8km 2.60eu, het gaat om NL deel. | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'RRReis'                       ,'Gelderland'    ,'Achterhoek Rivierenland'            ,''                     ,'1.12'  ,'0.198' ,'bron: https://zoek.officielebekendmakingen.nl/prb-2025-20501.pdf [feed: vh. Arriva]',
+				'Bus'   ,'RRReis'                       ,'Gelderland'    ,'Achterhoek Rivierenland'            ,'27'                   ,'1.12'  ,'0.198' ,'= concessie-basistarief; bron: https://zoek.officielebekendmakingen.nl/prb-2025-20501.pdf [feed: vh. Arriva]',
+				'Bus'   ,'Breng'                        ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'          ,'29'                   ,'1.12'  ,'0.192' ,'= concessie-basistarief; bron: https://zoek.officielebekendmakingen.nl/prb-2024-19228.pdf',
+				'Bus'   ,'RRReis'                       ,'Gelderland'    ,'Achterhoek Rivierenland'            ,'440'                  ,'1.12'  ,'0'     ,'bron: https://zoek.officielebekendmakingen.nl/prb-2025-20501.pdf [feed: vh. Arriva]',
+				'Bus'   ,'RRReis'                       ,'Gelderland'    ,'Achterhoek Rivierenland'            ,'450'                  ,'1.12'  ,'0'     ,'bron: https://zoek.officielebekendmakingen.nl/prb-2025-20501.pdf [feed: vh. Arriva]',
+				'Bus'   ,'RRReis'                       ,'Gelderland'    ,'Achterhoek Rivierenland'            ,'458'                  ,'1.12'  ,'0'     ,'bron: https://zoek.officielebekendmakingen.nl/prb-2025-20501.pdf [feed: vh. Arriva]',
+				'Bus'   ,'Arriva'                       ,'Gelderland'    ,'Twente'                             ,'53'                   ,'1.12'  ,'0.23'  ,'voor ritten in Twente | bron(deepdive): https://wiki.ovinnederland.nl/wiki/Lijn_53_Hengelo_Centraal_Station_-_Eibergen_Viersprong',
+				'Bus'   ,'Arriva'                       ,'Gelderland'    ,'Twente'                             ,'73'                   ,'1.12'  ,'0.23'  ,'voor ritten in Twente | bron(deepdive): https://wiki.ovinnederland.nl/wiki/Lijn_53_Hengelo_Centraal_Station_-_Eibergen_Viersprong',
+				'Bus'   ,'Arriva'                       ,'Gelderland'    ,'Twente'                             ,'74'                   ,'1.12'  ,'0.23'  ,'voor ritten in Twente | bron(deepdive): https://wiki.ovinnederland.nl/wiki/Lijn_53_Hengelo_Centraal_Station_-_Eibergen_Viersprong',
+				'Bus'   ,'Arriva'                       ,'Gelderland'    ,'Twente'                             ,'85'                   ,'1.12'  ,'0.23'  ,'voor ritten in Twente | bron(deepdive): https://wiki.ovinnederland.nl/wiki/Lijn_53_Hengelo_Centraal_Station_-_Eibergen_Viersprong',
+				'Rail'  ,'Breng'                        ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'          ,''                     ,'1.12'  ,'0.236' ,'Uitvoerder Hermes/Connexxion | bron: https://zoek.officielebekendmakingen.nl/prb-2024-19228.pdf',
+				'Rail'  ,'Arriva'                       ,'Gelderland'    ,'Achterhoek Rivierenland'            ,''                     ,'1.12'  ,'0.236' ,'2e klas | bron: https://zoek.officielebekendmakingen.nl/prb-2025-20501.pdf',
+				'Bus'   ,'RRReis'                       ,'Gelderland'    ,'Achterhoek Rivierenland'            ,'Vlinder'              ,'1.12'  ,'0'     ,'bron: https://zoek.officielebekendmakingen.nl/prb-2025-20501.pdf [feed: vh. Arriva]',
+				'Rail'  ,'Arriva'                       ,'Groningen'     ,'Groningen-Drenthe'                  ,''                     ,'1.12'  ,'0.194' ,'2e klas | bron(deepdive): https://provinciegroningen.bestuurlijkeinformatie.nl/Document/View/04c1488f-abaf-4b7d-9e85-29f9f2973970',
+				'Bus'   ,'Qbuzz'                        ,'Groningen'     ,''                                   ,''                     ,'1.12'  ,'0.193' ,'bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx',
+				'Bus'   ,'Qbuzz'                        ,'Groningen'     ,'Groningen-Drenthe'                  ,'315'                  ,'1.12'  ,'0.194' ,'Qliner | bron(deepdive): https://provinciegroningen.bestuurlijkeinformatie.nl/Document/View/04c1488f-abaf-4b7d-9e85-29f9f2973970 [feed: vh. Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Groningen'     ,'Groningen-Drenthe'                  ,'324'                  ,'1.12'  ,'0.194' ,'Qliner | bron(deepdive): https://provinciegroningen.bestuurlijkeinformatie.nl/Document/View/04c1488f-abaf-4b7d-9e85-29f9f2973970 [feed: vh. Arriva]',
+				'Bus'   ,'Arriva'                       ,'Limburg'       ,'Limburg'                            ,'Avondvlinder'         ,'1.81'  ,'0'     ,'GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Arriva'                       ,'Limburg'       ,'Limburg'                            ,''                     ,'1.12'  ,'0.97'  ,'bron(deepdive): https://www.bravo.info/reizen/ik-reis-met/bravoflex/bravoflex-west-brabant',
+				'Bus'   ,'Arriva'                       ,'Limburg'       ,'Limburg'                            ,'83'                   ,'1.12'  ,'0.204' ,'vanaf halte Milsbeek Helweg | 2023-val: ROL adviesaanvraag 2023 (Limburg bus 0,204)',
+				'Rail'  ,'Arriva'                       ,'Limburg'       ,'Limburg'                            ,''                     ,'1.12'  ,'0.97'  ,'2e klas | bron(deepdive): https://www.bravo.info/reizen/ik-reis-met/bravoflex/bravoflex-west-brabant',
+				'Bus'   ,'De_Lijn'                      ,'Limburg'       ,'Limburg'                            ,''                     ,'5.60'  ,'0'     ,'https://www.delijn.be/nl/content/vervoerbewijzen/kortingen/ | bron(deepdive): https://www.bravo.info/reizen/ik-reis-met/bravoflex/bravoflex-west-brabant',
+				'Rail'  ,'Eurobahn'                     ,'Limburg'       ,'Limburg'                            ,''                     ,'1.12'  ,'0.223'  ,'RE13 (alleen Venlo in NL, geen NL-interne OD); NL-deel | bron: DOVA-overzicht Limburg-rail 2025',
+				'Rail'  ,'NMBS'                         ,'Limburg'       ,'Limburg'                            ,''                     ,'5.60'  ,'0'     ,'eerste 7km 2.50eu, het gaat om NL deel. https://www.belgiantrain.be/-/media/files/pdf/productfiches/tarieven-20240201.ashx | bron(deepdive): https://www.bravo.info/reizen/ik-reis-met/bravoflex/bravoflex-west-brabant',
+				'Bus'   ,'Bravo_Arriva_'                ,'Noord_Brabant' ,'West-Brabant'                       ,'820'                  ,'1.12'  ,'0'     ,'Bergen op Zoom kris kras | bron: https://zoek.officielebekendmakingen.nl/prb-2024-19472.html [feed: vh. Arriva]',
+				'Bus'   ,'Bravo_Arriva_'                ,'Noord_Brabant' ,'Oost-Brabant'                       ,'99'                   ,'1.12'  ,'0.194' ,'bron: Arriva Tarievensheet 2025 (regio Z-BO, officieel) [feed: vh. Arriva]',
+				'Bus'   ,'Bravo_Arriva_'                ,'Noord_Brabant' ,''                                   ,'Nightliner'           ,'5.00'  ,'0'     ,'bron(deepdive): https://extra.katwijk.nl/projecten/mobiliteit/nachtbus [feed: vh. Arriva]',
+				'Bus'   ,'Bravo_Arriva_'                ,'Noord_Brabant' ,''                                   ,''                     ,'1.12'  ,'0.194' ,'bron: https://zoek.officielebekendmakingen.nl/prb-2024-19472.html (kopie->arriva)',
+				'Bus'   ,'Hermes'                       ,'Noord_Brabant' ,''                                   ,''                     ,'1.12'  ,'0.194' ,'bron: https://zoek.officielebekendmakingen.nl/prb-2024-19472.pdf',
+				'Bus'   ,'Bravo_Hermes_'                ,'Noord_Brabant' ,''                                   ,''                     ,'1.12'  ,'0.194' ,'Merk van Connexxion | bron: https://zoek.officielebekendmakingen.nl/prb-2024-19472.pdf (kopie->hermes)',
+				'Rail'  ,'NMBS'                         ,'Noord_Brabant' ,'West_Brabant'                       ,''                     ,'5.60'  ,'0'     ,'eerste 7km 2.50eu, het gaat om NL deel. https://www.belgiantrain.be/-/media/files/pdf/productfiches/tarieven-20240201.ashx | bron(deepdive): https://www.bravo.info/reizen/ik-reis-met/bravoflex/bravoflex-west-brabant',
+				'Bus'   ,'Arriva'                       ,'Noord_Holland' ,'Zuid-Holland Noord'                 ,'350'                  ,'1.12'  ,'0.179' ,'Qliner Noord-Hollandse deel | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Tram'  ,'GVB'                          ,'Noord_Holland' ,''                                   ,''                     ,'1.12'  ,'0.207' ,'bron: https://www.vervoerregio.nl/artikel/20241119-ov-tarieven-vervoerregio-voor-2025-vastgesteld',
+				'Metro' ,'GVB'                          ,'Noord_Holland' ,''                                   ,''                     ,'1.12'  ,'0.207' ,'bron: https://www.vervoerregio.nl/artikel/20241119-ov-tarieven-vervoerregio-voor-2025-vastgesteld',
+				'Bus'   ,'GVB'                          ,'Noord_Holland' ,''                                   ,''                     ,'1.12'  ,'0.207' ,'bron: https://www.vervoerregio.nl/artikel/20241119-ov-tarieven-vervoerregio-voor-2025-vastgesteld',
+				'Ferry' ,'GVB'                          ,'Noord_Holland' ,''                                   ,''                     ,'0'     ,'0'     ,'gratis',
+				'Bus'   ,'EBS'                          ,'Noord_Holland' ,'Zaanstreek_Waterland'               ,''                     ,'1.12'  ,'0.207' ,'bron: https://www.vervoerregio.nl/artikel/20241119-ov-tarieven-vervoerregio-voor-2025-vastgesteld',
+				'Bus'   ,'Syntus_Utrecht'               ,'Noord_Holland' ,''                                   ,''                     ,'1.12'  ,'0.187' ,'kopie van Utrecht, want prov_rel bij omgekeerde reis? | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Connexxion'                   ,'Noord_Holland' ,'Amstelland_Meerlanden'              ,''                     ,'1.12'  ,'0.215' ,'bron: https://www.vervoerregio.nl/artikel/20241119-ov-tarieven-vervoerregio-voor-2025-vastgesteld',
+				'Bus'   ,'Connexxion'                   ,'Noord_Holland' ,'Haarlem_IJmond'                     ,''                     ,'1.12'  ,'0.19'  ,'bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx',
+				'Bus'   ,'Connexxion'                   ,'Noord_Holland' ,'Noord_Holland_Noord'                ,''                     ,'1.12'  ,'0.189' ,'bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx',
+				'Bus'   ,'Connexxion'                   ,'Noord_Holland' ,'Zaanstreek'                         ,''                     ,'1.12'  ,'0.207' ,'bron(deepdive): https://vervoerregio.bestuurlijkeinformatie.nl/Document/View/7c30343b-cd68-442e-b6d2-89c037f4fa28',
+				'Bus'   ,'Connexxion'                   ,'Noord_Holland' ,'Waterland'                          ,''                     ,'1.12'  ,'0.207' ,'bron(deepdive): https://vervoerregio.bestuurlijkeinformatie.nl/Document/View/7c30343b-cd68-442e-b6d2-89c037f4fa28',
+				'Bus'   ,'Connexxion'                   ,'Noord_Holland' ,'Zaanstreek_Waterland'               ,''                     ,'1.12'  ,'0.207' ,'bron(deepdive): https://vervoerregio.bestuurlijkeinformatie.nl/Document/View/7c30343b-cd68-442e-b6d2-89c037f4fa28',
+				'Bus'   ,'Transdev'                     ,'Noord_Holland' ,'Concessie_Amsterdam'                ,''                     ,'1.12'  ,'0.179' ,'GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Transdev'                     ,'Noord_Holland' ,'Gooi_en_Vechtstreek'                ,''                     ,'1.12'  ,'0.189' ,'bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx',
+				'Bus'   ,'Transdev'                     ,'Noord_Holland' ,'Provincie_Utrecht'                  ,''                     ,'1.12'  ,'0.179' ,'GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Transdev'                     ,'Noord_Holland' ,'Tram_en_Bus_Regio_Utrecht'          ,''                     ,'1.12'  ,'0.179' ,'GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Connexxion'                   ,'Noord_Holland' ,'Noord_Holland_Noord'                ,''                     ,'1.12'  ,'0.215' ,'GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive) [feed: vh. Texelhopper]',
+				'Bus'   ,'EBS'                          ,'Overijssel'    ,'IJssel_Vecht'                       ,''                     ,'1.12'  ,'0.203' ,'bron: https://zoek.officielebekendmakingen.nl/prb-2024-19228.pdf',
+				'Rail'  ,'Blauwnet'                     ,'Overijssel'    ,''                                   ,'Zuthpen-Oldenzaal'    ,'1.12'  ,'0.214' ,'Keolis, ook bekend als Twents | = concessie-basistarief; bron: http://web.archive.org/web/20250119023738/https://www.keolisblauwnet.nl/vervoerbewijzen/reizen-op-saldo-nl/',
+				'Rail'  ,'Blauwnet'                     ,'Overijssel'    ,''                                   ,''                     ,'1.12'  ,'0.214' ,'Keolis, rest van de lijnen, ook bekend als Twents | bron: http://web.archive.org/web/20250119023738/https://www.keolisblauwnet.nl/vervoerbewijzen/reizen-op-saldo-nl/',
+				'Bus'   ,'Blauwnet'                     ,'Overijssel'    ,'IJssel_Vecht'                       ,''                     ,'1.12'  ,'0.214' ,'Vervangend vervoer van rail | bron(deepdive): http://web.archive.org/web/20250524040251/https://www.keolisblauwnet.nl/vervoerbewijzen/reizen-op-saldo-nl',
+				'Bus'   ,'RRReis'                       ,'Overijssel'    ,'Achterhoek_Rivierenland'            ,''                     ,'1.12'  ,'0.23'  ,'Twents, service van Syntus, wat nu Keolis is | bron(deepdive): https://wiki.ovinnederland.nl/wiki/Lijn_53_Hengelo_Centraal_Station_-_Eibergen_Viersprong [feed: vh. Twents_Keolis_]',
+				'Bus'   ,'RRReis'                       ,'Overijssel'    ,'IJssel_Vecht'                       ,''                     ,'1.12'  ,'0.23'  ,'Twents, service van Syntus, wat nu Keolis is | bron(deepdive): https://wiki.ovinnederland.nl/wiki/Lijn_53_Hengelo_Centraal_Station_-_Eibergen_Viersprong [feed: vh. Twents_Keolis_]',
+				'Bus'   ,'RRReis'                       ,'Overijssel'    ,'Twente'                             ,''                     ,'1.12'  ,'0.23'  ,'Twents, service van Syntus, wat nu Keolis is | bron(deepdive): https://wiki.ovinnederland.nl/wiki/Lijn_53_Hengelo_Centraal_Station_-_Eibergen_Viersprong [feed: vh. Twents_Keolis_]',
+				'Bus'   ,'RRReis'                       ,'Overijssel'    ,''                                   ,''                     ,'1.12'  ,'0.203' ,'bron: https://zoek.officielebekendmakingen.nl/prb-2024-19228.pdf [feed: vh. OV_Regio_IJsselmond]',
+				'Rail'  ,'DB'                           ,'Overijssel'    ,'Twente'                             ,''                     ,'2.70'  ,'0'     ,'grens-stoptrein Enschede-Dortmund (NL-deel Enschede-Glanerbrug); vast tarief analoog VIAS/NS_Int | GEEN BRON GEVONDEN (NL-deeltarief niet gepubliceerd)',
+				'Rail'  ,'Eurobahn'                     ,'Overijssel'    ,'Twente'                             ,''                     ,'1.12'  ,'0.23'  ,'RB61 Hengelo-Oldenzaal(-Bielefeld); NL-deel | GEEN BRON GEVONDEN (km-tarief = Twente-analogie)',
+				'Bus'   ,'Qbuzz'                        ,'Utrecht'       ,''                                   ,''                     ,'1.12'  ,'0.194' ,'bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx',
+				'Bus'   ,'Syntus_Utrecht'               ,'Utrecht'       ,''                                   ,'295'                  ,'1.12'  ,'0.187' ,'Utrecht - Schoonhoven Lopikerplein vv | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive) [feed: vh. Keolis]',
+				'Tram'  ,'U_OV'                         ,'Utrecht'       ,''                                   ,''                     ,'1.12'  ,'0.193' ,'bron: https://www.stateninformatie.provincie-utrecht.nl/Documenten/1-Tarievenplan-U-OV-en-Syntus-2025.pdf',
+				'Bus'   ,'U_OV'                         ,'Utrecht'       ,'Tram_en_Bus_Regio_Utrecht'          ,''                     ,'1.12'  ,'0.193' ,'bron: https://www.stateninformatie.provincie-utrecht.nl/Documenten/1-Tarievenplan-U-OV-en-Syntus-2025.pdf',
+				'Bus'   ,'U_OV'                         ,'Utrecht'       ,'Provincie_Utrecht'                  ,''                     ,'1.12'  ,'0.193' ,'bron: https://www.stateninformatie.provincie-utrecht.nl/Documenten/1-Tarievenplan-U-OV-en-Syntus-2025.pdf',
+				'Bus'   ,'U_OV'                         ,'Utrecht'       ,'Gooi_en_Vechtstreek'                ,''                     ,'1.12'  ,'0.187' ,'GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Syntus_Utrecht'               ,'Utrecht'       ,''                                   ,''                     ,'1.12'  ,'0.187' ,'Syntus is nu Keolis | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Connexxion'                   ,'Zeeland'       ,''                                   ,''                     ,'1.12'  ,'0.247' ,'bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx',
+				'Ferry' ,'Westerschelde_Ferry'          ,'Zeeland'       ,''                                   ,''                     ,'5.39'  ,'0'     ,'GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'De_Lijn'                      ,'Zeeland'       ,'Zeeland'                            ,''                     ,'2.59'  ,'0'     ,'https://www.delijn.be/nl/content/vervoerbewijzen/kortingen/ | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Bravo_Arriva_'                ,'Zuid_Holland'  ,''                                   ,''                     ,'1.12'  ,'0.194' ,'bron: https://zoek.officielebekendmakingen.nl/prb-2024-19472.html (kopie->arriva)',
+				'Bus'   ,'Arriva'                       ,'Zuid_Holland'  ,''                                   ,'Buurtbus'             ,'1.12'  ,'0.194' ,'= concessie-basistarief; bron: https://zoek.officielebekendmakingen.nl/prb-2024-19472.html',
+				'Bus'   ,'Arriva'                       ,'Zuid_Holland'  ,''                                   ,'852'                  ,'17.00' ,'0'     ,'Keukenhof lijn | bron(deepdive): https://www.european-traveler.com/netherlands/bus-and-train-transportation-to-keukenhof-tulip-gardens-from-amsterdam-or-schiphol-airport/',
+				'Bus'   ,'Arriva'                       ,'Zuid_Holland'  ,''                                   ,'854'                  ,'5.19'  ,'0'     ,'Keukenhof lijn | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Arriva'                       ,'Zuid_Holland'  ,''                                   ,'858'                  ,'17.00' ,'0'     ,'Keukenhof lijn | bron(deepdive): https://www.european-traveler.com/netherlands/bus-and-train-transportation-to-keukenhof-tulip-gardens-from-amsterdam-or-schiphol-airport/',
+				'Bus'   ,'Arriva'                       ,'Zuid_Holland'  ,''                                   ,'295'                  ,'1.12'  ,'0.194' ,'Rotterdam - Schoonhoven Lopikerplein vv | = concessie-basistarief; bron: https://zoek.officielebekendmakingen.nl/prb-2024-19472.html',
+				'Bus'   ,'Arriva'                       ,'Zuid_Holland'  ,''                                   ,'Qliner'               ,'1.12'  ,'0.198' ,'= concessie-basistarief; bron: https://zoek.officielebekendmakingen.nl/prb-2025-20501.pdf',
+				'Bus'   ,'R_net'                        ,'Zuid_Holland'  ,''                                   ,''                     ,'1.12'  ,'0.206' ,'Uitgezonderd lijnen 430, 431, 432 | bron: https://nl.wikipedia.org/wiki/Stads-_en_streekvervoer_in_Zuid-Holland',
+				'Bus'   ,'Arriva'                       ,'Zuid_Holland'  ,''                                   ,''                     ,'1.12'  ,'0.194' ,'bron: https://zoek.officielebekendmakingen.nl/prb-2024-19472.html',
+				'Bus'   ,'Arriva'                       ,'Zuid_Holland'  ,''                                   ,'Vlinder'              ,'1.12'  ,'0.194' ,'= concessie-basistarief; bron: https://zoek.officielebekendmakingen.nl/prb-2024-19472.html',
+				'Rail'  ,'R_net'                        ,'Zuid_Holland'  ,''                                   ,'MerwedeLingeLijn'     ,'1.12'  ,'0.225' ,'bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx',
+				'Bus'   ,'Qbuzz'                        ,'Zuid_Holland'  ,''                                   ,'387'                  ,'1.12'  ,'0.194' ,'= concessie-basistarief; bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx',
+				'Bus'   ,'Qbuzz'                        ,'Zuid_Holland'  ,''                                   ,'388'                  ,'1.12'  ,'0.194' ,'= concessie-basistarief; bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx',
+				'Bus'   ,'Qbuzz'                        ,'Zuid_Holland'  ,''                                   ,'416'                  ,'1.12'  ,'0.206' ,'= concessie-basistarief; bron: https://nl.wikipedia.org/wiki/Stads-_en_streekvervoer_in_Zuid-Holland [feed: vh. R_net]',
+				'Bus'   ,'Qbuzz'                        ,'Zuid_Holland'  ,''                                   ,'488'                  ,'1.12'  ,'0.206' ,'= concessie-basistarief; bron: https://nl.wikipedia.org/wiki/Stads-_en_streekvervoer_in_Zuid-Holland [feed: vh. R_net]',
+				'Bus'   ,'Qbuzz'                        ,'Zuid_Holland'  ,''                                   ,'489'                  ,'1.12'  ,'0.206' ,'= concessie-basistarief; bron: https://nl.wikipedia.org/wiki/Stads-_en_streekvervoer_in_Zuid-Holland [feed: vh. R_net]',
+				'Bus'   ,'Qbuzz'                        ,'Zuid_Holland'  ,''                                   ,'491'                  ,'1.12'  ,'0.206' ,'= concessie-basistarief; bron: https://nl.wikipedia.org/wiki/Stads-_en_streekvervoer_in_Zuid-Holland [feed: vh. R_net]',
+				'Bus'   ,'Qbuzz'                        ,'Zuid_Holland'  ,'Drechtsteden_Molenlanden_Gorinchem' ,'stadsBuzz'            ,'1.12'  ,'0.206' ,'= concessie-basistarief; bron: https://nl.wikipedia.org/wiki/Stads-_en_streekvervoer_in_Zuid-Holland [feed: vh. R_net]',
+				'Bus'   ,'Qbuzz'                        ,'Zuid_Holland'  ,''                                   ,'streekBuzz buurtBuzz' ,'1.12'  ,'0.155' ,'bron: https://nl.wikipedia.org/wiki/Stads-_en_streekvervoer_in_Zuid-Holland [feed: vh. R_net]',
+				'Bus'   ,'U_OV'                         ,'Zuid_Holland'  ,'Drechtsteden_Molenlanden_Gorinchem' ,''                     ,'1.12'  ,'0.187' ,'kopie van Utrecht, want prov_rel bij omgekeerde reis? | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'EBS'                          ,'Zuid_Holland'  ,'Haaglanden_Streek'                  ,''                     ,'1.12'  ,'0.193' ,'bron: https://mrdh.nl/nieuws/ov-tarieven-2025',
+				'Bus'   ,'EBS'                          ,'Zuid_Holland'  ,'Voorne_Putten_en_Rozenburg'         ,''                     ,'1.12'  ,'0.171' ,'bron: https://mrdh.nl/nieuws/ov-tarieven-2025',
+				'Bus'   ,'HTM'                          ,'Zuid_Holland'  ,''                                   ,''                     ,'1.12'  ,'0.193' ,'bron: https://bestanden.ret.nl/user_upload/Documenten/PDF/Productvoorwaarden/2025/2025_Saldo_reizen.pdf',
+				'Tram'  ,'HTM'                          ,'Zuid_Holland'  ,''                                   ,''                     ,'1.12'  ,'0.193' ,'bron: https://bestanden.ret.nl/user_upload/Documenten/PDF/Productvoorwaarden/2025/2025_Saldo_reizen.pdf',
+				'Bus'   ,'Syntus_Utrecht'               ,'Zuid_Holland'  ,''                                   ,''                     ,'1.12'  ,'0.187' ,'kopie van Utrecht, want prov_rel bij omgekeerde reis? | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Connexxion'                   ,'Zuid_Holland'  ,''                                   ,''                     ,'1.12'  ,'0.16'  ,'bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx',
+				'Bus'   ,'RET'                          ,'Zuid_Holland'  ,'Bus_Rotterdam_e_o'                  ,''                     ,'1.12'  ,'0.171' ,'bron: https://bestanden.ret.nl/user_upload/Documenten/PDF/Productvoorwaarden/2025/2025_Saldo_reizen.pdf',
+				'Tram'  ,'RET'                          ,'Zuid_Holland'  ,''                                   ,''                     ,'1.12'  ,'0.171' ,'bron: https://bestanden.ret.nl/user_upload/Documenten/PDF/Productvoorwaarden/2025/2025_Saldo_reizen.pdf',
+				'Metro' ,'RET'                          ,'Zuid_Holland'  ,''                                   ,''                     ,'1.12'  ,'0.171' ,'bron: https://bestanden.ret.nl/user_upload/Documenten/PDF/Productvoorwaarden/2025/2025_Saldo_reizen.pdf',
+				'Ferry' ,'Waterbus'                     ,'Zuid_Holland'  ,''                                   ,''                     ,'2.17'  ,'0'     ,'enkele reis Rotterdam-Drechtsteden (afstandsmatrix) | bron: https://wiki.ovinnederland.nl/w/index.php?title=Waterbus_Tarieftabel&oldid=78826 [feed: vh. Blue Amigo]',
+				'Ferry' ,'Waterbus'                     ,'Zuid_Holland'  ,'Drechtsteden_Molenlanden_Gorinchem' ,''                     ,'1.47'  ,'0'     ,'Waterbus Drechtsteden - Rotterdam | bron: https://wiki.ovinnederland.nl/w/index.php?title=Waterbus_Tarieftabel&oldid=788262 [feed: vh. Blue_Amigo]',
+				'Rail'  ,'NS_Int'                       ,''              ,''                                   ,''                     ,'2.70'  ,'0'     ,'handmatig iets vergelijkbaars met NS maken: eerste 8km 2.60eu, het gaat om NL deel. | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive) [feed: vh. NS_International]',
+				'Bus'   ,'Bravo_Arriva_'                ,'Noord_Brabant' ,'West-Brabant'                       ,''                     ,'1.12'  ,'0.194' ,'bron: Arriva Tarievensheet 2025 (regio Z-BW, officieel) [feed: vh. Arriva]',
+				'Bus'   ,'Transdev'                     ,'Zuid_Holland'  ,'Haaglanden_Streek'                  ,''                     ,'1.12'  ,'0.193' ,'bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx',
+				'Bus'   ,'Transdev'                     ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'          ,''                     ,'1.12'  ,'0.186' ,'2023-val toegevoegd: Hermes/Breng (Transdev) bus Arnhem-Nijmegen',
+				'Rail'  ,'Breng'                        ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'          ,'Arnhem-Doetinchem'    ,'1.12'  ,'0.228' ,'2023-val toegevoegd: Breng/Hermes (Transdev) rail Arnhem-Doetinchem [feed: vh. Transdev]',
+				'Bus'   ,'Connexxion'                   ,'Zuid_Holland'  ,''                                   ,'Parkshuttle Rivium'   ,'1.12'  ,'0.247' ,'= concessie-basistarief; bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx',
+				'Ferry' ,'TESO'                         ,'Noord_Holland' ,'Noord_Holland_Noord'                ,''                     ,'1.50'  ,'0'     ,'enkele-reis-equivalent Den Helder-Texel; retour voetganger EUR3,00 (per 1-4-2025) / 2 | bron: https://www.teso.nl/tickets-2/tarieven-voetgangers/',
+				'Ferry' ,'Rederij_Doeksen'              ,'Fryslân'       ,''                                   ,''                     ,'20.76' ,'0'     ,'enkele-reis-equivalent Harlingen-Terschelling/Vlieland | bron: https://vertrekinfo.nl/veerdienst-harlingen-terschelling/',
+				'Ferry' ,'Wagenborg_Passagiersdiensten' ,'Fryslân'       ,''                                   ,''                     ,'7.59'  ,'0'     ,'enkele reis Holwerd-Ameland / Lauwersoog-Schiermonnikoog | GEEN BRON GEVONDEN (lineaire interpolatie officiele 2024/2026-tarieven)',
+				'Bus'   ,'Bravo'                        ,'Noord_Brabant' ,''                                   ,''                     ,'1.12'  ,'0.194' ,'alleen lijn 323 Gemert-Eindhoven (Zuidoost-Brabant); tarief = Bravo (Hermes)-analogie',
+				'Bus'   ,'ZTM'                          ,'Zuid_Holland'  ,''                                   ,'800'                  ,'6.50'  ,'0'     ,'vast EUR6,50 t/m 13-12-2025; daarna N40 (Qbuzz, regulier tarief) | bron: https://www.zoetermeer.nl/nachtbus',
+				'Rail'  ,'TCS_OV'                       ,'Limburg'       ,'Limburg'                            ,''                     ,'2.70'  ,'0'     ,'Venlo-Wuppertal (RE13, tijdelijk voor Eurobahn) | GEEN BRON GEVONDEN (geschat via analogie VIAS/NS_International 2025)',
+				'Bus'   ,'MeerPlus'                     ,'Noord_Holland' ,'Zaanstreek_Waterland'               ,''                     ,'1.12'  ,'0.207' ,'EBS-merk Zaanstreek-Waterland | bron: https://www.vervoerregio.nl/artikel/20241119-ov-tarieven-vervoerregio-voor-2025-vastgesteld'
+			];
+		}
+		
+		attribute<string>       Mode            := Elements/Text[value(UInt32(ID(.))* nrAttr + 0, Elements)];
+		attribute<string>       Vervoerder      := Elements/Text[value(UInt32(ID(.))* nrAttr + 1, Elements)], Descr = "/SourceData/Infrastructure/GTFS/LoadFeeds/ReadFSS/agency/Data/agency_name";
+		attribute<string>       Concessiegebied := Elements/Text[value(UInt32(ID(.))* nrAttr + 3, Elements)];
+		attribute<string>       Lijn            := Elements/Text[value(UInt32(ID(.))* nrAttr + 4, Elements)];
+		attribute<Euro>         FixedPrice      := Elements/Text[value(UInt32(ID(.))* nrAttr + 5, Elements)][Euro];
+		attribute<Euro_km>      VariablePrice   := Elements/Text[value(UInt32(ID(.))* nrAttr + 6, Elements)][Euro_km];
+		attribute<string>       Opmerking       := Elements/Text[value(UInt32(ID(.))* nrAttr + 7, Elements)];
+		
+		attribute<Modes>             Mode_rel               := rlookup(Mode, Modes/name);
+		attribute<Agencies>          Agency_rel             := rlookup(lowercase(Vervoerder), Agencies/name);
+		attribute<Concessiegebieden> Concessiegebieden_rel  := rlookup(AsItemName(Concessiegebied), Concessiegebieden/name);
+		
+		attribute<string>       Concessiegebied_str := AsItemName(Concessiegebied != '' ? ''+Concessiegebied : '');
+		attribute<string>       Lijn_str            := Lijn != '' ? '_'+Lijn : '';
+		
+		attribute<string>       Mode_Agency_CG_Lijn_identifier := Mode +'_'+ lowercase(Vervoerder) +'_'+ Concessiegebied_str + Lijn_str;
+		attribute<string>       Mode_Agency_CG_identifier      := Mode +'_'+ lowercase(Vervoerder) +'_'+ Concessiegebied_str;
+		attribute<string>       Mode_Agency_identifier         := Mode +'_'+ lowercase(Vervoerder);
+		attribute<string>       label                          := Mode_Agency_CG_Lijn_identifier;
+
+		parameter<uint32> nrAttr := 8;
+	}
+
+	unit<uint8> FareTable_2026 : NrOfRows = 144, URL = "https://github.com/ObjectVision/NetworkModel_PBL/issues/112"
+	{
+		unit<uint32> Elements  := Range(uint32, 0, nrAttr*#.)
+		{
+			attribute<String> Text:
+			[
+				//de    ,Vervoerder                     ,Provincie       ,Concessiegebied                      ,Lijn                   ,Ritprijs ,Kmprijs ,Opmerking (bron per rij; 'GEEN BRON GEVONDEN' = niet online te vinden)                                                                                                                                              
+				'Rail'  ,'NS'                           ,'Alle'          ,''                                   ,''                     ,'0'     ,'0'     ,'TariffUnits in NS tabel | prijs via NS-tariefnet (L-net), niet via deze FareTable',
+				'Bus'   ,'NS'                           ,'Alle'          ,''                                   ,''                     ,'0'     ,'0'     ,'TariffUnits in NS tabel | prijs via NS-tariefnet (L-net), niet via deze FareTable',
+				'Bus'   ,'Connexxion'                   ,'Alle'          ,''                                   ,''                     ,'1.16'  ,'0.224' ,'bron: https://www.connexxion.nl/en/tickets/cost-of-traveling-on-balance-or-with-ovpay/varying-fares (kopie->connexxion) [feed: vh. Overal_Connexxion_]',
+				'Rail'  ,'Blauwnet_Arriva'              ,'Drenthe'       ,'Groningen_Drenthe'                  ,''                     ,'1.16'  ,'0.202' ,'2e klas Arriva Blauwnet | bron(deepdive): https://www.ovnieuwsuitgroningen.nl/info-en-tarieven/ [feed: vh. Blauwnet]',
+				'Bus'   ,'Qbuzz'                        ,'Drenthe'       ,'Groningen_Drenthe'                  ,''                     ,'1.16'  ,'0.202' ,'bron(deepdive): https://www.ovnieuwsuitgroningen.nl/info-en-tarieven/',
+				'Bus'   ,'Arriva'                       ,'Flevoland'     ,'Busvervoer_Almere'                  ,''                     ,'1.80'  ,'0'     ,'Binnen de ring | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Arriva'                       ,'Flevoland'     ,'Busvervoer_Almere'                  ,''                     ,'2.71'  ,'0'     ,'Buiten de ring | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'allGo_Keolis_'                ,'Flevoland'     ,'Busvervoer_Almere'                  ,''                     ,'1.16'  ,'0.177' ,'Almere | 2023-val: 0,161 was 2022-prijs; Keolis Almere 2023 = 0,177',
+				'Bus'   ,'EBS'                          ,'Flevoland'     ,'IJssel_Vecht'                       ,''                     ,'1.16'  ,'0.21'  ,'bron: https://zoek.officielebekendmakingen.nl/prb-2025-20501.pdf',
+				'Bus'   ,'RRReis'                       ,'Flevoland'     ,'IJsselmond'                         ,''                     ,'1.16'  ,'0.185' ,'GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive) [feed: vh. OV_Regio_IJsselmond]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Buurtbus NZW-Fryslan' ,'1.16'  ,'0.085' ,'buurtbussen Noordzuidwest-Fryslan | bron(deepdive): https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Buurtbus ZO-Fryslan'  ,'1.16'  ,'0.085' ,'buurtbussen Zuidoost-Fryslan | bron(deepdive): https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Opstapper'            ,'2.60'  ,'0'     ,'bron(deepdive): https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'315'                  ,'1.16'  ,'0.229' ,'Qliner | bron(deepdive): https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'324'                  ,'1.16'  ,'0.229' ,'Qliner | bron(deepdive): https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'320'                  ,'1.16'  ,'0.229' ,'Qliner | bron(deepdive): https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'350'                  ,'1.16'  ,'0.229' ,'Qliner Friese deel | bron(deepdive): https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'355'                  ,'1.16'  ,'0.229' ,'Qliner | bron(deepdive): https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'356'                  ,'1.16'  ,'0.229' ,'Qliner | bron(deepdive): https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Stad Leeuwarden'      ,'1.16'  ,'0.201' ,'bron(deepdive): https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Streek'               ,'1.16'  ,'0.201' ,'bron(deepdive): https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Ameland 2 zones'      ,'3.00'  ,'0'     ,'bron(deepdive): https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Terschelling 2 zones' ,'3.00'  ,'0'     ,'bron(deepdive): https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Ameland 1 zone'       ,'1.95'  ,'0'     ,'bron(deepdive): https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Terschelling 1 zone'  ,'1.95'  ,'0'     ,'bron(deepdive): https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Vlieland 1 zone'      ,'1.95'  ,'0'     ,'bron(deepdive): https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Fryslân'       ,'Openbaar busvervoer Fryslân'        ,'Schiermonnikoog'      ,'2.45'  ,'0'     ,'bron(deepdive): https://fryslan.qbuzz.nl/tarievenoverzicht [verv 2023: Arriva]',
+				'Bus'   ,'EBS'                          ,'Gelderland'    ,'IJssel_Vecht'                       ,''                     ,'1.16'  ,'0.21'  ,'bron: https://zoek.officielebekendmakingen.nl/prb-2025-20501.pdf',
+				'Rail'  ,'RRReis_Keolis'                ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'          ,''                     ,'1.16'  ,'0.202' ,'door Connexxion | 2023-val: treinreiziger.nl (Valleilijn-trein = 0,202, geen streektarief) [feed: vh. Valleilijn]',
+				'Rail'  ,'VIAS'                         ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'          ,''                     ,'2.79'  ,'0'     ,'handmatig iets vergelijkbaars met NS maken: eerste 8km 2.60eu, het gaat om NL deel. | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'RRReis'                       ,'Gelderland'    ,'Achterhoek Rivierenland'            ,''                     ,'1.16'  ,'0.206' ,'bron: https://zoek.officielebekendmakingen.nl/prb-2025-20501.pdf [feed: vh. Arriva]',
+				'Bus'   ,'RRReis'                       ,'Gelderland'    ,'Achterhoek Rivierenland'            ,'27'                   ,'1.16'  ,'0.206' ,'= concessie-basistarief; bron: https://zoek.officielebekendmakingen.nl/prb-2025-20501.pdf [feed: vh. Arriva]',
+				'Bus'   ,'Breng'                        ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'          ,'29'                   ,'1.16'  ,'0.199' ,'= concessie-basistarief; bron: https://zoek.officielebekendmakingen.nl/prb-2025-20501.pdf',
+				'Bus'   ,'RRReis'                       ,'Gelderland'    ,'Achterhoek Rivierenland'            ,'440'                  ,'1.16'  ,'0'     ,'bron: https://zoek.officielebekendmakingen.nl/prb-2025-20501.pdf [feed: vh. Arriva]',
+				'Bus'   ,'RRReis'                       ,'Gelderland'    ,'Achterhoek Rivierenland'            ,'450'                  ,'1.16'  ,'0'     ,'bron: https://zoek.officielebekendmakingen.nl/prb-2025-20501.pdf [feed: vh. Arriva]',
+				'Bus'   ,'RRReis'                       ,'Gelderland'    ,'Achterhoek Rivierenland'            ,'458'                  ,'1.16'  ,'0'     ,'bron: https://zoek.officielebekendmakingen.nl/prb-2025-20501.pdf [feed: vh. Arriva]',
+				'Bus'   ,'Arriva'                       ,'Gelderland'    ,'Twente'                             ,'53'                   ,'1.16'  ,'0.239' ,'voor ritten in Twente | bron(deepdive): https://wiki.ovinnederland.nl/wiki/Lijn_53_Hengelo_Centraal_Station_-_Eibergen_Viersprong',
+				'Bus'   ,'Arriva'                       ,'Gelderland'    ,'Twente'                             ,'73'                   ,'1.16'  ,'0.239' ,'voor ritten in Twente | bron(deepdive): https://wiki.ovinnederland.nl/wiki/Lijn_53_Hengelo_Centraal_Station_-_Eibergen_Viersprong',
+				'Bus'   ,'Arriva'                       ,'Gelderland'    ,'Twente'                             ,'74'                   ,'1.16'  ,'0.239' ,'voor ritten in Twente | bron(deepdive): https://wiki.ovinnederland.nl/wiki/Lijn_53_Hengelo_Centraal_Station_-_Eibergen_Viersprong',
+				'Bus'   ,'Arriva'                       ,'Gelderland'    ,'Twente'                             ,'85'                   ,'1.16'  ,'0.239' ,'voor ritten in Twente | bron(deepdive): https://wiki.ovinnederland.nl/wiki/Lijn_53_Hengelo_Centraal_Station_-_Eibergen_Viersprong',
+				'Rail'  ,'Breng'                        ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'          ,''                     ,'1.16'  ,'0.228' ,'Uitvoerder Hermes/Connexxion | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Rail'  ,'RRReis_Arriva'                ,'Gelderland'    ,'Achterhoek Rivierenland'            ,''                     ,'1.16'  ,'0.245' ,'2e klas | bron: https://zoek.officielebekendmakingen.nl/prb-2025-20501.pdf [feed: vh. Arriva]',
+				'Bus'   ,'RRReis'                       ,'Gelderland'    ,'Achterhoek Rivierenland'            ,'Vlinder'              ,'1.16'  ,'0'     ,'bron: https://zoek.officielebekendmakingen.nl/prb-2025-20501.pdf [feed: vh. Arriva]',
+				'Rail'  ,'Arriva'                       ,'Groningen'     ,'Groningen-Drenthe'                  ,''                     ,'1.16'  ,'0.202' ,'2e klas | bron(deepdive): https://www.ovnieuwsuitgroningen.nl/info-en-tarieven/',
+				'Bus'   ,'Qbuzz'                        ,'Groningen'     ,''                                   ,''                     ,'1.16'  ,'0.193' ,'bron: https://dmg.qbuzz.nl/tarieven2026',
+				'Bus'   ,'Qbuzz'                        ,'Groningen'     ,'Groningen-Drenthe'                  ,'315'                  ,'1.16'  ,'0.202' ,'Qliner | bron(deepdive): https://www.ovnieuwsuitgroningen.nl/info-en-tarieven/ [feed: vh. Arriva]',
+				'Bus'   ,'Qbuzz'                        ,'Groningen'     ,'Groningen-Drenthe'                  ,'324'                  ,'1.16'  ,'0.202' ,'Qliner | bron(deepdive): https://www.ovnieuwsuitgroningen.nl/info-en-tarieven/ [feed: vh. Arriva]',
+				'Bus'   ,'Arriva'                       ,'Limburg'       ,'Limburg'                            ,'Avondvlinder'         ,'1.88'  ,'0'     ,'GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Arriva'                       ,'Limburg'       ,'Limburg'                            ,''                     ,'1.16'  ,'1'     ,'bron(deepdive): https://www.bravo.info/nieuws/nieuwe-tarieven-busvervoer-brabant-2026',
+				'Bus'   ,'Arriva'                       ,'Limburg'       ,'Limburg'                            ,'83'                   ,'1.16'  ,'0.204' ,'vanaf halte Milsbeek Helweg | 2023-val: ROL adviesaanvraag 2023 (Limburg bus 0,204)',
+				'Rail'  ,'Arriva'                       ,'Limburg'       ,'Limburg'                            ,''                     ,'1.16'  ,'1'     ,'2e klas | bron(deepdive): https://www.bravo.info/nieuws/nieuwe-tarieven-busvervoer-brabant-2026',
+				'Bus'   ,'De_Lijn'                      ,'Limburg'       ,'Limburg'                            ,''                     ,'5.80'  ,'0'     ,'https://www.delijn.be/nl/content/vervoerbewijzen/kortingen/ | bron(deepdive): https://www.bravo.info/nieuws/nieuwe-tarieven-busvervoer-brabant-2026',
+				'Rail'  ,'Eurobahn'                     ,'Limburg'       ,'Limburg'                            ,''                     ,'1.16'  ,'0.229'     ,'RE13 (alleen Venlo in NL, geen NL-interne OD); NL-deel | bron: DOVA-overzicht Limburg-rail 2026',
+				'Rail'  ,'NMBS'                         ,'Limburg'       ,'Limburg'                            ,''                     ,'5.80'  ,'0'     ,'eerste 7km 2.50eu, het gaat om NL deel. https://www.belgiantrain.be/-/media/files/pdf/productfiches/tarieven-20240201.ashx | bron(deepdive): https://www.bravo.info/nieuws/nieuwe-tarieven-busvervoer-brabant-2026',
+				'Bus'   ,'Bravo_Arriva_'                ,'Noord_Brabant' ,'West-Brabant'                       ,'820'                  ,'5.80'  ,'0'     ,'Bergen op Zoom kris kras | bron(deepdive): https://www.bravo.info/nieuws/nieuwe-tarieven-busvervoer-brabant-2026 [feed: vh. Arriva]',
+				'Bus'   ,'Bravo_Arriva_'                ,'Noord_Brabant' ,'Oost-Brabant'                       ,'99'                   ,'1.16'  ,'0.202' ,'bron: Arriva Tarievensheet 2026 (regio Z-BO, officieel) [feed: vh. Arriva]',
+				'Bus'   ,'Bravo_Arriva_'                ,'Noord_Brabant' ,''                                   ,'Nightliner'           ,'5.99'  ,'0'     ,'GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive) [feed: vh. Arriva]',
+				'Bus'   ,'Bravo_Arriva_'                ,'Noord_Brabant' ,''                                   ,''                     ,'1.16'  ,'0.202' ,'bron: https://www.bravo.info/nieuws/nieuwe-tarieven-busvervoer-brabant-2026 (kopie->arriva)',
+				'Bus'   ,'Hermes'                       ,'Noord_Brabant' ,''                                   ,''                     ,'1.16'  ,'0.202' ,'bron: https://zoek.officielebekendmakingen.nl/prb-2025-21051.pdf',
+				'Bus'   ,'Bravo_Hermes_'                ,'Noord_Brabant' ,''                                   ,''                     ,'1.16'  ,'0.202' ,'Merk van Connexxion | bron: https://zoek.officielebekendmakingen.nl/prb-2025-21051.pdf (kopie->hermes)',
+				'Rail'  ,'NMBS'                         ,'Noord_Brabant' ,'West_Brabant'                       ,''                     ,'5.80'  ,'0'     ,'eerste 7km 2.50eu, het gaat om NL deel. https://www.belgiantrain.be/-/media/files/pdf/productfiches/tarieven-20240201.ashx | bron(deepdive): https://www.bravo.info/nieuws/nieuwe-tarieven-busvervoer-brabant-2026',
+				'Bus'   ,'Arriva'                       ,'Noord_Holland' ,'Zuid-Holland Noord'                 ,'350'                  ,'1.16'  ,'0.179' ,'Qliner Noord-Hollandse deel | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Tram'  ,'GVB'                          ,'Noord_Holland' ,''                                   ,''                     ,'1.16'  ,'0.217' ,'bron: https://www.vervoerregio.nl/artikel/20251119-tarieven-connexxion-ebs-en-gvb-voor-2026-vastgesteld',
+				'Metro' ,'GVB'                          ,'Noord_Holland' ,''                                   ,''                     ,'1.16'  ,'0.217' ,'bron: https://www.vervoerregio.nl/artikel/20251119-tarieven-connexxion-ebs-en-gvb-voor-2026-vastgesteld',
+				'Bus'   ,'GVB'                          ,'Noord_Holland' ,''                                   ,''                     ,'1.16'  ,'0.217' ,'bron: https://www.vervoerregio.nl/artikel/20251119-tarieven-connexxion-ebs-en-gvb-voor-2026-vastgesteld',
+				'Ferry' ,'GVB'                          ,'Noord_Holland' ,''                                   ,''                     ,'0'     ,'0'     ,'gratis',
+				'Bus'   ,'EBS'                          ,'Noord_Holland' ,'Zaanstreek_Waterland'               ,''                     ,'1.16'  ,'0.215' ,'bron: https://www.vervoerregio.nl/artikel/20251119-tarieven-connexxion-ebs-en-gvb-voor-2026-vastgesteld',
+				'Bus'   ,'U_OV'                         ,'Noord_Holland' ,''                                   ,''                     ,'1.16'  ,'0.187' ,'kopie van Utrecht, want prov_rel bij omgekeerde reis? | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive) [feed: vh. Syntus_Utrecht]',
+				'Bus'   ,'Connexxion'                   ,'Noord_Holland' ,'Amstelland_Meerlanden'              ,''                     ,'1.16'  ,'0.224' ,'bron: https://www.connexxion.nl/en/tickets/cost-of-traveling-on-balance-or-with-ovpay/varying-fares',
+				'Bus'   ,'Connexxion'                   ,'Noord_Holland' ,'Haarlem_IJmond'                     ,''                     ,'1.16'  ,'0.197' ,'bron: https://www.connexxion.nl/en/tickets/cost-of-traveling-on-balance-or-with-ovpay/varying-fares',
+				'Bus'   ,'Connexxion'                   ,'Noord_Holland' ,'Noord_Holland_Noord'                ,''                     ,'1.16'  ,'0.196' ,'bron: https://www.connexxion.nl/en/tickets/cost-of-traveling-on-balance-or-with-ovpay/varying-fares',
+				'Bus'   ,'Connexxion'                   ,'Noord_Holland' ,'Zaanstreek'                         ,''                     ,'1.16'  ,'0.215' ,'bron(deepdive): https://www.vervoerregio.nl/artikel/20251119-tarieven-connexxion-ebs-en-gvb-voor-2026-vastgesteld',
+				'Bus'   ,'Connexxion'                   ,'Noord_Holland' ,'Waterland'                          ,''                     ,'1.16'  ,'0.215' ,'bron(deepdive): https://www.vervoerregio.nl/artikel/20251119-tarieven-connexxion-ebs-en-gvb-voor-2026-vastgesteld',
+				'Bus'   ,'Connexxion'                   ,'Noord_Holland' ,'Zaanstreek_Waterland'               ,''                     ,'1.16'  ,'0.215' ,'bron(deepdive): https://www.vervoerregio.nl/artikel/20251119-tarieven-connexxion-ebs-en-gvb-voor-2026-vastgesteld',
+				'Bus'   ,'Transdev'                     ,'Noord_Holland' ,'Concessie_Amsterdam'                ,''                     ,'1.16'  ,'0.179' ,'GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Transdev'                     ,'Noord_Holland' ,'Gooi_en_Vechtstreek'                ,''                     ,'1.16'  ,'0.196' ,'bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx',
+				'Bus'   ,'Transdev'                     ,'Noord_Holland' ,'Provincie_Utrecht'                  ,''                     ,'1.16'  ,'0.179' ,'GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Transdev'                     ,'Noord_Holland' ,'Tram_en_Bus_Regio_Utrecht'          ,''                     ,'1.16'  ,'0.179' ,'GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Connexxion'                   ,'Noord_Holland' ,'Noord_Holland_Noord'                ,''                     ,'1.12'  ,'0.229' ,'bron: https://www.texelhopper.nl/en/tickets/cost-of-traveling-on-balance-or-with-ovpay/different-boarding-fare [feed: vh. Texelhopper]',
+				'Bus'   ,'EBS'                          ,'Overijssel'    ,'IJssel_Vecht'                       ,''                     ,'1.16'  ,'0.21'  ,'bron: https://zoek.officielebekendmakingen.nl/prb-2025-20501.pdf',
+				'Rail'  ,'Blauwnet_Arriva'              ,'Overijssel'    ,''                                   ,'Zuthpen-Oldenzaal'    ,'1.16'  ,'0.223' ,'Keolis, ook bekend als Twents | = concessie-basistarief; bron: http://web.archive.org/web/20260122015706/https://www.keolisblauwnet.nl/vervoerbewijzen/reizen-op-saldo-nl [feed: vh. Blauwnet]',
+				'Rail'  ,'Blauwnet_Keolis'              ,'Overijssel'    ,''                                   ,''                     ,'1.16'  ,'0.223' ,'Keolis, rest van de lijnen, ook bekend als Twents | bron: http://web.archive.org/web/20260122015706/https://www.keolisblauwnet.nl/vervoerbewijzen/reizen-op-saldo-nl [feed: vh. Blauwnet]',
+				'Bus'   ,'Blauwnet_Arriva'              ,'Overijssel'    ,'IJssel_Vecht'                       ,''                     ,'1.16'  ,'0.223' ,'Vervangend vervoer van rail | bron(deepdive): https://www.keolisblauwnet.nl/vervoerbewijzen/reizen-op-saldo-nl/ [feed: vh. Blauwnet]',
+				'Bus'   ,'RRReis'                       ,'Overijssel'    ,'Achterhoek_Rivierenland'            ,''                     ,'1.16'  ,'0.239' ,'Twents, service van Syntus, wat nu Keolis is | bron(deepdive): https://www.samen14.nl/regiotaxi+twente/kosten/default.aspx [feed: vh. Twents_Keolis_]',
+				'Bus'   ,'RRReis'                       ,'Overijssel'    ,'IJssel_Vecht'                       ,''                     ,'1.16'  ,'0.239' ,'Twents, service van Syntus, wat nu Keolis is | bron(deepdive): https://www.samen14.nl/regiotaxi+twente/kosten/default.aspx [feed: vh. Twents_Keolis_]',
+				'Bus'   ,'RRReis'                       ,'Overijssel'    ,'Twente'                             ,''                     ,'1.16'  ,'0.239' ,'Twents, service van Syntus, wat nu Keolis is | bron(deepdive): https://www.samen14.nl/regiotaxi+twente/kosten/default.aspx [feed: vh. Twents_Keolis_]',
+				'Bus'   ,'RRReis'                       ,'Overijssel'    ,''                                   ,''                     ,'1.16'  ,'0.21'  ,'bron: https://zoek.officielebekendmakingen.nl/prb-2025-20501.pdf [feed: vh. OV_Regio_IJsselmond]',
+				'Rail'  ,'DB'                           ,'Overijssel'    ,'Twente'                             ,''                     ,'2.79'  ,'0'     ,'grens-stoptrein Enschede-Dortmund (NL-deel Enschede-Glanerbrug); vast tarief analoog VIAS/NS_Int | GEEN BRON GEVONDEN (NL-deeltarief niet gepubliceerd)',
+				'Rail'  ,'Eurobahn'                     ,'Overijssel'    ,'Twente'                             ,''                     ,'1.16'  ,'0.239' ,'RB61 Hengelo-Oldenzaal(-Bielefeld); NL-deel | GEEN BRON GEVONDEN (km-tarief = Twente-analogie)',
+				'Bus'   ,'Qbuzz'                        ,'Utrecht'       ,''                                   ,''                     ,'1.16'  ,'0.202' ,'bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx',
+				'Tram'  ,'U_OV'                         ,'Utrecht'       ,''                                   ,''                     ,'1.16'  ,'0.201' ,'bron: https://www.stateninformatie.provincie-utrecht.nl/Documenten/1-Tarievenplan-ov-2026.pdf',
+				'Bus'   ,'U_OV'                         ,'Utrecht'       ,'Tram_en_Bus_Regio_Utrecht'          ,''                     ,'1.16'  ,'0.201' ,'bron: https://www.stateninformatie.provincie-utrecht.nl/Documenten/1-Tarievenplan-ov-2026.pdf',
+				'Bus'   ,'U_OV'                         ,'Utrecht'       ,'Provincie_Utrecht'                  ,''                     ,'1.16'  ,'0.201' ,'bron: https://www.stateninformatie.provincie-utrecht.nl/Documenten/1-Tarievenplan-ov-2026.pdf',
+				'Bus'   ,'U_OV'                         ,'Utrecht'       ,'Gooi_en_Vechtstreek'                ,''                     ,'1.16'  ,'0.187' ,'GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'U_OV'                         ,'Utrecht'       ,''                                   ,''                     ,'1.16'  ,'0.187' ,'Syntus is nu Keolis | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive) [feed: vh. Syntus_Utrecht]',
+				'Bus'   ,'Connexxion'                   ,'Zeeland'       ,''                                   ,''                     ,'1.16'  ,'0.224' ,'bron: https://www.connexxion.nl/en/tickets/cost-of-traveling-on-balance-or-with-ovpay/varying-fares',
+				'Ferry' ,'Westerschelde_Ferry'          ,'Zeeland'       ,''                                   ,''                     ,'5.59'  ,'0'     ,'GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'De_Lijn'                      ,'Zeeland'       ,'Zeeland'                            ,''                     ,'2.69'  ,'0'     ,'https://www.delijn.be/nl/content/vervoerbewijzen/kortingen/ | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Bravo_Arriva_'                ,'Zuid_Holland'  ,''                                   ,''                     ,'1.16'  ,'0.202' ,'bron: https://www.bravo.info/nieuws/nieuwe-tarieven-busvervoer-brabant-2026 (kopie->arriva)',
+				'Bus'   ,'Arriva'                       ,'Zuid_Holland'  ,''                                   ,'Buurtbus'             ,'1.16'  ,'0.202' ,'= concessie-basistarief; bron: https://www.bravo.info/nieuws/nieuwe-tarieven-busvervoer-brabant-2026',
+				'Bus'   ,'Arriva'                       ,'Zuid_Holland'  ,''                                   ,'852'                  ,'18.20' ,'0'     ,'Keukenhof lijn | bron(deepdive): https://holland-explorer.com/keukenhof-express/',
+				'Bus'   ,'Arriva'                       ,'Zuid_Holland'  ,''                                   ,'854'                  ,'12.80' ,'0'     ,'Keukenhof lijn | bron(deepdive): https://holland-explorer.com/keukenhof-express-bus-854/',
+				'Bus'   ,'Arriva'                       ,'Zuid_Holland'  ,''                                   ,'858'                  ,'6.01'  ,'0'     ,'Keukenhof lijn | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'Arriva'                       ,'Zuid_Holland'  ,''                                   ,'295'                  ,'1.16'  ,'0.202' ,'Rotterdam - Schoonhoven Lopikerplein vv | = concessie-basistarief; bron: https://www.bravo.info/nieuws/nieuwe-tarieven-busvervoer-brabant-2026',
+				'Bus'   ,'Arriva'                       ,'Zuid_Holland'  ,''                                   ,'Qliner'               ,'1.16'  ,'0.202' ,'= concessie-basistarief; bron: https://www.bravo.info/nieuws/nieuwe-tarieven-busvervoer-brabant-2026',
+				'Bus'   ,'R_net_Qbuzz'                  ,'Zuid_Holland'  ,''                                   ,''                     ,'1.16'  ,'0.214' ,'Uitgezonderd lijnen 430, 431, 432 | bron: https://nl.wikipedia.org/wiki/Stads-_en_streekvervoer_in_Zuid-Holland [feed: vh. R_net]',
+				'Bus'   ,'Arriva'                       ,'Zuid_Holland'  ,''                                   ,''                     ,'1.16'  ,'0.202' ,'bron: https://www.bravo.info/nieuws/nieuwe-tarieven-busvervoer-brabant-2026',
+				'Bus'   ,'Arriva'                       ,'Zuid_Holland'  ,''                                   ,'Vlinder'              ,'1.16'  ,'0.202' ,'= concessie-basistarief; bron: https://www.bravo.info/nieuws/nieuwe-tarieven-busvervoer-brabant-2026',
+				'Rail'  ,'R_net_Qbuzz'                  ,'Zuid_Holland'  ,''                                   ,'MerwedeLingeLijn'     ,'1.16'  ,'0.233' ,'bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx [feed: vh. R_net]',
+				'Bus'   ,'Qbuzz'                        ,'Zuid_Holland'  ,''                                   ,'387'                  ,'1.16'  ,'0.202' ,'= concessie-basistarief; bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx',
+				'Bus'   ,'Qbuzz'                        ,'Zuid_Holland'  ,''                                   ,'388'                  ,'1.16'  ,'0.202' ,'= concessie-basistarief; bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx',
+				'Bus'   ,'Qbuzz'                        ,'Zuid_Holland'  ,''                                   ,'416'                  ,'1.16'  ,'0.214' ,'= concessie-basistarief; bron: https://nl.wikipedia.org/wiki/Stads-_en_streekvervoer_in_Zuid-Holland [feed: vh. R_net]',
+				'Bus'   ,'Qbuzz'                        ,'Zuid_Holland'  ,''                                   ,'488'                  ,'1.16'  ,'0.214' ,'= concessie-basistarief; bron: https://nl.wikipedia.org/wiki/Stads-_en_streekvervoer_in_Zuid-Holland [feed: vh. R_net]',
+				'Bus'   ,'Qbuzz'                        ,'Zuid_Holland'  ,''                                   ,'489'                  ,'1.16'  ,'0.214' ,'= concessie-basistarief; bron: https://nl.wikipedia.org/wiki/Stads-_en_streekvervoer_in_Zuid-Holland [feed: vh. R_net]',
+				'Bus'   ,'Qbuzz'                        ,'Zuid_Holland'  ,''                                   ,'491'                  ,'1.16'  ,'0.214' ,'= concessie-basistarief; bron: https://nl.wikipedia.org/wiki/Stads-_en_streekvervoer_in_Zuid-Holland [feed: vh. R_net]',
+				'Bus'   ,'Qbuzz'                        ,'Zuid_Holland'  ,'Drechtsteden_Molenlanden_Gorinchem' ,'stadsBuzz'            ,'1.16'  ,'0.214' ,'= concessie-basistarief; bron: https://nl.wikipedia.org/wiki/Stads-_en_streekvervoer_in_Zuid-Holland [feed: vh. R_net]',
+				'Bus'   ,'Qbuzz'                        ,'Zuid_Holland'  ,''                                   ,'streekBuzz buurtBuzz' ,'1.16'  ,'0.166' ,'bron: https://nl.wikipedia.org/wiki/Stads-_en_streekvervoer_in_Zuid-Holland [feed: vh. R_net]',
+				'Bus'   ,'U_OV'                         ,'Zuid_Holland'  ,'Drechtsteden_Molenlanden_Gorinchem' ,''                     ,'1.16'  ,'0.187' ,'kopie van Utrecht, want prov_rel bij omgekeerde reis? | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive)',
+				'Bus'   ,'EBS'                          ,'Zuid_Holland'  ,'Haaglanden_Streek'                  ,''                     ,'1.16'  ,'0.201' ,'bron: https://www.ebs-ov.nl/haaglanden/producten-verkoop/ov-chipkaart/saldo-op-de-ov-chipkaart/',
+				'Bus'   ,'EBS'                          ,'Zuid_Holland'  ,'Voorne_Putten_en_Rozenburg'         ,''                     ,'1.16'  ,'0.178' ,'bron: https://www.ebs-ov.nl/voorne-putten-rozenburg/reisproducten/ov-chipkaart/saldo-en-tarieven/',
+				'Bus'   ,'HTM'                          ,'Zuid_Holland'  ,''                                   ,''                     ,'1.16'  ,'0.201' ,'bron: https://www.htm.nl/reisproducten/producten-tarieven/',
+				'Tram'  ,'HTM'                          ,'Zuid_Holland'  ,''                                   ,''                     ,'1.16'  ,'0.201' ,'bron: https://www.htm.nl/reisproducten/producten-tarieven/',
+				'Bus'   ,'U_OV'                         ,'Zuid_Holland'  ,''                                   ,''                     ,'1.16'  ,'0.187' ,'kopie van Utrecht, want prov_rel bij omgekeerde reis? | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive) [feed: vh. Syntus_Utrecht]',
+				'Bus'   ,'Connexxion'                   ,'Zuid_Holland'  ,''                                   ,''                     ,'1.16'  ,'0.166' ,'bron: https://www.connexxion.nl/en/tickets/cost-of-traveling-on-balance-or-with-ovpay/varying-fares',
+				'Bus'   ,'RET'                          ,'Zuid_Holland'  ,'Bus_Rotterdam_e_o'                  ,''                     ,'1.16'  ,'0.178' ,'bron: https://bestanden.ret.nl/user_upload/Documenten/PDF/Productvoorwaarden/2026/2026_Reizen_op_rekening.pdf',
+				'Tram'  ,'RET'                          ,'Zuid_Holland'  ,''                                   ,''                     ,'1.16'  ,'0.178' ,'bron: https://bestanden.ret.nl/user_upload/Documenten/PDF/Productvoorwaarden/2026/2026_Reizen_op_rekening.pdf',
+				'Metro' ,'RET'                          ,'Zuid_Holland'  ,''                                   ,''                     ,'1.16'  ,'0.178' ,'bron: https://bestanden.ret.nl/user_upload/Documenten/PDF/Productvoorwaarden/2026/2026_Reizen_op_rekening.pdf',
+				'Ferry' ,'Waterbus'                     ,'Zuid_Holland'  ,''                                   ,''                     ,'2.25'  ,'0'     ,'enkele reis Rotterdam-Drechtsteden (afstandsmatrix) | bron: https://www.waterbus.nl/content/uploads/2026/07/Waterbus-Tarieven_OV-2026.pdf [feed: vh. Blue Amigo]',
+				'Ferry' ,'Waterbus'                     ,'Zuid_Holland'  ,'Drechtsteden_Molenlanden_Gorinchem' ,''                     ,'1.52'  ,'0'     ,'Waterbus Drechtsteden - Rotterdam | bron: https://www.waterbus.nl/content/uploads/2026/07/Waterbus-Tarieven_OV-2026.pdf [feed: vh. Blue_Amigo]',
+				'Rail'  ,'NS_Int'                       ,''              ,''                                   ,''                     ,'2.79'  ,'0'     ,'handmatig iets vergelijkbaars met NS maken: eerste 8km 2.60eu, het gaat om NL deel. | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive) [feed: vh. NS_International]',
+				'Bus'   ,'Bravo_Arriva_'                ,'Noord_Brabant' ,'West-Brabant'                       ,''                     ,'1.16'  ,'0.202' ,'bron: Arriva Tarievensheet 2026 (regio Z-BW, officieel) [feed: vh. Arriva]',
+				'Bus'   ,'Transdev'                     ,'Zuid_Holland'  ,'Haaglanden_Streek'                  ,''                     ,'1.16'  ,'0.201' ,'bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx',
+				'Bus'   ,'Transdev'                     ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'          ,''                     ,'1.16'  ,'0.186' ,'2023-val toegevoegd: Hermes/Breng (Transdev) bus Arnhem-Nijmegen',
+				'Rail'  ,'RRReis_Arriva'                ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'          ,'Arnhem-Doetinchem'    ,'1.16'  ,'0.228' ,'2023-val toegevoegd: Breng/Hermes (Transdev) rail Arnhem-Doetinchem [feed: vh. Transdev]',
+				'Bus'   ,'Connexxion'                   ,'Zuid_Holland'  ,''                                   ,'Parkshuttle Rivium'   ,'1.16'  ,'0.257' ,'= concessie-basistarief; bron: https://www.connexxion.nl/en/tickets/cost-of-traveling-on-balance-or-with-ovpay/varying-fares',
+				'Ferry' ,'TESO'                         ,'Noord_Holland' ,'Noord_Holland_Noord'                ,''                     ,'1.50'  ,'0'     ,'enkele-reis-equivalent Den Helder-Texel; retour voetganger EUR3,00 ongewijzigd | bron: https://www.teso.nl/over-teso/nieuws/tariefswijziging-16juni2026/',
+				'Ferry' ,'Rederij_Doeksen'              ,'Fryslân'       ,''                                   ,''                     ,'22.14' ,'0'     ,'enkele-reis-equivalent Harlingen-Terschelling/Vlieland | bron: https://www.rederij-doeksen.nl/tarieven/tarieven-voor-personen',
+				'Ferry' ,'Wagenborg_Passagiersdiensten' ,'Fryslân'       ,''                                   ,''                     ,'7.95'  ,'0'     ,'enkele reis Holwerd-Ameland / Lauwersoog-Schiermonnikoog | bron: https://www.wpd.nl/tarieven-ameland',
+				'Bus'   ,'Bravo'                        ,'Noord_Brabant' ,''                                   ,''                     ,'1.16'  ,'0.202' ,'alleen lijn 323 Gemert-Eindhoven (Zuidoost-Brabant); tarief = Bravo (Hermes)-analogie',
+				'Bus'   ,'ZTM'                          ,'Zuid_Holland'  ,''                                   ,'800'                  ,'6.50'  ,'0'     ,'lijn opgeheven 14-12-2025 (opvolger N40 Qbuzz); rij voor evt. resterende feed-trips | bron: https://wiki.ovinnederland.nl/wiki/Lijn_800_Zoetermeer_Centrum_West_-_Leiden_Centraal_Station',
+				'Bus'   ,'MeerPlus'                     ,'Noord_Holland' ,'Zaanstreek_Waterland'               ,''                     ,'1.16'  ,'0.215' ,'EBS-merk Zaanstreek-Waterland | bron: https://www.vervoerregio.nl/artikel/20251119-tarieven-connexxion-ebs-en-gvb-voor-2026-vastgesteld',
+				'Rail'  ,'GoVolta'                      ,'Noord_Holland' ,''                                   ,''                     ,'1.27'  ,'0.223'     ,'open-access Amsterdam-Berlijn (NL-stops Amersfoort/Deventer/Hengelo); NS-tarieffit 2026, zoals R_net_NS | GEEN BRON GEVONDEN (NL-deel)',
+				'Rail'  ,'R_net_NS'                     ,'Zuid_Holland'  ,''                                   ,''                     ,'1.27'  ,'0.223' ,'Alphen a/d Rijn-Gouda rijdt NS-tarief; lineaire fit NS-tariefeenheden 2026 (data/NS tarieven 2026.csv)',
+				'Ferry' ,'WaterShuttle'                 ,'Zuid_Holland'  ,''                                   ,''                     ,'9.75'  ,'0'     ,'veer Rotterdam Erasmusbrug-Kinderdijk (Qbuzz-branding) | bron: https://watershuttle.nl/en/rotterdam-kinderdijk/ [feed: vh. Watertaxi Rotterdam]'
+			];
+		}
+		
+		attribute<string>       Mode            := Elements/Text[value(UInt32(ID(.))* nrAttr + 0, Elements)];
+		attribute<string>       Vervoerder      := Elements/Text[value(UInt32(ID(.))* nrAttr + 1, Elements)], Descr = "/SourceData/Infrastructure/GTFS/LoadFeeds/ReadFSS/agency/Data/agency_name";
+		attribute<string>       Concessiegebied := Elements/Text[value(UInt32(ID(.))* nrAttr + 3, Elements)];
+		attribute<string>       Lijn            := Elements/Text[value(UInt32(ID(.))* nrAttr + 4, Elements)];
+		attribute<Euro>         FixedPrice      := Elements/Text[value(UInt32(ID(.))* nrAttr + 5, Elements)][Euro];
+		attribute<Euro_km>      VariablePrice   := Elements/Text[value(UInt32(ID(.))* nrAttr + 6, Elements)][Euro_km];
+		attribute<string>       Opmerking       := Elements/Text[value(UInt32(ID(.))* nrAttr + 7, Elements)];
+		
+		attribute<Modes>             Mode_rel               := rlookup(Mode, Modes/name);
+		attribute<Agencies>          Agency_rel             := rlookup(lowercase(Vervoerder), Agencies/name);
+		attribute<Concessiegebieden> Concessiegebieden_rel  := rlookup(AsItemName(Concessiegebied), Concessiegebieden/name);
+		
+		attribute<string>       Concessiegebied_str := AsItemName(Concessiegebied != '' ? ''+Concessiegebied : '');
+		attribute<string>       Lijn_str            := Lijn != '' ? '_'+Lijn : '';
+		
+		attribute<string>       Mode_Agency_CG_Lijn_identifier := Mode +'_'+ lowercase(Vervoerder) +'_'+ Concessiegebied_str + Lijn_str;
+		attribute<string>       Mode_Agency_CG_identifier      := Mode +'_'+ lowercase(Vervoerder) +'_'+ Concessiegebied_str;
+		attribute<string>       Mode_Agency_identifier         := Mode +'_'+ lowercase(Vervoerder);
+		attribute<string>       label                          := Mode_Agency_CG_Lijn_identifier;
+
+		parameter<uint32> nrAttr := 8;
+	}
+
 	container NS
 	{
 		unit<uint32> NS_PricePerTariffUnit
-		: StorageName = "='%ProjDir%/Data/NS tarieven '+ModelParameters/FareTable_year+'.csv'"
+		: StorageName = "='%ProjDir%/Data/NS tarieven '+ModelParameters/Advanced/NS_prijzen_year+'.csv'"
 		, StorageType = "gdal.vect"
 		, StorageReadOnly = "true"
 		, URL = "https://www.ns.nl/binaries/_ht_1704966727326/content/assets/ns-nl/tarieven/2024/consumenten/ns-tarievenlijst-consumenten-2024.pdf"
