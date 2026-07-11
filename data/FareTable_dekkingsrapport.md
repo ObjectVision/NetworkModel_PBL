@@ -59,5 +59,72 @@ op "verdacht" maar **volledige dekking** — elke rij × elk jaar heeft een veri
   bevestigt primair dat de noordelijke treindiensten 2023-2025 'NS-tarief' rijden zonder eigen
   km-prijs — de Vechtdal-proxy blijft daar de expliciet gemarkeerde benadering.
 
-Rijaantallen na audit: 2023: 141, 2024: 144, 2025: 142, 2026: 142. Invariants: 0 dode agency-labels,
+Rijaantallen na audit: 2023: 141, 2024: 144, 2025: 142, 2026: 143. Invariants: 0 dode agency-labels,
 0 onverklaarde prijssprongen >32%, 0 quote-afwijkingen, alleen sleeper onbeprijsd (uitgesloten).
+
+---
+
+# Naslag: feed-uitlijning en systeemwijzigingen
+
+**Principe.** De FareTable-match loopt via `Mode_Agency_CG_Lijn` waarbij het agency-deel =
+`AsItemName(lowercase(agency_name))` uit de **geladen** GTFS-feed. Agency-namen wijzigen per feed
+(fusies/splitsingen/hernoemingen), dus elke `FareTable_<jaar>` is uitgelijnd op de feed van dat jaar:
+2023↔20231003, 2024↔20241001, 2025↔20251008, 2026↔20260316. Vóór de fix waren 2024-2026 klonen van
+2023: tot 32 rijen matchten hun feed niet en tot 18 feed-agencies hadden geen prijsrij.
+
+## Feed-transitietabel (agency-relabels; rijen dragen `[feed: vh. …]`-tag)
+
+| vanaf | oud label | nieuw | reden |
+|---|---|---|---|
+| alle jaren | Arriva (prov. Noord-Brabant) | Bravo (Arriva) | Brabant rijdt onder Bravo-branding |
+| alle jaren | Arriva (Bus, Groningen-Drenthe) | Qbuzz | GD-bus/Qliner is Qbuzz; Arriva alleen rail |
+| alle jaren | R-net lijn 416/488/489/491/stadsBuzz/streekBuzz | Qbuzz | feed-eigenaar (DAV) |
+| 2023–2024 | R-net lijn 430/431/432 | Arriva | feed-eigenaar (HWGO); vanaf 2025 niet in feed → rij vervalt |
+| 2023–2025 | Keolis (lijn 295) | Syntus Utrecht | feed-eigenaar; 2026: lijn weg, U-OV dekt |
+| 2023–2025 | Transdev (rail Arnhem-Doetinchem) | Breng | feed-eigenaar; 2026 → RRReis Arriva |
+| 2024+ | Valleilijn | RRReis (2026: RRReis Keolis) | RRReis-merk |
+| 2024+ | Twents (Keolis), OV Regio IJsselmond | RRReis | RRReis-merk |
+| 2024+ | Blue Amigo | Waterbus | rebranding |
+| 2024+ | Texelhopper | Connexxion | feed-eigenaar lijn 28 |
+| 2024+ | NIAG | — (vervallen) | niet meer in feed |
+| 2024 | Arriva (Rail) | Arriva (OVR) | IFF:ARRIVA heet alléén in feed 20241001 zo |
+| 2025+ | Overal (Connexxion) | Connexxion | opgegaan in Connexxion |
+| 2025+ | NS International | NS Int | feed-hernoeming |
+| 2025+ | Arriva (Bus, Achterhoek-Rivierenland) | RRReis | AR-bus onder RRReis-merk |
+| 2026 | Blauwnet | Blauwnet Arriva (Vechtdal/ZHO/IJssel-Vecht) / Blauwnet Keolis (Zwolle-Enschede/Kampen) | feed-splitsing |
+| 2026 | R-net | R-net Qbuzz (MerwedeLinge/DAV); R-net NS = nieuwe rij | feed-splitsing |
+| 2026 | Syntus Utrecht | U-OV | concessie-overgang dec 2025 |
+| 2026 | Watertaxi Rotterdam | WaterShuttle | feed-naam |
+
+Nieuw beprijsde agencies (adversarieel geverifieerd): TESO, Rederij Doeksen, Wagenborg, Waterbus,
+WaterShuttle, MeerPlus, Bravo (plain, lijn 323), ZTM (nachtbus, †14-12-2025 → N40/Qbuzz), TCS OV,
+GoVolta (NS-tarieffit — stopt óók in Amersfoort/Deventer/Hengelo, dus geen flat), R-net NS
+(NS-tarieffit), Keolis-TVV, KeukenhofBuzz 850/859, ZHN-concessierijen (Qbuzz per 15-12-2024).
+
+## IsNS / grens-treinen
+
+`Agencies/IsNS` sluit agencies volledig uit het netwerk (niet in R-net wegens IsRO; L-net filtert op
+exact 'ns'). DB en Eurobahn (regionale grens-stoptreinen Enschede-Dortmund / Hengelo-Bielefeld /
+Venlo-Hamm) zijn eruit gehaald en prijzen nu als VIAS/NMBS via de FareTable. NS Int + European
+Sleeper blijven uitgesloten (langeafstand, parallel aan NS-IC; uitsluiting ≠ gratis). IsNS/IsForeign
+kennen beide feed-naamvarianten (ns_international/ns_int, eu_sleeper/european_sleeper).
+
+## Automatische jaarkoppeling
+
+`FareTable_year := substr(GTFS_file_date, 0, 4)` — prijsjaar volgt de geladen feed (mismatch kan niet
+meer). Afgeleiden in `ModelParameters/Advanced`: `PriceMethod_effective` (vóór 2023 altijd DOVA),
+`DOVA_year` (klem 2013-2026), `NS_prijzen_year` (klem 2023-2026).
+
+## DOVA-modus: Buitenland-vangnet
+
+DOVA-key = `<modeklasse>_<concessiegebied>` (polygon-lookup). Legs buiten alle polygonen (buitenlandse
+trajectdelen) → key `'Buitenland'` → 3 vangnetrijen (opstap = basistarief, km = landelijk
+klassegemiddelde van het jaar). Shape-concessies zonder DOVA-rij (Stadsvervoer Lelystad, 2023-shape)
+vallen op hetzelfde klassegemiddelde terug. Hiermee slaagt `Price_IntegrityCheck` in DOVA-modus.
+
+## Ontwerpnotities
+
+- Lijn-rijen met beschrijvende labels ('Streek', 'Qliner', 'MerwedeLingeLijn', …) matchen nooit op
+  `route_short_name`; ze documenteren producten en prijzen via de CG/agency-fallback (bestaand ontwerp).
+- West-Brabant 820: twee productrijen (kris-kras 3.50 / station 1.50) in 2023-2024; vanaf 2025 niet in feed.
+- GVB-ponten zijn echt gratis (0/0) — realiteit, geen datagat.
