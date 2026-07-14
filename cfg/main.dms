@@ -68,13 +68,17 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 17.0900" // format
 		#include <ngr_layer.dms>
 		#include <ngr_layer_lea.dms>
 
-		unit<fpoint> rdc_base : SpatialReference = "EPSG:28992", DialogData = "ngr_layer";
-		unit<fpoint> rdc      := range(rdc_base, point_xy(0f, 300000f), point_xy(280000f, 625000f)) //heel NL
+		unit<dpoint> rdc_base : SpatialReference = "EPSG:28992", DialogData = "ngr_layer";
+		unit<dpoint> rdc      := range(rdc_base, point_xy(0d, 300000d), point_xy(280000d, 625000d)) //heel NL
 		{
 			parameter<float32> PenWorldWidth := 1f, DialogData = "PenWorldWidth";
 		}
 		unit<ipoint> rdc_cm   := gridset(rdc, point_xy(0.01,0.01), point_xy(0.0, 0.0), ipoint);
 		unit<ipoint> rdc_mm   := gridset(rdc, point_xy(0.001,0.001), point_xy(0.0, 0.0), ipoint);
+
+		// unit<dpoint> rdc_f64_base : SpatialReference = "EPSG:28992";
+		// unit<dpoint> rdc_f64      := range(rdc_f64_base, point_xy(0d, 300000d), point_xy(280000d, 625000d))
+		// , Descr = "float64-variant van rdc, uitsluitend voor geos_*/bg_*-operaties die dpoint-coordinaten vereisen. Resultaat daarna terugcasten naar rdc: float32 is in de rest van het model ruim voldoende, en de bestaande fss/mmd-caches (Final_Network, GTFS-store, PT-netwerk, TomTom) zijn in fpoint opgeslagen en zouden bij een dpoint-rdc allemaal opnieuw gegenereerd moeten worden.";
 		
 		unit<dpoint> wgs84_base       : SpatialReference = "EPSG:4326";
 		unit<fpoint> LambertEA_base   : SpatialReference = "EPSG:3035", DialogData = "ngr_layer_lea";
@@ -83,10 +87,10 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 17.0900" // format
 		
 		unit<uint32> selection_polygon : nrofrows = 1, Using = "units"
 		{
-			parameter<rdc> top_left     := point_xy(x_min - 5000[m], y_max + 5000[m], rdc); //XY
-			parameter<rdc> top_right    := point_xy(x_max + 5000[m], y_max + 5000[m], rdc);
-			parameter<rdc> bottom_left  := point_xy(x_min - 5000[m], y_min - 5000[m], rdc);
-			parameter<rdc> bottom_right := point_xy(x_max + 5000[m], y_min - 5000[m], rdc);
+			parameter<rdc> top_left     := point_xy(x_min - 5000[m_f64], y_max + 5000[m_f64], rdc); //XY
+			parameter<rdc> top_right    := point_xy(x_max + 5000[m_f64], y_max + 5000[m_f64], rdc);
+			parameter<rdc> bottom_left  := point_xy(x_min - 5000[m_f64], y_min - 5000[m_f64], rdc);
+			parameter<rdc> bottom_right := point_xy(x_max + 5000[m_f64], y_min - 5000[m_f64], rdc);
 			
 			unit<uint32> point_set : nrofrows = 5
 			{
@@ -112,10 +116,10 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 17.0900" // format
 		unit<spoint> rdc_10000m := perGridsize/size_10000m/domain;
 		unit<spoint> rdc_50000m := perGridsize/size_50000m/domain;
 	
-		parameter<m> x_min := 0[m];
-		parameter<m> x_max := 280000[m];
-		parameter<m> y_min := 300000[m];
-		parameter<m> y_max := 625000[m];
+		parameter<m_f64> x_min := 0[m_f64];
+		parameter<m_f64> x_max := 280000[m_f64];
+		parameter<m_f64> y_min := 300000[m_f64];
+		parameter<m_f64> y_max := 625000[m_f64];
 		
 		// test study area
 		// parameter<m> x_min := 58986[m];
@@ -126,12 +130,12 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 17.0900" // format
 		container perGridsize :=
 			for_each_ne(
 				Gridsizes/name
-				, 'Create_GridDomain_T('+string(Gridsizes/size)+'[m])'
+				, 'Create_GridDomain_T('+string(Gridsizes/size)+'[m_f64])'
 			);
 		
 		Template Create_GridDomain_T
 		{
-			parameter<m> gridsize;
+			parameter<m_f64> gridsize;
 			
 			parameter<int16> nr_cols := int16((x_max - x_min) / gridsize);
 			parameter<int16> nr_rows := int16((y_max - y_min) / gridsize);
@@ -149,10 +153,10 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 17.0900" // format
 				)
 			,	DialogData = "rdc"
 			{
-				parameter<m>                    gridsize        := ../gridsize;
+				parameter<m_f64>                    gridsize        := ../gridsize;
 				parameter<int16>                nr_cols         := ../nr_cols;
-				attribute<rdc>                  point           := mapping(., rdc) + point_xy(-0.5f * gridsize, 0.5f * gridsize, rdc);
-				attribute<rdc>                  geometry        := mapping(., rdc) + point_xy(-0.5f * gridsize, 0.5f * gridsize, rdc);
+				attribute<rdc>                  point           := mapping(., rdc) + point_xy(-0.5d * gridsize, 0.5d * gridsize, rdc);
+				attribute<rdc>                  geometry        := mapping(., rdc) + point_xy(-0.5d * gridsize, 0.5d * gridsize, rdc);
 				attribute<uint32>               id_rel          := value(uint32(pointrow(id(.))) * uint32(nr_cols) + uint32(pointcol(id(.))), id_key);
 				unit<uint32>  id_key := range(uint32, 0, #domain);
 				
@@ -167,9 +171,10 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 17.0900" // format
 			unit<uint32> points := select_with_org_rel(domain/IsNederland)
 			{
 				attribute<rdc>                  geometry  := org_rel -> geometry;
-				attribute<float32>              x         := PointCol(geometry);
-				attribute<float32>              y         := PointRow(geometry);
+				attribute<float64>              x         := PointCol(geometry);
+				attribute<float64>              y         := PointRow(geometry);
 				attribute<domain>               grid_rel  := geometry[domain];	
+				attribute<rdc_100m>             rdc_100m_rel  := geometry[rdc_100m];	
 			}
 		}
 
