@@ -62,5 +62,21 @@ unit<uint32> impl := .
 																		? 'rlookup(MC_CG_key_DOVA, FareTable/MC_CG_key)'
 																		: 'MakeDefined(FareTable_rel_initial, FareTable_rel_augmented)';
 	
-	attribute<bool>              Price_IntegrityCheck            := =ModelParameters/Advanced/PriceExportsAndIntegrityChecksNeeded ? 'IsDefined(impl/FareTable_rel)' : 'const(TRUE,.)';
+	// Check niet alleen dat er een FareTable-rij matcht, maar ook dat die rij daadwerkelijk prijzen bevat
+	// (een gematchte rij met lege prijs zou anders stilletjes null-prijzen opleveren).
+	// IsDefined() geeft altijd een echte bool (ook bij null-rel), dus de && propageert geen nulls.
+	attribute<bool>              Price_IntegrityCheck            := =ModelParameters/Advanced/PriceExportsAndIntegrityChecksNeeded
+																		? 'IsDefined(impl/FareTable_rel) && IsDefined(FareTable/FixedPrice[impl/FareTable_rel]) && IsDefined(FareTable/VariablePrice[impl/FareTable_rel])'
+																		: 'const(TRUE,.)';
+
+	// Diagnose bij FAIL van Price_IntegrityCheck (duur, alleen on-demand bekijken): de unieke combinaties
+	// zonder FareTable-match of met een rij zonder prijs, met het aantal getroffen OD-legs per combinatie.
+	unit<uint32> Ongeprijsd := select_with_org_rel(not(Price_IntegrityCheck))
+	{
+		attribute<string> combo := =ModelParameters/Advanced/PriceMethod_effective == 'DOVA' ? 'MC_CG_key_DOVA[org_rel]' : 'Mode_Agency_CG_Lijn_identifier[org_rel]';
+		unit<uint32> uniek := unique(combo)
+		{
+			attribute<uint32> NrLegs := pcount(rlookup(../combo, values));
+		}
+	}
 }

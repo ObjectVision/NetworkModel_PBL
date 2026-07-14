@@ -93,7 +93,72 @@ container OVprijzen
 		attribute<string>       label                          := MC_CG_key;
 	}
 
-	unit<uint8> FareTable_2023 : NrOfRows = 141, URL = "https://github.com/ObjectVision/NetworkModel_PBL/issues/2"
+	// ---- Pre-flight prijsdekking (zie /ChecksBeforeRunning/PT_CheckPriceCoverage) ----
+	// Goedkoop te evalueren VOOR de netwerkbouw: leest alleen agency/routes van de geladen feed plus de actieve
+	// prijstabel. De match-cascade in OD_extra_attributen eindigt op Mode_Agency, dus een (mode,agency)-combinatie
+	// zonder enkele FareTable-rij krijgt gegarandeerd geen prijs op OD-niveau; dat wordt hier per feed-route
+	// gecontroleerd zonder eerst uren OD's te rekenen. NB iets strenger dan de OD-check: ook routes zonder
+	// ritten op de gekozen Analysis_date tellen mee.
+	// DOVA-modus: dekking is by construction (combine over alle concessies + Buitenland-vangnet + landelijke
+	// fallback); daar wordt gecheckt dat alle prijzen van het gekozen jaar gevuld en plausibel zijn.
+	container PrijsDekking
+	{
+		// R-net-routes van de feed; NS/L-net prijst via de NS-tariefstructuur en walking/cycling-pseudoroutes hebben geen agency.
+		// Bron is RelevantSelection/Routes (de unit met de attribuut-subitems; select_with_attr_by_cond op een alias-unit kopieert geen attributen).
+		unit<uint32> RnetRoutes := select_with_attr_by_cond(/SourceData/Infrastructure/GTFS/RelevantSelection/Routes
+									,  IsDefined(/SourceData/Infrastructure/GTFS/RelevantSelection/Routes/agency_rel)
+									&& IsDefined(/SourceData/Infrastructure/GTFS/RelevantSelection/Routes/Mode_rel)
+									&& Agencies/IsRO[/SourceData/Infrastructure/GTFS/RelevantSelection/Routes/agency_rel])
+		{
+			attribute<string> Mode_Agency_identifier := Modes/name[Mode_rel] +'_'+ Agencies/name[agency_rel];
+		}
+
+		unit<uint32> UniekeCombos := unique(RnetRoutes/Mode_Agency_identifier)
+		{
+			attribute<uint32> NrRoutes    := pcount(rlookup(RnetRoutes/Mode_Agency_identifier, values));
+			attribute<bool>   InFareTable := IsDefined(rlookup(values, FT_detailed/Mode_Agency_identifier));
+		}
+		unit<uint32> OntbrekendeCombos := select_with_attr_by_cond(UniekeCombos, not(UniekeCombos/InFareTable));
+		parameter<string> OntbrekendeCombos_lijst := asList(OntbrekendeCombos/values + ' [' + string(OntbrekendeCombos/NrRoutes) + ' routes]', '; ');
+
+		// Audit-trail: schrijft de dekking per (mode,agency)-combinatie weg als csv, zodat per feed/prijsjaar
+		// gedocumenteerd is wat gecheckt is (genereer door dit item bij te werken).
+		unit<uint32> Rapport := UniekeCombos
+		, StorageName = "= '%LocalDataProjDir%/Output/Checks/Prijsdekking_feed'+ModelParameters/GTFS_file_date+'_FareTable'+ModelParameters/Advanced/FareTable_year+'.csv'"
+		, StorageType = "gdalwrite.vect"
+		{
+			attribute<string> mode_agency  (.) := UniekeCombos/values;
+			attribute<uint32> nr_routes    (.) := UniekeCombos/NrRoutes;
+			attribute<bool>   in_faretable (.) := UniekeCombos/InFareTable;
+		}
+
+		// Tabel-sanity: alle niet-NS-rijen hebben gevulde, plausibele prijzen (NS-rijen prijzen via TariffUnits en zijn bewust leeg).
+		// MakeDefined ipv IsDefined zodat een null-prijs niet als null door de all() propageert maar hard als FALSE telt.
+		unit<uint8> FT_detailed := ='FareTable_'+ModelParameters/Advanced/FareTable_year;
+		parameter<bool> Tabel_OK_detailed := all(
+			lowercase(FT_detailed/Vervoerder) == 'ns'
+			|| (   MakeDefined(FT_detailed/FixedPrice,    0[Euro]    - 1[Euro])    >= 0[Euro]    && MakeDefined(FT_detailed/FixedPrice,    999[Euro])    <= 10[Euro]
+				&& MakeDefined(FT_detailed/VariablePrice, 0[Euro_km] - 1[Euro_km]) >= 0[Euro_km] && MakeDefined(FT_detailed/VariablePrice, 999[Euro_km]) <= 0.6[Euro_km]));
+
+		parameter<bool> Tabel_OK_DOVA := all(
+				   MakeDefined(FareTable_DOVA/FixedPrice,    0[Euro]    - 1[Euro])    >= 0[Euro]    && MakeDefined(FareTable_DOVA/FixedPrice,    999[Euro])    <= 10[Euro]
+				&& MakeDefined(FareTable_DOVA/VariablePrice, 0[Euro_km] - 1[Euro_km]) >= 0[Euro_km] && MakeDefined(FareTable_DOVA/VariablePrice, 999[Euro_km]) <= 0.6[Euro_km]);
+
+		parameter<string> Status_Detailed := (#OntbrekendeCombos == 0
+												? 'PASS: alle '+string(#UniekeCombos)+' (mode,agency)-combinaties van feed '+ModelParameters/GTFS_file_date+' hebben een rij in FareTable_'+ModelParameters/Advanced/FareTable_year+'.'
+												: 'FAIL: '+string(#OntbrekendeCombos)+' van de '+string(#UniekeCombos)+' (mode,agency)-combinaties van feed '+ModelParameters/GTFS_file_date+' ontbreken in FareTable_'+ModelParameters/Advanced/FareTable_year+': '+OntbrekendeCombos_lijst)
+											+ (Tabel_OK_detailed ? '' : ' | FAIL: FareTable_'+ModelParameters/Advanced/FareTable_year+' bevat niet-NS-rijen met lege of onplausibele prijzen (verwacht 0-10 euro opstap, 0-0.60 euro/km).');
+
+		parameter<string> Status_DOVA := Tabel_OK_DOVA
+												? 'PASS: DOVA-prijzen voor jaar '+ModelParameters/Advanced/DOVA_year+' zijn gevuld en plausibel voor alle concessie x modeklasse-combinaties (dekking is by construction, incl. Buitenland-vangnet).'
+												: 'FAIL: DOVA-prijstabel bevat lege of onplausibele prijzen voor jaar '+ModelParameters/Advanced/DOVA_year+' (verwacht 0-10 euro opstap, 0-0.60 euro/km); check de y-kolommen in de DOVA-xlsx.';
+
+		parameter<string> Status       := =ModelParameters/Advanced/PriceMethod_effective == 'DOVA' ? 'Status_DOVA' : 'Status_Detailed';
+		parameter<string> Status_gated := =ModelParameters/Advanced/PriceExportsAndIntegrityChecksNeeded ? 'Status' : 'Status_skip';
+		parameter<string> Status_skip  := 'SKIP: prijzen staan uit (geen price in MinimiseCriteria en Export_PriceInformation = FALSE).';
+	}
+
+	unit<uint8> FareTable_2023 : NrOfRows = 144, URL = "https://github.com/ObjectVision/NetworkModel_PBL/issues/2"
 	{
 		unit<uint32> Elements  := Range(uint32, 0, nrAttr*#.)
 		{
@@ -128,7 +193,9 @@ container OVprijzen
 				'Bus'   ,'NIAG'                ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'          ,''                     ,'1.08' ,'0.186' ,'https://ovinnederland.nl/viewtopic.php?f=37&t=17145&sid=f96cd0bbb0a712d22b2c97ec8fbbf980',
 				'Bus'   ,'EBS'                 ,'Gelderland'    ,'IJssel_Vecht'                       ,''                     ,'1.08' ,'0.196' ,'',
 				'Rail'  ,'Valleilijn'          ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'          ,''                     ,'1.08' ,'0.202' ,'door Connexxion | 2023-val: treinreiziger.nl (Valleilijn-trein = 0,202, geen streektarief)',
+				'Bus'   ,'Valleilijn'          ,'Alle'          ,''                                   ,''                     ,'1.08' ,'0.202' ,'treinvervangend vervoer (Stopbus i.p.v. trein); treintarief Valleilijn aangehouden [dekkingscheck feed 20231003]',
 				'Rail'  ,'VIAS'                ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'          ,''                     ,'2.60' ,'0'     ,'handmatig iets vergelijkbaars met NS maken: eerste 8km 2.60eu, het gaat om NL deel.',
+				'Bus'   ,'VIAS'                ,'Alle'          ,''                                   ,''                     ,'2.60' ,'0'     ,'treinvervangend vervoer (Snelbus i.p.v. trein Arnhem-Emmerich/Wesel/Duisburg); treintarief VIAS aangehouden [dekkingscheck feed 20231003]',
 				'Bus'   ,'Arriva'              ,'Gelderland'    ,'Achterhoek Rivierenland'            ,''                     ,'1.08' ,'0.186' ,'',
 				'Bus'   ,'Arriva'              ,'Gelderland'    ,'Achterhoek Rivierenland'            ,'27'                   ,'1.08' ,'0.186' ,'',
 				'Bus'   ,'Breng'               ,'Gelderland'    ,'Concessie_Arnhem_Nijmegen'          ,'29'                   ,'1.08' ,'0.186' ,'',
@@ -153,6 +220,7 @@ container OVprijzen
 				'Bus'   ,'De_Lijn'             ,'Limburg'       ,'Limburg'                            ,''                     ,'2.50' ,'0'     ,'https://www.delijn.be/nl/content/vervoerbewijzen/kortingen/',
 				'Rail'  ,'Eurobahn'            ,'Limburg'       ,'Limburg'                            ,''                     ,'1.08' ,'0.186' ,'handmatig iets vergelijkbaars met NS maken: eerste 8km 2.60eu, het gaat om NL deel.',
 				'Rail'  ,'NMBS'                ,'Limburg'       ,'Limburg'                            ,''                     ,'2.50' ,'0'     ,'eerste 7km 2.50eu, het gaat om NL deel. https://www.belgiantrain.be/-/media/files/pdf/productfiches/tarieven-20240201.ashx',
+				'Bus'   ,'NMBS'                ,'Alle'          ,''                                   ,''                     ,'2.50' ,'0'     ,'treinvervangend vervoer (Stopbus i.p.v. trein Maastricht-Vise/Liege); treintarief NMBS aangehouden [dekkingscheck feed 20231003]',
 				'Bus'   ,'Bravo_Arriva_'       ,'Noord_Brabant' ,'West-Brabant'                       ,'820'                  ,'3.50' ,'0'     ,'Bergen op Zoom kris kras [feed: vh. Arriva]',
 				'Bus'   ,'Bravo_Arriva_'       ,'Noord_Brabant' ,'West-Brabant'                       ,'820'                  ,'1.50' ,'0'     ,'Bergen op Zoom van-naar station [feed: vh. Arriva]',
 				'Bus'   ,'Bravo_Arriva_'       ,'Noord_Brabant' ,'Oost-Brabant'                       ,'99'                   ,'1.08' ,'0.188' ,'2023-val: bravo.info tarieven 2023 (0,188) [feed: vh. Arriva]',
@@ -282,7 +350,7 @@ container OVprijzen
 	}
 	
 
-	unit<uint8> FareTable_2024 : NrOfRows = 144, URL = "https://github.com/ObjectVision/NetworkModel_PBL/issues/112"
+	unit<uint8> FareTable_2024 : NrOfRows = 146, URL = "https://github.com/ObjectVision/NetworkModel_PBL/issues/112"
 	{
 		unit<uint32> Elements  := Range(uint32, 0, nrAttr*#.)
 		{
@@ -338,8 +406,10 @@ container OVprijzen
 				'Bus'   ,'Arriva'                       ,'Limburg'       ,'Limburg'                            ,''                     ,'1.08'  ,'0.204' ,'bron: Arriva Tarievensheet 2024 v1.0, tab ZZ-LB (officieel)',
 				'Bus'   ,'Arriva'                       ,'Limburg'       ,'Limburg'                            ,'83'                   ,'1.08'  ,'0.186' ,'vanaf halte Milsbeek Helweg (SAN-tarief) | bron: Arriva Tarievensheet 2024 v1.0, tab ZZ-LB (officieel)',
 				'Rail'  ,'Arriva_OVR_'                  ,'Limburg'       ,'Limburg'                            ,''                     ,'1.08'  ,'0.220' ,'2e klas | bron: Arriva Tarievensheet 2024 v1.0, tab ZZ-LB (officieel) [feed: vh. Arriva]',
+				'Bus'   ,'Arriva_OVR_'                  ,'Alle'          ,''                                   ,''                     ,'1.08'  ,'0.219' ,'treinvervangend vervoer (Stop-/Snelbus i.p.v. trein, 15 routes noord+Limburg); gemiddelde van de drie Arriva_OVR_-railtarieven 0.208/0.220/0.228 [dekkingscheck feed 20241001]',
 				'Bus'   ,'De_Lijn'                      ,'Limburg'       ,'Limburg'                            ,''                     ,'2.50'  ,'0'     ,'vast rittarief NL-deel; reeks gelijk aan De Lijn Zeeland | https://www.delijn.be/nl/content/vervoerbewijzen/kortingen/',
 				'Rail'  ,'Eurobahn'                     ,'Limburg'       ,'Limburg'                            ,''                     ,'1.08'  ,'0.228' ,'RE13 (alleen Venlo in NL, geen NL-interne OD); NL-deel | bron(deepdive): https://reizigersoverleglimburg.nl/wp-content/uploads/2023/09/20230707-Adviesaanvraag-tarieven-Limburg-2024.pdf',
+				'Bus'   ,'Eurobahn'                     ,'Alle'          ,''                                   ,''                     ,'1.08'  ,'0.228' ,'treinvervangend vervoer (Stopbus i.p.v. trein Monchengladbach-Venlo, RE13); treintarief Eurobahn-Limburg aangehouden [dekkingscheck feed 20241001]',
 				'Rail'  ,'NMBS'                         ,'Limburg'       ,'Limburg'                            ,''                     ,'2.50'  ,'0'     ,'eerste 7km-tarief NL-deel; 2023-basis (2.50) geindexeerd | https://www.belgiantrain.be/',
 				'Bus'   ,'Bravo_Arriva_'                ,'Noord_Brabant' ,'West-Brabant'                       ,'820'                  ,'3.50'  ,'0'     ,'Bergen op Zoom kris kras; 2023-prijs aangehouden | GEEN BRON GEVONDEN',
 				'Bus'   ,'Bravo_Arriva_'                ,'Noord_Brabant' ,'West-Brabant'                       ,'820'                  ,'1.50'  ,'0'     ,'Bergen op Zoom van-naar station; 2023-prijs aangehouden | GEEN BRON GEVONDEN',
@@ -459,7 +529,7 @@ container OVprijzen
 		parameter<uint32> nrAttr := 8;
 	}
 
-	unit<uint8> FareTable_2025 : NrOfRows = 142, URL = "https://github.com/ObjectVision/NetworkModel_PBL/issues/112"
+	unit<uint8> FareTable_2025 : NrOfRows = 143, URL = "https://github.com/ObjectVision/NetworkModel_PBL/issues/112"
 	{
 		unit<uint32> Elements  := Range(uint32, 0, nrAttr*#.)
 		{
@@ -552,6 +622,7 @@ container OVprijzen
 				'Bus'   ,'RRReis'                       ,'Overijssel'    ,''                                   ,''                     ,'1.12'  ,'0.203' ,'bron: https://zoek.officielebekendmakingen.nl/prb-2024-19228.pdf [feed: vh. OV_Regio_IJsselmond]',
 				'Rail'  ,'DB'                           ,'Overijssel'    ,'Twente'                             ,''                     ,'2.70'  ,'0'     ,'grens-stoptrein Enschede-Dortmund (NL-deel Enschede-Glanerbrug); vast tarief analoog VIAS/NS_Int | GEEN BRON GEVONDEN (NL-deeltarief niet gepubliceerd)',
 				'Rail'  ,'Eurobahn'                     ,'Overijssel'    ,'Twente'                             ,''                     ,'1.12'  ,'0.23'  ,'RB61 Hengelo-Oldenzaal(-Bielefeld); NL-deel | GEEN BRON GEVONDEN (km-tarief = Twente-analogie)',
+				'Bus'   ,'Eurobahn'                     ,'Alle'          ,''                                   ,''                     ,'1.12'  ,'0.23'  ,'treinvervangend vervoer (Stopbus ipv trein Bad Bentheim-Hengelo-Rheine, RB61); treintarief Eurobahn-Twente aangehouden [dekkingscheck feed 20251008]',
 				'Bus'   ,'Qbuzz'                        ,'Utrecht'       ,''                                   ,''                     ,'1.12'  ,'0.194' ,'bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx',
 				'Bus'   ,'Syntus_Utrecht'               ,'Utrecht'       ,''                                   ,'295'                  ,'1.12'  ,'0.193' ,'Utrecht - Schoonhoven | bron: Tarievenplan U-OV en Syntus 2025 (stateninformatie prov. Utrecht)',
 				'Tram'  ,'U_OV'                         ,'Utrecht'       ,''                                   ,''                     ,'1.12'  ,'0.193' ,'bron: https://www.stateninformatie.provincie-utrecht.nl/Documenten/1-Tarievenplan-U-OV-en-Syntus-2025.pdf',
@@ -634,7 +705,7 @@ container OVprijzen
 		parameter<uint32> nrAttr := 8;
 	}
 
-	unit<uint8> FareTable_2026 : NrOfRows = 143, URL = "https://github.com/ObjectVision/NetworkModel_PBL/issues/112"
+	unit<uint8> FareTable_2026 : NrOfRows = 144, URL = "https://github.com/ObjectVision/NetworkModel_PBL/issues/112"
 	{
 		unit<uint32> Elements  := Range(uint32, 0, nrAttr*#.)
 		{
@@ -693,6 +764,7 @@ container OVprijzen
 				'Bus'   ,'De_Lijn'                      ,'Limburg'       ,'Limburg'                            ,''                     ,'3.00'  ,'0'     ,'vast rittarief NL-deel | bron: delijn.be tickets + VRT 2-1-2026',
 				'Rail'  ,'Eurobahn'                     ,'Limburg'       ,'Limburg'                            ,''                     ,'1.16'  ,'0.229'     ,'RE13 (alleen Venlo in NL, geen NL-interne OD); NL-deel | bron: DOVA-overzicht Limburg-rail 2026',
 				'Rail'  ,'NMBS'                         ,'Limburg'       ,'Limburg'                            ,''                     ,'2.60'  ,'0'     ,'eerste kilometers NL-deel | bron: press.nmbs.be/nmbs-tarieven-2026 + belgiantrain.be minimumprijs',
+				'Bus'   ,'NMBS'                         ,'Alle'          ,''                                   ,''                     ,'2.60'  ,'0'     ,'treinvervangend vervoer (Stopbus ipv trein Maastricht-Vise/Liege); treintarief NMBS aangehouden [dekkingscheck feed 20260316]',
 				'Bus'   ,'Bravo_Arriva_'                ,'Noord_Brabant' ,'Oost-Brabant'                       ,'99'                   ,'1.16'  ,'0.202' ,'bron: Arriva Tarievensheet 2026 (regio Z-BO, officieel) [feed: vh. Arriva]',
 				'Bus'   ,'Bravo_Arriva_'                ,'Noord_Brabant' ,''                                   ,'Nightliner'           ,'6.01'  ,'0'     ,'flatfare; sheet-2024-waarde (5.58) geindexeerd | GEEN BRON GEVONDEN',
 				'Bus'   ,'Bravo_Arriva_'                ,'Noord_Brabant' ,''                                   ,''                     ,'1.16'  ,'0.202' ,'bron: https://www.bravo.info/nieuws/nieuwe-tarieven-busvervoer-brabant-2026 (kopie->arriva)',
