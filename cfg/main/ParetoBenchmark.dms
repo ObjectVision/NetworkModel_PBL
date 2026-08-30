@@ -1,0 +1,68 @@
+container ParetoBenchmark
+: Descr = "Meetrapport voor ObjectVision/NetworkModel_PBL#115: wat doet de pareto-optie van impedance_matrix met de omvang van de benen-sets OD_R/OD_L? Draai /ParetoBenchmark/Report; dat trekt OD_R (en OD_L) en schrijft de kentallen naar een txt naast de PT_Chains-fss, met de arm in de bestandsnaam. Zie batch/RunParetoBenchmark.ps1."
+{
+	// Waarom deze kentallen:
+	// - rows        : de directe kostenpost. In pareto-modus is dit sum-over-OD-paren van de
+	//                 frontgrootte in plaats van 1 per bereikt OD-paar.
+	// - od_pairs    : moet tussen de armen GELIJK blijven. De pareto-optie voegt routes toe per
+	//                 OD-paar, geen OD-paren: elk bereikbaar paar heeft ook scalair al een rij.
+	//                 Wijkt dit af, dan is er iets anders veranderd dan alleen de zoekregel.
+	// - front_max   : de staart die de looptijd en het geheugen bepaalt. Volgens
+	//                 GeoDMS doc/bicriteria-impedance.md sectie 5.5 is de frontgrootte per knoop
+	//                 begrensd door het aantal VERSCHILLENDE bereikbare alt_imp-totalen onder de
+	//                 cut; dit is de meting die die voorspelling toetst.
+	// - front_mean  : rows / od_pairs, de gemiddelde vermenigvuldigingsfactor.
+	// - min_imp/... : de validatie uit ObjectVision/GeoDMS#856: de snelste rij per OD-paar hoort
+	//                 in beide armen dezelfde te zijn. Hier alleen als totaal-minimum; de
+	//                 sluitende per-OD-vergelijking gebeurt tussen de armen op de PT_Chains-fss.
+
+	container Impl := /NetworkSetup/PublicTransport_Prep/impl;
+
+	Template LegStats_T
+	{
+		unit<uint32> OD;
+		unit<uint32> Nodes;
+		///
+		attribute<uint64>  od_key   (OD) := uint64(OD/OrgZone_rel) * uint64(#Nodes) + uint64(OD/DstZone_rel);
+		unit<uint32>       od_pair       := unique_uint32(od_key);
+		attribute<od_pair> od_pair_rel (OD) := rlookup(od_key, od_pair/values);
+		attribute<uint32>  front   (od_pair) := pcount(od_pair_rel);
+
+		parameter<uint32>  rows       := #OD;
+		parameter<uint32>  od_pairs   := #od_pair;
+		parameter<uint32>  front_max  := max(front);
+		parameter<float64> front_mean := float64(rows) / float64(od_pairs);
+		parameter<float64> min_imp    := min(OD/impedance);
+		parameter<float64> min_alt    := min(OD/alt_imp);
+		parameter<float64> sum_alt    := sum(OD/alt_imp);
+
+		parameter<string>  line :=
+			  'rows='       + string(rows)
+			+ ' od_pairs='  + string(od_pairs)
+			+ ' front_mean='+ string(front_mean)
+			+ ' front_max=' + string(front_max)
+			+ ' min_imp='   + string(min_imp)
+			+ ' min_alt='   + string(min_alt)
+			+ ' sum_alt='   + string(sum_alt);
+	}
+
+	container R := LegStats_T(Impl/OD_R, Impl/Set_R/Set/NodeSet);
+	container L := LegStats_T(Impl/OD_L, Impl/Set_L/Set/NodeSet);
+
+	parameter<string> Arm :=
+		  (ModelParameters/Advanced/ParetoLegs_R ? 'paretoR' : 'scalarR')
+		+ '_' + (ModelParameters/Advanced/ParetoLegs_L ? 'paretoL' : 'scalarL')
+		+ '_q' + string(ModelParameters/Advanced/LegDistanceQuantum * 1000f) + 'm'
+		+ (ModelParameters/Advanced/UseQuantisedLegDistanceInScalarRun ? '_qscalar' : '');
+
+	parameter<string> Report :=
+		  'arm=' + Arm + '\n'
+		+ 'gtfs_file_date=' + ModelParameters/GTFS_file_date + ' analysis_date=' + ModelParameters/Analysis_date + '\n'
+		+ 'max_pt_time=' + string(ModelParameters/MaxPTTime) + ' max_transfers=' + string(ModelParameters/Advanced/Max_transfers) + '\n'
+		+ 'minimise_criteria=' + ModelParameters/MinimiseCriteria + '\n'
+		+ 'chains_storage=' + /NetworkSetup/PublicTransport_Prep/StorageName_Str + '\n'
+		+ 'OD_R ' + R/line + '\n'
+		+ 'OD_L ' + L/line + '\n'
+	, StorageName = "='%LocalDataProjDir%/Output/pareto_benchmark_legs_' + Arm + '.txt'"
+	, StorageType = "str";
+}
