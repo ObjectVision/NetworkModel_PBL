@@ -1,12 +1,25 @@
-unit<uint32> OD_L := 
-	impedance_matrix('directed;cut(OrgZone_max_imp);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel'
+// OD_L / OD_R zoeken per (vertrekmoment,halte) de benen binnen één tariefgroep. Zonder de
+// pareto-optie levert impedance_matrix per OD-paar precies het SNELSTE been op, met de afgelegde
+// afstand als bijproduct; een langzamer maar korter -- en daarmee in het R-net goedkoper -- been
+// bestaat dan simpelweg niet meer voor de ketenrijger. Dat is ObjectVision/NetworkModel_PBL#19.
+// Met ';pareto' erbij doet dezelfde operator een bi-criteria label-setting zoektocht op
+// (Duration, Length) en levert hij één rij per Pareto-optimale route; de eerste rij per OD-paar
+// draagt gegarandeerd nog steeds de scalaire minimum-reistijd (GeoDMS#856, doc/bicriteria-impedance.md).
+// Zie /ModelParameters/Advanced/ParetoLegs_R, ParetoLegs_L en LegDistanceQuantum.
+unit<uint32> OD_L := =
+	'impedance_matrix(''directed;cut(OrgZone_max_imp);alternative(link_imp):alt_imp'
+	+ (ModelParameters/Advanced/ParetoLegs_L ? ';pareto' : '')
+	+ ';od:impedance,OrgZone_rel,DstZone_rel''
 		, Set_L/Set/Duration
 		, Set_L/Set/F1
 		, Set_L/Set/F2
-		
+
 		, convert(ModelParameters/MaxPTTime, s_f)
-		, Set_L/Set/Length
-	), using = "impl"
+		, Set_L/Set/'
+	+ (ModelParameters/Advanced/ParetoLegs_L || ModelParameters/Advanced/UseQuantisedLegDistanceInScalarRun ? 'Length_q' : 'Length')
+	+ '
+	)'
+	, using = "impl"
 {
 	unit<uint32>             ThisSet                         := Set_L/Set;
 	
@@ -43,15 +56,20 @@ unit<uint32> OD_L :=
 	}
 }
 
-unit<uint32> OD_R := 
-	impedance_matrix('directed;cut(OrgZone_max_imp);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel'
+unit<uint32> OD_R := =
+	'impedance_matrix(''directed;cut(OrgZone_max_imp);alternative(link_imp):alt_imp'
+	+ (ModelParameters/Advanced/ParetoLegs_R ? ';pareto' : '')
+	+ ';od:impedance,OrgZone_rel,DstZone_rel''
 		, Set_R/Set/Duration
 		, Set_R/Set/F1
 		, Set_R/Set/F2
-		
+
 		, convert(ModelParameters/MaxPTTime, s_f)
-		, Set_R/Set/Length
-	), using = "impl"
+		, Set_R/Set/'
+	+ (ModelParameters/Advanced/ParetoLegs_R || ModelParameters/Advanced/UseQuantisedLegDistanceInScalarRun ? 'Length_q' : 'Length')
+	+ '
+	)'
+	, using = "impl"
 {
 	unit<uint32>                 ThisSet                          := Set_R/Set;
 	
