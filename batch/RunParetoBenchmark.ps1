@@ -104,8 +104,10 @@ parameter<bool>     UseQuantisedLegDistanceInScalarRun        := $($d.QScalar)  
 function Get-PeakMemoryMB {
     param([string] $LogPath)
     if (-not (Test-Path $LogPath)) { return $null }
-    # de afsluitende geheugenregel van GeoDmsRun draagt "Highest CommitCharge: <n>[MB]"
-    $line = Select-String -Path $LogPath -Pattern 'Highest CommitCharge:\s*(\d+)\[MB\]' | Select-Object -Last 1
+    # De afsluitende geheugenregel draagt meerdere cijfers. "Highest CommitCharge" blijft in deze
+    # runs op 0 staan; "PeakLiveLarge" is de post die daadwerkelijk meebeweegt met de omvang van
+    # de resultaten (745 MB voor de scalaire been-run), dus dat is de zinnige maat hier.
+    $line = Select-String -Path $LogPath -Pattern 'PeakLiveLarge:\s*(\d+)\[MB\]' | Select-Object -Last 1
     if ($null -eq $line) { return $null }
     return [int] $line.Matches[0].Groups[1].Value
 }
@@ -128,10 +130,11 @@ try {
 
             # /SP laat GeoDmsRun de per-operator performance-regels loggen; die dragen de
             # verdeling over de operatoren waarmee een verschil in wandkloktijd toe te wijzen is.
-            $args = @("/L$($log -replace '\\','/')", '/SP', ($MainDms -replace '\\','/'), $item)
+            # niet $args noemen: dat is een automatische variabele in PowerShell
+            $runArgs = @("/L$($log -replace '\\','/')", '/SP', ($MainDms -replace '\\','/'), $item)
 
             $sw = [System.Diagnostics.Stopwatch]::StartNew()
-            $p  = Start-Process -FilePath $GeoDmsRun -ArgumentList $args -PassThru -NoNewWindow
+            $p  = Start-Process -FilePath $GeoDmsRun -ArgumentList $runArgs -PassThru -NoNewWindow
             $timedOut = $false
             if ($TimeoutMinutes -gt 0) {
                 if (-not $p.WaitForExit($TimeoutMinutes * 60 * 1000)) {

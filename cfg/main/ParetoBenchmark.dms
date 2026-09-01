@@ -1,5 +1,6 @@
 container ParetoBenchmark
-: Descr = "Meetrapport voor ObjectVision/NetworkModel_PBL#115: wat doet de pareto-optie van impedance_matrix met de omvang van de benen-sets OD_R/OD_L? Draai /ParetoBenchmark/Report; dat trekt OD_R (en OD_L) en schrijft de kentallen naar een txt naast de PT_Chains-fss, met de arm in de bestandsnaam. Zie batch/RunParetoBenchmark.ps1."
+: using = "units;geometries;ModelParameters;Classifications;SourceData"
+, Descr = "Meetrapport voor ObjectVision/NetworkModel_PBL#115: wat doet de pareto-optie van impedance_matrix met de omvang van de benen-sets OD_R/OD_L? Draai /ParetoBenchmark/Report; dat trekt OD_R (en OD_L) en schrijft de kentallen naar een txt naast de PT_Chains-fss, met de arm in de bestandsnaam. Zie batch/RunParetoBenchmark.ps1."
 {
 	// Waarom deze kentallen:
 	// - rows        : de directe kostenpost. In pareto-modus is dit sum-over-OD-paren van de
@@ -32,9 +33,13 @@ container ParetoBenchmark
 		parameter<uint32>  od_pairs   := #od_pair;
 		parameter<uint32>  front_max  := max(front);
 		parameter<float64> front_mean := float64(rows) / float64(od_pairs);
-		parameter<float64> min_imp    := min(OD/impedance);
-		parameter<float64> min_alt    := min(OD/alt_imp);
-		parameter<float64> sum_alt    := sum(OD/alt_imp);
+		// impedance is s_f en alt_imp is km, beide float32-gebaseerd; vandaar de expliciete
+		// conversie naar float64. Bij sum_alt gaat de conversie VOOR de sommatie, anders telt
+		// een nationale run miljoenen float32-en bij elkaar op en verdwijnt de staart in de
+		// afrondfout.
+		parameter<float64> min_imp    := float64(min(OD/impedance));
+		parameter<float64> min_alt    := float64(min(OD/alt_imp));
+		parameter<float64> sum_alt    := sum(float64(OD/alt_imp));
 
 		parameter<string>  line :=
 			  'rows='       + string(rows)
@@ -48,6 +53,66 @@ container ParetoBenchmark
 
 	container R := LegStats_T(Impl/OD_R, Impl/Set_R/Set/NodeSet);
 	container L := LegStats_T(Impl/OD_L, Impl/Set_L/Set/NodeSet);
+
+	container Cross
+	: Descr = "Beslissende proef: draai op HETZELFDE R-net beide varianten naast elkaar in EEN run en vergelijk per OD-paar. Onafhankelijk van de arm-schakelaars, want beide aanroepen staan hier letterlijk. Draai /ParetoBenchmark/Cross/Report."
+	{
+		// Waarom dit nodig is: de vier armen leveren alle vier front_max=1, ook de pareto-armen.
+		// Dat kan twee dingen betekenen -- (a) het front is structureel een singleton in dit
+		// tijd-geexpandeerde net, of (b) de pareto-optie doet niets. Het logbericht zegt
+		// "pareto od-pairs", dus de motor draait, en sum_alt verschilt tussen de armen, dus er
+		// verandert wel degelijk iets. Deze proef meet WAT er verandert, per OD-paar.
+		unit<uint32> od_scalar := impedance_matrix(
+			  'directed;cut(OrgZone_max_imp);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel'
+			, Impl/Set_R/Set/Duration, Impl/Set_R/Set/F1, Impl/Set_R/Set/F2
+			, convert(ModelParameters/MaxPTTime, s_f)
+			, Impl/Set_R/Set/Length
+			);
+
+		unit<uint32> od_pareto := impedance_matrix(
+			  'directed;cut(OrgZone_max_imp);alternative(link_imp):alt_imp;pareto;od:impedance,OrgZone_rel,DstZone_rel'
+			, Impl/Set_R/Set/Duration, Impl/Set_R/Set/F1, Impl/Set_R/Set/F2
+			, convert(ModelParameters/MaxPTTime, s_f)
+			, Impl/Set_R/Set/Length
+			);
+
+		parameter<uint64> nrNodes := uint64(#Impl/Set_R/Set/NodeSet);
+
+		attribute<uint64> key_s (od_scalar) := uint64(od_scalar/OrgZone_rel) * nrNodes + uint64(od_scalar/DstZone_rel);
+		attribute<uint64> key_p (od_pareto) := uint64(od_pareto/OrgZone_rel) * nrNodes + uint64(od_pareto/DstZone_rel);
+
+		// per pareto-rij de bijbehorende scalaire rij (de scalaire run heeft er precies een per paar)
+		attribute<od_scalar> s_rel (od_pareto) := rlookup(key_p, key_s);
+		attribute<bool>      matched (od_pareto) := IsDefined(s_rel);
+
+		attribute<float64> d_imp (od_pareto) := float64(od_pareto/impedance) - float64(od_scalar/impedance[s_rel]);
+		attribute<float64> d_alt (od_pareto) := float64(od_pareto/alt_imp)   - float64(od_scalar/alt_imp[s_rel]);
+
+		// d_imp moet 0 zijn: de eerste rij per OD-paar draagt per constructie de scalaire
+		// minimum-impedantie (ObjectVision/GeoDMS#856). d_alt moet <= 0 zijn: de pareto-run mag
+		// nooit een DUURDERE route kiezen dan de scalaire.
+		parameter<uint32>  n_pareto        := #od_pareto;
+		parameter<uint32>  n_scalar        := #od_scalar;
+		parameter<uint32>  n_unmatched     := sum(uint32(not(matched)));
+		parameter<uint32>  n_imp_differs   := sum(uint32(abs(d_imp) > 0.001));
+		parameter<uint32>  n_alt_cheaper   := sum(uint32(d_alt < -0.001));
+		parameter<uint32>  n_alt_dearer    := sum(uint32(d_alt >  0.001));
+		parameter<float64> sum_alt_scalar  := sum(float64(od_scalar/alt_imp));
+		parameter<float64> sum_alt_pareto  := sum(float64(od_pareto/alt_imp));
+		parameter<float64> sum_saved_km    := sum_alt_scalar - sum_alt_pareto;
+
+		parameter<string> Report :=
+			  'rijen scalair=' + string(n_scalar) + ' pareto=' + string(n_pareto) + '\n'
+			+ 'pareto-rijen zonder scalaire tegenhanger=' + string(n_unmatched) + ' (hoort 0)\n'
+			+ 'OD-paren met afwijkende reistijd=' + string(n_imp_differs) + ' (hoort 0: de eerste rij draagt de scalaire min-tijd)\n'
+			+ 'OD-paren met KORTERE route in de pareto-run=' + string(n_alt_cheaper) + '\n'
+			+ 'OD-paren met LANGERE route in de pareto-run=' + string(n_alt_dearer) + ' (hoort 0)\n'
+			+ 'totale afstand scalair=' + string(sum_alt_scalar) + ' km\n'
+			+ 'totale afstand pareto =' + string(sum_alt_pareto) + ' km\n'
+			+ 'bespaarde afstand     =' + string(sum_saved_km) + ' km\n'
+		, StorageName = "%LocalDataProjDir%/Output/pareto_benchmark_cross.txt"
+		, StorageType = "str";
+	}
 
 	parameter<string> Arm :=
 		  (ModelParameters/Advanced/ParetoLegs_R ? 'paretoR' : 'scalarR')

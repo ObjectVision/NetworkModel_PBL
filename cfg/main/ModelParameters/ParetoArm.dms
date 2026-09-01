@@ -1,18 +1,31 @@
-// ARM: pareto_R_q100m
+// ARM: pareto_R (het voorstel na de meting van 2026-09-01)
 //
 // Schakelaars voor de pareto-benen van OD_R/OD_L (ObjectVision/NetworkModel_PBL#115,
 // ObjectVision/GeoDMS#856). Dit bestand wordt door de meetharnas van #115 IN ZIJN GEHEEL
 // herschreven per meet-arm; de eerste regel noemt de arm. Wordt ge-#include-d in
 // ModelParameters/Advanced, dus deze parameters heten /ModelParameters/Advanced/<naam>.
 //
-// De pareto-optie van impedance_matrix doet een bi-criteria label-setting zoektocht op
-// (Duration, Length) in plaats van min-Duration met Length als bijproduct. Voor het R-net is
-// prijs = FixedPrice + VariablePrice * afstand en dus monotoon in Length: het (tijd,afstand)-
-// front IS daar het (tijd,prijs)-front. Voor het L-net (NS) volgt de prijs uit de
-// TariffUnits-matrix over (eerste,laatste) station en dus uit het OD-paar zelf; een front
-// levert daar geen extra prijsopties op, alleen meer rijen. Vandaar twee schakelaars.
+// WAT DE PARETO-OPTIE HIER WEL EN NIET DOET -- gemeten, niet aangenomen.
+//
+// De optie doet een bi-criteria label-setting zoektocht op (Duration, Length) en levert een rij
+// per Pareto-optimale route. In dit net levert dat GEEN fronten op, en dat is structureel: voor
+// zowel de scheduled links als de waiting links geldt Duration = toTime_rel - fromTime_rel (zie
+// SourceData/GTFS/RelevantSelection.dms en GTFS.dms). Die duren telescoperen dus langs elk pad:
+// de reistijd tussen twee knopen is gelijk aan aankomsttijd minus vertrektijd, ONGEACHT de route.
+// Het eerste criterium is daarmee gedegenereerd en elk front is per constructie een singleton.
+// Gemeten op feed 20241001: 2.836.865 pareto-rijen tegen 2.836.865 scalaire rijen, front_max=1.
+//
+// Wat de optie WEL doet is de gelijkspel-regel repareren. Waar meerdere routes dezelfde (vaste)
+// reistijd hebben, koos de scalaire Dijkstra er willekeurig een; de pareto-variant kiest de
+// KORTSTE. Omdat de R-prijs FixedPrice + VariablePrice * afstand is, is dat de goedkoopste.
+// Gemeten: 106.303 van de 2.836.865 OD-paren (3,7%) krijgen een kortere route, 0 een langere,
+// 0 een andere reistijd; samen 200.075 van 17.647.301 km minder (1,13%). Kosten: 1,20x de
+// operatortijd en circa 14% meer geheugen.
+//
+// Voor het L-net (NS) volgt de prijs uit de TariffUnits-matrix over (eerste,laatste) station en
+// dus uit het OD-paar zelf; daar valt met een kortere route niets te winnen. Vandaar L uit.
 
-parameter<bool>     ParetoLegs_R                              := TRUE                   , Descr = "Gebruik de pareto-optie van impedance_matrix voor OD_R: per OD-paar alle Pareto-optimale (reistijd, afstand)-benen in plaats van alleen het snelste. Lost ObjectVision/NetworkModel_PBL#19 op: een langzamer maar korter (=goedkoper) been is nu zichtbaar voor de ketenrijger.";
-parameter<bool>     ParetoLegs_L                              := FALSE                  , Descr = "Idem voor OD_L (NS). Standaard uit: de NS-prijs hangt af van (eerste,laatste) NS-station en dus van het OD-paar, niet van de afgelegde afstand, dus een front voegt geen prijsopties toe.";
-parameter<km>       LegDistanceQuantum                        := 0.1[km]                , Descr = "Kwantisatie van het tweede pareto-criterium (Length) in het R/L-net. Het aantal Pareto-punten per knoop is begrensd door het aantal VERSCHILLENDE bereikbare afstandstotalen onder de cut, dus een continue float-afstand laat de fronten ontsporen (zie GeoDMS doc/bicriteria-impedance.md sectie 5.5). De som van veelvouden van q is zelf een veelvoud van q, dus routetotalen liggen op hetzelfde raster. Zet op 0[km] om NIET te kwantiseren (alleen om die kosten te meten).";
+parameter<bool>     ParetoLegs_R                              := TRUE                   , Descr = "Gebruik de pareto-optie van impedance_matrix voor OD_R. Levert in dit net geen fronten (de reistijd tussen twee knopen ligt vast), maar kiest bij gelijke reistijd de KORTSTE en dus goedkoopste route in plaats van een willekeurige. Gemeten 2026-09-01 op feed 20241001: 106.303 van 2.836.865 OD-paren korter, 0 langer, 0 met andere reistijd.";
+parameter<bool>     ParetoLegs_L                              := FALSE                  , Descr = "Idem voor OD_L (NS). Uit: de NS-prijs hangt af van (eerste,laatste) NS-station en dus van het OD-paar, niet van de afgelegde afstand, dus een kortere route levert daar geen goedkopere rit op.";
+parameter<km>       LegDistanceQuantum                        := 0.0[km]                , Descr = "Kwantisatie van het tweede pareto-criterium (Length); 0[km] = NIET kwantiseren, en dat is hier de juiste stand. GeoDMS doc/bicriteria-impedance.md sectie 5.5 waarschuwt dat een continu tweede criterium de fronten laat ontsporen, maar die waarschuwing bijt hier niet: elk front is per constructie een singleton, dus er valt niets te ontsporen. Gemeten: kwantiseren op 100 m kost 28.145 van de 200.075 bespaarde km en levert geen tijd- of geheugenwinst. Alleen aanzetten als een netvariant de reistijd WEL padafhankelijk maakt.";
 parameter<bool>     UseQuantisedLegDistanceInScalarRun        := FALSE                  , Descr = "Gebruik LegDistanceQuantum ook in de gewone (niet-pareto) run. Alleen bedoeld om in de meting van ObjectVision/NetworkModel_PBL#115 het prijs-effect van de kwantisatie te scheiden van het effect van de pareto-optie zelf.";
