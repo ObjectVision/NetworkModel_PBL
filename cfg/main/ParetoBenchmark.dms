@@ -114,6 +114,42 @@ container ParetoBenchmark
 		, StorageType = "str";
 	}
 
+	container ChainSample
+	: Descr = "Keten-trap op een STEEKPROEF van haltenblokken, per arm naar csv: de rijen van Block_1..Block_N na de ketenrijger, met de absolute (vertrektijd,halte)- en (aankomsttijd,halte)-codes zodat twee armen buiten GeoDMS per OD-paar te vergelijken zijn (batch/CompareParetoChains.py). Draai /ParetoBenchmark/ChainSample/Rows per arm."
+	{
+		// Waarom een steekproef: een blok kost ~4 min en 66-72 GB, dus de volle 500 blokken zijn
+		// ~30 uur PER ARM. BlockSelections/rnd_rel is een rnd_permutation van alle haltes, dus de
+		// eerste N blokken zijn een zuivere aselecte steekproef van N*MaxStopBlockSize haltes.
+		// Binnen EEN GeoDmsRun-aanroep worden OD_R/OD_L/Transfers een keer berekend en door alle
+		// N blokken gedeeld, net als in de volledige Generate_PT-run.
+		//
+		// Waarom absolute codes en geen uq_c_*_rel-indices: die indices zijn run-lokaal (de
+		// unique-units worden per run opgebouwd), dus over twee armen heen betekenisloos.
+		// `->values` geeft de onderliggende c_Time_Stops-code (tijd * #Stops + halte), die wel
+		// over runs heen gelijk is.
+		parameter<uint32> NrBlocks := 20, Descr = "Aantal blokken in de steekproef (van NumberOfStopBlocks). 20 van 500 = 4% van de haltes, ~80 min per arm.";
+
+		unit<uint32> Blocks := range(uint32, 0, NrBlocks)
+		{
+			attribute<string> name := 'Block_'+string(id(.)+1)+'of'+string(ModelParameters/Advanced/NumberOfStopBlocks);
+			attribute<string> path := '/NetworkSetup/PublicTransport_Prep/KetenGeneratie_PerBlock/'+name+'/Fence/Result';
+		}
+
+		unit<uint64> Rows := ='union_unit_uint64('+AsItemList(Blocks/path)+')'
+		, StorageName = "='%LocalDataProjDir%/Output/pareto_chains_sample_'+/ParetoBenchmark/Arm+'_n'+string(NrBlocks)+'.csv'"
+		, StorageType = "gdalwrite.vect"
+		, Descr = "Een rij per ketenresultaat in de steekproef; csv per arm."
+		{
+			attribute<uint32> block      := ='union_data(., '+AsList('const('+string(id(Blocks))+'[uint32], '+Blocks/path+')', ',')+')';
+			attribute<uint64> from_code  := ='union_data(., '+AsList('uint64('+Blocks/path+'/uq_c_FromTime_Stop_rel->values)', ',')+')';
+			attribute<uint64> to_code    := ='union_data(., '+AsList('uint64('+Blocks/path+'/uq_c_ToTime_Stop_rel->values)', ',')+')';
+			attribute<ct>     price      := ='union_data(., '+AsList(Blocks/path+'/Price', ',')+')';
+			attribute<ct>     price_augm := ='union_data(., '+AsList(Blocks/path+'/Price_augm', ',')+')';
+			attribute<s>      traveltime := ='union_data(., '+AsList(Blocks/path+'/Traveltime', ',')+')';
+			attribute<string> modeused   := ='union_data(., '+AsList(Blocks/path+'/ModeUsed', ',')+')';
+		}
+	}
+
 	parameter<string> Arm :=
 		  (ModelParameters/Advanced/ParetoLegs_R ? 'paretoR' : 'scalarR')
 		+ '_' + (ModelParameters/Advanced/ParetoLegs_L ? 'paretoL' : 'scalarL')

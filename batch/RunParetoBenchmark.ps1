@@ -35,7 +35,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Legs', 'Block', 'Full')]
+    [ValidateSet('Legs', 'Block', 'Sample', 'Full')]
     [string[]] $Stage = @('Legs'),
 
     [ValidateSet('scalar', 'scalar_q100m', 'pareto_R', 'pareto_R_q100m', 'pareto_RL')]
@@ -68,6 +68,9 @@ $StageItem = @{
     Legs  = '/ParetoBenchmark/Report'
     # een enkel haltenblok van de ketenrijger: wat kosten de grotere benen-sets stroomafwaarts?
     Block = '/NetworkSetup/PublicTransport_Prep/KetenGeneratie_PerBlock/Block_1of500/Fence/Result'
+    # een aselecte steekproef van NrBlocks blokken (ParetoBenchmark.dms), per arm naar csv;
+    # vergelijk daarna met batch\CompareParetoChains.py <scalar.csv> <pareto.csv>
+    Sample = '/ParetoBenchmark/ChainSample/Rows'
     # de volledige nationale ketenrun naar PT_Chains_*.fss
     Full  = '/MakeUnlinkedData/PublicTransportNet/Generate_PT'
 }
