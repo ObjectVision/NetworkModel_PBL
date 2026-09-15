@@ -90,10 +90,18 @@ container PublicTransport_Prep
 			attribute<bool>   IsSub_from := From_Time_rel >= impl/FirstDepartureMoment ;
 			attribute<bool>   IsSub_to   := To_Time_rel   < impl/LastArrivalMoment;
 			attribute<bool>   IsSub_dur  := duration <= convert(ModelParameters/MaxPTTime , s_f);
+			attribute<bool>   IsFlexLink := MakeDefined(Routes/IsFlex[Route_rel], false), Descr = "#113: link van een flex-lijn; wachtlinks dragen Route_rel van hun rit en vallen dus mee. MakeDefined: een null-conditie telt in select_with_attr_by_cond stil als false.";
 		}
 
-		container Set_R := Get_Windowed_Agency_Set_T(' &&  '+impl/PT_path_str+'/Agency_rel->IsRO &&  '+impl/PT_path_str+'/Duration > 0f'), Descr = "subset of public transport net for the relevant time windows and agency-set.", using = "impl";
-		container Set_L := Get_Windowed_Agency_Set_T(' && ('+impl/PT_path_str+'/Agency_rel == Agencies/V/ns || ('+impl/PT_path_str+'/Mode_rel == impl/Modes/V/Waiting && IsDefined('+impl/PT_path_str+'/c_NS_start_end_rel))) && '+impl/PT_path_str+'/Duration > 0f');
+		// #113: bij FlexMode 'exclude' gaan alle links van flex-lijnen uit beide netten (Set_L laat wachtlinks van
+		// flexritten bij stations toe, vandaar ook daar). Leeg bij 'asis' en 'penalty', zodat de select-expressie
+		// van Set_R/Set_L letterlijk gelijk blijft aan die van voor #113. Exact, want in Set_R/Set zijn de
+		// samenhangende componenten per route (NodeSet = (tijd, halte, route)): flex-links weglaten verwijdert
+		// precies de flex-componenten en raakt geen enkel ander been.
+		parameter<string> FlexSelection_str := ModelParameters/Advanced/FlexMode == 'exclude' ? ' && not(PTnet_prep/IsFlexLink)' : '';
+
+		container Set_R := Get_Windowed_Agency_Set_T(' &&  '+impl/PT_path_str+'/Agency_rel->IsRO &&  '+impl/PT_path_str+'/Duration > 0f' + impl/FlexSelection_str), Descr = "subset of public transport net for the relevant time windows and agency-set.", using = "impl";
+		container Set_L := Get_Windowed_Agency_Set_T(' && ('+impl/PT_path_str+'/Agency_rel == Agencies/V/ns || ('+impl/PT_path_str+'/Mode_rel == impl/Modes/V/Waiting && IsDefined('+impl/PT_path_str+'/c_NS_start_end_rel))) && '+impl/PT_path_str+'/Duration > 0f' + impl/FlexSelection_str);
 		
 		unit<uint32> All_Time_Stops := union_unit_uint32(OD_L/Result, OD_R/Result)
 		{
@@ -372,6 +380,8 @@ container PublicTransport_Prep
 		((ModelParameters/Advanced/ParetoLegs_R || ModelParameters/Advanced/ParetoLegs_L || ModelParameters/Advanced/UseQuantisedLegDistanceInScalarRun) && ModelParameters/Advanced/LegDistanceQuantum > 0[km]
 			? '_q'+string(ModelParameters/Advanced/LegDistanceQuantum * 1000f)+'m'
 			: '')+
+		// Flex-modus (ObjectVision/NetworkModel_PBL#113): '_noflex' of '_flexpen<n>min', leeg bij 'asis'.
+		ModelParameters/Advanced/FlexMode_FileTag+
 		'.fss';
 		
 	#include<ChainJoiner_T.dms>

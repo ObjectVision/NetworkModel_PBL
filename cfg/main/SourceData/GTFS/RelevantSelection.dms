@@ -149,6 +149,17 @@ container RelevantSelection : using = "LoadFeeds"
 		
 		attribute<Modes>    Mode_rel         := rlookup(uint8(route_type), Modes/route_type);
 		attribute<rdc>      geometry   (arc) := Trips/geometry[invert(trips/Route_rel)];
+
+		// #113: flex-/belbuslijnen op naam (zoektermen in ModelParameters/Advanced/FlexRouteTerms). MakeDefined: een
+		// null in een van beide namen zou de zoektekst null maken en de route stil ongemarkeerd laten. lowercase()
+		// omdat de flag-parameter van regex_search in de motor niet doorkomt (Regex.cpp leest args[3] bij een
+		// ternaire operator). regex_search geeft de gematchte term, of null als er geen match is.
+		attribute<string>   flex_zoektekst   := lowercase(MakeDefined(route_short_name, '') + ' ' + MakeDefined(route_long_name, ''));
+		attribute<string>   FlexMatch        := regex_search(flex_zoektekst, ModelParameters/Advanced/FlexRoutePattern), Descr = "gematchte flex-term; null = geen match";
+		attribute<string>   FlexNearMiss     := regex_search(flex_zoektekst, ModelParameters/Advanced/FlexNearMissPattern), Descr = "gematchte bijna-treffer-term; null = geen match";
+		attribute<bool>     IsPseudoRoute    := union_data(., const(false, Read/Routes/domain, bool), const(true, Classifications/TimeInvariantTypes, bool)), Descr = "voor-/natransport-pseudoroutes uit de union_unit";
+		attribute<bool>     IsFlex           := not(IsPseudoRoute) && IsDefined(FlexMatch), Descr = "flex-/belbuslijn: boeken vooraf, geen vaste dienstregeling; zie ModelParameters/Advanced/FlexMode";
+		attribute<bool>     IsFlexNearMiss   := not(IsPseudoRoute) && not(IsFlex) && IsDefined(FlexNearMiss);
 	}
 	
 }

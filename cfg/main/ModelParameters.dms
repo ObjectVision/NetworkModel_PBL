@@ -97,6 +97,29 @@
 		parameter<Time>     MaxWaitingTimeAtOrigin                    := 899[Time]             , Descr = "Maximale wachttijd thuis. Zet je dit hoog, zonder dat dit in de reistijd zit (WeighingWaitingAtOriginPreTransport = 0) dan kun je ongemerkt veel later vertrekken dan je denkt.";
 		parameter<min_f>    GradeSeparatedTransferPenalty             := 0[min_f]               , Descr = "Does a public transport stop have a lot of vertical distance to traverse? In that case a time penalty will be given when traffering through that stop.";
 		parameter<min_f>    Cycling_PreTransport_Penalty              := 0[min_f]               , Descr = "When using a bike in pre-transport, a time penalty may be added to incorporate time to park the bike.";
+
+		// FLEX-/BELBUSLIJNEN (ObjectVision/NetworkModel_PBL#113)
+		// Bravoflex, U-flex, SyntusFlex, FlexRRReis, Overal Flex, Texelhopper, Opstapper en belbussen staan in de
+		// GTFS-feeds als gewone lijnen met ritten, maar moeten 30-60 min vooraf geboekt worden. NeTEx heeft er geen
+		// gebiedsgeometrie voor (alleen de BISON flex-markering), dus de herkenning loopt op lijnnaam
+		// (SourceData/Infrastructure/GTFS/RelevantSelection/Routes/IsFlex). 'asis' = gedrag van voor #113: de
+		// expressies en cache-namen blijven letterlijk gelijk, dus bestaande CalcCache en PT_Chains-fss blijven geldig.
+		parameter<string>   FlexMode                                  := 'asis'                 , Descr = "Omgang met flex-/belbuslijnen: 'asis' = als gewone lijn (huidig gedrag); 'exclude' = alle links (rit- en wachtlinks) van flex-lijnen uit het OV-net; 'penalty' = FlexBoardingPenalty optellen bij de reistijd van elk been op een flex-lijn (een been = precies een instap, want NodeSet = (tijd, halte, route)). Welke lijnen: /FlexReport/Report.", IntegrityCheck = "this == 'asis' || this == 'exclude' || this == 'penalty'";
+		parameter<min_f>    FlexBoardingPenalty                       := 20[min_f]              , Descr = "Boekings-/wachttoeslag per instap op een flex-lijn; alleen gebruikt bij FlexMode = 'penalty' (PBL-keuze, 15-30 min). Telt mee in de MaxPTTime-grens, net als GradeSeparatedTransferPenalty.", IntegrityCheck = "this >= 0[min_f]";
+		parameter<string>   FlexMode_FileTag                          := FlexMode == 'exclude' ? '_noflex' : (FlexMode == 'penalty' ? '_flexpen'+string(FlexBoardingPenalty)+'min' : ''), Descr = "Naamsuffix voor de PT_Chains-cache (PublicTransport_Prep/StorageName_Str); leeg bij 'asis', zodat bestaande caches en de #115-vergelijking geldig blijven.";
+		unit<uint8> FlexRouteTerms : nrofrows = 4
+		, Descr = "Zoektermen (kleine letters, regex-alternatieven) waarop een GTFS-route als flex geldt; gezocht in lowercase(route_short_name + ' ' + route_long_name). Bewust smal: 'buurtbus'/'wijkbus' (dienstregeling), 'hopper' (Spijkhopper/Maasvlaktehopper zijn gewone EBS-lijnen), 'vlinder' (Arriva-kleinbussen op dienstregeling en de plaatsnaam 'Zaandam De Vlinder') en 'taxibus i.p.v. trein' (treinvervangend) horen er NIET in; die staan als bijna-treffers in FlexNearMissTerms en /FlexReport/NearMiss."
+		{
+			attribute<string> term        : ['flex', 'texelhopper', 'opstapper', 'belbus'];
+			attribute<string> toelichting : ['Bravoflex (Arriva), Connexxion FLEX, Overal Flex, FlexRRReis, SyntusFlex, U-flex', 'Texelhopper (TXL)', 'Opstapper Fryslan (Arriva/Qbuzz)', 'belbus, generiek'];
+		}
+		parameter<string>   FlexRoutePattern                          := asList(FlexRouteTerms/term, '|');
+		unit<uint8> FlexNearMissTerms : nrofrows = 5, Descr = "Termen die op flex lijken maar (nu) niet als flex gelden; alleen voor /FlexReport/NearMiss."
+		{
+			attribute<string> term : ['buurtbus', 'wijkbus', 'hopper', 'vlinder', 'taxi'];
+		}
+		parameter<string>   FlexNearMissPattern                       := asList(FlexNearMissTerms/term, '|');
+
 		parameter<bool>     IncludeWalkingCostsInPrice                := FALSE                  , Descr = "Wil je reistijdkosten van lopen meenemen in de uiteindelijke 'te bepalen' prijs.";
 		parameter<bool>     IncludeCyclingCostsInPrice                := TRUE                   , Descr = "Wil je reistijdkosten van fietsen meenemen in de uiteindelijke 'te bepalen' prijs.";
 		parameter<uint32>   NumberOfStopBlocks                        := 500                    , Descr = "In the generation of the unlinked PT-network, how many stop blocks should be used in the Ketenrijger? Less means more memory usage per unit of time.";
