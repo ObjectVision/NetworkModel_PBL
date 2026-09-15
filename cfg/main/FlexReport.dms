@@ -1,0 +1,109 @@
+container FlexReport
+: using = "units;Classifications;SourceData"
+, Descr = "Rapport voor ObjectVision/NetworkModel_PBL#113: welke GTFS-routes gelden als flex-/belbuslijn (Routes/IsFlex, zoektermen ModelParameters/Advanced/FlexRouteTerms) en welke bijna-treffers bewust niet. Draai /FlexReport/Report (goedkoop: alleen routes/trips/stop_times) en per FlexMode /FlexReport/Net/Report (duur: trekt het OV-net en OD_R/OD_L). Uitvoer in %LocalDataProjDir%/Output/flex_*."
+{
+	// Waarom een apart rapport en niet alleen Routes/IsFlex: de modelkeuze (uitsluiten, toeslag of
+	// laten) is aan PBL, en die vraagt per feed een lijst van wat de heuristiek raakt, met ritten per
+	// dag, haltes en concessie, plus de bijna-treffers die er bewust buiten blijven (Buurtbus, Wijkbus,
+	// Spijkhopper/Maasvlaktehopper, Vlinder, taxibus i.p.v. trein). Net/Report levert daarnaast de
+	// kentallen om de drie modi tegen elkaar te controleren (zie de verificatie in #113).
+	unit<uint32> Routes          := SourceData/Infrastructure/GTFS/RelevantSelection/Routes;
+	unit<uint32> Trips           := SourceData/Infrastructure/GTFS/RelevantSelection/Trips;
+	unit<uint32> StopTimes       := SourceData/Infrastructure/GTFS/RelevantSelection/StopTimes;
+	unit<uint32> Stops           := SourceData/Infrastructure/GTFS/RelevantSelection/Stops;
+	unit<uint8>  Modes           := SourceData/Infrastructure/GTFS/RelevantSelection/Modes;
+	unit<uint8>  Concessiegebied := SourceData/RegioIndelingen/Concessiegebied;
+
+	parameter<string> FileStem := '%LocalDataProjDir%/Output/flex_'+ModelParameters/GTFS_file_date+'_'+ModelParameters/Analysis_date;
+
+	attribute<uint32>    NrTrips_feed  (Routes)    := pcount(Trips/Route_rel);
+	attribute<uint32>    NrTrips_today (Routes)    := sum_uint32(Trips/sel_today, Trips/Route_rel);
+	attribute<Routes>    Route_rel     (StopTimes) := Trips/Route_rel[StopTimes/Trip_rel];
+	unit<uint64>         c_Route_Stop              := combine_unit_uint64(Routes, Stops);
+	unit<uint32>         uq_Route_Stop             := unique_uint32(combine_data(c_Route_Stop, Route_rel, StopTimes/Stop_rel))
+	, Descr = "Stop_rel is null voor stop_times van ritten buiten de analysedagen (Stops = gebruikte haltes); die ene null-sleutel telt in pcount niet mee."
+	{
+		attribute<Routes> Route_rel := value(values / uint64(#Stops), Routes);
+	}
+	attribute<uint32>    NrStops           (Routes) := pcount(uq_Route_Stop/Route_rel);
+	attribute<StopTimes> FirstStopTime_rel (Routes) := min_index(StopTimes/Stop_Sequence, Route_rel);
+	attribute<Stops>     FirstStop_rel     (Routes) := StopTimes/Stop_rel[FirstStopTime_rel];
+	attribute<Concessiegebied> Concessie_rel (Routes) := point_in_polygon(Stops/geometry[FirstStop_rel], Concessiegebied/geometry);
+
+	Template RouteList_T
+	{
+		attribute<bool>   selectie (Routes);
+		attribute<string> term     (Routes);
+		parameter<string> csvName;
+		///
+		unit<uint32> Rows := select_with_org_rel(selectie), StorageName = "=csvName", StorageType = "gdalwrite.vect"
+		{
+			attribute<string> route_id         := Routes/route_id[org_rel];
+			attribute<string> route_short_name := Routes/route_short_name[org_rel];
+			attribute<string> route_long_name  := Routes/route_long_name[org_rel];
+			attribute<string> agency           := Routes/agency_name[org_rel];
+			attribute<string> mode             := Modes/name[Routes/Mode_rel[org_rel]];
+			attribute<string> route_type       := Routes/route_type[org_rel];
+			attribute<string> matched_term     := term[org_rel];
+			attribute<uint32> nr_trips_today   := NrTrips_today[org_rel];
+			attribute<uint32> nr_trips_feed    := NrTrips_feed[org_rel];
+			attribute<uint32> nr_stops         := NrStops[org_rel];
+			attribute<string> eerste_halte     := Stops/Name[FirstStop_rel[org_rel]];
+			attribute<string> concessie        := MakeDefined(Concessiegebied/name[Concessie_rel[org_rel]], 'Buitenland/onbekend');
+		}
+	}
+
+	container Flagged  := RouteList_T(Routes/IsFlex,         Routes/FlexMatch,    FileStem+'_routes.csv');
+	container NearMiss := RouteList_T(Routes/IsFlexNearMiss, Routes/FlexNearMiss, FileStem+'_nearmiss.csv');
+
+	parameter<string> Report :=
+		  'gtfs_file_date=' + ModelParameters/GTFS_file_date + ' analysis_date=' + ModelParameters/Analysis_date + '\n'
+		+ 'flexmode=' + ModelParameters/Advanced/FlexMode + ' penalty=' + string(ModelParameters/Advanced/FlexBoardingPenalty) + 'min\n'
+		+ 'pattern=' + ModelParameters/Advanced/FlexRoutePattern + ' nearmiss_pattern=' + ModelParameters/Advanced/FlexNearMissPattern + '\n'
+		+ 'routes=' + string(#Routes) + ' pseudo=' + string(sum(uint32(Routes/IsPseudoRoute)))
+		+ ' flagged=' + string(#Flagged/Rows) + ' trips_today_flagged=' + string(sum(Flagged/Rows/nr_trips_today))
+		+ ' nearmiss=' + string(#NearMiss/Rows) + '\n'
+		+ 'chains_storage=' + /NetworkSetup/PublicTransport_Prep/StorageName_Str + '\n'
+	, StorageName = "=FileStem+'_report.txt'", StorageType = "str"
+	, ExplicitSuppliers = "Flagged/Rows;NearMiss/Rows";
+
+	container Net
+	: Descr = "Netwerk-kentallen; draai /FlexReport/Net/Report met FlexMode = 'asis', 'exclude' en 'penalty' en vergelijk (verificatie #113)."
+	{
+		container Impl := /NetworkSetup/PublicTransport_Prep/impl;
+		parameter<uint32>  n_links_R           := #Impl/Set_R/Set;
+		parameter<uint32>  n_flexlinks_R       := sum(uint32(MakeDefined(Routes/IsFlex[Impl/Set_R/Set/Route_rel], false)));
+		parameter<uint32>  n_nodes_R           := #Impl/Set_R/Set/NodeSet;
+		parameter<uint32>  n_flexnodes_R       := sum(uint32(MakeDefined(Routes/IsFlex[Impl/Set_R/Set/NodeSet/Route_rel], false)));
+		parameter<uint32>  n_OD_R              := #Impl/OD_R;
+		parameter<uint32>  n_flexlegs_R        := sum(uint32(Impl/OD_R/IsFlexLeg));
+		parameter<uint32>  n_OD_R_result       := #Impl/OD_R/Result;
+		parameter<uint32>  n_flexlegs_R_result := sum(uint32(Impl/OD_R/Result/IsFlexLeg));
+		parameter<uint32>  n_flexlegs_over_cut := sum(uint32(Impl/OD_R/Result/IsFlexLeg && Impl/OD_R/Result/Impedance > convert(ModelParameters/MaxPTTime - ModelParameters/Advanced/FlexBoardingPenalty, s_f)))
+		, Descr = "voorspelt in 'asis' hoeveel Result-rijen 'penalty' minder heeft: flex-benen die met de toeslag boven MaxPTTime uitkomen";
+		parameter<float64> sum_tt_R_result     := sum(float64(Impl/OD_R/Result/Traveltime));
+		parameter<uint32>  n_links_L           := #Impl/Set_L/Set;
+		parameter<uint32>  n_OD_L_result       := #Impl/OD_L/Result;
+
+		parameter<string>  Report :=
+			  'flexmode=' + ModelParameters/Advanced/FlexMode + ' penalty=' + string(ModelParameters/Advanced/FlexBoardingPenalty) + 'min\n'
+			+ 'Set_R links=' + string(n_links_R) + ' flexlinks=' + string(n_flexlinks_R) + ' nodes=' + string(n_nodes_R) + ' flexnodes=' + string(n_flexnodes_R) + '\n'
+			+ 'OD_R rows=' + string(n_OD_R) + ' flexlegs=' + string(n_flexlegs_R) + ' result=' + string(n_OD_R_result) + ' flexlegs_result=' + string(n_flexlegs_R_result) + ' flexlegs_over_cut=' + string(n_flexlegs_over_cut) + ' sum_tt=' + string(sum_tt_R_result) + '\n'
+			+ 'Set_L links=' + string(n_links_L) + ' OD_L result=' + string(n_OD_L_result) + '\n'
+			+ 'price_check=' + /MakeUnlinkedData/PublicTransportNet/CheckEerstDezeIntegrityCheck_2 + '\n'
+		, StorageName = "=FileStem+'_net_'+ModelParameters/Advanced/FlexMode+'.txt'", StorageType = "str";
+
+		container Block1
+		: Descr = "Ketenrijen van haltenblok 1 per FlexMode: ca. 4 min en ~70 GB als het blok niet in de CalcCache staat. De asis-referentie is het aantal block==0-rijen in de steekproef-csv van #115 (pareto_chains_sample_<arm>_n20.csv). Draai /FlexReport/Net/Block1/Report."
+		{
+			unit<uint64>       Result   := /NetworkSetup/PublicTransport_Prep/KetenGeneratie_PerBlock/Block_1of500/Fence/Result;
+			parameter<uint64>  n_rows   := #Result;
+			parameter<float64> mean_tt  := mean(float64(Result/Traveltime));
+			parameter<float64> mean_prc := mean(float64(Result/Price));
+			parameter<string>  Report :=
+				  'flexmode=' + ModelParameters/Advanced/FlexMode + ' penalty=' + string(ModelParameters/Advanced/FlexBoardingPenalty) + 'min\n'
+				+ 'block1 rows=' + string(n_rows) + ' mean_traveltime_s=' + string(mean_tt) + ' mean_price_ct=' + string(mean_prc) + '\n'
+			, StorageName = "=FileStem+'_block1_'+ModelParameters/Advanced/FlexMode+'.txt'", StorageType = "str";
+		}
+	}
+}
