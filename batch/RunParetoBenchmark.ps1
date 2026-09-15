@@ -38,8 +38,8 @@ param(
     [ValidateSet('Legs', 'Block', 'Full')]
     [string[]] $Stage = @('Legs'),
 
-    [ValidateSet('scalar', 'scalar_q100m', 'pareto_R_raw', 'pareto_R_q100m', 'pareto_RL_q100m')]
-    [string[]] $Arms = @('scalar', 'scalar_q100m', 'pareto_R_raw', 'pareto_R_q100m'),
+    [ValidateSet('scalar', 'scalar_q100m', 'pareto_R', 'pareto_R_q100m', 'pareto_RL')]
+    [string[]] $Arms = @('scalar', 'scalar_q100m', 'pareto_R', 'pareto_R_q100m'),
 
     [string] $GeoDmsRun = 'C:\Program Files\ObjectVision\GeoDms20.19.0.m\GeoDmsRun.exe',
 
@@ -74,11 +74,11 @@ $StageItem = @{
 
 # ParetoLegs_R, ParetoLegs_L, LegDistanceQuantum[km], UseQuantisedLegDistanceInScalarRun
 $ArmDef = @{
-    scalar          = @{ R = 'FALSE'; L = 'FALSE'; Q = '0.1'; QScalar = 'FALSE' }
+    scalar          = @{ R = 'FALSE'; L = 'FALSE'; Q = '0.0'; QScalar = 'FALSE' }
     scalar_q100m    = @{ R = 'FALSE'; L = 'FALSE'; Q = '0.1'; QScalar = 'TRUE'  }
-    pareto_R_raw    = @{ R = 'TRUE';  L = 'FALSE'; Q = '0.0'; QScalar = 'FALSE' }
+    pareto_R        = @{ R = 'TRUE';  L = 'FALSE'; Q = '0.0'; QScalar = 'FALSE' }
     pareto_R_q100m  = @{ R = 'TRUE';  L = 'FALSE'; Q = '0.1'; QScalar = 'FALSE' }
-    pareto_RL_q100m = @{ R = 'TRUE';  L = 'TRUE';  Q = '0.1'; QScalar = 'FALSE' }
+    pareto_RL       = @{ R = 'TRUE';  L = 'TRUE';  Q = '0.0'; QScalar = 'FALSE' }
 }
 
 function Write-ArmFile {
