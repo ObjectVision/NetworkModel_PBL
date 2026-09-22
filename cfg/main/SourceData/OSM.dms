@@ -240,12 +240,19 @@ container OSM : using = "classifications/OSM"
 	
 	#include <NetworkPreperation.dms>
 
-	unit<uint32> Make_Final_Network := unique(NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/geometry)
-	,   StorageName = "='%LocalDataProjDir%/OSM/Final_Network_'+file_date+'.mmd'"
+	// De rekenkant van het netwerk staat BUITEN de store: sinds GeoDMS 20.19.0 (issue #1245) weigert de
+	// MMD-writer elk item met DisableStorage onder zijn holder, want alles onder de holder hoort bij de
+	// store ("Move this item outside the holder or drop the property"). ConnectedNetwork_rel, values en
+	// AddBikeCongestionSpeeds waren met de oude fss-store nog als DisableStorage uit te sluiten; opslaan
+	// is geen alternatief (values is een tweede exemplaar van de geometrie en AddBikeCongestionSpeeds/Impl
+	// is de connect_info met alle Fietstelweek-dynapunten). Make_Final_Network houdt de naam en de store,
+	// zodat /MakeUnlinkedData/OSM/Step1_Generate_roads_Final_Network en Read_Final_Network ongewijzigd
+	// blijven werken.
+	unit<uint32> Final_Network_src := unique(NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/geometry)
+	,	Descr = "Rekenkant van het uiteindelijke OSM-netwerk (niet opgeslagen); Make_Final_Network schrijft hiervan de te bewaren attributen naar de mmd."
 	{
-		attribute<NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork> ConnectedNetwork_rel    := rlookup(geometry, NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/geometry), DisableStorage = "true";
+		attribute<NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork> ConnectedNetwork_rel    := rlookup(geometry, NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/geometry);
 		attribute<rdc>                          geometry (arc) := values;
-		attribute<rdc>                          values   (arc) : DisableStorage = "true";
 		attribute<roadType>                      roadType_rel    := NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/roadType_rel[ConnectedNetwork_rel];
 		attribute<km_hr>                        maxspeed       := NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/maxspeed[ConnectedNetwork_rel];
 		attribute<string>                       OSM_id         := NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/OSM_id[ConnectedNetwork_rel];
@@ -256,7 +263,7 @@ container OSM : using = "classifications/OSM"
 		// attribute<km_hr>                        congestion_speed_NoonRush        := NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/congestion_speed_NoonRush[ConnectedNetwork_rel];
 		// attribute<km_hr>                        congestion_speed_LateEveningRush := NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/congestion_speed_LateEveningRush[ConnectedNetwork_rel];
 		
-		unit<uint32> AddBikeCongestionSpeeds := select_with_org_rel(roadType/isPartOfBikeNetwork[roadType_rel]), DisableStorage = "true"
+		unit<uint32> AddBikeCongestionSpeeds := select_with_org_rel(roadType/isPartOfBikeNetwork[roadType_rel])
 		{
 			attribute<rdc>                          geometry (arc)                   := ../geometry[org_rel];
 			attribute<string>                       OSM_id                           := ../OSM_id[org_rel];
@@ -271,16 +278,35 @@ container OSM : using = "classifications/OSM"
 		}
 	}
 
-	unit<uint32> Read_Final_Network
+	unit<uint32> Make_Final_Network := Final_Network_src
+	,   StorageName = "='%LocalDataProjDir%/OSM/Final_Network_'+file_date+'.mmd'"
+	{
+		attribute<rdc>                          geometry (arc)        := Final_Network_src/geometry;
+		attribute<roadType>                     roadType_rel          := Final_Network_src/roadType_rel;
+		attribute<km_hr>                        maxspeed              := Final_Network_src/maxspeed;
+		attribute<string>                       OSM_id                := Final_Network_src/OSM_id;
+		attribute<bool>                         IsOneDirection        := Final_Network_src/IsOneDirection;
+		attribute<km_hr>                        congestion_speed_bike := Final_Network_src/congestion_speed_bike;
+	}
+
+	// Een read-only MMD-lezer mag sinds GeoDMS 20.19.0 (issue #1245) zelf geen sub-items declareren:
+	// de dictionary van de store bepaalt ze (en controleert bij het lezen de waardetypen, zie
+	// 0Dictionary.dms in de mmd). Read_Final_Network_store is daarom de kale lezer; Read_Final_Network
+	// geeft de zes opgeslagen attributen door en voegt de afgeleiden toe, onder dezelfde naam en paden
+	// als voorheen, zodat Network_Car/Network_Cycling/Network_Walking en de templates onveranderd zijn.
+	unit<uint32> Read_Final_Network_store
 	:   StorageName = "=PropValue(Make_Final_Network, 'StorageName')"
 	,   StorageReadOnly = "true"
+	,   Descr = "Kale lezer van de OSM-netwerkstore; declareert niets, de dictionary van de mmd levert geometry, roadType_rel, maxspeed, OSM_id, IsOneDirection en congestion_speed_bike.";
+
+	unit<uint32> Read_Final_Network := Read_Final_Network_store
 	{
-		// attribute<rdc>                          geometry (arc);
-		// attribute<roadType>                     roadType_rel;
-		// attribute<km_hr>                        maxspeed;
-		// attribute<string>                       OSM_id;
-		// attribute<bool>                         IsOneDirection;
-		// attribute<km_hr>                        congestion_speed_bike;
+		attribute<rdc>                          geometry (arc)                   := Read_Final_Network_store/geometry;
+		attribute<roadType>                     roadType_rel                     := Read_Final_Network_store/roadType_rel;
+		attribute<km_hr>                        maxspeed                         := Read_Final_Network_store/maxspeed;
+		attribute<string>                       OSM_id                           := Read_Final_Network_store/OSM_id;
+		attribute<bool>                         IsOneDirection                   := Read_Final_Network_store/IsOneDirection;
+		attribute<km_hr>                        congestion_speed_bike            := Read_Final_Network_store/congestion_speed_bike;
 		attribute<string>                       roadType_label                    := roadType/label[roadType_rel];
 		attribute<km_hr>                        freeflow_speed_cycling           := const(ModelParameters/Advanced/CyclingSpeed_kmhr,.);
 		attribute<km_hr>                        freeflow_speed_walking           := const(ModelParameters/Advanced/WalkingSpeed_kmhr,.);
