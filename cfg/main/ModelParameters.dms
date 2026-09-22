@@ -67,6 +67,7 @@
 		parameter<string>   LISA_year                                 := '2018'                 , Descr = "Which year of the LISA-dataset would you like to use?";
 		parameter<bool>     Dests_geclusterd                          := FALSE                  , Descr = "Would you like to cluster destinations? For example useful for firm destinations, with many firms at the same location. To determine the area of clustering look at Dest_location_scale";
 		parameter<string>   Dest_location_scale                       := '100m'                 , Descr = "If clustering the destination, at which scale would you like to cluster? Options: '100m', '500m', '1000m', '5000m', '10000m', '50000m'";
+		parameter<string>   Org_location_scale                        := '500m'                 , Descr = "Celmaat waarop de BAG-herkomsten geclusterd worden (BAG_woonpanden_Clustered). Opties zijn de celmaten uit geometries/Gridsizes: '25m', '100m', '500m', '1000m', '5000m', '10000m', '50000m'. Stond tot 2026-09-22 vast aan Dest_location_scale; op 100m levert de BAG-snapshot van 1-1-2026 588.903 herkomsten, wat de blokindeling en de OD-omvang onwerkbaar maakt. Losgekoppeld omdat de bestemmingen hun eigen maat mogen houden.";
 		parameter<string>   items_of_interest                         := rjoin(lowercase(DestSet), lowercase(Advanced/dest_domain_list/label), Advanced/dest_domain_list/items_of_interest), Descr = "What is the item of interest in the analysis? Such as number of jobs. Decided via the dest_set.";
 		parameter<bool>     ExcludeOrgBuurtCentroidsWithoutAddressPop := FALSE                  , Descr = "Would yo like to exclude buurt centroid that do not contain addresses or population (depending on CentroidWeightType).";
 		parameter<string>   fileNamePrefix                            := '%LocalDataProjDir%/Output/PerBlock/', Descr = "Location where output files will be saved.";
@@ -127,8 +128,8 @@
 		parameter<bool>     IncludeCyclingCostsInPrice                := TRUE                   , Descr = "Wil je reistijdkosten van fietsen meenemen in de uiteindelijke 'te bepalen' prijs.";
 		parameter<uint32>   NumberOfStopBlocks                        := 500                    , Descr = "In the generation of the unlinked PT-network, how many stop blocks should be used in the Ketenrijger? Less means more memory usage per unit of time.";
 		parameter<uint32>   MaxStopBlockSize                          := 104                     , Descr = "In the generation of the unlinked PT-network, what is maximum stop block size? Make sure that the product of this value and the NumberOfStopBlocks is sufficient to include all stops";
-		parameter<uint32>   NumberOfOrgBlocks                         := 120                    , Descr = "In the generation of PT-output files, how many origin blocks should be used? Less means more memory usage per unit of time."; 
-		parameter<uint32>   MaxOrgBlockSize                           := 30                     , Descr = "In the generation of PT-output files, what is maximum origin block size? Make sure that the product of this value and the NumberOfOrgBlocks is sufficient to include all origins";
+		parameter<uint32>   NumberOfOrgBlocks                         := 450                    , Descr = "In the generation of PT-output files, how many origin blocks should be used? Less means more memory use, but less overhead. Het product met MaxOrgBlockSize moet minstens het aantal herkomsten zijn, zie ChecksBeforeRunning/Check_OriginBlocks: 450 x 200 = 90.000 dekt de 88.126 herkomsten van de 500m-clustering (441 gevulde blokken). Bij een nieuwe BAG-snapshot met meer herkomsten meldt die check precies welk getal nodig is.";
+		parameter<uint32>   MaxOrgBlockSize                           := 200                    , Descr = "In the generation of PT-output files, what is maximum origin block size? Make sure that this number times the number of blocks is larger than the number of origins. 200 herkomsten per blok houdt een blok behapbaar; bij de oude buurt-herkomsten stond dit op 30.";
 		parameter<uint16>   Max_transfers                             := 3w                     , Descr = "How many transfers are allowed?", IntegrityCheck = "this >= 1w && this <= 4w";
 		parameter<bool>     PriceExportsAndIntegrityChecksNeeded      := IsDefined(strpos(lowercase(MinimiseCriteria), 'price')) || Export_PriceInformation;
 		// PARETO-BENEN (ObjectVision/NetworkModel_PBL#115, ObjectVision/GeoDMS#856)
@@ -165,6 +166,10 @@
 		parameter<string>   DestSet_string                            := Dests_geclusterd 
 																			? lowercase(Destset) + '_' + lowercase(Dest_location_scale)
 																			: lowercase(Destset), Descr = ""; 
+		parameter<string>   OrgSet_string                             := strcount(Orgset, 'Clustered') > 0
+													? lowercase(Orgset) + '_' + lowercase(Org_location_scale)
+													: lowercase(Orgset)
+		,	Descr = "De herkomstenset zoals hij in de bestandsnamen staat. Bij een geclusterde set hoort de celmaat erbij, anders overschrijft een 500m-run de uitvoer van een 100m-run, net zoals DestSet_string dat voor de bestemmingen doet.";
 		
 		unit<uint8> OV_PreTransport_Typen : nrofrows = 1
 		, Descr = "Select here the to be considered pre-transport options. 
