@@ -2,7 +2,14 @@ container BAG
 {
 	// parameter<string> SnapshotDir := '%BAG_DataDir_OVSRV6%/BAG/snapshots.ext/20220101';
 	// parameter<string> SnapshotDir   := '%NetworkModel_dir%/RegioIndelingen/BAG/'+ModelParameters_base/RegioIndelingen_year+'0101';
-	parameter<string> SnapshotDir   := '%NetworkModel_dir%/RegioIndelingen/BAG/'+string(BAG_year)+'0101';
+	// Sinds 2026-09-22 leest deze config de BAG-snapshot die BAG-Tools zelf oplevert:
+	// %BAG_DataDir%/BAG/snapshots.ext/<jaar>0101.new/bag.mmd, een enkele mmd-store met de hele BAG.
+	// Het achtervoegsel .new is hoe MakeSnapshot zijn uitvoermap noemt (MakeSnapshot.dms:26), niet een
+	// voorlopige status. De store van 20260101 is gemaakt uit het BAG-historiebestand
+	// %SourceDataDir%/BAG/20260808/mmd_ge en meldt in zijn overzicht.txt nul ontbrekende geometrieen.
+	// De oude drieslag vbo/pand/adres.fss onder %NetworkModel_dir%/RegioIndelingen/BAG bestond hier
+	// nooit; PostAnalysis/UAI leest wel nog de jaarreeks snapshots.ext/<jaar>0101_RS via Snapshot_T.
+	parameter<string> SnapshotDir   := '%BAG_DataDir%/BAG/snapshots.ext/'+ModelParameters/Advanced/BAG_snapshot;
 	unit<uint32> RegioUnit_Buurt    := /SourceData/RegioIndelingen/Buurt;
 	unit<uint32> RegioUnit_Wijk     := /SourceData/RegioIndelingen/Wijk;
 	unit<uint32> RegioUnit_Gemeente := /SourceData/RegioIndelingen/Gemeente;
@@ -116,30 +123,58 @@ container BAG
 		}
 	}
 	
-	container Snapshot := Snapshot_T(SnapshotDir);
+	// Kale lezer van de snapshot-store: onder een read-only MMD-holder mag niets gedeclareerd worden
+	// (#1245), de dictionary levert woonplaats, openbareruimte, nummeraanduiding, ligplaats,
+	// standplaats, pand en vbo plus de statusklassen. De items hieronder brengen die vorm terug naar de
+	// namen die de rest van deze config al gebruikte, zodat src, de gebruiksdoelsets, de pandclusters,
+	// de adrescentroiden en RegioIndelingen ongewijzigd blijven. Wat de snapshot extra biedt en hier
+	// nog niet gebruikt wordt: pand/gebruiksdoelen/nr_woon (het aantal woon-vbo's per pand, dat Panden/
+	// pand zelf uitrekent), vbo/pand_rel en vbo/nummeraanduiding_rel als echte relaties, en
+	// vbo/nevenadres en vbo/gerelateerdPand.
+	container snapshot
+	:	StorageName     = "= SnapshotDir+'/bag.mmd'"
+	,	StorageReadOnly = "true"
+	,	Descr = "Kale lezer van de BAG-snapshot van BAG-Tools; declareert niets."
+	;
+	
+	// De statuslabels van de snapshot zijn kleine letters en kennen een extra klasse 'onbekend'; de
+	// eigen classificaties hebben hoofdletters. Koppelen op kleine letters houdt de selecties van dit
+	// model (VBO_selection, Pand_selection_condition) letterlijk gelijk; 'onbekend' wordt null.
+	// De snapshot heeft ook een eigen vlag 'selected', maar die kiest er drie (in gebruik, in gebruik
+	// niet ingemeten, verbouwing) waar dit model er vier neemt (ook buiten gebruik), dus die vlag wordt
+	// hier niet gebruikt.
+	container status_mapping
+	{
+		attribute<vbo_status>  vbo  (snapshot/status_vbo)  := rlookup(lowercase(snapshot/status_vbo/Label),  lowercase(vbo_status/label));
+		attribute<pand_status> pand (snapshot/status_pand) := rlookup(lowercase(snapshot/status_pand/Label), lowercase(pand_status/label));
+	}
 
 	
 	container VBOs
 	{
-		// Leest de mmd-kopie naast de externe fss, zie Snapshot_T hierboven.
-		unit<uint32> import := Snapshot/store/vbo
+		// Uit de snapshot, onder de namen die src verwacht. geometry komt hier al als rdc (dpoint) uit de
+		// store, dus de oude omweg via rdc_mm is niet meer nodig; nummeraanduiding_id en status zijn
+		// afgeleid van de relaties en klassen van de snapshot.
+		unit<uint32> import := snapshot/vbo
 		{
-			attribute<rdc_mm>              geometry_mm         := Snapshot/store/vbo/geometry_mm;
-			attribute<string>              identificatie       := Snapshot/store/vbo/identificatie;
-			attribute<int32>               oppervlakte         := Snapshot/store/vbo/oppervlakte;
-			attribute<string>              nummeraanduiding_id := Snapshot/store/vbo/nummeraanduiding_id;
-			attribute<string>              pand_id             := Snapshot/store/vbo/pand_id;
-			attribute<string>              status              := Snapshot/store/vbo/status;
+			attribute<rdc>                 geometry            := snapshot/vbo/geometry;
+			attribute<string>              identificatie       := snapshot/vbo/identificatie;
+			attribute<int32>               oppervlakte         := snapshot/vbo/oppervlakte;
+			attribute<string>              pand_id             := snapshot/pand/identificatie[snapshot/vbo/pand_rel];
+			attribute<string>              nummeraanduiding_id := snapshot/nummeraanduiding/identificatie[snapshot/vbo/nummeraanduiding_rel];
+			attribute<vbo_status>          status_rel          := status_mapping/vbo[snapshot/vbo/meta/status_rel];
+			attribute<string>              status              := vbo_status/label[status_rel];
 			
-			container gebruiksdoelen := for_each_nedv(Classifications/vbo_gebruiksdoel/name, 'Snapshot/store/vbo/gebruiksdoelen/'+Classifications/vbo_gebruiksdoel/name, import, bool);
+			container gebruiksdoelen := for_each_nedv(Classifications/vbo_gebruiksdoel/name, 'snapshot/vbo/gebruiksdoelen/'+Classifications/vbo_gebruiksdoel/name, import, bool);
 		}
 		
 		unit<uint32> src := import
 		{
-			attribute<rdc_mm>              geometry_mm             := import/geometry_mm;
-			attribute<rdc>                 geometry                := geometry_mm[rdc];
+			attribute<rdc>                 geometry                := import/geometry;
 			attribute<string>              identificatie           := import/identificatie;
 			attribute<string>              nummeraanduiding_id     := import/nummeraanduiding_id;
+			attribute<string>              pand_id                 := import/pand_id;	// Expliciet, niet alleen via de verwijzing naar import: de arrow (org_rel -> pand_id) in de
+			// gebruiksdoelsets kan alleen echte sub-items van src vinden.
 			attribute<uint64>              vbo_bag_nr              := uint64(import/identificatie);
 			attribute<vbo_status>          status_rel              := rlookup(status, vbo_status/label);
 			attribute<string>              status                  := import/status;
@@ -173,44 +208,53 @@ container BAG
 			
 			unit<uint32> GebruiksdoelSet := ='select_with_org_rel(src/gebruiksdoelen/'+name+'&& src/VBO_selection)'
 			{
-				attribute<rdc_mm>              geometry_mm                          := org_rel -> geometry_mm;
-				attribute<rdc>                 geometry                             := geometry_mm[rdc];
+				// De arrow (org_rel -> x) lost x op tegen de STORE-unit waar dit domein uiteindelijk op rust, niet
+				// tegen src of import. Alleen wat de snapshot zelf heeft is dus zo te halen: geometry,
+				// identificatie, oppervlakte, pand_rel, nummeraanduiding_rel, meta/status_rel en de
+				// gebruiksdoelen. Een pand_id of nummeraanduiding_id bestaat daar niet meer (de oude fss had ze
+				// als string), dus die worden hier uit de relaties gehaald.
+				attribute<rdc>                 geometry                             := org_rel -> geometry;
 				attribute<string>              identificatie                        := org_rel -> identificatie;
-				attribute<string>              nummeraanduiding_id                  := org_rel -> nummeraanduiding_id;
-				attribute<panden/pand>         pand_rel                             := org_rel -> src/pand_rel;
+				attribute<string>              nummeraanduiding_id                  := snapshot/nummeraanduiding/identificatie[org_rel -> nummeraanduiding_rel];
+				attribute<string>              pand_identificatie                   := snapshot/pand/identificatie[org_rel -> pand_rel];
+				attribute<panden/pand>         pand_rel                             := rlookup(pand_identificatie, panden/pand/identificatie)
+				,	Descr = "Verwijzing naar de geselecteerde panden (Panden/pand). Niet rechtstreeks org_rel -> pand_rel: dat levert een relatie naar de ONgefilterde pand-unit van de snapshot, en die is niet te verenigen met de dynamische selectie Panden/pand (de engine meldt dan een domain mismatch op de sleuteluitdrukking).";
 			}
 		}
 	}
 	
 	container Panden
 	{
-		// Leest de mmd-kopie naast de externe fss, zie Snapshot_T.
-		unit<uint32> import := Snapshot/store/pand
+		// Uit de snapshot. De geometrie is hier al rdc (dpoint) poly; woonpand_type_rel wordt op positie
+		// gekoppeld aan WPSrc: beide hebben zes klassen in dezelfde orde, waarbij de zesde in de snapshot
+		// 'meergezinspand' heet en in WPSrc 'appartement'.
+		unit<uint32> import := snapshot/pand
 		{
-			attribute<rdc_mm> geometry_mm (polygon) := Snapshot/store/pand/geometry_mm;
-			attribute<string> identificatie         := Snapshot/store/pand/identificatie;
-			attribute<int16>  bouwjaar              := Snapshot/store/pand/bouwjaar;
-			attribute<WPSrc>  woonpand_type         := Snapshot/store/pand/woonpand_type;
-			attribute<string> status                := Snapshot/store/pand/status;
+			attribute<rdc>    geometry (polygon)    := snapshot/pand/geometry;
+			attribute<string> identificatie         := snapshot/pand/identificatie;
+			attribute<int16>  bouwjaar              := int16(snapshot/pand/bouwjaar);
+			attribute<WPSrc>  woonpand_type         := value(uint8(snapshot/pand/woonpand_type_rel), WPSrc);
+			attribute<pand_status> status_rel       := status_mapping/pand[snapshot/pand/meta/status_rel];
+			attribute<string> status                := pand_status/label[status_rel];
+			attribute<uint32> nr_woon_vbo           := snapshot/pand/gebruiksdoelen/nr_woon, Descr = "Aantal vbo's met woonfunctie per pand, kant en klaar in de snapshot; Panden/pand rekent dit zelf ook uit als count_vbo_pand_woon, over de eigen status- en gebruiksdoelselectie.";
 		}
 		
 		unit<uint32> src := import
 		{
-			attribute<rdc_mm> geometry_mm (polygon) := import/geometry_mm;
-			attribute<rdc> geometry (polygon) := geometry_mm[rdc];
+			attribute<rdc> geometry (polygon) := import/geometry;
 			attribute<string> identificatie := import/identificatie;
 			attribute<uint64> bag_nr := uint64(identificatie);
 			attribute<int16> bouwjaar := import/bouwjaar;
 			attribute<int16> bouwjaar_trunc := bouwjaar < 1000s || bouwjaar > BAG_year[int16] ? (0/0)[int16] : bouwjaar < 1600s ? 1600s : bouwjaar;
 			attribute<WPSrc> woonpand_type := import/woonpand_type;
 			attribute<WPSrc> WPSrc_rel := woonpand_type;
-			attribute<rdc_mm> NW := lower_bound(src/geometry_mm);
-			attribute<rdc_mm> SE := upper_bound(src/geometry_mm);
-			attribute<int32> X_ext := sub_or_null(PointCol(SE), PointCol(NW)), Descr = "null voor panden zonder geometrie (lege bounds geven anders int32-overflow); die vallen daarmee uit Pand_selection_condition.";
-			attribute<int32> Y_ext := sub_or_null(PointRow(SE), PointRow(NW));
+			attribute<rdc> NW := lower_bound(src/geometry);
+			attribute<rdc> SE := upper_bound(src/geometry);
+			attribute<m_f64> X_ext := sub_or_null(PointCol(SE), PointCol(NW))[m_f64], Descr = "Breedte van de omhullende van het pand. De selectie hieronder gooit panden groter dan een kilometer weg; in de snapshot van 20260101 zijn er geen panden zonder geometrie (overzicht.txt), maar de check blijft staan als vangnet.";
+			attribute<m_f64> Y_ext := sub_or_null(PointRow(SE), PointRow(NW))[m_f64];
 			attribute<string> status := import/status;
 			attribute<pand_status> status_rel := rlookup(status, pand_status/label);
-			attribute<bool> Pand_selection_condition (src) := src/X_ext < 1000000i && src/Y_ext < 1000000i
+			attribute<bool> Pand_selection_condition (src) := src/X_ext < 1000[m_f64] && src/Y_ext < 1000[m_f64]
 				&& (src/status_rel == pand_status/V/Pand_in_gebruik
 					|| src/status_rel == pand_status/V/Pand_in_gebruik_niet_ingemeten
 					|| src/status_rel == pand_status/V/Pand_buiten_gebruik
@@ -226,7 +270,7 @@ container BAG
 			
 			unit<uint32> pand_woon_vbo := select_with_org_rel(pand/count_vbo_pand_woon > 0)
 			{
-				attribute<rdc_mm>          geometry_mm (polygon)    := org_rel -> pand/geometry_mm;
+				attribute<rdc>             pand_polygoon (polygon)  := org_rel -> geometry, Descr = "De pandcontour; heette geometry_mm toen de snapshot de geometrie in millimeters gaf.";
 				attribute<rdc>             geometry                 := org_rel -> pand_centroid;
 				
 				attribute<uint32>          count_vbo_pand_woon      := org_rel -> count_vbo_pand_woon;
@@ -237,6 +281,8 @@ container BAG
 				attribute<domain>                domain_rel                      := geometry[domain];
 				attribute<uint32>                Count_per_domain       (domain) := count(count_vbo_pand_woon[uint32], domain_rel);
 				attribute<uint32>                Count_IsPositive       (domain) := Count_per_domain > 0 ? Count_per_domain : (0/0);
+				attribute<uint32>                Sum_woningen           (domain) := sum(count_vbo_pand_woon, domain_rel)
+				,	Descr = "Aantal woningen (verblijfsobjecten met woonfunctie, in voorraad) per cel; Count_per_domain telt de panden.";
 				
 				parameter<string>                Gridsize                        := ModelParameters/Advanced/Dest_location_scale;
 				
@@ -248,6 +294,9 @@ container BAG
 					attribute<string> label               := id_name;
 					attribute<string> name                := id_name;
 					attribute<uint32> nr_panden           := Count_per_domain;
+					attribute<uint32> nr_woningen         := Sum_woningen;
+					attribute<uint32> nr_inwoners         := Sum_woningen
+					,	Descr = "De org-unit van het OV-model (NetworkSetup/PublicTransport_Prep/impl/org) vraagt elke herkomstenset om nr_inwoners als gewicht. Voor deze set is het aantal WONINGEN in de cel de beste maat die in de BAG zelf zit; het is dus geen inwonertal. Wie een echt inwonertal wil, vermenigvuldigt met een gemiddelde huishoudgrootte of koppelt SourceData/Locaties/Inwoners (CBS-vierkanten) aan de cel.";
 				} 
 				
 			}
@@ -257,19 +306,18 @@ container BAG
 	
 	container Adressen
 	{	
-		// Leest de mmd-kopie naast de externe fss, zie Snapshot_T. De geometrie staat in adres.fss als
-		// fpoint (geschreven toen rdc float32 was) en is daarom nooit meegenomen; via de kopie zou dat
-		// kunnen met geometries/rdc_f32, maar de config leidt de geometrie af uit de vbo's.
-		unit<uint32> import := Snapshot/store/adres
+		// De adressen zijn in de snapshot de nummeraanduidingen, met straatnaam en woonplaatsnaam al
+		// bijgeschreven (en een eigen rdc-geometrie, die deze config niet gebruikt: src leidt de
+		// geometrie af uit de vbo's, zodat een adres op zijn verblijfsobject ligt).
+		unit<uint32> import := snapshot/nummeraanduiding
 		{
-			attribute<string>   straatnaam          := Snapshot/store/adres/straatnaam;
-			attribute<string>   postcode            := Snapshot/store/adres/postcode;
-			attribute<int32>    huisnummer          := Snapshot/store/adres/huisnummer;
-			attribute<string>   huisletter          := Snapshot/store/adres/huisletter;
-			attribute<string>   toevoeging          := Snapshot/store/adres/toevoeging;
-			attribute<string>   woonplaatsnaam      := Snapshot/store/adres/woonplaatsnaam;
-			attribute<string>   nummeraanduiding_id := Snapshot/store/adres/nummeraanduiding_id;
-			// attribute<rdc>      geometry; // niet declareren: in adres.fss staat de geometrie als fpoint (geschreven toen rdc float32 was) en rdc is nu dpoint; dit item wordt toch niet gebruikt (src/geometry komt via rjoin uit de VBO's).
+			attribute<string>   straatnaam          := snapshot/nummeraanduiding/straatnaam;
+			attribute<string>   postcode            := snapshot/nummeraanduiding/postcode;
+			attribute<int32>    huisnummer          := snapshot/nummeraanduiding/huisnummer;
+			attribute<string>   huisletter          := snapshot/nummeraanduiding/huisletter;
+			attribute<string>   toevoeging          := snapshot/nummeraanduiding/toevoeging;
+			attribute<string>   woonplaatsnaam      := snapshot/nummeraanduiding/woonplaatsNaam;
+			attribute<string>   nummeraanduiding_id := snapshot/nummeraanduiding/identificatie;
 		}
 		
 		unit<uint32> src := import

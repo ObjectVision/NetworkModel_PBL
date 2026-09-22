@@ -59,7 +59,10 @@
 	container Advanced : using = "classifications"
 	{
 		/// GENERAL
-		parameter<string>   BAG_year                                  := RegioIndelingen_year   , Descr = "Which BAG year would you like to use? This is now decided via RegioIndelingen_year, via AnalysisMoment. This data is used for weighted centroids.";
+		parameter<string>   BAG_snapshot                              := rjoin(lowercase(AnalysisMoment), lowercase(Advanced/AnalysisMomentPresets/name), Advanced/AnalysisMomentPresets/BAG_snapshot)
+		,	Descr = "Naam van de BAG-snapshotmap onder %BAG_DataDir%/BAG/snapshots.ext, per AnalysisMoment in de presettabel. Stond tot 2026-09-22 vast aan RegioIndelingen_year, maar de BAG-standdatum en de CBS-gebiedsindeling lopen niet gelijk: voor Y2026 is er een BAG-snapshot per 1-1-2026 terwijl de gebiedsindeling 2026 nog geen buurt- en wijkkaart heeft.";
+		parameter<string>   BAG_year                                  := substr(BAG_snapshot, 0, 4)
+		,	Descr = "Het jaar van de BAG-snapshot, uit BAG_snapshot. Wordt gebruikt om bouwjaren na de standdatum af te kappen en in de exportnamen.";
 		parameter<string>   RegioIndelingen_year                      := rjoin(lowercase(AnalysisMoment), lowercase(Advanced/AnalysisMomentPresets/name), Advanced/AnalysisMomentPresets/RegioIndelingen_year), Descr = "Which year for the adminstrative boundaries would you like to use? This is now decided via AnalysisMoment.";
 		parameter<string>   LISA_year                                 := '2018'                 , Descr = "Which year of the LISA-dataset would you like to use?";
 		parameter<bool>     Dests_geclusterd                          := FALSE                  , Descr = "Would you like to cluster destinations? For example useful for firm destinations, with many firms at the same location. To determine the area of clustering look at Dest_location_scale";
@@ -228,19 +231,30 @@
 			unit<uint32> Elements  := Range(uint32, 0, nrAttr*#.)
 			{
 				attribute<String> Text:
-				// name, OSM date , Regios, OSM_perProv, CarCongestionSpeed_date_TomTom
+				// name, OSM date , Regios, OSM_perProv, CarCongestionSpeed_date_TomTom, BAG_snapshot
 				[
-				'Y2012','20221201', '2012', 'TRUE',  'yr2021_12', //20140101
-				'Y2013','20140101', '2022', 'FALSE', 'yr2021_12',
-				'Y2018','20190101', '2020', 'FALSE', 'yxx2021_12',
-				'Y2020','20200117', '2020', 'FALSE', 'yr2021_12',
-				'Y2021','20211221', '2021', 'TRUE',  'yr2021_12',
-				'Y2022','20221201', '2022', 'TRUE',  'yr2022_12',
-				'Y2023','20240101', '2023', 'TRUE',  'yr2023_12', 
-				'Y2024','20240524', '2024', 'TRUE',  'yr2024_12',
-				'Y2025','20240524', '2025', 'TRUE',  'yr2025_12',
-				'Y2026','20260601', '2025', 'TRUE',  'yr2025_12'
+				'Y2012','20221201', '2012', 'TRUE',  'yr2021_12', '20120101',      //20140101
+				'Y2013','20140101', '2022', 'FALSE', 'yr2021_12', '20130101',
+				'Y2018','20190101', '2020', 'FALSE', 'yxx2021_12','20180101',
+				'Y2020','20200117', '2020', 'FALSE', 'yr2021_12', '20200101',
+				'Y2021','20211221', '2021', 'TRUE',  'yr2021_12', '20210101',
+				'Y2022','20221201', '2022', 'TRUE',  'yr2022_12', '20220101',
+				'Y2023','20240101', '2023', 'TRUE',  'yr2023_12', '20230101',
+				'Y2024','20240524', '2024', 'TRUE',  'yr2024_12', '20240101_RS',
+				'Y2025','20240524', '2025', 'TRUE',  'yr2025_12', '20250101',
+				'Y2026','20260601', '2025', 'TRUE',  'yr2025_12', '20260101.new'
 				];
+				// BAG_snapshot = de mapnaam onder %BAG_DataDir%/BAG/snapshots.ext, want die namen zijn
+				// onregelmatig. Aanwezig op F: (2026-09-22): 20120101 t/m 20200101 en 20180401/20170701/
+				// 20170908 (oude Ruimtescanner-snapshots, de drieslag vbo/pand/adres.fss), 20240101_RS
+				// (idem, met de mmd-kopieen die deze config ernaast zet) en 20260101.new (een volledige
+				// bag.mmd van BAG-Tools, uit het historiebestand van 2026-08-08). Voor 2021, 2022, 2023 en
+				// 2025 staat er geen snapshot; die jaren kunnen dus geen BAG-herkomsten leveren.
+				//
+				// Regios blijft voor Y2026 op 2025: cbsgebiedsindelingen2026.gpkg is een voorlopige uitgave
+				// van 2,9 MB met alleen landsdeel, provincie, COROP(plus/sub) en gemeente, en labelpoints die
+				// '_voorlopig' heten; buurt en wijk ontbreken, en daarop staan de herkomstensets en de
+				// regio-aggregaties. Zet dit op 2026 zodra CBS de buurt- en wijkkaart 2026 publiceert.
 				// CarCongestionSpeed_date = de map %NetworkModel_PrivDir%/TomTom/<naam>/ met multinet/ en
 				// speedprofiles/ (ruw) en de vier stores Roads/Junctions/Speednetworks/Speedprofiles.mmd
 				// (verwerkt). Aanwezig op F: (2026-09-22): yr2021_12 en yr2025_12 met ruw materiaal en
@@ -257,8 +271,9 @@
 			attribute<string>        RegioIndelingen_year    := Elements/Text[value(UInt32(ID(.))* nrAttr + 2, Elements)];
 			attribute<bool>          OSM_NL_prov             := Elements/Text[value(UInt32(ID(.))* nrAttr + 3, Elements)][bool];
 			attribute<string>        CarCongestionSpeed_date := Elements/Text[value(UInt32(ID(.))* nrAttr + 4, Elements)];
+			attribute<string>        BAG_snapshot            := Elements/Text[value(UInt32(ID(.))* nrAttr + 5, Elements)];
 			
-			parameter<uint32> nrAttr := 5;
+			parameter<uint32> nrAttr := 6;
 		}
 	
 		unit<uint32> org_domain_list : nrofrows = 21 // Hier worden de paden voor elke org set opgegeven. En wanneer er nieuwe bij komen dat hier ook toegevoegd worden.
