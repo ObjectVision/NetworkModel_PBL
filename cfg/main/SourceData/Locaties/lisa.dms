@@ -10,6 +10,12 @@ container LISA : using = "geometries"
 	{
 		parameter<String> Generate := 'Ready', ExplicitSuppliers = "=asList('LISA/MakeFSS/'+jaren/name+'/PerYear', ';')";
 	}
+
+	container GenerateMMD_allyears
+	: Descr = "Schrijft per jaar de mmd-kopie naast de externe fss (alleen de jaren waarvan een fss bestaat)."
+	{
+		parameter<String> Generate := 'Ready', ExplicitSuppliers = "=asList('LISA/ReadFSS/'+jaren/name+'/Make_PerYear_mmd', ';')";
+	}
 	
 	// unit<uint32> READ_LISA_1996_2009
 	// : StorageName     = "%SourceDataDir%/LISA/LISA_tm2018_1.gdb"
@@ -85,15 +91,47 @@ container LISA : using = "geometries"
 	{	
 		parameter<uint32> year;
 		
-		unit<uint32> PerYear
-		// : StorageName = "='%LocalDataProjDir%/Banen/LISA'+string(year)+'.fss'"
+		// LISA<jaar>.fss op %SourceDataDir% is externe data die ook RSLight, RSopen, Vesta, Hestia en
+		// NetworkModel_PE lezen, dus blijft staan; deze config leest een mmd-kopie ernaast. Die kopie is
+		// niet alleen kosmetisch: de fss is geschreven toen rdc fpoint was en banen als float64, terwijl
+		// deze config rdc (nu dpoint) en int32 declareerde. Dat leverde STIL onzin op: geometrie-extent
+		// xy(7e30)..xy(2,6e41) en een maximum van 1.086.527.104 banen. Bewijs uit de store zelf: pc6_rel
+		// en sectie_rel zijn uint32 (4 B/rij) en geven 1.580.070 rijen, en Geometry en banen zijn 8 B/rij.
+		// Vandaar: de fss expliciet als rdc_f32/float64 lezen, wegschrijven als mmd (die draagt zijn
+		// waardetypen zelf) en verder alleen met de mmd werken.
+		unit<uint32> PerYear_fss
 		: StorageName = "='%SourceDataDir%/LISA/LISA'+string(year)+'.fss'"
 		, StorageReadOnly = "true"
+		, Descr = "Externe LISA-store in de oorspronkelijke vorm: fpoint-geometrie en float64 banen."
 		{
-			attribute<rdc>                                  geometry;
-			attribute<int32>                              banen;
+			attribute<geometries/rdc_f32>                   geometry;
+			attribute<float64>                              banen;
 			attribute<string>                               LISAnr;
 			attribute<string>                               naam;
+		}
+		
+		unit<uint32> Make_PerYear_mmd := PerYear_fss
+		, StorageName = "='%SourceDataDir%/LISA/LISA'+string(year)+'.mmd'"
+		, Descr = "Schrijft de mmd-kopie naast de fss; eenmalig per jaar, via GenerateMMD_allyears/Generate."
+		{
+			attribute<rdc>                                  geometry := PerYear_fss/geometry[rdc];
+			attribute<float64>                              banen    := PerYear_fss/banen;
+			attribute<string>                               LISAnr   := PerYear_fss/LISAnr;
+			attribute<string>                               naam     := PerYear_fss/naam;
+		}
+		
+		unit<uint32> PerYear_store
+		: StorageName = "='%SourceDataDir%/LISA/LISA'+string(year)+'.mmd'"
+		, StorageReadOnly = "true"
+		, Descr = "Kale lezer van de mmd-kopie; declareert niets (#1245), de dictionary levert de kolommen."
+		;
+		
+		unit<uint32> PerYear := PerYear_store
+		{
+			attribute<rdc>                                  geometry := PerYear_store/geometry;
+			attribute<float64>                              banen    := PerYear_store/banen;
+			attribute<string>                               LISAnr   := PerYear_store/LISAnr;
+			attribute<string>                               naam     := PerYear_store/naam;
 			
 			unit<spoint> domain := ='rdc_'+Gridsize;
 			

@@ -8,21 +8,130 @@ container BAG
 	unit<uint32> RegioUnit_Gemeente := /SourceData/RegioIndelingen/Gemeente;
 	
 	parameter<uint32> BAG_year      := uint32(ModelParameters/Advanced/BAG_year);
+
+	// De BAG-snapshots (vbo/pand/adres.fss) zijn EXTERNE stores: op deze machine lezen ook BAG-Tools,
+	// Hestia (ook bij TNO), RSLight2021, RSopen, Vesta50, WLO2024, Sawec, RVNL, NetworkModel_PE en
+	// AccessibilityModelling ze. Ze blijven dus staan zoals ze zijn; deze config leest een mmd-kopie
+	// ernaast, met precies de kolommen die NetworkModel_PBL nodig heeft. Snapshot_T levert per
+	// snapshotmap drie lagen: fss (de externe store, ongewijzigd gelezen), Make_mmd (schrijft de kopie
+	// ernaast, eenmalig per snapshot via Make_mmd/Generate) en store (de kale mmd-lezers, die onder een
+	// read-only MMD-holder niets mogen declareren, zie issue #1245).
+	//
+	// De geometrie in vbo en pand staat als rdc_mm (ipoint, millimeters) en is dus niet geraakt door de
+	// overgang van rdc naar dpoint; adres.fss heeft wel een fpoint-geometrie en die wordt hier niet
+	// gelezen (dat is ook waarom de oude declaratie ervan uitgecommentarieerd stond).
+	Template Snapshot_T
+	{
+		parameter<string> dir;
+		//
+		container fss
+		: Descr = "De externe snapshot-stores in hun eigen vorm; alleen als bron voor de mmd-kopie."
+		{
+			unit<uint32> vbo
+			:	StorageName     = "= dir+'/vbo.fss'"
+			,	StorageReadOnly = "True"
+			{
+				attribute<rdc_mm>              geometry_mm;
+				attribute<string>              identificatie;
+				attribute<int32>               oppervlakte;
+				attribute<string>              nummeraanduiding_id;
+				attribute<string>              pand_id;
+				attribute<string>              status;
+				
+				container gebruiksdoelen := for_each_ndv(Classifications/vbo_gebruiksdoel/name, vbo, bool);
+			}
+			
+			unit<uint32> pand
+			:	StorageName     = "= dir+'/pand.fss'"
+			,	StorageReadOnly = "True"
+			{
+				attribute<rdc_mm>              geometry_mm (polygon);
+				attribute<string>              identificatie;
+				attribute<int16>               bouwjaar;
+				attribute<WPSrc>               woonpand_type;
+				attribute<string>              status;
+			}
+			
+			unit<uint32> adres
+			:	StorageName     = "= dir+'/adres.fss'"
+			,	StorageReadOnly = "True"
+			{
+				attribute<string>              straatnaam;
+				attribute<string>              postcode;
+				attribute<int32>               huisnummer;
+				attribute<string>              huisletter;
+				attribute<string>              toevoeging;
+				attribute<string>              woonplaatsnaam;
+				attribute<string>              nummeraanduiding_id;
+			}
+		}
+		
+		container Make_mmd
+		: Descr = "Schrijft de mmd-kopieen naast de fss. Vraag Make_mmd/Generate op, of vbo/pand/adres apart."
+		{
+			parameter<string> Generate := 'Ready', ExplicitSuppliers = "vbo;pand;adres";
+			
+			unit<uint32> vbo := fss/vbo
+			,	StorageName = "= dir+'/vbo.mmd'"
+			{
+				attribute<rdc_mm>              geometry_mm         := fss/vbo/geometry_mm;
+				attribute<string>              identificatie       := fss/vbo/identificatie;
+				attribute<int32>               oppervlakte         := fss/vbo/oppervlakte;
+				attribute<string>              nummeraanduiding_id := fss/vbo/nummeraanduiding_id;
+				attribute<string>              pand_id             := fss/vbo/pand_id;
+				attribute<string>              status              := fss/vbo/status;
+				
+				container gebruiksdoelen := for_each_nedv(Classifications/vbo_gebruiksdoel/name, 'fss/vbo/gebruiksdoelen/'+Classifications/vbo_gebruiksdoel/name, vbo, bool);
+			}
+			
+			unit<uint32> pand := fss/pand
+			,	StorageName = "= dir+'/pand.mmd'"
+			{
+				attribute<rdc_mm>              geometry_mm (polygon) := fss/pand/geometry_mm;
+				attribute<string>              identificatie         := fss/pand/identificatie;
+				attribute<int16>               bouwjaar              := fss/pand/bouwjaar;
+				attribute<WPSrc>               woonpand_type         := fss/pand/woonpand_type;
+				attribute<string>              status                := fss/pand/status;
+			}
+			
+			unit<uint32> adres := fss/adres
+			,	StorageName = "= dir+'/adres.mmd'"
+			{
+				attribute<string>              straatnaam          := fss/adres/straatnaam;
+				attribute<string>              postcode            := fss/adres/postcode;
+				attribute<int32>               huisnummer          := fss/adres/huisnummer;
+				attribute<string>              huisletter          := fss/adres/huisletter;
+				attribute<string>              toevoeging          := fss/adres/toevoeging;
+				attribute<string>              woonplaatsnaam      := fss/adres/woonplaatsnaam;
+				attribute<string>              nummeraanduiding_id := fss/adres/nummeraanduiding_id;
+			}
+		}
+		
+		container store
+		: Descr = "Kale mmd-lezers; declareren niets (#1245), de dictionary van de kopie levert de kolommen."
+		{
+			unit<uint32> vbo   : StorageName = "= dir+'/vbo.mmd'",   StorageReadOnly = "true";
+			unit<uint32> pand  : StorageName = "= dir+'/pand.mmd'",  StorageReadOnly = "true";
+			unit<uint32> adres : StorageName = "= dir+'/adres.mmd'", StorageReadOnly = "true";
+		}
+	}
+	
+	container Snapshot := Snapshot_T(SnapshotDir);
+
 	
 	container VBOs
 	{
-		unit<uint32> import
-		:	StorageName     = "= SnapshotDir+'/vbo.fss'"
-		,	StorageReadOnly = "True"
+		// Leest de mmd-kopie naast de externe fss, zie Snapshot_T hierboven.
+		unit<uint32> import := Snapshot/store/vbo
 		{
-			attribute<rdc_mm>              geometry_mm;
-			attribute<string>              identificatie;
-			attribute<int32>               oppervlakte;
-			attribute<string>              nummeraanduiding_id;
-			attribute<string>              pand_id;
-			attribute<string>              status;
+			attribute<rdc_mm>              geometry_mm         := Snapshot/store/vbo/geometry_mm;
+			attribute<string>              identificatie       := Snapshot/store/vbo/identificatie;
+			attribute<int32>               oppervlakte         := Snapshot/store/vbo/oppervlakte;
+			attribute<string>              nummeraanduiding_id := Snapshot/store/vbo/nummeraanduiding_id;
+			attribute<string>              pand_id             := Snapshot/store/vbo/pand_id;
+			attribute<string>              status              := Snapshot/store/vbo/status;
 			
-			container gebruiksdoelen := for_each_ndv(vbo_gebruiksdoel/name, import, bool);
+			container gebruiksdoelen := for_each_nedv(Classifications/vbo_gebruiksdoel/name, 'Snapshot/store/vbo/gebruiksdoelen/'+Classifications/vbo_gebruiksdoel/name, import, bool);
 		}
 		
 		unit<uint32> src := import
@@ -75,13 +184,14 @@ container BAG
 	
 	container Panden
 	{
-		unit<uint32> import: StorageName = "= SnapshotDir+'/pand.fss'",	StorageReadOnly = "True"
+		// Leest de mmd-kopie naast de externe fss, zie Snapshot_T.
+		unit<uint32> import := Snapshot/store/pand
 		{
-			attribute<rdc_mm> geometry_mm (polygon) ;
-			attribute<string> identificatie;
-			attribute<int16>  bouwjaar;
-			attribute<WPSrc>  woonpand_type;
-			attribute<string> status;
+			attribute<rdc_mm> geometry_mm (polygon) := Snapshot/store/pand/geometry_mm;
+			attribute<string> identificatie         := Snapshot/store/pand/identificatie;
+			attribute<int16>  bouwjaar              := Snapshot/store/pand/bouwjaar;
+			attribute<WPSrc>  woonpand_type         := Snapshot/store/pand/woonpand_type;
+			attribute<string> status                := Snapshot/store/pand/status;
 		}
 		
 		unit<uint32> src := import
@@ -147,17 +257,18 @@ container BAG
 	
 	container Adressen
 	{	
-		unit<uint32> import
-		:	StorageName     = "= SnapshotDir + '/adres.fss'"
-		,	StorageReadOnly = "True"
+		// Leest de mmd-kopie naast de externe fss, zie Snapshot_T. De geometrie staat in adres.fss als
+		// fpoint (geschreven toen rdc float32 was) en is daarom nooit meegenomen; via de kopie zou dat
+		// kunnen met geometries/rdc_f32, maar de config leidt de geometrie af uit de vbo's.
+		unit<uint32> import := Snapshot/store/adres
 		{
-			attribute<string>   straatnaam;
-			attribute<string>   postcode;
-			attribute<int32>    huisnummer;
-			attribute<string>   huisletter;
-			attribute<string>   toevoeging;
-			attribute<string>   woonplaatsnaam;
-			attribute<string>   nummeraanduiding_id;
+			attribute<string>   straatnaam          := Snapshot/store/adres/straatnaam;
+			attribute<string>   postcode            := Snapshot/store/adres/postcode;
+			attribute<int32>    huisnummer          := Snapshot/store/adres/huisnummer;
+			attribute<string>   huisletter          := Snapshot/store/adres/huisletter;
+			attribute<string>   toevoeging          := Snapshot/store/adres/toevoeging;
+			attribute<string>   woonplaatsnaam      := Snapshot/store/adres/woonplaatsnaam;
+			attribute<string>   nummeraanduiding_id := Snapshot/store/adres/nummeraanduiding_id;
 			// attribute<rdc>      geometry; // niet declareren: in adres.fss staat de geometrie als fpoint (geschreven toen rdc float32 was) en rdc is nu dpoint; dit item wordt toch niet gebruikt (src/geometry komt via rjoin uit de VBO's).
 		}
 		
