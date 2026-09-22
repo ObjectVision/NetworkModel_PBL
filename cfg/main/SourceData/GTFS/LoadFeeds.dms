@@ -1,11 +1,13 @@
 container LoadFeeds
 : Descr = "Load data from GTFS-files"
 { 
-	parameter<bool>              Store         := True, ExplicitSuppliers = "= asList('Write/'+File_Structure/Name+'/Data',';')";
+	parameter<bool>              Store         := True, ExplicitSuppliers = "= asList('Write/'+File_Structure/StoreName+'/data',';')";
 	
 	unit<uint32>                 File_Structure   : NrOfRows = 8
 	{
 		attribute<string> Name: ['agency','calendar','calendar_dates','routes','shapes','stop_times','stops','trips'];
+		attribute<string> StoreName: ['agency','Calendar','Calendar_dates','Routes','Shapes','Stop_times','Stops','Trips']
+		,	Descr = "Naam van de tabel IN de mmd-store, in de schrijfwijze waarmee de rest van de config hem leest (Read/Stop_times, Read/Shapes, ...). Name is de bestandsnaam van de csv en blijft kleine letters.";
 	}
 	
 	unit<uint32>                 Attribute_Structure   : NrOfRows = 32
@@ -33,26 +35,120 @@ container LoadFeeds
 		unit<uint32> CSV_attributes := SubItem_PropValues(ReadCSV,'name');
 	}
 
-	container Write := 
-		for_each_ne(
-			File_Structure/Name
-			, 'LoadDataForWriting_T('+string(id(File_Structure))+')'
-		), StorageName = "= '%NetworkModel_dir%/Infrastructuur/GTFS/'+ModelParameters/GTFS_file_date+'.mmd'";
-		
-	Template LoadDataForWriting_T
+	// De store-holder bevat per tabel alleen domain en data. Dat is geen stijlkeuze: sinds GeoDMS
+	// 20.19.0 (issue #1245) weigert de MMD-writer elk item met DisableStorage onder zijn holder, en
+	// een template kan zijn case-parameters niet buiten de instantiatie houden. Het oude
+	// LoadDataForWriting_T stond WEL onder de holder, met DisableStorage op inFile en op
+	// CSV_attributes; van inFile ging die vlag voor de #1245-fix verloren bij instantiatie, waardoor
+	// hij in 20241001.mmd als parameter meegeschreven is (zie 0Dictionary.dms daar), en
+	// CSV_attributes werd stil overgeslagen. Met een actuele engine is dat een harde fout.
+	// Het inlezen gebeurt dus in Load (buiten de holder) en de tabellen verwijzen daar rechtstreeks
+	// naar; een template onder de holder is niet meer nodig.
+	//
+	// Let op: een holder die naar een container BUITEN zichzelf verwijst (container Write := Prepare,
+	// of een meta-gescripte verwijzing per tabelnaam) schrijft NIETS en meldt dat niet: de sub-items
+	// van een verwezen container zijn engine-schaduwen, die de writer overslaat, en de run eindigt
+	// met exit 0 zonder store. Vandaar de acht expliciete blokken; de tabelnamen staan als
+	// File_Structure/StoreName ook in de lijst hierboven.
+	container Write
+	:	StorageName = "= '%NetworkModel_dir%/Infrastructuur/GTFS/'+ModelParameters/GTFS_file_date+'.mmd'"
 	{
-		parameter<File_Structure> inFile : DisableStorage = "TRUE";
-		//
-		container Data := 
-			for_each_nedv(
-				CSV_attributes/name
-				, 'Load/'+File_Structure/Name[inFile]+'/ReadCSV/' + CSV_attributes/name
-				, Domain
-				, string
-			);
+		container agency
+		{
+			unit<uint32>   domain := Load/agency/ReadCSV;
+			container data :=
+				for_each_nedv(
+					  Load/agency/CSV_attributes/name
+					, 'Load/agency/ReadCSV/' + Load/agency/CSV_attributes/name
+					, domain
+					, string
+				);
+		}
 		
-		unit<uint32> Domain         := ='Load/'+File_Structure/Name[inFile]+'/ReadCSV';
-		unit<uint32> CSV_attributes := ='Load/'+File_Structure/Name[inFile]+'/CSV_attributes', DisableStorage = "TRUE";
+		container Calendar
+		{
+			unit<uint32>   domain := Load/calendar/ReadCSV;
+			container data :=
+				for_each_nedv(
+					  Load/calendar/CSV_attributes/name
+					, 'Load/calendar/ReadCSV/' + Load/calendar/CSV_attributes/name
+					, domain
+					, string
+				);
+		}
+		
+		container Calendar_dates
+		{
+			unit<uint32>   domain := Load/calendar_dates/ReadCSV;
+			container data :=
+				for_each_nedv(
+					  Load/calendar_dates/CSV_attributes/name
+					, 'Load/calendar_dates/ReadCSV/' + Load/calendar_dates/CSV_attributes/name
+					, domain
+					, string
+				);
+		}
+		
+		container Routes
+		{
+			unit<uint32>   domain := Load/routes/ReadCSV;
+			container data :=
+				for_each_nedv(
+					  Load/routes/CSV_attributes/name
+					, 'Load/routes/ReadCSV/' + Load/routes/CSV_attributes/name
+					, domain
+					, string
+				);
+		}
+		
+		container Shapes
+		{
+			unit<uint32>   domain := Load/shapes/ReadCSV;
+			container data :=
+				for_each_nedv(
+					  Load/shapes/CSV_attributes/name
+					, 'Load/shapes/ReadCSV/' + Load/shapes/CSV_attributes/name
+					, domain
+					, string
+				);
+		}
+		
+		container Stop_times
+		{
+			unit<uint32>   domain := Load/stop_times/ReadCSV;
+			container data :=
+				for_each_nedv(
+					  Load/stop_times/CSV_attributes/name
+					, 'Load/stop_times/ReadCSV/' + Load/stop_times/CSV_attributes/name
+					, domain
+					, string
+				);
+		}
+		
+		container Stops
+		{
+			unit<uint32>   domain := Load/stops/ReadCSV;
+			container data :=
+				for_each_nedv(
+					  Load/stops/CSV_attributes/name
+					, 'Load/stops/ReadCSV/' + Load/stops/CSV_attributes/name
+					, domain
+					, string
+				);
+		}
+		
+		container Trips
+		{
+			unit<uint32>   domain := Load/trips/ReadCSV;
+			container data :=
+				for_each_nedv(
+					  Load/trips/CSV_attributes/name
+					, 'Load/trips/ReadCSV/' + Load/trips/CSV_attributes/name
+					, domain
+					, string
+				);
+		}
+		
 	}
 		
 	container Read 
