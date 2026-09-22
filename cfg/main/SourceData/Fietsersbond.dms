@@ -1,0 +1,124 @@
+// Fietsersbond-routenetwerk (routeplanner.fietsersbond.nl), levering via Marnix Breedijk (PBL) van
+// 25-05-2025: '250525 Data fietsersbond netwerk.zip', uitgepakt in %NetworkModel_Dir%/Infrastructuur/
+// Fietsersbond_20250525. Shapefiles in RD New (EPSG:28992), dus direct in rdc.
+//
+// links.shp (1.771.242 lijnen) en nodes.shp (1.241.323 punten) vormen samen een topologisch netwerk:
+// links/van_id en links/naar_id verwijzen naar nodes/id, zodat F1/F2 met een rlookup volgen en er
+// geen connect-stap nodig is (18 links missen een node, zie links/NrLinksZonderNode). lengte komt
+// op 0,03% overeen met arc_length; 82% van de links is voor fietsers toegankelijk, 10% eenrichting. Het netwerk kent GEEN gemeten fietssnelheden (die zitten in
+// Fietstelweek); wel per link de fietstoegang per richting (toegang), wegtype, wegdek, kwaliteit,
+// hinder, verlichting, omgeving, hellingklassen en de maximumsnelheid voor auto's.
+// De overige 22 shapefiles zijn POI-lagen (knooppunten, paaltjes, veerponten, hindernissen, ...);
+// de *_relations.txt koppelen die aan nodes resp. links. Hier zijn alleen de fietsknooppunten
+// opgenomen; de andere lagen hebben veldnamen met spaties en zijn voor routering niet nodig.
+//
+// Deze reader is nog nergens in het model aangesloten (NetworkSetup gebruikt OSM voor fietsen).
+
+container Fietsersbond
+:	Descr = "Fietsersbond-routenetwerk 25-05-2025 (PBL/Marnix Breedijk): links/nodes met van_id/naar_id-topologie, zonder fietssnelheden."
+,	URL   = "https://routeplanner.fietsersbond.nl"
+{
+	parameter<string> file_date := '20250525';
+	parameter<string> dir       := '%NetworkModel_Dir%/Infrastructuur/Fietsersbond_'+file_date;
+
+	unit<uint32> links
+	:	StorageName     = "= dir + '/links.shp'"
+	,	StorageType     = "gdal.vect"
+	,	StorageReadOnly = "True"
+	,	DialogType      = "Map"
+	,	DialogData      = "geometry"
+	,	SyncMode        = "none"
+	{
+		attribute<rdc>     geometry (arc);
+		attribute<int32>   id;
+		attribute<int32>   van_id;
+		attribute<int32>   naar_id;
+		attribute<float64> lengte                                                      : Descr = "Lengte in meter volgens de levering; komt overeen met arc_length(geometry).";
+		attribute<string>  toegang                                                     : Descr = "Fietstoegang per richting: 'beide', 'heen' (in tekenrichting van_id -> naar_id), 'terug', 'geen'.";
+		attribute<string>  toegang_sp                                                  : Descr = "Idem voor de speed-pedelec.";
+		attribute<string>  straat;
+		attribute<string>  wegnummer;
+		attribute<string>  plaats;
+		attribute<string>  gemeente;
+		attribute<string>  provincie;
+		attribute<string>  navigatie                                                   : Descr = "'standaard', 'onderdeel van kruispunt', 'onderdeel van rotonde' of leeg.";
+		attribute<string>  ongelijkv                                                   : Descr = "Ongelijkvloers: 'nee', 'ergens overheen', 'ergens onderdoor', 'tunnel > 200 m'.";
+		attribute<string>  wegNiveau                                                   : Descr = "'overige weg', 'belangrijke hoofdweg', 'langs hoofdweg', 'autosnelweg', 'ONBEKEND' of leeg.";
+		attribute<string>  wegtype                                                     : Descr = "18 klassen, o.a. 'normale weg', 'fietspad (langs weg)', 'solitair fietspad', 'fietsstraat', 'weg met fiets(suggestie)strook', 'voetgangersgebied', 'veerpont'.";
+		attribute<string>  wegdeksrt                                                   : Descr = "Wegdek: 'asfalt/beton', 'klinkers', 'tegels', 'halfverhard', 'onverhard', 'schelpenpad', 'overig (hout/kinderkopjes e.d.)'.";
+		attribute<string>  wegkwal                                                     : Descr = "Wegkwaliteit: 'goed', 'redelijk', 'slecht'.";
+		attribute<string>  hinder                                                      : Descr = "Hinder van ander verkeer: 'zeer weinig', 'weinig', 'redelijk', 'veel', 'zeer veel'.";
+		attribute<string>  verlichting;
+		attribute<string>  omgeving;
+		attribute<string>  water;
+		attribute<string>  schoonheid;
+		attribute<string>  maxsnelheid                                                 : Descr = "Maximumsnelheid voor AUTO's op de weg (km/u als tekst, ook 'stapvoets (15)'), geen fietssnelheid.";
+		attribute<string>  hoofdroute                                                  : Descr = "Onderdeel van een Fietsersbond-hoofdroute: 'beide', 'heen', 'terug', 'geen'.";
+		attribute<string>  knooppunt                                                   : Descr = "Onderdeel van het fietsknooppuntennetwerk: 'beide', 'heen', 'terug', 'geen'.";
+		attribute<string>  lf                                                          : Descr = "LF-routes over deze link.";
+		attribute<string>  routes;
+		attribute<string>  BiBK                                                        : Descr = "Bromfiets op de rijbaan / in de bebouwde kom: 'ja', 'nee'.";
+		attribute<string>  wegbeheer;
+		attribute<string>  strooien;
+		attribute<string>  snelfiets                                                   : Descr = "Snelfietsroute: 'ja', 'nee'.";
+		attribute<string>  breedtekls                                                  : Descr = "Breedteklasse van het fietspad ('< 1 meter' t/m '5 meter en breder'), meestal leeg.";
+		attribute<string>  gem_st_fwd                                                  : Descr = "Gemiddelde stijging heen: '<1%', '1-2%', '2-4%', '>4%'.";
+		attribute<string>  gem_st_bwd;
+		attribute<string>  max_st_fwd                                                  : Descr = "Maximale stijging heen: '<1%' t/m '>20%'.";
+		attribute<string>  max_st_bwd;
+		attribute<string>  lanes_fwd;
+		attribute<string>  lanes_bwd;
+		attribute<string>  is_af;
+		attribute<float64> extreistijd;
+
+		attribute<nodes>   F1                := rlookup(van_id,  nodes/id);
+		attribute<nodes>   F2                := rlookup(naar_id, nodes/id);
+		attribute<bool>    IsBikeAccessible  := toegang != 'geen';
+		attribute<bool>    IsOneDirection    := toegang == 'heen' || toegang == 'terug';
+		attribute<bool>    IsReversed        := toegang == 'terug', Descr = "Alleen tegen de tekenrichting in berijdbaar; bij gebruik als gericht netwerk F1/F2 (of de geometrie) omkeren.";
+		attribute<m>       length            := arc_length(geometry, m_f64)[m];
+
+		parameter<uint32>  NrLinksZonderNode := sum(uint32(!IsDefined(F1) || !IsDefined(F2)))
+		,	Descr = "Links waarvan van_id of naar_id in nodes.shp ontbreekt: 18 in de levering van 25-05-2025 (alle 'beide', o.a. Graaf Arnoldlaan, Printerweg, Mauritsweg). Bij netwerkbouw weglaten of het losse eind via connect aan de dichtstbijzijnde node hangen.";
+	}
+
+	unit<uint32> nodes
+	:	StorageName     = "= dir + '/nodes.shp'"
+	,	StorageType     = "gdal.vect"
+	,	StorageReadOnly = "True"
+	,	DialogType      = "Map"
+	,	DialogData      = "geometry"
+	,	SyncMode        = "none"
+	{
+		attribute<rdc>     geometry;
+		attribute<int32>   id;
+		attribute<int32>   knppnt_id;
+		attribute<int32>   knooppunt                                                   : Descr = "Nummer van het fietsknooppunt op deze node, 0 als geen knooppunt.";
+		attribute<string>  plaatsnaam;
+		attribute<string>  alias1;
+		attribute<string>  alias2;
+		attribute<string>  plaatstype;
+		attribute<string>  gemeente;
+		attribute<string>  provincie;
+		attribute<int32>   NrOfLinks;
+
+		parameter<uint32>  NrZonderPositie   := sum(uint32(id < 0i))
+		,	Descr = "Nodes zonder echte positie: 1 in de levering van 25-05-2025 (id -1 op xy(0;0), geen knooppunt); de rest ligt binnen RD-extent xy(5.413;301.007)-xy(286.008;620.479).";
+	}
+
+	unit<uint32> Fietsknooppunten
+	:	StorageName     = "= dir + '/knooppunt(Fietsknooppunten).shp'"
+	,	StorageType     = "gdal.vect"
+	,	StorageReadOnly = "True"
+	,	DialogType      = "Map"
+	,	DialogData      = "geometry"
+	,	SyncMode        = "none"
+	{
+		attribute<rdc>     geometry;
+		attribute<int32>   id;
+		attribute<string>  Knooppunt;
+		attribute<string>  Gemeente;
+		attribute<string>  Provincie;
+		attribute<string>  Naam;
+	}
+}
