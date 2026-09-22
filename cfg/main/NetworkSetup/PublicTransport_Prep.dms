@@ -306,16 +306,17 @@ container PublicTransport_Prep
 	
 	container x 
 	{
-		unit<uint64> Write_Result   := ='union_unit_uint64('+AsItemList('KetenGeneratie_PerBlock/'+impl/BlockDomain/name+'/Fence/Result')+')'
-		, StorageName = "=StorageName_Str"
-		, Descr = "Deze set bevat de geunionede resultaten per block."
+		// De traceer-attributen Block_rel en result_rel staan BUITEN de store: sinds GeoDMS 20.19.0
+		// (issue #1245) weigert de MMD-writer elk item met DisableStorage onder zijn holder, want alles
+		// onder de holder hoort bij de store. Result_src is de rekenkant met die twee erbij;
+		// Write_Result houdt de naam en de StorageName en schrijft alleen de resultaatkolommen.
+		unit<uint64> Result_src   := ='union_unit_uint64('+AsItemList('KetenGeneratie_PerBlock/'+impl/BlockDomain/name+'/Fence/Result')+')'
+		, Descr = "Rekenkant van de geunionede ketenresultaten per block (niet opgeslagen)."
 		, using = "impl"
 		{
 			// for tracing back resulting values
-			attribute<impl/BlockDomain>    Block_rel                  := ='union_data(.,'+AsItemList('const('+String(Id(BlockDomain))+'[impl/BlockDomain], KetenGeneratie_PerBlock/'+BlockDomain/name+'/Fence/Result)')+')', DisableStorage = "True"; 
-			attribute<uint64>              result_rel                 := ='union_data(.,'+AsItemList('ID(KetenGeneratie_PerBlock/'+BlockDomain/name+'/Fence/Result)')+')', DisableStorage = "True";  
-			
-			// primary results
+			attribute<impl/BlockDomain>    Block_rel                  := ='union_data(.,'+AsItemList('const('+String(Id(BlockDomain))+'[impl/BlockDomain], KetenGeneratie_PerBlock/'+BlockDomain/name+'/Fence/Result)')+')'; 
+			attribute<uint64>              result_rel                 := ='union_data(.,'+AsItemList('ID(KetenGeneratie_PerBlock/'+BlockDomain/name+'/Fence/Result)')+')';
 			attribute<string>              ModeUsed                   := ='union_data(.,'+AsItemList('KetenGeneratie_PerBlock/'+BlockDomain/name+'/Fence/Result/ModeUsed')+')';
 			attribute<Ct>                  Price                      := ='union_data(.,'+AsItemList('KetenGeneratie_PerBlock/'+BlockDomain/name+'/Fence/Result/Price')+')';
 			attribute<Ct>                  Price_augm                 := ='union_data(.,'+AsItemList('KetenGeneratie_PerBlock/'+BlockDomain/name+'/Fence/Result/Price_augm')+')';
@@ -329,26 +330,51 @@ container PublicTransport_Prep
 			attribute<uq_c_FromTime_Stop>   uq_c_FromTime_Stop_rel      := ='union_data(.,'+AsItemList('KetenGeneratie_PerBlock/'+BlockDomain/name+'/Fence/Result/uq_c_FromTime_Stop_rel')+')';
 			attribute<uq_c_ToTime_Stop>     uq_c_ToTime_Stop_rel        := ='union_data(.,'+AsItemList('KetenGeneratie_PerBlock/'+BlockDomain/name+'/Fence/Result/uq_c_ToTime_Stop_rel')+')';
 		} 
+
+		unit<uint64> Write_Result := Result_src
+		, StorageName = "=StorageName_Str"
+		, Descr = "Deze set bevat de geunionede resultaten per block."
+		, using = "impl"
+		{
+			attribute<string>                ModeUsed                   := Result_src/ModeUsed;
+			attribute<Ct>                    Price                      := Result_src/Price;
+			attribute<Ct>                    Price_augm                 := Result_src/Price_augm;
+			attribute<s>                     Traveltime                 := Result_src/Traveltime;
+			attribute<dam>                   TravelDist_Bus             := Result_src/TravelDist_Bus;
+			attribute<dam>                   Traveldist_Metro           := Result_src/Traveldist_Metro;
+			attribute<dam>                   Traveldist_Tram            := Result_src/Traveldist_Tram;
+			attribute<dam>                   Traveldist_Rail            := Result_src/Traveldist_Rail;
+			attribute<dam>                   Traveldist_Ferry           := Result_src/Traveldist_Ferry;
+			attribute<uq_c_FromTime_Stop>    uq_c_FromTime_Stop_rel     := Result_src/uq_c_FromTime_Stop_rel;
+			attribute<uq_c_ToTime_Stop>      uq_c_ToTime_Stop_rel       := Result_src/uq_c_ToTime_Stop_rel;
+		}
 	}
 	
-	unit<uint64> PT
+	// Een read-only MMD-lezer mag zelf niets declareren (#1245): de dictionary van de store bepaalt de
+	// kolommen. PT_store is de kale lezer, PT geeft ze door en houdt de afgeleide relaties.
+	unit<uint64> PT_store
 	: StorageName = "=StorageName_Str"
 	, StorageReadOnly = "true"
+	, Descr = "Kale lezer van de ketenstore; declareert niets."
+	;
+
+	unit<uint64> PT := PT_store
 	, using = "impl"
 	{ 
-		attribute<string>               ModeUsed;
-		attribute<ct>                   Price;
-		attribute<ct>                   Price_augm;
-		attribute<s>                    Traveltime;
+		attribute<string>                ModeUsed                 := PT_store/ModeUsed;
+		attribute<ct>                    Price                    := PT_store/Price;
+		attribute<ct>                    Price_augm               := PT_store/Price_augm;
+		attribute<s>                     Traveltime               := PT_store/Traveltime;
+		attribute<dam>                   TravelDist_Bus           := PT_store/TravelDist_Bus;
+		attribute<dam>                   Traveldist_Metro         := PT_store/Traveldist_Metro;
+		attribute<dam>                   Traveldist_Tram          := PT_store/Traveldist_Tram;
+		attribute<dam>                   Traveldist_Rail          := PT_store/Traveldist_Rail;
+		attribute<dam>                   Traveldist_Ferry         := PT_store/Traveldist_Ferry;
+		attribute<uq_c_FromTime_Stop>    uq_c_FromTime_Stop_rel   := PT_store/uq_c_FromTime_Stop_rel;
+		attribute<uq_c_ToTime_Stop>      uq_c_ToTime_Stop_rel     := PT_store/uq_c_ToTime_Stop_rel;
+
 	
-		attribute<dam>                  TravelDist_Bus;
-		attribute<dam>                  Traveldist_Metro;
-		attribute<dam>                  Traveldist_Tram;
-		attribute<dam>                  Traveldist_Rail;
-		attribute<dam>                  Traveldist_Ferry;
 	
-		attribute<uq_c_FromTime_Stop>   uq_c_FromTime_Stop_rel;
-		attribute<uq_c_ToTime_Stop>     uq_c_ToTime_Stop_rel;
 		
 		attribute<c_Time_Stops>         c_FromTime_Stop_rel      := uq_c_FromTime_Stop_rel->values;
 		attribute<c_Time_Stops>         c_ToTime_Stop_rel        := uq_c_ToTime_Stop_rel  ->values;
@@ -382,7 +408,7 @@ container PublicTransport_Prep
 			: '')+
 		// Flex-modus (ObjectVision/NetworkModel_PBL#113): '_noflex' of '_flexpen<n>min', leeg bij 'asis'.
 		ModelParameters/Advanced/FlexMode_FileTag+
-		'.fss';
+		'.mmd';
 		
 	#include<ChainJoiner_T.dms>
 	#include<CreateTransfers_T.dms>

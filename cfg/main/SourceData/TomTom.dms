@@ -12,7 +12,7 @@ container TomTom
 		parameter<string> dir       := '%NetworkModel_PrivDir%/TomTom/'+file_date+''; //must have forward slashes!
 		
 		parameter<string> Generate_FileList_CSVs := 'Ready', ExplicitSuppliers = "GetFileNames_Network/WriteFilesCSV;GetFileNames_Speedprofiles/WriteFilesCSV";
-		parameter<string> Generate_FSS           := 'Ready', ExplicitSuppliers = "Merge_Roads;Merge_Junctions;Merge_Speednetworks;Merge_Speedprofiles";
+		parameter<string> Generate_Stores        := 'Ready', ExplicitSuppliers = "Merge_Roads;Merge_Junctions;Merge_Speednetworks;Merge_Speedprofiles";
 		
 		unit<uint32> FileNames_Roads         := GetFileNames_Network/Files/Files_polylines;
 		unit<uint32> FileNames_Junctions     := GetFileNames_Network/Files/Files_points;
@@ -54,7 +54,7 @@ container TomTom
 		}
 	
 		unit<uint32>  Merge_Roads := ='union_unit('+asList('Read_TomTom_Files_Roads/'+FileNames_Roads/name+'/Read', ',')+')'
-		, StorageName = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Roads_FSS.fss'"
+		, StorageName = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Roads.mmd'"
 		{
 			attribute<rdc>    geometry (arc)               := ='union_data(., '+asList('LatLongWgs842RD(Read_TomTom_Files_Roads/'+FileNames_Roads/name+'/Read/geometry, dpoint)[rdc]', ',')+')';
 			attribute<uint64> NW_ID                        := ='union_data(., '+asList('Read_TomTom_Files_Roads/'+FileNames_Roads/name+'/Read/ID[uint64]', ',')+')';
@@ -74,7 +74,7 @@ container TomTom
 		}
 		
 		unit<uint32>  Merge_Junctions := ='union_unit('+asList('Read_TomTom_Files_Junctions/'+FileNames_Junctions/name+'/Read', ',')+')'
-		, StorageName = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Junctions_FSS.fss'"
+		, StorageName = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Junctions.mmd'"
 		{
 			attribute<rdc>    geometry                     := ='union_data(., '+asList('LatLongWgs842RD(Read_TomTom_Files_Junctions/'+FileNames_Junctions/name+'/Read/geometry, dpoint)[rdc]', ',')+')';
 			attribute<int32>  FeatureType                  := ='union_data(., '+asList('Read_TomTom_Files_Junctions/'+FileNames_Junctions/name+'/Read/FEATTYP', ',')+')', Descr = "4110=Road element, 4130=Ferry connection, 4165= address boundary element";
@@ -84,7 +84,7 @@ container TomTom
 		}
 		
 		unit<uint32>  Merge_Speednetworks := ='union_unit('+asList('Read_TomTom_Files_SP_network/'+FileNames_Speedprofiles_network/name+'/Read', ',')+')'
-		, StorageName = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Speednetworks_FSS.fss'"
+		, StorageName = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Speednetworks.mmd'"
 		{
 			attribute<uint64> NW_ID                        := ='union_data(., '+asList('Read_TomTom_Files_SP_network/'+FileNames_Speedprofiles_network/name+'/Read/network_id[uint64]', ',')+')', Descr = "network id";
 			attribute<string> region_code                  := ='union_data(., '+asList('const('+quote(FileNames_Speedprofiles_network/SP_regioncode)+', Read_TomTom_Files_SP_network/'+FileNames_Speedprofiles_network/name+'/Read)', ',')+')', Descr = "file region code";
@@ -103,7 +103,7 @@ container TomTom
 		}
 		
 		unit<uint32>  Merge_Speedprofiles := ='union_unit('+asList('Read_TomTom_Files_SP_profiles/'+FileNames_Speedprofiles_profile/name+'/Read', ',')+')'
-		, StorageName = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Speedprofiles_FSS.fss'"
+		, StorageName = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Speedprofiles.mmd'"
 		{
 			attribute<int32>   profile_id                   := ='union_data(., '+asList('Read_TomTom_Files_SP_profiles/'+FileNames_Speedprofiles_profile/name+'/Read/profile_id', ',')+')', Descr = "profile id";
 			attribute<string>  region_code                  := ='union_data(., '+asList('const('+quote(FileNames_Speedprofiles_profile/SP_regioncode)+', Read_TomTom_Files_SP_profiles/'+FileNames_Speedprofiles_profile/name+'/Read)', ',')+')', Descr = "file region code";
@@ -239,16 +239,25 @@ container TomTom
 		}
 	}
 
-	unit<uint32>  Junctions0
-	: StorageName = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Junctions_FSS.fss'"
+	// Een read-only MMD-lezer mag sinds GeoDMS 20.19.0 (issue #1245) zelf geen sub-items declareren:
+	// de dictionary van de store bepaalt ze en controleert bij het lezen de waardetypen (0Dictionary.dms
+	// in de mmd). Daarom per store een kale lezer <naam>_store, met daarnaast de unit die de config al
+	// gebruikte: die geeft de opgeslagen kolommen door en houdt de afgeleiden. Alle paden buiten dit
+	// bestand blijven zo gelijk.
+	unit<uint32>  Junctions0_store
+	: StorageName = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Junctions.mmd'"
 	, StorageReadOnly = "true"
+	, Descr = "Kale lezer van de Junctions-store; declareert niets, de dictionary levert de kolommen."
+	;
+
+	unit<uint32>  Junctions0 := Junctions0_store
 	{
-		attribute<rdc>    geometry;
-		attribute<int32>  FeatureType;
-		attribute<uint64> JNCTID;
-		attribute<uint8>  JNCTTYP;
-		attribute<int8>   ELEV;
-		
+		attribute<rdc>             geometry              := Junctions0_store/geometry;
+		attribute<int32>           FeatureType           := Junctions0_store/FeatureType;
+		attribute<uint64>          JNCTID                := Junctions0_store/JNCTID;
+		attribute<uint8>           JNCTTYP               := Junctions0_store/JNCTTYP;
+		attribute<int8>            ELEV                  := Junctions0_store/ELEV;
+
 		attribute<Junctions> Junctions_rel := rlookup(JNCTID, junctions/values);
 	}
 	
@@ -280,36 +289,43 @@ container TomTom
 		attribute<rdc> polygon (poly)      := points2sequence(point_set/point, point_set/sequence_rel, point_set/ordinal);
 	}
 	
-	unit<uint32>  Roads 
-	: StorageName = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Roads_FSS.fss'"
+	// Kale lezer, zie de toelichting bij Junctions0_store: onder een read-only MMD-lezer mag niets
+	// gedeclareerd worden (#1245), dus staan de doorgeefkolommen en de afgeleiden een niveau hoger.
+	unit<uint32>  Roads_store
+	: StorageName = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Roads.mmd'"
 	, StorageReadOnly = "true"
+	, Descr = "Kale lezer van de Roads-store; declareert niets, de dictionary levert de kolommen."
+	;
+
+	unit<uint32>  Roads := Roads_store
 	{
-		attribute<rdc>            geometry (arc);
-		attribute<uint64>         NW_ID;
-		attribute<uint8>          FRC;
+		attribute<rdc>                     geometry (arc)         := Roads_store/geometry;
+		attribute<uint64>                  NW_ID                  := Roads_store/NW_ID;
+		attribute<uint8>                   FRC                    := Roads_store/FRC;
+
 		attribute<FuncRoadClass>  FRC_rel               := (FRC + 1[FuncRoadClass_EK])[FuncRoadClass];
 		
-		attribute<int32>          FeatureType;
-		attribute<uint8>          FerryType;
-		attribute<uint64>         F_JNCTID;
-		attribute<uint64>         T_JNCTID;
+		attribute<int32>          FeatureType := Roads_store/FeatureType;
+		attribute<uint8>          FerryType := Roads_store/FerryType;
+		attribute<uint64>         F_JNCTID := Roads_store/F_JNCTID;
+		attribute<uint64>         T_JNCTID := Roads_store/T_JNCTID;
 		attribute<uint64>         F_JNCTID_directed := Direction == Directions_TomTom/v/backwards ? T_JNCTID : F_JNCTID;
 		attribute<uint64>         T_JNCTID_directed := Direction == Directions_TomTom/v/backwards ? F_JNCTID : T_JNCTID;
 		attribute<Junctions>      F_JNCT_rel             := rlookup(F_JNCTID_directed, Junctions/JNCTID);
 		attribute<Junctions>      T_JNCT_rel             := rlookup(T_JNCTID_directed, Junctions/JNCTID);
 		
-		attribute<uint8>          F_JNCTTYP;
-		attribute<uint8>          T_JNCTTYP;
-		attribute<m>              METERS;
-		attribute<min_f>          MINUTES;
-		attribute<string>         ONEWAY;
+		attribute<uint8>          F_JNCTTYP := Roads_store/F_JNCTTYP;
+		attribute<uint8>          T_JNCTTYP := Roads_store/T_JNCTTYP;
+		attribute<m>              METERS := Roads_store/METERS;
+		attribute<min_f>          MINUTES := Roads_store/MINUTES;
+		attribute<string>         ONEWAY := Roads_store/ONEWAY;
 		attribute<bool>           IsInTexelHack         := IsDefined(point_in_polygon(first_point(geometry), TexelHack/polygon)) || IsDefined(point_in_polygon(last_point(geometry), TexelHack/polygon));
 		attribute<Directions_TomTom> Direction0            := MakeDefined(rlookup(Oneway, Directions_TomTom/code), 0[Directions_TomTom]); // relevant voor latere routen (bij direction = 3 moet je f_ en t_ swappen, bij 3 & 4 geldt oneWayTraffic)
 		attribute<Directions_TomTom> Direction             := IsInTexelHack ? Directions_TomTom/v/dual : Direction0;
 		attribute<bool>           IsOneDirection        := Direction == Directions_TomTom/v/backwards || Direction == Directions_TomTom/v/forwards;
-		attribute<km_hr>          KPH;
-		attribute<int8>           F_ELEV;
-		attribute<int8>           T_ELEV;
+		attribute<km_hr>          KPH := Roads_store/KPH;
+		attribute<int8>           F_ELEV := Roads_store/F_ELEV;
+		attribute<int8>           T_ELEV := Roads_store/T_ELEV;
 		attribute<bool>           IsFerry               := FerryType == 1b;
 		attribute<bool>           IsStreetTypeSelection  := ='FRC_rel <= '+ModelParameters/Advanced/TomTom_StreetTypeSelection;
 		attribute<bool>           Connectable           := FRC_rel != Classifications/FuncRoadClass/V/Motorway_Freeway_or_Other_Major_Road;
@@ -388,25 +404,30 @@ container TomTom
 		, DialogType = "map";
 	}
 	
-	unit<uint32>  Speednetworks
-	: StorageName = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Speednetworks_FSS.fss'"
+	// Kale lezer, zie de toelichting bij Junctions0_store (#1245).
+	unit<uint32>  Speednetworks_store
+	: StorageName = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Speednetworks.mmd'"
 	, StorageReadOnly = "true"
+	, Descr = "Kale lezer van de Speednetworks-store; declareert niets, de dictionary levert de kolommen."
+	;
+
+	unit<uint32>  Speednetworks := Speednetworks_store
 	{
-		attribute<uint64> NW_ID;
-		attribute<string> region_code;
+		attribute<uint64> NW_ID := Speednetworks_store/NW_ID;
+		attribute<string> region_code := Speednetworks_store/region_code;
 		
-		attribute<uint16> SP_freeflow;
-		attribute<uint16> SP_weekday;
-		attribute<uint16> SP_weekend;
-		attribute<uint16> SP_week;
+		attribute<uint16> SP_freeflow := Speednetworks_store/SP_freeflow;
+		attribute<uint16> SP_weekday := Speednetworks_store/SP_weekday;
+		attribute<uint16> SP_weekend := Speednetworks_store/SP_weekend;
+		attribute<uint16> SP_week := Speednetworks_store/SP_week;
 		
-		attribute<uint16> SP_Sunday;
-		attribute<uint16> SP_Monday;
-		attribute<uint16> SP_Tuesday;
-		attribute<uint16> SP_Wednesday;
-		attribute<uint16> SP_Thursday;
-		attribute<uint16> SP_Friday;
-		attribute<uint16> SP_Saturday;
+		attribute<uint16> SP_Sunday := Speednetworks_store/SP_Sunday;
+		attribute<uint16> SP_Monday := Speednetworks_store/SP_Monday;
+		attribute<uint16> SP_Tuesday := Speednetworks_store/SP_Tuesday;
+		attribute<uint16> SP_Wednesday := Speednetworks_store/SP_Wednesday;
+		attribute<uint16> SP_Thursday := Speednetworks_store/SP_Thursday;
+		attribute<uint16> SP_Friday := Speednetworks_store/SP_Friday;
+		attribute<uint16> SP_Saturday := Speednetworks_store/SP_Saturday;
 		
 		attribute<Roads>  Roads_rel    := rlookup(NW_ID, Roads/NW_ID);
 		
@@ -443,15 +464,20 @@ container TomTom
 		}
 	}
 	
-	unit<uint32>  Speedprofiles
-	: StorageName = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Speedprofiles_FSS.fss'"
+	// Kale lezer, zie de toelichting bij Junctions0_store (#1245).
+	unit<uint32>  Speedprofiles_store
+	: StorageName = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Speedprofiles.mmd'"
 	, StorageReadOnly = "true"
+	, Descr = "Kale lezer van de Speedprofiles-store; declareert niets, de dictionary levert de kolommen."
+	;
+
+	unit<uint32>  Speedprofiles := Speedprofiles_store
 	{
-		attribute<int32>   profile_id;
-		attribute<string>  region_code;
+		attribute<int32>   profile_id := Speedprofiles_store/profile_id;
+		attribute<string>  region_code := Speedprofiles_store/region_code;
 		attribute<string>  SP_profile_ID := region_code + '_' +string(profile_id);
-		attribute<int32>   time_slot;
-		attribute<float32> rel_sp;
+		attribute<int32>   time_slot := Speedprofiles_store/time_slot;
+		attribute<float32> rel_sp := Speedprofiles_store/rel_sp;
 		
 		attribute<string>  Region_Profile_TimeSlot_key  := region_code + '_' + string(profile_id) + '_' + string(time_slot);
 		

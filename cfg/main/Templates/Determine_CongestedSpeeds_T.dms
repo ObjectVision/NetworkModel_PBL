@@ -47,8 +47,8 @@ Template Determine_CongestedSpeeds_T
 	container CALC_OD_LateEveningRush := linkflow_congested(LinkSet, LinkSet/impedance_min_LateEveningRush, 'LateEveningRush');
 	
 	
-	unit<uint32> Make_CongestionSpeeds_FSS := LinkSet //1:47h op 2023 07 24 op OVSRV6
-	, StorageName = "='%NetworkModel_dir%/Infrastructuur/CongestionRuns/CongestionSpeeds'+Settings/fileNameSuffix_MakeCongestionSpeeds+'.fss'"
+	unit<uint32> Make_CongestionSpeeds_Store := LinkSet //1:47h op 2023 07 24 op OVSRV6
+	, StorageName = "='%NetworkModel_dir%/Infrastructuur/CongestionRuns/CongestionSpeeds'+Settings/fileNameSuffix_MakeCongestionSpeeds+'.mmd'"
 	{ 
 		attribute<geometries/rdc>               geometry (arc)                      := LinkSet/geometry;
 		attribute<classifications/OSM/roadType>  roadType                             := LinkSet/roadType;
@@ -71,12 +71,33 @@ Template Determine_CongestedSpeeds_T
 		attribute<float32>                      LateEveningRush_flow_observed       := NetwerkSpec/LinkSet/LateEveningRush_flow;
 	}
 	
-	unit<uint32> Read_CongestionSpeeds_FSS
-	: StorageName = "='%NetworkModel_dir%/Infrastructuur/CongestionRuns/CongestionSpeeds'+Settings/fileNameSuffix_ReadCongestionSpeeds+'.fss'"
+	// Een read-only MMD-lezer mag zelf niets declareren (#1245): de dictionary van de store bepaalt de
+	// kolommen. Vandaar de kale lezer plus een afgeleide unit met de doorgeefkolommen en de afgeleiden.
+	unit<uint32> Read_CongestionSpeeds_Store
+	: StorageName = "='%NetworkModel_dir%/Infrastructuur/CongestionRuns/CongestionSpeeds'+Settings/fileNameSuffix_ReadCongestionSpeeds+'.mmd'"
 	, StorageReadOnly = "true"
+	, Descr = "Kale lezer van de congestiestore; declareert niets."
+	;
+
+	unit<uint32> Read_CongestionSpeeds := Read_CongestionSpeeds_Store
 	{
-		attribute<geometries/rdc>               geometry (arc);
-		attribute<classifications/OSM/roadType>  roadType;
+		attribute<geometries/rdc>                        geometry (arc)                     := Read_CongestionSpeeds_Store/geometry;
+		attribute<classifications/OSM/roadType>          roadType                           := Read_CongestionSpeeds_Store/roadType;
+		attribute<float32>                               MorningRush_flow_observed          := Read_CongestionSpeeds_Store/MorningRush_flow_observed;
+		attribute<float32>                               NoonRush_flow_observed             := Read_CongestionSpeeds_Store/NoonRush_flow_observed;
+		attribute<float32>                               LateEveningRush_flow_observed      := Read_CongestionSpeeds_Store/LateEveningRush_flow_observed;
+		attribute<min_f>                                 MorningRush_imp_observed           := Read_CongestionSpeeds_Store/MorningRush_imp_observed;
+		attribute<min_f>                                 NoonRush_imp_observed              := Read_CongestionSpeeds_Store/NoonRush_imp_observed;
+		attribute<min_f>                                 LateEveningRush_imp_observed       := Read_CongestionSpeeds_Store/LateEveningRush_imp_observed;
+		attribute<float32>                               MorningRush_flow_simulated         := Read_CongestionSpeeds_Store/MorningRush_flow_simulated;
+		attribute<float32>                               NoonRush_flow_simulated            := Read_CongestionSpeeds_Store/NoonRush_flow_simulated;
+		attribute<float32>                               LateEveningRush_flow_simulated     := Read_CongestionSpeeds_Store/LateEveningRush_flow_simulated;
+		attribute<min_f>                                 MorningRush_imp_simulated          := Read_CongestionSpeeds_Store/MorningRush_imp_simulated;
+		attribute<min_f>                                 NoonRush_imp_simulated             := Read_CongestionSpeeds_Store/NoonRush_imp_simulated;
+		attribute<min_f>                                 LateEveningRush_imp_simulated      := Read_CongestionSpeeds_Store/LateEveningRush_imp_simulated;
+		attribute<min_f>                                 MaxSpeed_imp                       := Read_CongestionSpeeds_Store/MaxSpeed_imp;
+		attribute<min_f>                                 MaxSpeed_limit_imp                 := Read_CongestionSpeeds_Store/MaxSpeed_limit_imp;
+
 		attribute<bool>                         Connectable                      := roadType != Classifications/OSM/roadType/V/motorway && roadType != Classifications/OSM/roadType/V/motorway_link;
 		attribute<km>                           lengte                      := convert(arc_length(geometry, m_f64)[m], km);
 		
@@ -86,23 +107,9 @@ Template Determine_CongestedSpeeds_T
 		attribute<km_hr>                        Speed_congested_noon_car        :=  lengte / convert(NoonRush_imp_simulated, hr_f);
 		attribute<km_hr>                        Speed_congested_late_car        :=  lengte / convert(LateEveningRush_imp_simulated, hr_f);
 		
-		attribute<float32>                      MorningRush_flow_observed;
-		attribute<float32>                      NoonRush_flow_observed;
-		attribute<float32>                      LateEveningRush_flow_observed;
 
-		attribute<min_f>                        MorningRush_imp_observed;
-		attribute<min_f>                        NoonRush_imp_observed;
-		attribute<min_f>                        LateEveningRush_imp_observed;
 		
-		attribute<float32>                      MorningRush_flow_simulated;
-		attribute<float32>                      NoonRush_flow_simulated;
-		attribute<float32>                      LateEveningRush_flow_simulated;
 		
-		attribute<min_f>                        MorningRush_imp_simulated;
-		attribute<min_f>                        NoonRush_imp_simulated;
-		attribute<min_f>                        LateEveningRush_imp_simulated;
-		attribute<min_f>                        MaxSpeed_imp;
-		attribute<min_f>                        MaxSpeed_limit_imp;
 		
 		parameter<min_f>                        gewogen_observed_imp_morning         := sum(MorningRush_imp_observed * MorningRush_flow_observed) / sum(MorningRush_flow_observed);
 		parameter<min_f>                        gewogen_observed_imp_noon            := sum(NoonRush_imp_observed * NoonRush_flow_observed) / sum(NoonRush_flow_observed);
