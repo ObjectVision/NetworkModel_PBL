@@ -41,7 +41,8 @@ param(
     [ValidateSet('scalar', 'scalar_q100m', 'pareto_R', 'pareto_R_q100m', 'pareto_RL')]
     [string[]] $Arms = @('scalar', 'scalar_q100m', 'pareto_R', 'pareto_R_q100m'),
 
-    [string] $GeoDmsRun = 'C:\Program Files\ObjectVision\GeoDms20.19.0.m\GeoDmsRun.exe',
+    # de laatst gepubliceerde GeoDMS uit Program Files; de pareto-optie vereist >= 20.18.0
+    [string] $GeoDmsRun = 'C:\Program Files\ObjectVision\GeoDms20.20.0.m\GeoDmsRun.exe',
 
     [string] $OutDir = 'C:\LocalData\NetworkModel_PBL\Output\pareto_benchmark',
 
