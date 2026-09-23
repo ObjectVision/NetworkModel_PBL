@@ -14,7 +14,7 @@ REM                                 (PublicTransport_Prep/Direct/CarPerMoment/<m
 REM                                 zonder momenten alle vier: MorningRush NoonRush LateEveningRush
 REM                                 en Freeflow (TomTom) of MaxSpeed (OSM); 40 min scalair per
 REM                                 moment, langer met ParetoLegs_Car
-REM   UpdateAll.cmd chains          de OV-ketenstore (PublicTransport_Prep/Write_Result), na de
+REM   UpdateAll.cmd chains          de OV-ketenstore (PublicTransport_Prep/x/Write_Result), na de
 REM                                 voorcheck op haltenblokken en prijsdekking; uren, veel geheugen
 REM
 REM De oude RunAll.cmd, RunKetens*.cmd, RunPrepare.cmd, RunDayGroups.cmd en RunCongestionSpeeds.cmd
@@ -102,7 +102,7 @@ if errorlevel 1 (
   goto failed
 )
 echo === ketens: Write_Result (uren) ===
-call :run chains %PREP%/Write_Result
+call :run chains %PREP%/x/Write_Result
 if not "!RC!"=="0" goto failed
 goto done
 
