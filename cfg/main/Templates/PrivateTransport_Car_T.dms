@@ -175,9 +175,15 @@ Template PrivateTransport_Car_T
 			// Scalair (UsePareto FALSE): per HB-paar de snelste route, alt_imp = haar kosten. Pareto (TRUE): een
 			// bi-criteria label-setting zoektocht op (Impedance, Cost_q) met per HB-paar een rij per Pareto-optimale route;
 			// de eerste rij per paar draagt de scalaire minimum-reistijd (GeoDMS#856, doc/bicriteria-impedance.md).
-			// Per link afronden volstaat: een som van veelvouden van q is zelf een veelvoud van q.
+			// Per link kwantiseren volstaat voor de zoektocht (een som van veelvouden van q is een veelvoud van q), maar
+			// afronden naar het dichtstbijzijnde veelvoud laat elke link onder een half kwantum wegvallen, en de meeste
+			// TomTom-links zijn korter dan het kwantum. Daarom dithering: per link een vaste pseudo-toevallige drempel
+			// u in [0,1) uit het link-id, en Cost_q = rounddown(Cost/q + u) * q. De verwachting over u is Cost, dus de
+			// som over een route is onvertekend; dezelfde link krijgt vanuit elke herkomst dezelfde Cost_q.
+			// (in uint64, want GeoDMS meldt een overflow bij uint32-vermenigvuldiging in plaats van te wikkelen)
+			attribute<float32> dither (LinkSet_dom) := float32(mod(uint64(id(LinkSet_dom)) * uint64(7919), uint64(1000))) / 1000f;
 			attribute<Euro>   Cost_q (LinkSet_dom) := UsePareto && ModelParameters/Advanced/CarLegCostQuantum > 0[Euro]
-			                                          ? float32(round(Cost / ModelParameters/Advanced/CarLegCostQuantum)) * ModelParameters/Advanced/CarLegCostQuantum
+			                                          ? float32(rounddown(Cost / ModelParameters/Advanced/CarLegCostQuantum + dither)) * ModelParameters/Advanced/CarLegCostQuantum
 			                                          : Cost;
 			parameter<string> ParetoStr := UsePareto ? ';pareto' : '';
 			unit<uint64> impedanceMatrix := =
