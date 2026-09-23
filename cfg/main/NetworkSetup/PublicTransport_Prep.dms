@@ -239,20 +239,41 @@ container PublicTransport_Prep
 				parameter<uint64>     stat_od_pairs    := #Summary;
 				parameter<uint32>     stat_front_max   := max(Summary/nr_routes);
 				parameter<float32>    stat_front_mean  := float32(stat_rows) / float32(stat_od_pairs);
+
+				// Uitdunning bij het lezen (GeoDMS >= 20.21.0, pareto_optimal_eps): per HB-paar hoogstens een route per tijdbak
+				// (CarFrontTimeEpsilon) en kostenbak (CarFrontCostEpsilon); de snelste route van het paar blijft altijd.
+				attribute<bool>       keep             := = /ModelParameters/Advanced/EngineHasParetoEpsilon && (/ModelParameters/Advanced/CarFrontTimeEpsilon > 0[s_f] || /ModelParameters/Advanced/CarFrontCostEpsilon > 0[Euro])
+				                                            ? 'pareto_optimal_eps(Summary_rel, impedance, /ModelParameters/Advanced/CarFrontTimeEpsilon, alt_imp, /ModelParameters/Advanced/CarFrontCostEpsilon)'
+				                                            : 'const(TRUE, ., bool)';
+			}
+			unit<uint64> Car_Front := select_with_org_rel(Car/keep)
+			,	Descr = "Het uitgedunde front (Car/keep), wat meedoet in Direct_OD. Zonder epsilon, of op een engine voor 20.21.0, gelijk aan Car."
+			{
+				attribute<s_f>        impedance        := Car/impedance[org_rel];
+				attribute<Euro>       alt_imp          := Car/alt_imp[org_rel];
+				attribute<impl/org>   OrgZone_rel      := Car/OrgZone_rel[org_rel];
+				attribute<impl/dest>  DstZone_rel      := Car/DstZone_rel[org_rel];
+				attribute<s>          Duration_seconds := Car/Duration_seconds[org_rel];
+				attribute<dam>        Distance         := const(null_w, ., dam);
+				attribute<Ct>         Price            := Car/Price[org_rel];
+				attribute<Ct>         Price_Augm       := Car/Price_Augm[org_rel];
+				attribute<impl/Modes> Mode_rel         := Car/Mode_rel[org_rel];
+				parameter<uint64>     stat_rows        := #Car_Front;
+				parameter<float32>    stat_front_mean  := float32(stat_rows) / float32(Car/stat_od_pairs), Descr = "Routes per HB-paar na de uitdunning; vergelijk met Car/stat_front_mean.";
 			}
 		}
 
 		// De directe autorit die meedoet in het front: het moment van Car_CongestionMoment_ForDirect.
-		unit<uint64> Car := ='CarPerMoment/'+/ModelParameters/Car_CongestionMoment_ForDirect+'/Car'
+		unit<uint64> Car := ='CarPerMoment/'+/ModelParameters/Car_CongestionMoment_ForDirect+'/Car_Front'
 		,	Descr = "De directe autorit op het congestiemoment Car_CongestionMoment_ForDirect, uit de store van CarPerMoment/<moment>; bekijk het front en de samenvatting daar."
 		{
-			attribute<s>          Duration_seconds := ='CarPerMoment/'+/ModelParameters/Car_CongestionMoment_ForDirect+'/Car/Duration_seconds';
-			attribute<dam>        Distance         := ='CarPerMoment/'+/ModelParameters/Car_CongestionMoment_ForDirect+'/Car/Distance';
-			attribute<Ct>         Price            := ='CarPerMoment/'+/ModelParameters/Car_CongestionMoment_ForDirect+'/Car/Price';
-			attribute<Ct>         Price_Augm       := ='CarPerMoment/'+/ModelParameters/Car_CongestionMoment_ForDirect+'/Car/Price_Augm';
-			attribute<impl/Modes> Mode_rel         := ='CarPerMoment/'+/ModelParameters/Car_CongestionMoment_ForDirect+'/Car/Mode_rel';
-			attribute<impl/org>   OrgZone_rel      := ='CarPerMoment/'+/ModelParameters/Car_CongestionMoment_ForDirect+'/Car/OrgZone_rel';
-			attribute<impl/dest>  DstZone_rel      := ='CarPerMoment/'+/ModelParameters/Car_CongestionMoment_ForDirect+'/Car/DstZone_rel';
+			attribute<s>          Duration_seconds := ='CarPerMoment/'+/ModelParameters/Car_CongestionMoment_ForDirect+'/Car_Front/Duration_seconds';
+			attribute<dam>        Distance         := ='CarPerMoment/'+/ModelParameters/Car_CongestionMoment_ForDirect+'/Car_Front/Distance';
+			attribute<Ct>         Price            := ='CarPerMoment/'+/ModelParameters/Car_CongestionMoment_ForDirect+'/Car_Front/Price';
+			attribute<Ct>         Price_Augm       := ='CarPerMoment/'+/ModelParameters/Car_CongestionMoment_ForDirect+'/Car_Front/Price_Augm';
+			attribute<impl/Modes> Mode_rel         := ='CarPerMoment/'+/ModelParameters/Car_CongestionMoment_ForDirect+'/Car_Front/Mode_rel';
+			attribute<impl/org>   OrgZone_rel      := ='CarPerMoment/'+/ModelParameters/Car_CongestionMoment_ForDirect+'/Car_Front/OrgZone_rel';
+			attribute<impl/dest>  DstZone_rel      := ='CarPerMoment/'+/ModelParameters/Car_CongestionMoment_ForDirect+'/Car_Front/DstZone_rel';
 		}
 	}
 	

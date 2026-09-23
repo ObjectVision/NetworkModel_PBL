@@ -20,8 +20,12 @@ REM
 REM De oude RunAll.cmd, RunKetens*.cmd, RunPrepare.cmd, RunDayGroups.cmd en RunCongestionSpeeds.cmd
 REM wezen naar itempaden van voor 2025 en zijn op 2026-09-23 verwijderd.
 REM ---------------------------------------------------------------------------------------------
-set geodmsversion=GeoDms20.20.0.m
-set EXE=C:\Program Files\ObjectVision\%geodmsversion%\GeoDmsRun.exe
+REM Engine: sinds 2026-09-23 de lokale msbuild-build 20.21.x in C:\dev\GeoDMS_2026\bin\Release\x64, want het model
+REM gebruikt de pareto-epsilon van GeoDMS #1282 (impedance_matrix_od64 met pareto(imp2_epsilon), pareto_optimal_eps);
+REM de geinstalleerde 20.20.0.m kent die niet en rekent dan met kwantisatie per link.
+set EXE=C:\dev\GeoDMS_2026\bin\Release\x64\GeoDmsRun.exe
+REM Met de omgevingsvariabele GEODMS_EXE draait een andere GeoDmsRun.exe, bijvoorbeeld een proefbuild.
+if defined GEODMS_EXE set "EXE=%GEODMS_EXE%"
 REM De volledige padnaam zonder "..": GeoDMS leidt %LocalDataProjDir% af uit de naam van de map boven cfg, en
 REM met batch\..\cfg\main.dms werd dat "..", zodat de stores in c:\LocalData\..\IntermediateResults (= C:\) kwamen.
 for %%I in ("%~dp0..\cfg\main.dms") do set CFG=%%~fI

@@ -182,10 +182,15 @@ Template PrivateTransport_Car_T
 			// som over een route is onvertekend; dezelfde link krijgt vanuit elke herkomst dezelfde Cost_q.
 			// (in uint64, want GeoDMS meldt een overflow bij uint32-vermenigvuldiging in plaats van te wikkelen)
 			attribute<float32> dither (LinkSet_dom) := float32(mod(uint64(id(LinkSet_dom)) * uint64(7919), uint64(1000))) / 1000f;
-			attribute<Euro>   Cost_q (LinkSet_dom) := UsePareto && ModelParameters/Advanced/CarLegCostQuantum > 0[Euro]
+			// Sinds GeoDMS 20.21.0 (EngineHasParetoEpsilon) doet de engine dit zelf met pareto(imp2_epsilon): per knoop en
+			// bestemmingszone alleen labels in een strikt lagere kostenbak van CarFrontCostEpsilon, op de som van de ruwe
+			// kosten, dus zonder ditherruis; de linkkosten gaan dan ongekwantiseerd mee.
+			parameter<bool>   UseEngineEpsilon := UsePareto && ModelParameters/Advanced/EngineHasParetoEpsilon && ModelParameters/Advanced/CarFrontCostEpsilon > 0[Euro];
+			attribute<Euro>   Cost_q (LinkSet_dom) := UsePareto && not(UseEngineEpsilon) && ModelParameters/Advanced/CarLegCostQuantum > 0[Euro]
 			                                          ? float32(rounddown(Cost / ModelParameters/Advanced/CarLegCostQuantum + dither)) * ModelParameters/Advanced/CarLegCostQuantum
 			                                          : Cost;
-			parameter<string> ParetoStr := UsePareto ? ';pareto' : '';
+			parameter<string> ParetoStr := UsePareto ? (UseEngineEpsilon ? ';pareto(imp2_epsilon)' : ';pareto') : '';
+			parameter<string> EpsArgStr := UseEngineEpsilon ? ', ModelParameters/Advanced/CarFrontCostEpsilon' : '', Descr = "Het epsilon-argument van pareto(imp2_epsilon), na het link_imp-argument.";
 			unit<uint64> impedanceMatrix := =
 				ModelParameters/Advanced/InterpretAllRoadsAsBidirectional 
 					? 	'impedance_matrix_od64(''bidirectional;startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp'+ParetoStr+';od:impedance,OrgZone_rel,DstZone_rel''
@@ -195,7 +200,7 @@ Template PrivateTransport_Car_T
 							, NodeSet_dom/OrgNode_rel
 							, NodeSet_dom/DestNode_rel
 							, convert(settings/max_traveldistance_min, s_f)
-							, Cost_q
+							, Cost_q' + EpsArgStr + '
 						)'
 					: 	'impedance_matrix_od64(''bidirectional(link_flag);startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp'+ParetoStr+';od:impedance,OrgZone_rel,DstZone_rel''
 							, Impedance
@@ -205,7 +210,7 @@ Template PrivateTransport_Car_T
 							, NodeSet_dom/OrgNode_rel
 							, NodeSet_dom/DestNode_rel
 							, convert(settings/max_traveldistance_min, s_f)
-							, Cost_q
+							, Cost_q' + EpsArgStr + '
 						)'
 			{
 				attribute<string> Org_Dest := string(OrgZone_rel)+'_'+string(DstZone_rel);
