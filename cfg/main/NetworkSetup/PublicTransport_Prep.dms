@@ -127,25 +127,64 @@ container PublicTransport_Prep
 	container Create_Optimised_Network_Cycling  := Templates/CreateNetwork_Efficient_T(impl/Org, impl/Dest, SourceData/Infrastructure/OSM/Network_Cycling, 'Cycling', TRUE), Descr = "Network for pre- and post-transport.";
 	container Create_Optimised_Network_EBike    := Templates/CreateNetwork_Efficient_T(impl/Org, impl/Dest, SourceData/Infrastructure/OSM/Network_Cycling, 'E_Biking', TRUE), Descr = "Network for pre- and post-transport.";
 
-	unit<uint64> Direct_OD := =/ModelParameters/Advanced/AllowDirectCyclingOverWalking 
-									? '/NetworkSetup/PrivateTransport/Cycling/Calc_Traveltimes_maxspeed_cycling/Traveltimes'
-									: '/NetworkSetup/PrivateTransport/Walking/Calc_Traveltimes_maxspeed_walking/Traveltimes'
+	// Directe ritten naast het OV. Per toegestane modaliteit (ModelParameters/AllowDirectWalking, -Cycling,
+	// -Car; de lijst staat in Advanced/DirectModes) de volledige HB-tabel uit /NetworkSetup/PrivateTransport,
+	// samengevoegd tot een tabel met dezelfde kolommen. De ketenrijger (PublicTransport/PerDepartureMoment_T,
+	// Union_with_DirectOD) voegt per blok deze rijen bij de OV-ketens en houdt per HB-paar het Pareto-front op
+	// MinimiseCriteria (prijs, tijd) over. Tot 2026-09-23 deed of lopen of fietsen mee en de auto niet.
+	//
+	// Prijs per modaliteit: lopen en fietsen krijgen een tijdwaardering (Direct_*_Time_Costs), die alleen in
+	// Price meetelt als Include*CostsInPrice aan staat; de auto krijgt een kostprijs: Car_FixedCosts_PerTrip plus
+	// afstand x Car_CostsInPrice_PerKm (variabel, plus vast als IncludeCarFixedCostsInPrice). Price_Augm is voor
+	// lopen en fietsen de tijdwaardering zelf en voor de auto gelijk aan Price: een tijdwaardering voor
+	// autorijden is er niet. De autoreistijd is die van Car_CongestionMoment_ForDirect.
+	unit<uint8> DirectModes_Selected := select_with_attr_by_cond(/ModelParameters/Advanced/DirectModes, /ModelParameters/Advanced/DirectModes/Allowed)
+	,	Descr = "De directe modaliteiten die meedoen; minstens een moet aan staan.";
+	
+	container Direct
 	{
-		attribute<s>       Duration_seconds                 := convert(Impedance, s);
-		attribute<dam>     Distance                         := alt_imp[dam]; 
-		attribute<ct>      Price_Augm                       := =ModelParameters/Advanced/AllowDirectCyclingOverWalking 
-																	? 'rounded_convert(Impedance[min_f] * ModelParameters/Direct_Cycling_Time_Costs, ct)'
-																	: 'rounded_convert(Impedance[min_f] * ModelParameters/Direct_Walking_Time_Costs, ct)';
-		attribute<ct>      Price                            := switch(
-																	 case(ModelParameters/Advanced/IncludeCyclingCostsInPrice && Mode_rel == impl/Modes/V/Cycling, Price_Augm)
-																	,case(ModelParameters/Advanced/IncludeWalkingCostsInPrice && Mode_rel == impl/Modes/V/Walking, Price_Augm)
-																	,const(0,., ct)
-																);
-		attribute<impl/Modes>   Mode_rel                         :=  =ModelParameters/Advanced/AllowDirectCyclingOverWalking 
-																	? 'const(impl/Modes/V/Cycling, .)'
-																	: 'const(impl/Modes/V/Walking, .)';
+		unit<uint64> Walking := /NetworkSetup/PrivateTransport/Walking/Calc_Traveltimes_maxspeed_Walking/Traveltimes
+		{
+			attribute<s>          Duration_seconds := convert(impedance, s);
+			attribute<dam>        Distance         := alt_imp[dam];
+			attribute<Ct>         Price_Augm       := rounded_convert(Duration_seconds[min_f] * /ModelParameters/Direct_Walking_Time_Costs, Ct);
+			attribute<Ct>         Price            := =/ModelParameters/Advanced/IncludeWalkingCostsInPrice ? 'Price_Augm' : 'const(0, ., Ct)';
+			attribute<impl/Modes> Mode_rel         := const(impl/Modes/V/Walking, .);
+		}
+		
+		unit<uint64> Cycling := /NetworkSetup/PrivateTransport/Cycling/Calc_Traveltimes_maxspeed_Cycling/Traveltimes
+		{
+			attribute<s>          Duration_seconds := convert(impedance[min_f] + /ModelParameters/Advanced/Cycling_StartTime, s);
+			attribute<dam>        Distance         := alt_imp[dam];
+			attribute<Ct>         Price_Augm       := rounded_convert(Duration_seconds[min_f] * /ModelParameters/Direct_Cycling_Time_Costs, Ct);
+			attribute<Ct>         Price            := =/ModelParameters/Advanced/IncludeCyclingCostsInPrice ? 'Price_Augm' : 'const(0, ., Ct)';
+			attribute<impl/Modes> Mode_rel         := const(impl/Modes/V/Cycling, .);
+		}
+		
+		// De auto-HB-tabel met afstand (de _w_AltImp-variant van PrivateTransport_Car_T), TomTom of OSM.
+		unit<uint64> Car := ='/NetworkSetup/PrivateTransport/Car/Traveltimes/'+/ModelParameters/Car_CongestionMoment_ForDirect+(/ModelParameters/UseTomTomNetworkForCars ? '_TomTom' : '_OSM')+'_w_AltImp/impedanceMatrix'
+		{
+			attribute<s>          Duration_seconds := convert(impedance[min_f] + /ModelParameters/Car_StartTime + /ModelParameters/Car_ParkingTime, s);
+			attribute<dam>        Distance         := alt_imp[dam];
+			attribute<Euro>       Cost_Euro        := /ModelParameters/Car_FixedCosts_PerTrip + alt_imp * /ModelParameters/Advanced/Car_CostsInPrice_PerKm;
+			attribute<Ct>         Price            := =/ModelParameters/Advanced/IncludeCarCostsInPrice ? 'rounded_convert(Cost_Euro, Ct)' : 'const(0, ., Ct)';
+			attribute<Ct>         Price_Augm       := Price;
+			attribute<impl/Modes> Mode_rel         := const(impl/Modes/V/Car, .);
+		}
 	}
-
+	
+	unit<uint64> Direct_OD := ='union_unit_uint64('+asList('Direct/'+DirectModes_Selected/name, ',')+')'
+	,	Descr = "Alle directe ritten van de toegestane modaliteiten, volledige HB-tabel; per blok gefilterd in PublicTransport/Direct_OD."
+	{
+		attribute<impl/org>   OrgZone_rel      := ='union_data(., '+asList('Direct/'+DirectModes_Selected/name+'/OrgZone_rel', ',')+')';
+		attribute<impl/dest>  DstZone_rel      := ='union_data(., '+asList('Direct/'+DirectModes_Selected/name+'/DstZone_rel', ',')+')';
+		attribute<s>          Duration_seconds := ='union_data(., '+asList('Direct/'+DirectModes_Selected/name+'/Duration_seconds', ',')+')';
+		attribute<dam>        Distance         := ='union_data(., '+asList('Direct/'+DirectModes_Selected/name+'/Distance', ',')+')';
+		attribute<Ct>         Price            := ='union_data(., '+asList('Direct/'+DirectModes_Selected/name+'/Price', ',')+')';
+		attribute<Ct>         Price_Augm       := ='union_data(., '+asList('Direct/'+DirectModes_Selected/name+'/Price_Augm', ',')+')';
+		attribute<impl/Modes> Mode_rel         := ='union_data(., '+asList('Direct/'+DirectModes_Selected/name+'/Mode_rel', ',')+')';
+	}
+	
 	container TimeInvariantConnections := 
 		for_each_ne(
 			TimeInvariantTypes/name

@@ -3,7 +3,9 @@ Template PerDepartureMoment_T
 	parameter<uint32>   inTime;
 	parameter<string>   inTime_string;
 	///
-	parameter<min>      Max_V_Time := max(/ModelParameters/Advanced/OV_PreTransport_Typen/MaxTime[min]);
+	parameter<min_f>    Max_V_Time := max(/ModelParameters/Advanced/OV_PreTransport_Typen/MaxTime)
+	                                  + /ModelParameters/Advanced/Cycling_StartTime + /ModelParameters/Advanced/Cycling_PreTransport_Penalty + /ModelParameters/Advanced/Cycling_ParkingTime_IC_Station
+	,	Descr = "Langste voortransportbeen dat nog geldig kan zijn: de grootste Max*Time-grens (op netwerktijd) plus de start- en parkeertijden die sinds 2026-09-23 in het been zitten. Begrenst het venster van OV-vertrekken; te ruim is onschadelijk, te krap laat combinaties weg.";
 	unit<uint8>         ParetoAttr := Classifications/FinalParetoAttr;
 	attribute<bool>     Within_VW_Window_SelectionCriterium (PublicTransport_Prep/PT) := PublicTransport_Prep/PT/From_Time_rel <= inTime + convert(Max_V_Time, s_f)[Time] + ModelParameters/Advanced/MaxWaitingTimeAtOrigin;
 	
@@ -55,12 +57,11 @@ Template PerDepartureMoment_T
 		attribute<bool>                                        IsWaitingTimeValid               := WaitingStart_Time_rel < WaitingEnd_Time_rel;
 		
 		attribute<s>                                           V_time_wo_Penalty                := V/impedance[V_rel];
+		attribute<s>                                           V_time_net                       := V/impedance_net[V_rel], Descr = "Netwerkreistijd van het voortransport, zonder start- en parkeertijd; hierop toetst IsVTimeNotTooLong.";
 		attribute<Modes>                                       V_mode_rel                       := V/Mode_rel[V_rel];
 		attribute<VN_ModeClasses/Uq>                           V_ModeClass_rel                  := V/ModeClass_rel[V_rel];
 		attribute<ct>                                          V_price                          := V/Price[V_rel];
-		attribute<s>                                           V_time                           := V_mode_rel == Modes/v/Cycling 
-																									? V_time_wo_Penalty + convert(ModelParameters/Advanced/Cycling_PreTransport_Penalty, s) 
-																									: V_time_wo_Penalty;
+		attribute<s>                                           V_time                           := V_time_wo_Penalty; // start- en parkeertijden zitten sinds 2026-09-23 in het been zelf (ODMatrix/Duration_seconds_ext)
 		
 		attribute<Time>                                        WaitingTime_rel                  := MakeDefined(sub_or_null(WaitingEnd_Time_rel, WaitingStart_Time_rel), 0[Time]);
 		attribute<s>                                           W_time                           := WaitingTime_rel[s];
@@ -84,8 +85,8 @@ Template PerDepartureMoment_T
 		attribute<dam>                                         Traveldist_Ferry                 := Within_VW_Window/Traveldist_Ferry[PT_rel];
 		
 		attribute<bool>                                        IsVTimeNotTooLong                := switch(
-																										case(V_mode_rel == Modes/v/Walking, V_time <= convert(ModelParameters/MaxWalkingTime_Org2Stops, s))
-																										, case(V_mode_rel == Modes/v/Cycling, V_time <= convert(ModelParameters/MaxCyclingTime_Org2Stops, s))
+																										case(V_mode_rel == Modes/v/Walking, V_time_net <= convert(ModelParameters/MaxWalkingTime_Org2Stops, s))
+																										, case(V_mode_rel == Modes/v/Cycling, V_time_net <= convert(ModelParameters/MaxCyclingTime_Org2Stops, s))
 																										, FALSE
 																									);
 		attribute<bool>                                        IsValid                          := WaitingTime_rel <= ModelParameters/Advanced/MaxWaitingTimeAtOrigin && IsWaitingTimeValid && IsVTimeNotTooLong && IsPT_departureEvent_ActualPT;
@@ -126,6 +127,7 @@ Template PerDepartureMoment_T
 		attribute<Time>                                        N_To_Time_rel                    := PT_To_Time_rel + N_time[Time];
 		attribute<Places>                                      N_to_Place_rel                   := N/To_Place_rel[N_rel];
 		attribute<s>                                           N_time                           := N/impedance[N_rel];
+		attribute<s>                                           N_time_net                       := N/impedance_net[N_rel], Descr = "Netwerkreistijd van het natransport, zonder starttijd; hierop toetst IsNTimeNotTooLong.";
 		attribute<Modes>                                       N_mode_rel                       := N/Mode_rel[N_rel];
 		attribute<VN_ModeClasses/Uq>                           N_ModeClass_rel                  := N/ModeClass_rel[N_rel];
 		attribute<ct>                                          N_price                          := N/Price[N_rel];
@@ -152,8 +154,8 @@ Template PerDepartureMoment_T
 		attribute<dam>                                         Traveldist_N                     := N/distance[N_rel];
 		
 		attribute<bool>                                        IsNTimeNotTooLong                := switch(
-																										  case(N_mode_rel == Modes/v/Walking, N_time <= convert(ModelParameters/MaxWalkingTime_Stops2Dest, s))
-																										, case(N_mode_rel == Modes/v/Cycling, N_time <= convert(ModelParameters/MaxCyclingTime_Stops2Dest, s))
+																										  case(N_mode_rel == Modes/v/Walking, N_time_net <= convert(ModelParameters/MaxWalkingTime_Stops2Dest, s))
+																										, case(N_mode_rel == Modes/v/Cycling, N_time_net <= convert(ModelParameters/MaxCyclingTime_Stops2Dest, s))
 																										, FALSE
 																									);
 		attribute<bool>                                        IsValid                          := Traveltime <= /ModelParameters/MaxTravelTime[s] && IsNTimeNotTooLong;
@@ -460,8 +462,8 @@ Template PerDepartureMoment_T
 			ModelParameters/Advanced/FlexMode_FileTag // #113: '_noflex' of '_flexpen<n>min', leeg bij FlexMode 'asis'
 			;
 		
-		parameter<string> Direct_str := ModelParameters/Advanced/AllowDirectCyclingOverWalking ? 'CC' : 'WW';
-		parameter<string> V_typen := Direct_str+','+asList(ModelParameters/Advanced/OV_PreTransport_Typen/ExportName, ',');
+		parameter<string> Direct_str := ModelParameters/Advanced/Direct_str; // WW, CC en/of AA; sinds 2026-09-23 uit DirectModes
+		parameter<string> V_typen := (Direct_str != '' ? Direct_str + ',' : '') + asList(ModelParameters/Advanced/OV_PreTransport_Typen/ExportName, ',');
 		parameter<string> N_typen := asList(ModelParameters/Advanced/OV_PostTransport_Typen/ExportName, ',');
 	}
 }

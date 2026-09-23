@@ -20,7 +20,7 @@
 	parameter<string>   GTFS_file_date                    := '20241001'             , Descr = "Which file date for the GTFS file would you like to use? Only relevant for public transport analysis."; // 20241001 20251008 20260316
 	parameter<string>   Analysis_date                     := '20241001'             , Descr = "What is the date of interest for the public transport analysis? Make sure this date is equal or later than GTFS_file_date, and should be no later than a month after the GTFS_file_date.", IntegrityCheck = "uint32(this) >= uint32(GTFS_file_date) && uint32(this) <= uint32(GTFS_file_date) + 100"; 
 
-	parameter<min_f>    MaxWalkingTime_Org2Dest           := 30[min_f]              , Descr = "Maximum walking time from origin towards destination";
+	parameter<min_f>    MaxWalkingTime_Org2Dest           := 90[min_f]              , Descr = "Maximum walking time from origin towards destination";
 	parameter<min_f>    MaxWalkingTime_Org2Stops          := 15[min_f]              , Descr = "Maximum walking time from origin towards first stop";
 	parameter<min_f>    MaxWalkingTime_Org2RMT_Stops      := 15[min_f]              , Descr = "Maximum walking time from origin towards first rail, metro, or tram stop";
 	parameter<min_f>    MaxWalkingTime_Org2RM_Stops       := 15[min_f]              , Descr = "Maximum walking time from origin towards first rail, metro, or tram stop";
@@ -29,7 +29,7 @@
 	parameter<min_f>    MaxWalkingTime_OVF_Stops2Dest     := 15[min_f]              , Descr = "Maximum walking time from last stop which is an OV-fiets station towards destination";
 	parameter<min_f>    MaxWalkingTime_RMT_Stops2Dest     := 15[min_f]              , Descr = "Maximum walking time from last stop which is a RMT station towards destination";
 	
-	parameter<min_f>    MaxCyclingTime_Org2Dest           := 30[min_f]              , Descr = "Maximum cycling time from origin towards destination";
+	parameter<min_f>    MaxCyclingTime_Org2Dest           := 90[min_f]              , Descr = "Maximum cycling time from origin towards destination";
 	parameter<min_f>    MaxCyclingTime_Org2Stops          := 15[min_f]              , Descr = "Maximum cycling time from origin towards first stop";
 	parameter<min_f>    MaxCyclingTime_Org2RMT_Stops      := 15[min_f]              , Descr = "Maximum cycling time from origin towards first rail, metro, or tram stop";
 	parameter<min_f>    MaxCyclingTime_Org2RM_Stops       := 15[min_f]              , Descr = "Maximum cycling time from origin towards first rail, metro, or tram stop";
@@ -56,6 +56,20 @@
 	parameter<min_f>    MaxCarTime                        := 90[min_f]              , Descr = "Maximum travel time using car transport. Note that limiting this value might result in not being able to reach all destinations.";
 	parameter<bool>     UseTomTomNetworkForCars           := TRUE                   , Descr = "Would you like to use the TomTom network car analysis? Or if not, the OSM network is used.";
 	
+	//Directe ritten naast het OV. De ketenrijger voegt per HB-paar de directe rit(ten) bij de OV-ketens en houdt
+	//het Pareto-front op MinimiseCriteria (prijs, tijd) over; zie NetworkSetup/PublicTransport_Prep/Direct_OD.
+	//Tot 2026-09-23 deed of lopen of fietsen mee (AllowDirectCyclingOverWalking) en de auto helemaal niet.
+	parameter<bool>     AllowDirectWalking                := TRUE                   , Descr = "Doet de directe looproute (OSM-loopnetwerk, tot MaxWalkingTime_Org2Dest) mee in het front per HB-paar?";
+	parameter<bool>     AllowDirectCycling                := TRUE                   , Descr = "Doet de directe fietsroute (OSM-fietsnetwerk, tot MaxCyclingTime_Org2Dest) mee in het front per HB-paar?";
+	parameter<bool>     AllowDirectCar                    := TRUE                   , Descr = "Doet de directe autorit (TomTom of OSM, zie UseTomTomNetworkForCars, tot MaxCarTime) mee in het front per HB-paar? De autoprijs volgt uit de TCO-parameters hieronder.";
+	parameter<string>   Car_CongestionMoment_ForDirect    := 'MorningRush'          , Descr = "Welke reistijd van de auto de directe rit gebruikt: 'MorningRush' (07:30), 'NoonRush' (12:30), 'LateEveningRush' (19:30) of 'Freeflow' (alleen TomTom; bij OSM heet dat 'MaxSpeed'). Een koppeling per vertrekmoment is er nog niet; met de huidige vertrekmomenten (07:00 t/m 07:45) is MorningRush de juiste.", IntegrityCheck = "UseTomTomNetworkForCars || Car_CongestionMoment_ForDirect == 'MaxSpeed'";
+	parameter<Euro_km>  Car_VariableCosts_PerKm           := 0.20[Euro_km]          , Descr = "Variabele autokosten per km (brandstof, banden, onderhoud). Samen met Car_FixedCosts_PerKm de TCO van 41 ct/km uit de planning van week 38; de verdeling 20/21 is een eerste aanname en is nog door PBL te zetten.";
+	parameter<Euro_km>  Car_FixedCosts_PerKm              := 0.21[Euro_km]          , Descr = "Vaste autokosten (afschrijving, verzekering, belasting) omgeslagen per km. Telt alleen mee als Advanced/IncludeCarFixedCostsInPrice aan staat.";
+	parameter<Euro_km>  Car_TCO_PerKm                     := Car_VariableCosts_PerKm + Car_FixedCosts_PerKm, Descr = "Total cost of ownership per km, de som van variabel en vast: 41 ct/km.";
+	parameter<Euro>     Car_FixedCosts_PerTrip            := 0[Euro]                , Descr = "Vast bedrag per autorit, bijvoorbeeld parkeren; 0 tot daar een waarde voor is.";
+	parameter<min_f>    Car_StartTime                     := 2[min_f]               , Descr = "Starttijd van een autorit: naar de auto lopen, instappen, wegrijden. Opgeteld bij de reistijd van de directe autorit in het front. Eerste aanname, door PBL te zetten.";
+	parameter<min_f>    Car_ParkingTime                   := 3[min_f]               , Descr = "Parkeertijd aan het eind van een autorit: parkeerplek zoeken en naar de bestemming lopen. Opgeteld bij de reistijd van de directe autorit in het front. Eerste aanname, door PBL te zetten.";
+	
 	container Advanced : using = "classifications"
 	{
 		/// GENERAL
@@ -67,7 +81,10 @@
 		parameter<string>   LISA_year                                 := '2018'                 , Descr = "Which year of the LISA-dataset would you like to use?";
 		parameter<bool>     Dests_geclusterd                          := FALSE                  , Descr = "Would you like to cluster destinations? For example useful for firm destinations, with many firms at the same location. To determine the area of clustering look at Dest_location_scale";
 		parameter<string>   Dest_location_scale                       := '100m'                 , Descr = "If clustering the destination, at which scale would you like to cluster? Options: '100m', '500m', '1000m', '5000m', '10000m', '50000m'";
-		parameter<string>   Org_location_scale                        := '500m'                 , Descr = "Celmaat waarop de BAG-herkomsten geclusterd worden (BAG_woonpanden_Clustered). Opties zijn de celmaten uit geometries/Gridsizes: '25m', '100m', '500m', '1000m', '5000m', '10000m', '50000m'. Stond tot 2026-09-22 vast aan Dest_location_scale; op 100m levert de BAG-snapshot van 1-1-2026 588.903 herkomsten, wat de blokindeling en de OD-omvang onwerkbaar maakt. Losgekoppeld omdat de bestemmingen hun eigen maat mogen houden.";
+		parameter<string>   Org_location_scale                        := '500m'                 , Descr = "Celmaat waarop de BAG-herkomsten geclusterd worden (BAG_woonpanden_Clustered).\n"
+						"Opties zijn de celmaten uit geometries/Gridsizes: '25m', '100m', '500m', '1000m', '5000m', '10000m', '50000m'.\n"
+						"Stond tot 2026-09-22 vast aan Dest_location_scale; op 100m levert de BAG-snapshot van 1-1-2026 588.903 herkomsten, wat de blokindeling en de OD-omvang onwerkbaar maakt.\n"
+						"Losgekoppeld omdat de bestemmingen hun eigen maat mogen houden.";
 		parameter<string>   items_of_interest                         := rjoin(lowercase(DestSet), lowercase(Advanced/dest_domain_list/label), Advanced/dest_domain_list/items_of_interest), Descr = "What is the item of interest in the analysis? Such as number of jobs. Decided via the dest_set.";
 		parameter<bool>     ExcludeOrgBuurtCentroidsWithoutAddressPop := FALSE                  , Descr = "Would yo like to exclude buurt centroid that do not contain addresses or population (depending on CentroidWeightType).";
 		parameter<string>   fileNamePrefix                            := '%LocalDataProjDir%/Output/PerBlock/', Descr = "Location where output files will be saved.";
@@ -95,12 +112,16 @@
 		parameter<uint32>   Knooppunt_MinRichtingen_BTM               := 3                      , Descr = "Minimaal aantal windrichtingen (4 sectoren: O/W/N/Z op basis van de richting naar de volgende halte) waarin BTM-vertrekken het cluster verlaten. Een corridor-bundel (R-net over een as, bv. Ilpendam) heeft er 2; een echt knooppunt met kruisende of uitwaaierende lijnen 3-4. Operationaliseert 'aantal richtingen' uit het vlindermodel.";
 		parameter<float32>  Knooppunt_MinNetwerkwaarde_BTM            := 0f                     , Descr = "Optionele extra drempel op de netwerkwaarde (vlindermodel) voor BTM-knooppunten; 0 = uit. Ter referentie (GTFS 20260316): Amsterdam CS 3400, Station Noord 988, Zoetermeer Centrum West 501, Hoofddorp De Hoek 331, Anderlechtlaan 194, Lemmer busstation 111, Zierikzee busstation 78. Let op: een hoge drempel (bv. 500) schrapt vrijwel alle busstations in spoorloze kernen (Zierikzee, Lemmer, Drachten) - precies de knopen waarvoor deze laag is toegevoegd.";
 		parameter<min_f>    MaxTransferTimeForBoardingSurcharge       := 35[min_f]              , Descr = "Maximale overstap tijd om binnen opstap basistarief te blijven. Dit is door Nederlands OV-prijs model bepaald. Dus niet zomaar aanpassen.";
-		parameter<bool>     AllowDirectCyclingOverWalking             := TRUE                   , Descr = "Direct walking is the minimum, however, directly cycling may also be an option";
+		// AllowDirectCyclingOverWalking (of lopen, of fietsen) is op 2026-09-23 vervangen door
+		// /ModelParameters/AllowDirectWalking, AllowDirectCycling en AllowDirectCar: de directe ritten doen
+		// naast elkaar mee in het front per HB-paar.
 		parameter<m_s>      TransferEffectiveSpeed                    := value(4.5[km_hr] / 1.2f, m_s), Descr = "De loopsnelheid tijdens het overstappen. X km/uur / 1.2 (correctie voor Manhattan distances) en dan geconverteerd naar meter/sec.";
 		parameter<bool>     IncludeWaitingAtHomeInTravelTime          := FALSE                  , Descr = "Wil je dat de wachttijd thuis wordt meegenomen in de totale reisduur, bij vertrektijd vanaf bepaald moment?";
 		parameter<Time>     MaxWaitingTimeAtOrigin                    := 899[Time]             , Descr = "Maximale wachttijd thuis. Zet je dit hoog, zonder dat dit in de reistijd zit (WeighingWaitingAtOriginPreTransport = 0) dan kun je ongemerkt veel later vertrekken dan je denkt.";
 		parameter<min_f>    GradeSeparatedTransferPenalty             := 0[min_f]               , Descr = "Does a public transport stop have a lot of vertical distance to traverse? In that case a time penalty will be given when traffering through that stop.";
-		parameter<min_f>    Cycling_PreTransport_Penalty              := 0[min_f]               , Descr = "When using a bike in pre-transport, a time penalty may be added to incorporate time to park the bike.";
+		parameter<min_f>    Cycling_StartTime                         := 1[min_f]               , Descr = "Starttijd van elke fietsrit: fiets pakken en wegrijden. Opgeteld bij de reistijd van de directe fietsrit, van elk fietsbeen in het voortransport en van elk fietsbeen in het natransport. Eerste aanname, door PBL te zetten.";
+		parameter<min_f>    Cycling_PreTransport_Penalty              := 0[min_f]               , Descr = "Parkeertijd van de fiets aan het eind van ELK fietsbeen in het voortransport (bij een halte of station). Sinds 2026-09-23 opgeteld in de OD-matrix van het been zelf (CreateNetwork_Pedestrian_Bike_T/ODMatrix/ExtraTime_seconds), niet meer apart in de ketenrijger.";
+		parameter<min_f>    Cycling_ParkingTime_IC_Station            := 3[min_f]               , Descr = "EXTRA parkeertijd, bovenop Cycling_PreTransport_Penalty, voor een fietsbeen in het voortransport dat eindigt op een IC-station (het type Org2Ric_Stops_Cycling, StopClass 'Ric'): grote stallingen, langer lopen naar het perron. Punt 3 van de planning van week 38. Eerste aanname, door PBL te zetten.";
 
 		// FLEX-/BELBUSLIJNEN (ObjectVision/NetworkModel_PBL#113)
 		// Bravoflex, U-flex, SyntusFlex, FlexRRReis, Overal Flex, Texelhopper, Opstapper en belbussen staan in de
@@ -126,6 +147,22 @@
 
 		parameter<bool>     IncludeWalkingCostsInPrice                := FALSE                  , Descr = "Wil je reistijdkosten van lopen meenemen in de uiteindelijke 'te bepalen' prijs.";
 		parameter<bool>     IncludeCyclingCostsInPrice                := TRUE                   , Descr = "Wil je reistijdkosten van fietsen meenemen in de uiteindelijke 'te bepalen' prijs.";
+		parameter<bool>     IncludeCarCostsInPrice                    := TRUE                   , Descr = "Telt de kostprijs van de directe autorit (Car_FixedCosts_PerTrip + km x Car_CostsInPrice_PerKm) mee in Price? Zo niet, dan is de auto in het front gratis en wint hij op prijs altijd.";
+		parameter<bool>     IncludeCarFixedCostsInPrice               := TRUE                   , Descr = "Telt het vaste deel van de TCO (Car_FixedCosts_PerKm) mee in de autoprijs, of alleen het variabele deel?";
+		parameter<Euro_km>  Car_CostsInPrice_PerKm                    := /ModelParameters/Car_VariableCosts_PerKm + (IncludeCarFixedCostsInPrice ? /ModelParameters/Car_FixedCosts_PerKm : 0[Euro_km]), Descr = "De kilometerprijs die de directe autorit in het front krijgt: variabel, plus vast als IncludeCarFixedCostsInPrice aan staat.";
+		
+		unit<uint8> DirectModes : nrofrows = 3
+		, Descr = "De directe modaliteiten die naast het OV in het front per HB-paar kunnen meedoen, met hun schakelaar. De naam is de naam van de bron onder NetworkSetup/PublicTransport_Prep/Direct."
+		{
+			attribute<string> name    : ['Walking', 'Cycling', 'Car'];
+			attribute<string> abbrev  : ['W', 'C', 'A'], Descr = "Letter van de modaliteit in ModeUsed (Modes/Selection/name_abbr); een directe rit heet in de uitvoer WW, CC of AA.";
+			attribute<bool>   Allowed := union_data(., /ModelParameters/AllowDirectWalking, /ModelParameters/AllowDirectCycling, /ModelParameters/AllowDirectCar);
+		}
+		unit<uint8> DirectModes_Selected := select_with_attr_by_cond(DirectModes, DirectModes/Allowed), Descr = "De toegestane directe modaliteiten.";
+		parameter<string>   Direct_str                                := asList(DirectModes_Selected/abbrev + DirectModes_Selected/abbrev, ',')
+		,	Descr = "De directe modaliteiten zoals ze in de uitvoernamen staan (V-<Direct_str>,<voortransport>_N-<natransport>): WW, CC en/of AA, in de volgorde van DirectModes. Verving op 2026-09-23 de keuze 'CC' of 'WW' uit AllowDirectCyclingOverWalking."
+		,	IntegrityCheck = "Direct_str != ''" // minstens een van AllowDirectWalking/Cycling/Car moet aan staan: Direct_OD is een union over de toegestane modaliteiten
+		;
 		parameter<uint32>   NumberOfStopBlocks                        := 500                    , Descr = "In the generation of the unlinked PT-network, how many stop blocks should be used in the Ketenrijger? Less means more memory usage per unit of time.";
 		parameter<uint32>   MaxStopBlockSize                          := 104                     , Descr = "In the generation of the unlinked PT-network, what is maximum stop block size? Make sure that the product of this value and the NumberOfStopBlocks is sufficient to include all stops";
 		parameter<uint32>   NumberOfOrgBlocks                         := 450                    , Descr = "In the generation of PT-output files, how many origin blocks should be used? Less means more memory use, but less overhead. Het product met MaxOrgBlockSize moet minstens het aantal herkomsten zijn, zie ChecksBeforeRunning/Check_OriginBlocks: 450 x 200 = 90.000 dekt de 88.126 herkomsten van de 500m-clustering (441 gevulde blokken). Bij een nieuwe BAG-snapshot met meer herkomsten meldt die check precies welk getal nodig is.";

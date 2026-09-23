@@ -49,6 +49,17 @@ Template CreateNetwork_Pedestrian_Bike_T : using = "geometries"
 		attribute<string>  EndName                          := inEnd/name[End_rel];
 		attribute<km>      LengthKm                         := alt_imp; 
 		attribute<dam>     Distance                         := alt_imp[dam]; 
+		// Extra tijd op het been, bovenop de netwerkreistijd: voor een fietsbeen de starttijd, in het
+		// voortransport ook de parkeertijd bij de halte en, bij een IC-station (StopClass 'Ric'), de extra
+		// parkeertijd daar. De V- en N-unions in PublicTransport.dms lezen Duration_seconds_ext, en de prijs
+		// hieronder rekent over dezelfde verlengde tijd, zodat parkeren ook in de tijdwaardering meetelt.
+		parameter<bool>    IsCycling                        := TravelMode == 'Cycling';
+		parameter<bool>    EndsAtICStation                  := TimeInvariantTypes/StopClass[TimeInvariantTypes_rel] == 'Ric';
+		parameter<min_f>   ExtraTime_min                    := (IsCycling ? ModelParameters/Advanced/Cycling_StartTime : 0[min_f])
+		                                                     + (IsCycling && IsPreTransport ? ModelParameters/Advanced/Cycling_PreTransport_Penalty : 0[min_f])
+		                                                     + (IsCycling && IsPreTransport && EndsAtICStation ? ModelParameters/Advanced/Cycling_ParkingTime_IC_Station : 0[min_f]);
+		attribute<s_f>     ExtraTime_seconds                := const(convert(ExtraTime_min, s_f), .);
+		attribute<s_f>     Duration_seconds_ext             := Impedance + ExtraTime_seconds;
 		attribute<rdc>     FromPoint                        := inStart/geometry[Start_rel];
 		attribute<rdc>     ToPoint                          := inEnd/geometry[End_rel];
 		attribute<rdc>     geometry (arc)                   := points2sequence(LinkPoints/geometry, LinkPoints/ODPathRel, LinkPoints/CumulOrdinal);
@@ -62,7 +73,7 @@ Template CreateNetwork_Pedestrian_Bike_T : using = "geometries"
 																	? 'const(rounded_convert(ModelParameters/Advanced/OVFiets_RentalPrice, ct),.)'
 																	: .../TimeInvariantTypes_rel == TimeInvariantTypes/V/RMT_Stops2Dest_Cycling && ModelParameters/Advanced/UseOVFietsPriceForAllCyclingPostTransport
 																		? 'const(rounded_convert(ModelParameters/Advanced/OVFiets_RentalPrice, ct),.)'
-																		: 'rounded_convert(impedance[min_f] * ModelParameters/'+PreTransportStr+'_'+TravelMode+'_Time_Costs, ct)';
+																		: 'rounded_convert(Duration_seconds_ext[min_f] * ModelParameters/'+PreTransportStr+'_'+TravelMode+'_Time_Costs, ct)';
 		parameter<bool>               IsOVFiets                      := TimeInvariantTypes/IsOVfiets[TimeInvariantTypes_rel];
 		parameter<TimeInvariantTypes> Current_TimeInvariantTypes_rel := TimeInvariantTypes_rel;
 		parameter<bool>               IsPreTransport                := VN_Transport == 'V';
