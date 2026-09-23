@@ -71,6 +71,7 @@ Template CreateNetwork_TomTom_T
 			attribute<uint64>             T_JNCTID             := collect_by_cond(.,Roads_with_unconnected_subnetworks_w_CarRoads/IsCarRoad, Roads_with_unconnected_subnetworks_w_CarRoads/T_JNCTID_directed);
 			attribute<Junctions>          F_JNCT_rel           := collect_by_cond(.,Roads_with_unconnected_subnetworks_w_CarRoads/IsCarRoad, Roads_with_unconnected_subnetworks_w_CarRoads/F_JNCT_rel);
 			attribute<Junctions>          T_JNCT_rel           := collect_by_cond(.,Roads_with_unconnected_subnetworks_w_CarRoads/IsCarRoad, Roads_with_unconnected_subnetworks_w_CarRoads/T_JNCT_rel);
+				attribute<Classifications/FuncRoadClass> FRC_rel := collect_by_cond(.,Roads_with_unconnected_subnetworks_w_CarRoads/IsCarRoad, Roads_with_unconnected_subnetworks_w_CarRoads/FRC_rel), Descr = "Wegklasse, voor de kilometerprijs per wegklasse van de directe autorit.";
 			
 			container Speed_per_ImpedanceType :=
 				for_each_nedv(
@@ -99,6 +100,7 @@ Template CreateNetwork_TomTom_T
 			
 			attribute<uint64>          F_JNCTID     := collect_by_cond(.,Roads_isConnected, Roads_with_unconnected_subnetworks_wo_CarRoads/F_JNCTID);
 			attribute<uint64>          T_JNCTID     := collect_by_cond(.,Roads_isConnected, Roads_with_unconnected_subnetworks_wo_CarRoads/T_JNCTID);
+				attribute<Classifications/FuncRoadClass> FRC_rel := collect_by_cond(.,Roads_isConnected, Roads_with_unconnected_subnetworks_wo_CarRoads/FRC_rel);
 			
 			container Speed_per_ImpedanceType :=
 				for_each_nedv(
@@ -136,6 +138,7 @@ Template CreateNetwork_TomTom_T
 			attribute<m>          Meters           := union_data(., Road_linestrings/Meters, UniqueLocations/Length);
 			attribute<uint64>     F_JNCTID         := union_data(., Road_linestrings/F_JNCTID, UniqueLocations/F_JNCTID);
 			attribute<uint64>     T_JNCTID         := union_data(., Road_linestrings/T_JNCTID, UniqueLocations/T_JNCTID);
+			attribute<Classifications/FuncRoadClass> FRC_rel := union_data(., Road_linestrings/FRC_rel, const(Classifications/FuncRoadClass/V/Not_Applicable, UniqueLocations)), Descr = "Wegklasse per link; de OD-koppellinks krijgen Not Applicable.";
 			
 			attribute<rdc>        FromPoint        := union_data(., rjoin(Road_linestrings/F_JNCTID, Junctions/JNCTID, Junctions/geometry), UniqueLocations/geometry);
 			attribute<rdc>        ToPoint          := union_data(., rjoin(Road_linestrings/T_JNCTID, Junctions/JNCTID, Junctions/geometry), UniqueLocations/Clostest_JNCT_geometry);
@@ -156,6 +159,14 @@ Template CreateNetwork_TomTom_T
 			}
 			
 			attribute<km>      LengthKm       := convert(meters, km);
+
+			// Kosten per link voor de directe autorit (ModelParameters, KOSTEN PER LINK): lengte x kilometerprijs per
+			// wegklasse (plus het vaste deel per km als IncludeCarFixedCostsInPrice) plus de optrekkosten van de
+			// kruispuntpenalty aan beide uiteinden. Onafhankelijk van het congestiemoment: de penalty is dat ook.
+			attribute<Euro_km> CostPerKm      := ModelParameters/Car_VariableCosts_PerKm * MakeDefined(ModelParameters/Car_VariableCosts_RoadTypeFactor[FRC_rel], 1f)
+			                                   + (ModelParameters/Advanced/IncludeCarFixedCostsInPrice ? ModelParameters/Car_FixedCosts_PerKm : 0[Euro_km]);
+			attribute<Euro>    TurnCost       := convert(CorrectImpedanceForCrossroads/impedance_Start + CorrectImpedanceForCrossroads/impedance_End, min_f) * ModelParameters/Car_TurnCosts_PerPenaltyMinute;
+			attribute<Euro>    LinkCost       := LengthKm * CostPerKm + TurnCost;
 			
 			container Impedance_per_ImpedanceType :=
 				for_each_nedv(

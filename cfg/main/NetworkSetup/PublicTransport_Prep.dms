@@ -135,7 +135,7 @@ container PublicTransport_Prep
 	//
 	// Prijs per modaliteit: lopen en fietsen krijgen een tijdwaardering (Direct_*_Time_Costs), die alleen in
 	// Price meetelt als Include*CostsInPrice aan staat; de auto krijgt een kostprijs: Car_FixedCosts_PerTrip plus
-	// afstand x Car_CostsInPrice_PerKm (variabel, plus vast als IncludeCarFixedCostsInPrice). Price_Augm is voor
+	// de som van de linkkosten (kilometerprijs per wegklasse, vast deel, optrekkosten; zie KOSTEN PER LINK). Price_Augm is voor
 	// lopen en fietsen de tijdwaardering zelf en voor de auto gelijk aan Price: een tijdwaardering voor
 	// autorijden is er niet. De autoreistijd is die van Car_CongestionMoment_ForDirect.
 	unit<uint8> DirectModes_Selected := select_with_attr_by_cond(/ModelParameters/Advanced/DirectModes, /ModelParameters/Advanced/DirectModes/Allowed)
@@ -161,14 +161,16 @@ container PublicTransport_Prep
 			attribute<impl/Modes> Mode_rel         := const(impl/Modes/V/Cycling, .);
 		}
 		
-		// De auto-HB-tabel met afstand (de _w_AltImp-variant van PrivateTransport_Car_T), TomTom of OSM. Met
-		// ParetoLegs_Car de _pareto-variant: per HB-paar het (reistijd, afstand)-front, dus meerdere rijen per
-		// paar met elk een eigen prijs; de ketenrijger houdt daarvan per paar het niet-gedomineerde deel over.
-		unit<uint64> Car := ='/NetworkSetup/PrivateTransport/Car/Traveltimes/'+/ModelParameters/Car_CongestionMoment_ForDirect+(/ModelParameters/UseTomTomNetworkForCars ? '_TomTom' : '_OSM')+'_w_AltImp'+(/ModelParameters/Advanced/ParetoLegs_Car ? '_pareto' : '')+'/impedanceMatrix'
+		// De auto-HB-tabel met kosten (de _w_Cost-variant van PrivateTransport_Car_T: alt_imp is de som van de
+		// linkkosten, zie ModelParameters KOSTEN PER LINK), TomTom of OSM. Met ParetoLegs_Car de _pareto-variant:
+		// per HB-paar het (reistijd, kosten)-front, dus meerdere rijen per paar; de ketenrijger houdt daarvan per
+		// paar het niet-gedomineerde deel over. De afstand van de rit is niet bekend: het tweede criterium is de
+		// kostprijs, en de operator draagt een alternatieve impedantie.
+		unit<uint64> Car := ='/NetworkSetup/PrivateTransport/Car/Traveltimes/'+/ModelParameters/Car_CongestionMoment_ForDirect+(/ModelParameters/UseTomTomNetworkForCars ? '_TomTom' : '_OSM')+'_w_Cost'+(/ModelParameters/Advanced/ParetoLegs_Car ? '_pareto' : '')+'/impedanceMatrix'
 		{
 			attribute<s>          Duration_seconds := convert(impedance[min_f] + /ModelParameters/Car_StartTime + /ModelParameters/Car_ParkingTime, s);
-			attribute<dam>        Distance         := alt_imp[dam];
-			attribute<Euro>       Cost_Euro        := /ModelParameters/Car_FixedCosts_PerTrip + alt_imp * /ModelParameters/Advanced/Car_CostsInPrice_PerKm;
+			attribute<dam>        Distance         := const(null_w, ., dam), Descr = "Onbekend voor de directe autorit: de matrix draagt de kosten als alternatieve impedantie, niet de afstand.";
+			attribute<Euro>       Cost_Euro        := /ModelParameters/Car_FixedCosts_PerTrip + alt_imp[Euro];
 			attribute<Ct>         Price            := =/ModelParameters/Advanced/IncludeCarCostsInPrice ? 'rounded_convert(Cost_Euro, Ct)' : 'const(0, ., Ct)';
 			attribute<Ct>         Price_Augm       := Price;
 			attribute<impl/Modes> Mode_rel         := const(impl/Modes/V/Car, .);

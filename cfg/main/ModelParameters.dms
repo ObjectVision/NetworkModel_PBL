@@ -69,6 +69,17 @@
 	parameter<Euro>     Car_FixedCosts_PerTrip            := 0[Euro]                , Descr = "Vast bedrag per autorit, bijvoorbeeld parkeren; 0 tot daar een waarde voor is.";
 	parameter<min_f>    Car_StartTime                     := 2[min_f]               , Descr = "Starttijd van een autorit: naar de auto lopen, instappen, wegrijden. Opgeteld bij de reistijd van de directe autorit in het front. Eerste aanname, door PBL te zetten.";
 	parameter<min_f>    Car_ParkingTime                   := 3[min_f]               , Descr = "Parkeertijd aan het eind van een autorit: parkeerplek zoeken en naar de bestemming lopen. Opgeteld bij de reistijd van de directe autorit in het front. Eerste aanname, door PBL te zetten.";
+	// KOSTEN PER LINK. De prijs van de directe autorit is de som over de gereden links van lengte x kilometerprijs
+	// (Car_VariableCosts_PerKm x Car_VariableCosts_RoadTypeFactor[wegklasse], plus Car_FixedCosts_PerKm als
+	// IncludeCarFixedCostsInPrice aan staat) plus de optrekkosten op kruispunten (de penalty-seconden van beide
+	// linkuiteinden x Car_TurnCosts_PerPenaltyMinute), plus Car_FixedCosts_PerTrip. Reistijd en kosten zijn zo
+	// niet lineair gekoppeld, dus is die linkkost het tweede criterium van het pareto-front (ParetoLegs_Car).
+	// Alleen het TomTom-net kent per link de wegklasse (FRC) en de kruispuntpenalty apart; het OSM-autonet rekent
+	// lengte x Advanced/Car_CostsInPrice_PerKm, want de contractie in CreateNetwork_Efficient_T houdt wegtype en
+	// penalty niet per link bij.
+	attribute<float32>  Car_VariableCosts_RoadTypeFactor (Classifications/FuncRoadClass) : [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+	,	Descr = "Factor op Car_VariableCosts_PerKm per TomTom-wegklasse, in de volgorde van Classifications/FuncRoadClass/Label: Not Applicable (ook de OD-koppellinks), Motorway, Major Road, Other Major Road, Secondary Road, Local Connecting Road, Local Road of High Importance, Local Road, Local Road of Minor Importance, Other Road. Alles 1 = kilometerprijs onafhankelijk van wegtype; bijvoorbeeld < 1 op snelwegen (constante snelheid, laag verbruik per km) en > 1 in de stad. Door PBL te zetten.";
+	parameter<Euro_min> Car_TurnCosts_PerPenaltyMinute    := 0.30[Euro_min]          , Descr = "Optrekkosten: extra brandstof door afremmen en weer optrekken op kruispunten, uitgedrukt per minuut kruispuntpenalty (Advanced/Junction_Penalties, aan beide linkuiteinden geteld). 0,30 Euro/min = 0,5 ct per penalty-seconde: een kruising van 4 wegen kost 2 x 5 s = 5 ct, een zijweg 2 x 2 s = 2 ct. Eerste aanname (optrekken van 50 naar 80 km/u kost 3 tot 8 ct brandstof), door PBL te zetten.";
 	
 	container Advanced : using = "classifications"
 	{
@@ -182,13 +193,13 @@
 		#include<ParetoArm.dms>
 		// PARETO-FRONT VOOR DE DIRECTE AUTORIT (vervolg op #115 en #88). De auto-Dijkstra levert per HB-paar
 		// EEN route, de snelste, en de prijs volgt uit de afstand van die route. Met de pareto-optie levert
-		// dezelfde operator per HB-paar het (reistijd, afstand)-front: de snelle snelwegroute naast de korte
-		// binnenweg. Omdat de autokosten per km constant zijn (Car_CostsInPrice_PerKm) is dat precies het
-		// (tijd, prijs)-front dat de ketenrijger per HB-paar tegen OV, lopen en fietsen afweegt. Alleen de
+		// dezelfde operator per HB-paar het (reistijd, kosten)-front: de snelle snelwegroute naast de korte
+		// binnenweg. Het tweede criterium is de kostprijs per link (zie de KOSTEN PER LINK hierboven), dus dat
+		// is precies het (tijd, prijs)-front dat de ketenrijger per HB-paar tegen OV, lopen en fietsen afweegt. Alleen de
 		// directe rit (PublicTransport_Prep/Direct/Car) gebruikt de pareto-variant; de auto-exports blijven scalair.
-		parameter<bool>     ParetoLegs_Car                            := TRUE                   , Descr = "Gebruik de pareto-optie van impedance_matrix_od64 voor de directe autorit in het front per HB-paar: per HB-paar alle (reistijd, afstand)-optimale routes in plaats van alleen de snelste. Kost meer rekentijd en geheugen dan de scalaire Dijkstra; zie CarLegDistanceQuantum.";
-		parameter<km>       CarLegDistanceQuantum                     := 0.1[km]                , Descr = "Kwantisatie van het tweede pareto-criterium (de linklengte) voor de auto, per link afgerond op dit raster. Zonder kwantisatie (0[km]) ontsporen de fronten op een wegennet met continue lengten (GeoDMS doc/bicriteria-impedance.md 5.5). 100 m is fijn genoeg voor wegvakken van 50-300 m en betekent 4 ct prijsresolutie bij 41 ct/km; de afstand en prijs van de directe autorit in het front zijn dan sommen van afgeronde linklengten.";
-		parameter<string>   ParetoLegs_Car_FileTag                    := ParetoLegs_Car ? '_paretoCar' + (CarLegDistanceQuantum > 0[km] ? 'q'+string(CarLegDistanceQuantum * 1000f)+'m' : '') : '', Descr = "Naamsuffix voor de OV-uitvoer per blok en vertrekmoment, want het front met de directe autorit hangt van deze twee parameters af; leeg als ParetoLegs_Car uit staat.";
+		parameter<bool>     ParetoLegs_Car                            := TRUE                   , Descr = "Gebruik de pareto-optie van impedance_matrix_od64 voor de directe autorit in het front per HB-paar: per HB-paar alle (reistijd, linkkosten)-optimale routes in plaats van alleen de snelste. Kost meer rekentijd en geheugen dan de scalaire Dijkstra; zie CarLegCostQuantum.";
+		parameter<Euro>     CarLegCostQuantum                         := 0.01[Euro]             , Descr = "Kwantisatie van het tweede pareto-criterium (de kosten per link, in euro), per link afgerond op dit raster. Zonder kwantisatie (0[Euro]) ontsporen de fronten op een wegennet met continue kosten (GeoDMS doc/bicriteria-impedance.md 5.5). Niet grover kiezen dan de korte links verdragen: bij 4 ct (100 m bij 41 ct/km) rondt elke link onder 50 m af naar 0 en zakt de som over het TomTom-net 6 procent onder de echte lengte; bij 1 ct (24 m) verdwijnen alleen links onder 12 m. De prijs van de directe autorit in het front is een som van afgeronde linkkosten; een fijner raster kost meer labels per knoop in de zoektocht.";
+		parameter<string>   ParetoLegs_Car_FileTag                    := ParetoLegs_Car ? '_paretoCar' + (CarLegCostQuantum > 0[Euro] ? 'q'+string(CarLegCostQuantum * 100f)+'ct' : '') : '', Descr = "Naamsuffix voor de OV-uitvoer per blok en vertrekmoment, want het front met de directe autorit hangt van deze twee parameters af; leeg als ParetoLegs_Car uit staat.";
 
 		parameter<euro>     OVFiets_RentalPrice                       := 4.45[euro]             , Descr = "Prijs voor de huur van de fiets voor de eerste 24u. 2023=4.45 euro";
 		parameter<bool>     UseOVFietsPriceForAllCyclingPostTransport := TRUE                   , Descr = "Wil je voor al het fiets-PostTransport het vaste bedrang van de OV-fiets gebruiken? En dus de km-prijs niet gebruiken.";

@@ -73,17 +73,33 @@ Template PrivateTransport_Car_T
 		unit<uint64> LateEveningRush_TomTom_w_AltImp  := ImpedanceMatrix_with_AltImp_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/LateEveningRush, TomTom_LinkSet/LengthKm);
 		unit<uint64> Freeflow_TomTom_w_AltImp         := ImpedanceMatrix_with_AltImp_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/Freeflow, TomTom_LinkSet/LengthKm);
 
-		// Pareto-varianten (ModelParameters/Advanced/ParetoLegs_Car): per HB-paar het (reistijd, afstand)-front in
-		// plaats van alleen de snelste route. Alleen PublicTransport_Prep/Direct/Car leest deze; de exports hierboven
-		// blijven scalair, zodat rjoin op Org_Dest daar een rij per paar houdt.
-		unit<uint64> MorningRush_OSM_w_AltImp_pareto         := ImpedanceMatrix_with_AltImp_Pareto_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Morning_car, OSM_LinkSet/Distance_per_ImpedanceType/congested_Morning_car);
-		unit<uint64> NoonRush_OSM_w_AltImp_pareto            := ImpedanceMatrix_with_AltImp_Pareto_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Noon_car, OSM_LinkSet/Distance_per_ImpedanceType/congested_Noon_car);
-		unit<uint64> LateEveningRush_OSM_w_AltImp_pareto     := ImpedanceMatrix_with_AltImp_Pareto_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Late_car, OSM_LinkSet/Distance_per_ImpedanceType/congested_Late_car);
-		unit<uint64> MaxSpeed_OSM_w_AltImp_pareto            := ImpedanceMatrix_with_AltImp_Pareto_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/max_limit_car, OSM_LinkSet/Distance_per_ImpedanceType/max_limit_car);
-		unit<uint64> MorningRush_TomTom_w_AltImp_pareto      := ImpedanceMatrix_with_AltImp_Pareto_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/MorningRush, TomTom_LinkSet/LengthKm);
-		unit<uint64> NoonRush_TomTom_w_AltImp_pareto         := ImpedanceMatrix_with_AltImp_Pareto_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/NoonRush, TomTom_LinkSet/LengthKm);
-		unit<uint64> LateEveningRush_TomTom_w_AltImp_pareto  := ImpedanceMatrix_with_AltImp_Pareto_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/LateEveningRush, TomTom_LinkSet/LengthKm);
-		unit<uint64> Freeflow_TomTom_w_AltImp_pareto         := ImpedanceMatrix_with_AltImp_Pareto_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/Freeflow, TomTom_LinkSet/LengthKm);
+		// Kostenmatrices voor de directe autorit (PublicTransport_Prep/Direct/Car): alt_imp is de som van de linkkosten
+		// (ModelParameters, KOSTEN PER LINK). _w_Cost is scalair (per HB-paar de snelste route met haar kosten),_w_Cost_pareto
+		// het (reistijd, kosten)-front per HB-paar (Advanced/ParetoLegs_Car). De exports hierboven blijven op de
+		// scalaire _w_AltImp-matrices met de afstand, zodat rjoin op Org_Dest daar een rij per paar houdt.
+		// Het OSM-autonet kent geen kosten per wegklasse of optrekkosten: lengte x Car_CostsInPrice_PerKm.
+		attribute<Euro> OSM_LinkCost_MorningRush     (OSM_LinkSet) := OSM_LinkSet/Distance_per_ImpedanceType/congested_Morning_car * ModelParameters/Advanced/Car_CostsInPrice_PerKm;
+		attribute<Euro> OSM_LinkCost_NoonRush        (OSM_LinkSet) := OSM_LinkSet/Distance_per_ImpedanceType/congested_Noon_car * ModelParameters/Advanced/Car_CostsInPrice_PerKm;
+		attribute<Euro> OSM_LinkCost_LateEveningRush (OSM_LinkSet) := OSM_LinkSet/Distance_per_ImpedanceType/congested_Late_car * ModelParameters/Advanced/Car_CostsInPrice_PerKm;
+		attribute<Euro> OSM_LinkCost_MaxSpeed        (OSM_LinkSet) := OSM_LinkSet/Distance_per_ImpedanceType/max_limit_car * ModelParameters/Advanced/Car_CostsInPrice_PerKm;
+
+		unit<uint64> MorningRush_OSM_w_Cost                := ImpedanceMatrix_with_Cost_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Morning_car, OSM_LinkCost_MorningRush, FALSE);
+		unit<uint64> NoonRush_OSM_w_Cost                   := ImpedanceMatrix_with_Cost_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Noon_car, OSM_LinkCost_NoonRush, FALSE);
+		unit<uint64> LateEveningRush_OSM_w_Cost            := ImpedanceMatrix_with_Cost_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Late_car, OSM_LinkCost_LateEveningRush, FALSE);
+		unit<uint64> MaxSpeed_OSM_w_Cost                   := ImpedanceMatrix_with_Cost_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/max_limit_car, OSM_LinkCost_MaxSpeed, FALSE);
+		unit<uint64> MorningRush_OSM_w_Cost_pareto         := ImpedanceMatrix_with_Cost_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Morning_car, OSM_LinkCost_MorningRush, TRUE);
+		unit<uint64> NoonRush_OSM_w_Cost_pareto            := ImpedanceMatrix_with_Cost_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Noon_car, OSM_LinkCost_NoonRush, TRUE);
+		unit<uint64> LateEveningRush_OSM_w_Cost_pareto     := ImpedanceMatrix_with_Cost_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Late_car, OSM_LinkCost_LateEveningRush, TRUE);
+		unit<uint64> MaxSpeed_OSM_w_Cost_pareto            := ImpedanceMatrix_with_Cost_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/max_limit_car, OSM_LinkCost_MaxSpeed, TRUE);
+
+		unit<uint64> MorningRush_TomTom_w_Cost             := ImpedanceMatrix_with_Cost_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/MorningRush, TomTom_LinkSet/LinkCost, FALSE);
+		unit<uint64> NoonRush_TomTom_w_Cost                := ImpedanceMatrix_with_Cost_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/NoonRush, TomTom_LinkSet/LinkCost, FALSE);
+		unit<uint64> LateEveningRush_TomTom_w_Cost         := ImpedanceMatrix_with_Cost_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/LateEveningRush, TomTom_LinkSet/LinkCost, FALSE);
+		unit<uint64> Freeflow_TomTom_w_Cost                := ImpedanceMatrix_with_Cost_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/Freeflow, TomTom_LinkSet/LinkCost, FALSE);
+		unit<uint64> MorningRush_TomTom_w_Cost_pareto      := ImpedanceMatrix_with_Cost_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/MorningRush, TomTom_LinkSet/LinkCost, TRUE);
+		unit<uint64> NoonRush_TomTom_w_Cost_pareto         := ImpedanceMatrix_with_Cost_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/NoonRush, TomTom_LinkSet/LinkCost, TRUE);
+		unit<uint64> LateEveningRush_TomTom_w_Cost_pareto  := ImpedanceMatrix_with_Cost_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/LateEveningRush, TomTom_LinkSet/LinkCost, TRUE);
+		unit<uint64> Freeflow_TomTom_w_Cost_pareto         := ImpedanceMatrix_with_Cost_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/Freeflow, TomTom_LinkSet/LinkCost, TRUE);
 
 		Template ImpedanceMatrix_T
 		{
@@ -148,32 +164,34 @@ Template PrivateTransport_Car_T
 			}
 		}
 		
-		Template ImpedanceMatrix_with_AltImp_Pareto_T
+		Template ImpedanceMatrix_with_Cost_T
 		{
 			unit<uint32>      LinkSet_dom;
 			unit<uint32>      NodeSet_dom;
 			attribute<s_f>    Impedance (LinkSet_dom);
-			attribute<km>     Distance  (LinkSet_dom);
+			attribute<Euro>   Cost      (LinkSet_dom);
+			parameter<bool>   UsePareto;
 			//
-			// De pareto-optie doet een bi-criteria label-setting zoektocht op (Impedance, Distance_q) en levert per
-			// HB-paar een rij per Pareto-optimale route; de eerste rij per paar draagt de scalaire minimum-reistijd
-			// (GeoDMS#856, doc/bicriteria-impedance.md). alt_imp is dan de (gekwantiseerde) afstand van die route.
+			// Scalair (UsePareto FALSE): per HB-paar de snelste route, alt_imp = haar kosten. Pareto (TRUE): een
+			// bi-criteria label-setting zoektocht op (Impedance, Cost_q) met per HB-paar een rij per Pareto-optimale route;
+			// de eerste rij per paar draagt de scalaire minimum-reistijd (GeoDMS#856, doc/bicriteria-impedance.md).
 			// Per link afronden volstaat: een som van veelvouden van q is zelf een veelvoud van q.
-			attribute<km>     Distance_q (LinkSet_dom) := ModelParameters/Advanced/CarLegDistanceQuantum > 0[km]
-			                                              ? float32(round(Distance / ModelParameters/Advanced/CarLegDistanceQuantum)) * ModelParameters/Advanced/CarLegDistanceQuantum
-			                                              : Distance;
+			attribute<Euro>   Cost_q (LinkSet_dom) := UsePareto && ModelParameters/Advanced/CarLegCostQuantum > 0[Euro]
+			                                          ? float32(round(Cost / ModelParameters/Advanced/CarLegCostQuantum)) * ModelParameters/Advanced/CarLegCostQuantum
+			                                          : Cost;
+			parameter<string> ParetoStr := UsePareto ? ';pareto' : '';
 			unit<uint64> impedanceMatrix := =
 				ModelParameters/Advanced/InterpretAllRoadsAsBidirectional 
-					? 	'impedance_matrix_od64(''bidirectional;startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;pareto;od:impedance,OrgZone_rel,DstZone_rel''
+					? 	'impedance_matrix_od64(''bidirectional;startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp'+ParetoStr+';od:impedance,OrgZone_rel,DstZone_rel''
 							, Impedance
 							, LinkSet_dom/F1
 							, LinkSet_dom/F2
 							, NodeSet_dom/OrgNode_rel
 							, NodeSet_dom/DestNode_rel
 							, convert(settings/max_traveldistance_min, s_f)
-							, Distance_q
+							, Cost_q
 						)'
-					: 	'impedance_matrix_od64(''bidirectional(link_flag);startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;pareto;od:impedance,OrgZone_rel,DstZone_rel''
+					: 	'impedance_matrix_od64(''bidirectional(link_flag);startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp'+ParetoStr+';od:impedance,OrgZone_rel,DstZone_rel''
 							, Impedance
 							, LinkSet_dom/F1
 							, LinkSet_dom/F2
@@ -181,7 +199,7 @@ Template PrivateTransport_Car_T
 							, NodeSet_dom/OrgNode_rel
 							, NodeSet_dom/DestNode_rel
 							, convert(settings/max_traveldistance_min, s_f)
-							, Distance_q
+							, Cost_q
 						)'
 			{
 				attribute<string> Org_Dest := string(OrgZone_rel)+'_'+string(DstZone_rel);
