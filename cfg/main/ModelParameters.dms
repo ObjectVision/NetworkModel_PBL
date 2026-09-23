@@ -88,15 +88,31 @@
 	attribute<float32>  Car_VariableCosts_RoadTypeFactor (Classifications/FuncRoadClass) : [1.00, 1.05, 0.95, 0.85, 0.90, 0.95, 1.00, 1.10, 1.20, 1.20]
 	,	Descr = "Factor op Car_VariableCosts_PerKm per TomTom-wegklasse, in de volgorde van Classifications/FuncRoadClass/Label: Not Applicable 1,00 (ook de OD-koppellinks), Motorway 1,05 (100-130 km/u, luchtweerstand), Major Road 0,95 (autoweg 100), Other Major Road 0,85 (provinciale weg 80, het zuinigste bereik), Secondary Road 0,90, Local Connecting Road 0,95, Local Road of High Importance 1,00, Local Road 1,10 (50), Local Road of Minor Importance 1,20 (30, woonstraten), Other Road 1,20. Eerste aanname uit de WLTP-verbruiksfasen, kilometergewogen gemiddelde 1; door PBL te zetten.";
 	parameter<Euro_min> Car_TurnCosts_PerPenaltyMinute    := 0.30[Euro_min]          , Descr = "Optrekkosten: extra brandstof door afremmen en weer optrekken op kruispunten, uitgedrukt per minuut kruispuntpenalty (Advanced/Junction_Penalties, aan beide linkuiteinden geteld) op een weg van 50 km/u; per wegklasse vermenigvuldigd met Car_TurnCosts_RoadTypeFactor. 0,30 Euro/min = 0,5 ct per penalty-seconde: een kruising van 4 wegen kost bij 50 km/u 2 x 5 s = 5 ct, een zijweg 2 x 2 s = 2 ct. Eerste aanname (optrekken naar 50 km/u kost ongeveer 3 ct brandstof), door PBL te zetten.";
-	// De energie om na een stop weer op snelheid te komen schaalt met het kwadraat van die snelheid; de factor is
-	// (typische snelheid van de wegklasse / 50)^2: 80 -> 2,56, 70 -> 1,96, 60 -> 1,44, 50 -> 1,00, 40 -> 0,64,
-	// 30 -> 0,36. Snelweg (FRC0) en autoweg (FRC1) staan op 0: daar is de kruispuntpenalty een doorrijpenalty, want
-	// CorrectImpedanceForCrossroads telt elke knoop met drie of meer links, dus ook elke aansluiting die het
-	// doorgaande verkeer zonder afremmen passeert. Met (130/50)^2 = 6,76 kostte elke gepasseerde afrit 13,5 ct en
-	// werd elk alternatief dat hem mijdt een eigen frontlid (12 routes per HB-paar bij 1 ct, gemeten 2026-09-23).
+	// Optrekkosten per wegklasse, drie regimes:
+	// - Snelweg (FRC0) en autoweg (FRC1) staan op 0: daar is de kruispuntpenalty een doorrijpenalty, want
+	//   CorrectImpedanceForCrossroads telt elke knoop met drie of meer links, dus ook elke aansluiting die het
+	//   doorgaande verkeer zonder afremmen passeert. Met (130/50)^2 = 6,76 kostte elke gepasseerde afrit 13,5 ct en
+	//   werd elk alternatief dat hem mijdt een eigen frontlid (kleine set 2026-09-23: 55,7 routes per HB-paar, met 0 23,0).
+	// - Provinciale weg (FRC2) en secundaire weg (FRC3) zijn tijd-equivalent (Car_TurnCosts_UseTimeEquivalent): de
+	//   optrekkosten van een kruispunt zijn precies de kilometerprijs van de afstand die je in de penaltytijd op die weg
+	//   zou rijden (Car_TurnCosts_RoadTypeFactor_TimeEquivalent). Een omweg die het kruispunt mijdt kost dan per seconde
+	//   evenveel als het kruispunt zelf, het tijdverlies telt even zwaar als het kostenverlies, en die omweg wordt geen
+	//   frontlid. Bij 0,20 + 0,21 euro/km en 0,30 euro/min: FRC2 (80 km/u, 0,38 euro/km) 1,69, FRC3 (70 km/u, 0,39) 1,52.
+	// - De lagere klassen houden de kinetische factor (typische snelheid / 50)^2, de energie die na een stop opnieuw
+	//   opgebouwd wordt: 60 -> 1,44, 50 -> 1,00, 40 -> 0,64, 30 -> 0,36.
 	//                                                                      NA    FRC0  FRC1  FRC2  FRC3  FRC4  FRC5  FRC6  FRC7  FRC8
-	attribute<float32>  Car_TurnCosts_RoadTypeFactor (Classifications/FuncRoadClass) : [1.00, 0.00, 0.00, 2.56, 1.96, 1.44, 1.00, 0.64, 0.36, 0.36]
-	,	Descr = "Factor op Car_TurnCosts_PerPenaltyMinute per TomTom-wegklasse, in de volgorde van Classifications/FuncRoadClass/Label: Not Applicable 1,00 (ook de OD-koppellinks), Motorway 0,00 en Major Road 0,00 (doorgaand verkeer remt niet af bij een aansluiting, zie het commentaar hierboven), Other Major Road 2,56 (80), Secondary Road 1,96 (70), Local Connecting Road 1,44 (60), Local Road of High Importance 1,00 (50), Local Road 0,64 (40), Local Road of Minor Importance 0,36 (30), Other Road 0,36. Eerste aanname: (typische snelheid / 50 km/u) in het kwadraat, de kinetische energie die na een stop opnieuw opgebouwd wordt, behalve op snelweg en autoweg; door PBL te zetten.";
+	attribute<float32>  Car_TypicalSpeed_kmh (Classifications/FuncRoadClass) : [50, 130, 100, 80, 70, 60, 50, 40, 30, 30]
+	,	Descr = "Typische snelheid per TomTom-wegklasse in km/u, in de volgorde van Classifications/FuncRoadClass/Label, voor de tijd-equivalente optrekfactor. Eerste aanname, door PBL te zetten.";
+	attribute<Euro_km>  Car_CostPerKm_RoadType (Classifications/FuncRoadClass) := Car_VariableCosts_PerKm * Car_VariableCosts_RoadTypeFactor + (Advanced/IncludeCarFixedCostsInPrice ? Car_FixedCosts_PerKm : 0[Euro_km])
+	,	Descr = "Kilometerprijs per wegklasse in euro/km: dezelfde formule als LinkSet/CostPerKm in CreateNetwork_TomTom_T (variabel deel maal Car_VariableCosts_RoadTypeFactor, plus het vaste deel als IncludeCarFixedCostsInPrice aan staat).";
+	attribute<float32>  Car_TurnCosts_RoadTypeFactor_TimeEquivalent (Classifications/FuncRoadClass) := Car_TypicalSpeed_kmh / 60f * (Car_CostPerKm_RoadType / 1[Euro_km]) / (Car_TurnCosts_PerPenaltyMinute / 1[Euro_min])
+	,	Descr = "De optrekfactor waarbij een penaltyminuut evenveel kost als de afstand die je in die minuut op de wegklasse rijdt: (typische snelheid / 60) km/min maal kilometerprijs, gedeeld door Car_TurnCosts_PerPenaltyMinute; de delingen door 1[Euro_km] en 1[Euro_min] maken de factor dimensieloos, want float32() houdt de metriek. Ter informatie voor alle klassen; gebruikt waar Car_TurnCosts_UseTimeEquivalent TRUE is.";
+	attribute<bool>     Car_TurnCosts_UseTimeEquivalent (Classifications/FuncRoadClass) : [FALSE, FALSE, FALSE, TRUE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE]
+	,	Descr = "Per TomTom-wegklasse: TRUE neemt de tijd-equivalente optrekfactor, FALSE de waarde uit Car_TurnCosts_RoadTypeFactor_Set. Sinds 2026-09-23 TRUE voor Other Major Road (FRC2) en Secondary Road (FRC3).";
+	attribute<float32>  Car_TurnCosts_RoadTypeFactor_Set (Classifications/FuncRoadClass) : [1.00, 0.00, 0.00, 1.69, 1.52, 1.44, 1.00, 0.64, 0.36, 0.36]
+	,	Descr = "Gezette optrekfactor per TomTom-wegklasse, in de volgorde van Classifications/FuncRoadClass/Label: Not Applicable 1,00 (ook de OD-koppellinks), Motorway 0,00 en Major Road 0,00 (doorgaand verkeer remt niet af bij een aansluiting), Other Major Road 1,69 en Secondary Road 1,52 (ter informatie de tijd-equivalente waarde van 2026-09-23; zolang Car_TurnCosts_UseTimeEquivalent daar TRUE is geldt de afgeleide waarde), Local Connecting Road 1,44 (60 km/u), Local Road of High Importance 1,00 (50), Local Road 0,64 (40), Local Road of Minor Importance 0,36 (30), Other Road 0,36: (typische snelheid / 50 km/u) in het kwadraat, de kinetische energie die na een stop opnieuw opgebouwd wordt. Door PBL te zetten.";
+	attribute<float32>  Car_TurnCosts_RoadTypeFactor (Classifications/FuncRoadClass) := Car_TurnCosts_UseTimeEquivalent ? Car_TurnCosts_RoadTypeFactor_TimeEquivalent : Car_TurnCosts_RoadTypeFactor_Set
+	,	Descr = "Factor op Car_TurnCosts_PerPenaltyMinute per TomTom-wegklasse, zoals CreateNetwork_TomTom_T hem gebruikt: de tijd-equivalente waarde waar Car_TurnCosts_UseTimeEquivalent TRUE is, anders Car_TurnCosts_RoadTypeFactor_Set. De som van deze factoren staat in de storenaam (Advanced/Car_CostTag).";
 	
 	container Advanced : using = "classifications"
 	{
