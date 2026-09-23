@@ -161,8 +161,10 @@ container PublicTransport_Prep
 			attribute<impl/Modes> Mode_rel         := const(impl/Modes/V/Cycling, .);
 		}
 		
-		// De auto-HB-tabel met afstand (de _w_AltImp-variant van PrivateTransport_Car_T), TomTom of OSM.
-		unit<uint64> Car := ='/NetworkSetup/PrivateTransport/Car/Traveltimes/'+/ModelParameters/Car_CongestionMoment_ForDirect+(/ModelParameters/UseTomTomNetworkForCars ? '_TomTom' : '_OSM')+'_w_AltImp/impedanceMatrix'
+		// De auto-HB-tabel met afstand (de _w_AltImp-variant van PrivateTransport_Car_T), TomTom of OSM. Met
+		// ParetoLegs_Car de _pareto-variant: per HB-paar het (reistijd, afstand)-front, dus meerdere rijen per
+		// paar met elk een eigen prijs; de ketenrijger houdt daarvan per paar het niet-gedomineerde deel over.
+		unit<uint64> Car := ='/NetworkSetup/PrivateTransport/Car/Traveltimes/'+/ModelParameters/Car_CongestionMoment_ForDirect+(/ModelParameters/UseTomTomNetworkForCars ? '_TomTom' : '_OSM')+'_w_AltImp'+(/ModelParameters/Advanced/ParetoLegs_Car ? '_pareto' : '')+'/impedanceMatrix'
 		{
 			attribute<s>          Duration_seconds := convert(impedance[min_f] + /ModelParameters/Car_StartTime + /ModelParameters/Car_ParkingTime, s);
 			attribute<dam>        Distance         := alt_imp[dam];
@@ -170,6 +172,16 @@ container PublicTransport_Prep
 			attribute<Ct>         Price            := =/ModelParameters/Advanced/IncludeCarCostsInPrice ? 'rounded_convert(Cost_Euro, Ct)' : 'const(0, ., Ct)';
 			attribute<Ct>         Price_Augm       := Price;
 			attribute<impl/Modes> Mode_rel         := const(impl/Modes/V/Car, .);
+
+			// Frontkentallen (vgl. ParetoBenchmark/LegStats_T): rijen per HB-paar; scalair is front_max 1.
+			attribute<uint64>     od_key           := uint64(OrgZone_rel) * uint64(#impl/dest) + uint64(DstZone_rel);
+			unit<uint64>          od_pair          := unique(od_key);
+			attribute<od_pair>    od_pair_rel      := rlookup(od_key, od_pair/values);
+			attribute<uint32>     front (od_pair)  := pcount(od_pair_rel);
+			parameter<uint32>     stat_rows        := sum(front);
+			parameter<uint64>     stat_od_pairs    := #od_pair;
+			parameter<uint32>     stat_front_max   := max(front);
+			parameter<float32>    stat_front_mean  := float32(stat_rows) / float32(stat_od_pairs);
 		}
 	}
 	
