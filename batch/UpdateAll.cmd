@@ -22,7 +22,9 @@ REM wezen naar itempaden van voor 2025 en zijn op 2026-09-23 verwijderd.
 REM ---------------------------------------------------------------------------------------------
 set geodmsversion=GeoDms20.20.0.m
 set EXE=C:\Program Files\ObjectVision\%geodmsversion%\GeoDmsRun.exe
-set CFG=%~dp0..\cfg\main.dms
+REM De volledige padnaam zonder "..": GeoDMS leidt %LocalDataProjDir% af uit de naam van de map boven cfg, en
+REM met batch\..\cfg\main.dms werd dat "..", zodat de stores in c:\LocalData\..\IntermediateResults (= C:\) kwamen.
+for %%I in ("%~dp0..\cfg\main.dms") do set CFG=%%~fI
 set LOGDIR=%~dp0log
 if not exist "%LOGDIR%" mkdir "%LOGDIR%"
 set PREP=/NetworkSetup/PublicTransport_Prep
