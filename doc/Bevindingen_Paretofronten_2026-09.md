@@ -76,11 +76,24 @@ met 0,20 EUR/km variabel, 0,21 EUR/km vast (in de prijs) en 0,30 EUR per penalty
 
 | vertrekmomenten | ketens in blok 1 | tijd blok 1 | schatting 500 blokken |
 |---|---:|---:|---:|
-| 1 (07:00) | 460.197 | 38 s | ca. 4 uur (gemeten 29 s per blok in de volle run) |
+| 1 (07:00) | 460.197 | 38 s | gemeten: 3,5 uur (24,6 s per blok) |
 | 2 (07:00, 07:30) | 858.928 | 107 s | ca. 15 uur |
 | 4 (07:00 tot 07:45, de standaard) | 1.062.875 | 166 tot 180 s | ca. 24 uur |
 
-**Ketenstore voor 07:00**, gestart 24 september 10:39 (`batch\UpdateAll.cmd chains`, `PT_DepartureMinutes` tijdelijk op 0): uitkomst nog in te vullen.
+**Ketenstore voor 07:00**, 24 september 10:39 tot 14:07 (`batch\UpdateAll.cmd chains`, `PT_DepartureMinutes` tijdelijk op 0, `pareto_optimal_eps` met 10 ct en 60 s in alle stappen):
+
+| | |
+|---|---:|
+| ketens in de store | 219,8 M |
+| ketenrijging, 500 blokken | 205 min (24,6 s per blok) |
+| union en schrijven | 1 min |
+| piek CommitCharge | 37,3 GB |
+| PeakLiveLarge | 27,4 GB |
+| store op schijf | 11,5 GB |
+
+- Geen fouten; de voorcheck op haltenblokken en prijsdekking slaagde.
+- Store: `IntermediateResults\PT_Chains_07h00m_to_08h44m_20241001_min-Price_Time_maxtransf-3_MaxOV-90min_paretoR_chaineps10ct60s.mmd`. Het venster in de naam volgt uit de vertrekmomenten, dus de config leest deze store alleen met `PT_DepartureMinutes` op 0.
+- Met vier vertrekmomenten geeft blok 1 2,3 keer zoveel ketens; store en geheugen groeien naar verwachting mee. Niet gemeten.
 
 ## 3. Directe fiets- en looproutes
 
