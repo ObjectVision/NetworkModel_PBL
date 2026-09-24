@@ -123,10 +123,21 @@ De reistijd van de fiets bevat de starttijd (`Cycling_StartTime`); daardoor ligt
 | waarvan lopen | 268 |
 
 - Het front per paar bestaat vooral uit autoroutes. Een directe rit komt in het front als hij sneller of goedkoper is dan elk ander alternatief.
-- De csv-regels misten `TravelDist_V` en `Traveldist_N` terwijl de kop ze noemt (audit 3.6); hersteld in 8982a43.
+- De csv-regels misten `TravelDist_V` en `Traveldist_N` terwijl de kop ze noemt (audit 3.6); hersteld in 8982a43. Daarna verdwenen alle autoritten uit de csv, omdat hun afstand null is en een null de hele regel null maakte; sinds 6fe61d3 is een onbekende waarde een leeg veld.
 - `Export_PriceInformation` staat standaard op FALSE, dus zonder prijskolom. Voor deze run staat hij tijdelijk op TRUE, omdat een front op prijs en tijd zonder prijs niet te lezen is.
 
-**Alle 450 blokken**, gestart 24 september 14:18 (`batch\UpdateAll.cmd output`): uitkomst nog in te vullen.
+**Alle 450 blokken**, 24 september 14:43 tot 15:04 (`batch\UpdateAll.cmd output`, met de prijskolom): 20 minuten, piek commit 28,6 GB, PeakLiveLarge 21,7 GB, 450 csv-bestanden van samen 3,5 GB, geen fouten, alle regels met 17 velden. De engine rekent meerdere blokken tegelijk, 2,3 s per blok; de eerste 2,5 minuut gaan op aan de loop- en fietsmatrices en het inlezen.
+
+| modaliteit | rijen in het front | HB-paren waar de modaliteit in het front zit | rijen per paar |
+|---|---:|---:|---:|
+| auto | 35.752.261 | 12.829.221 | 2,8 |
+| OV-keten | 2.504.362 | 1.271.365 | 2,0 |
+| fiets | 779.274 | 779.274 | 1 |
+| lopen | 102.973 | 102.973 | 1 |
+| totaal | 39.138.870 | 12.954.623 | 3,0 |
+
+- De auto zit in 99% van de bereikbare paren in het front, het OV in 10%. Fiets en lopen overleven bijna overal waar ze binnen 90 minuten komen (779.274 van 779.484 en 102.973 van 103.838 paren). Lopen kost 0 (`IncludeWalkingCostsInPrice` FALSE) en is daarmee altijd de goedkoopste; de fiets draagt 9 ct per km (`IncludeCyclingCostsInPrice` TRUE) en is meestal goedkoper dan auto en OV.
+- Bestanden: `Output\PerBlock\tt_20241001_07h00m_ORG-bag_woonpanden_clustered_500m-Block_<n>of450_DEST-ov_knooppunten_..._paretoCare10ct_carfront60s10ct_chaineps10ct60s.csv`.
 
 ## 5. Punten voor bespreking
 
