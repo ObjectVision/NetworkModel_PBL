@@ -419,7 +419,13 @@ container PublicTransport_Prep
 				attribute<bool>       is_less          := is_less_or_equal && (not(is_equal) || first_rel < second_rel);
 			}
 			attribute<bool>                 Valid_pareto_condition (Valid) := not(any(pareto_vergelijker/is_less, pareto_vergelijker/second_rel));
-			attribute<bool>                 pareto_condition               := recollect_by_cond(is_also_good_candidate, Valid_pareto_condition, false);
+			attribute<bool>                 pareto_condition_classic       := recollect_by_cond(is_also_good_candidate, Valid_pareto_condition, false), Descr = "De handgeschreven vergelijker, voor engines voor 20.21.0.";
+			// Sinds GeoDMS 20.21.0 (#1282) doet pareto_optimal_eps hetzelfde als de handgeschreven vergelijker (zwakke dominantie,
+			// index-tiebreak) in een sortering en een veegslag, met per criterium een epsilon (Classifications/../EpsilonExpr; 0 = exact):
+			// rijen van dezelfde groep in dezelfde prijs- of tijdbak tellen als gelijk en alleen de beste blijft.
+			attribute<bool>                 pareto_condition               := = /ModelParameters/Advanced/EngineHasParetoEpsilon
+				? 'pareto_optimal_eps(OD_pair_rel, ' + asList(ParetoAttr/Name + ', ' + ParetoAttr/EpsilonExpr, ', ') + ')'
+				: 'pareto_condition_classic';
 		} 
 
 		container BlockResultContainer
@@ -545,6 +551,7 @@ container PublicTransport_Prep
 		// dus moeten ze in de naam staan: anders overschrijft een pareto-run stilzwijgend het
 		// scalaire resultaat waarmee hij vergeleken moet worden.
 		(ModelParameters/Advanced/ParetoLegs_R ? '_paretoR' : '')+
+		ModelParameters/Advanced/ChainPareto_FileTag+ // '_chaineps10ct60s': epsilon-dominantie in de ketenrijging (GeoDMS >= 20.21.0), leeg als die uit staat
 		(ModelParameters/Advanced/ParetoLegs_L ? '_paretoL' : '')+
 		((ModelParameters/Advanced/ParetoLegs_R || ModelParameters/Advanced/ParetoLegs_L || ModelParameters/Advanced/UseQuantisedLegDistanceInScalarRun) && ModelParameters/Advanced/LegDistanceQuantum > 0[km]
 			? '_q'+string(ModelParameters/Advanced/LegDistanceQuantum * 1000f)+'m'
