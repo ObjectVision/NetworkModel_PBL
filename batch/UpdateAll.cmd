@@ -5,8 +5,8 @@ REM UpdateAll.cmd: werkt de stores van NetworkModel_PBL bij met GeoDmsRun, in de
 REM ze elkaar nodig hebben. Elke stap is een eigen GeoDmsRun-aanroep, zodat het geheugen tussen
 REM de stappen vrijkomt, en stopt bij een fout. Logs in batch\log\UpdateAll_<stap>.log.
 REM
-REM   UpdateAll.cmd                 alle secties (bronnen, autoritten, ketens); reken op een nacht
-REM   UpdateAll.cmd all -nosources  alles behalve de genoemde secties: -nosources, -nocars, -nochains
+REM   UpdateAll.cmd                 alle secties (bronnen, autoritten, ketens, uitvoer); reken op meer dan een nacht
+REM   UpdateAll.cmd all -nosources  alles behalve de genoemde secties: -nosources, -nocars, -nochains, -nooutput
 REM   UpdateAll.cmd sources         OSM-netwerk, TomTom-stores, GTFS-store, LISA (alleen bij een
 REM                                 nieuwe editie nodig; ca. 15 min)
 REM   UpdateAll.cmd cars [moment..] de stores van de directe autorit per congestiemoment
@@ -16,6 +16,9 @@ REM                                 en Freeflow (TomTom) of MaxSpeed (OSM); 40 m
 REM                                 moment, langer met ParetoLegs_Car
 REM   UpdateAll.cmd chains          de OV-ketenstore (PublicTransport_Prep/x/Write_Result), na de
 REM                                 voorcheck op haltenblokken en prijsdekking; uren, veel geheugen
+REM   UpdateAll.cmd output          de OV-uitvoer: een csv per herkomstblok en vertrekmoment in
+REM                                 %LocalDataProjDir%\Output\PerBlock (ConfigurationPerBlock/Generate_Output),
+REM                                 met de ketenstore van de vertrekmomenten in PT_DepartureHours/Minutes
 REM
 REM De oude RunAll.cmd, RunKetens*.cmd, RunPrepare.cmd, RunDayGroups.cmd en RunCongestionSpeeds.cmd
 REM wezen naar itempaden van voor 2025 en zijn op 2026-09-23 verwijderd.
@@ -41,10 +44,11 @@ set MOMENTS=
 set SKIP_SOURCES=0
 set SKIP_CARS=0
 set SKIP_CHAINS=0
+set SKIP_OUTPUT=0
 :args
 shift
 if "%~1"=="" goto argsdone
-if /I "%~1"=="-nosources" (set SKIP_SOURCES=1) else if /I "%~1"=="-nocars" (set SKIP_CARS=1) else if /I "%~1"=="-nochains" (set SKIP_CHAINS=1) else set MOMENTS=!MOMENTS! %~1
+if /I "%~1"=="-nosources" (set SKIP_SOURCES=1) else if /I "%~1"=="-nocars" (set SKIP_CARS=1) else if /I "%~1"=="-nochains" (set SKIP_CHAINS=1) else if /I "%~1"=="-nooutput" (set SKIP_OUTPUT=1) else set MOMENTS=!MOMENTS! %~1
 goto args
 :argsdone
 
@@ -54,7 +58,8 @@ if /I "%SECTION%"=="all"     goto sources
 if /I "%SECTION%"=="sources" goto sources
 if /I "%SECTION%"=="cars"    goto cars
 if /I "%SECTION%"=="chains"  goto chains
-echo Onbekende sectie "%SECTION%": kies all, sources, cars of chains.
+if /I "%SECTION%"=="output"  goto output
+echo Onbekende sectie "%SECTION%": kies all, sources, cars, chains of output.
 exit /b 1
 
 :sources
@@ -92,7 +97,7 @@ for %%M in (%MOMENTS%) do (
 if /I not "%SECTION%"=="all" goto done
 
 :chains
-if "%SKIP_CHAINS%"=="1" goto done
+if "%SKIP_CHAINS%"=="1" goto chains_done
 echo === ketens: voorcheck haltenblokken en prijsdekking ===
 call :run chains_precheck /ChecksBeforeRunning/PT_CheckBlocks /SourceData/Infrastructure/OVprijzen/PrijsDekking/Tabel_OK_DOVA
 if not "!RC!"=="0" goto failed
@@ -103,6 +108,14 @@ if errorlevel 1 (
 )
 echo === ketens: Write_Result (uren) ===
 call :run chains %PREP%/x/Write_Result
+if not "!RC!"=="0" goto failed
+:chains_done
+if /I not "%SECTION%"=="all" goto done
+
+:output
+if "%SKIP_OUTPUT%"=="1" goto done
+echo === uitvoer: csv per herkomstblok en vertrekmoment (uren) ===
+call :run output /NetworkSetup/ConfigurationPerBlock/Generate_Output/OUTPUT_Generate_PublicTransport_fullOD_long_CSVFiles
 if not "!RC!"=="0" goto failed
 goto done
 
