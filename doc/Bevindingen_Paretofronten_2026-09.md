@@ -99,18 +99,45 @@ met 0,20 EUR/km variabel, 0,21 EUR/km vast (in de prijs) en 0,30 EUR per penalty
 
 Lopen en fietsen doen mee met een route per HB-paar, de snelste over het OSM-net, binnen 90 minuten (`MaxWalkingTime_Org2Dest`, `MaxCyclingTime_Org2Dest`); de prijs is 0 zolang `IncludeWalkingCostsInPrice` en `IncludeCyclingCostsInPrice` uit staan (2dc3abe). Een front voor de fiets is niet gebouwd.
 
-Aantal routes voor de volledige set: nog in te vullen.
+Aantal routes voor de volledige set (88.126 herkomsten naar 462 OV-knooppunten, geteld op 24 september, 4 minuten, piek commit 11 GB):
 
-## 4. Punten voor bespreking
+| modaliteit | HB-paren, een route per paar | reistijd gem | afstand gem |
+|---|---:|---:|---:|
+| lopen | 103.838 | 59 min | 4,3 km |
+| fiets | 779.484 | 60 min | 12,7 km |
+| auto, ter vergelijking (MorningRush) | 12,95 M paren, 55,6 M frontrijen | 62 tot 66 min | |
+
+De reistijd van de fiets bevat de starttijd (`Cycling_StartTime`); daardoor ligt het maximum net boven de 90 minuten.
+
+## 4. Uitvoer voor 07:00
+
+**Blok 1 van 450 herkomstblokken** (200 herkomsten, 24 september, `PT_DepartureMinutes` tijdelijk op 0): 186 s, piek commit 23,6 GB, een csv van 6,2 MB.
+
+| | rijen |
+|---|---:|
+| HB-paren met minstens een route | 28.566 (31% van 200 x 462) |
+| rijen in het front | 86.642 (3,0 per paar) |
+| waarvan auto | 78.326 |
+| waarvan OV-keten | 6.223 |
+| waarvan fiets | 1.825 |
+| waarvan lopen | 268 |
+
+- Het front per paar bestaat vooral uit autoroutes. Een directe rit komt in het front als hij sneller of goedkoper is dan elk ander alternatief.
+- De csv-regels misten `TravelDist_V` en `Traveldist_N` terwijl de kop ze noemt (audit 3.6); hersteld in 8982a43.
+- `Export_PriceInformation` staat standaard op FALSE, dus zonder prijskolom. Voor deze run staat hij tijdelijk op TRUE, omdat een front op prijs en tijd zonder prijs niet te lezen is.
+
+**Alle 450 blokken**, gestart 24 september 14:18 (`batch\UpdateAll.cmd output`): uitkomst nog in te vullen.
+
+## 5. Punten voor bespreking
 
 - De optrekfactoren per wegklasse zijn eerste aannames. De kruispuntpenalty zelf telt ook doorrijden mee; is 0 op snelweg en autoweg en tijd-equivalent op FRC 2 en 3 acceptabel, of moet de penalty per knooptype anders?
 - De epsilons: 10 ct in de autozoektocht, 60 s en 10 ct bij het lezen van het autofront, 10 ct en 60 s in de ketenrijging. Passen die bij de nauwkeurigheid die de analyse nodig heeft?
 - Het aantal vertrekmomenten voor de ketenstore: 1, 2 of 4, met ca. 4, 15 of 24 uur rekentijd.
 - NetworkModel_PBL#88: afstand is geen apart criterium geworden; de kilometerprijs zit in de kosten. Een front voor de fiets ontbreekt nog.
-- De uitvoer per vertrekmoment met autofronten en ketens is nog niet gedraaid.
 - Voor productie is een geinstalleerde 20.21-setup nodig; nu draait het model op een werkboom-build.
+- Moet de prijs standaard in de uitvoer (`Export_PriceInformation`)?
 
-## 5. Bijvangst, hersteld
+## 6. Bijvangst, hersteld
 
 - `batch\UpdateAll.cmd` gaf GeoDmsRun het pad `batch\..\cfg\main.dms`; GeoDMS leidde daaruit de projectmap `..` af, zodat de stores in `C:\IntermediateResults` kwamen (19afe9a).
 - De ketenstore-holder staat in `PublicTransport_Prep/x/Write_Result`; de verwijzingen misten `x/`, waardoor de nachtrun van 23 september direct stopte (62ebbae).
