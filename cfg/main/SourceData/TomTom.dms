@@ -322,17 +322,25 @@ container TomTom
 		attribute<string>         ONEWAY := Roads_store/ONEWAY;
 		attribute<bool>           IsInTexelHack         := IsDefined(point_in_polygon(first_point(geometry), TexelHack/polygon)) || IsDefined(point_in_polygon(last_point(geometry), TexelHack/polygon));
 		attribute<Directions_TomTom> Direction0            := MakeDefined(rlookup(Oneway, Directions_TomTom/code), 0[Directions_TomTom]); // relevant voor latere routen (bij direction = 3 moet je f_ en t_ swappen, bij 3 & 4 geldt oneWayTraffic)
-		attribute<Directions_TomTom> Direction             := IsInTexelHack ? Directions_TomTom/v/dual : Direction0;
+		// De Texel-hack maakt de wegen bij de veerhaven tweerichting, maar sinds 2026-09-25 niet een weg die voor auto's gesloten is
+		// (ONEWAY 'N'; audit 4.4). In editie 2025.12 ligt er geen zo'n weg in de polygoon, dus de uitkomst verandert niet.
+		attribute<Directions_TomTom> Direction             := IsInTexelHack && Direction0 != Directions_TomTom/v/nocars ? Directions_TomTom/v/dual : Direction0;
 		attribute<bool>           IsOneDirection        := Direction == Directions_TomTom/v/backwards || Direction == Directions_TomTom/v/forwards;
 		attribute<km_hr>          KPH := Roads_store/KPH;
 		attribute<int8>           F_ELEV := Roads_store/F_ELEV;
 		attribute<int8>           T_ELEV := Roads_store/T_ELEV;
 		attribute<bool>           IsFerry               := FerryType == 1b;
 		attribute<bool>           IsStreetTypeSelection  := ='FRC_rel <= '+ModelParameters/Advanced/TomTom_StreetTypeSelection;
+		// Sinds 2026-09-25 (audit 4.4 en 4.5): alleen wegelementen (FEATTYP 4110) en veerverbindingen (4130), niet de 375
+		// adresgebiedgrenzen (4165, FRC -1) die tot dan alleen via een overloop in FRC_rel wegvielen; en elk NW_ID een keer: de
+		// 4.078 NW_ID's die zowel in het NL- als het BE-bestand staan (exact gelijk) gaven een dubbele link, waardoor een gewoon
+		// wegpunt als kruispunt een penalty kreeg.
+		attribute<bool>           IsRoadOrFerry         := FeatureType == 4110i || FeatureType == 4130i;
+		attribute<bool>           IsFirstOfNW_ID        := rlookup(NW_ID, NW_ID) == id(.);
 		attribute<bool>           Connectable           := FRC_rel != Classifications/FuncRoadClass/V/Motorway_Freeway_or_Other_Major_Road;
 	}
 	
-	unit<uint32> Roads_selection := select_with_attr_by_cond(Roads, Roads/IsStreetTypeSelection)
+	unit<uint32> Roads_selection := select_with_attr_by_cond(Roads, Roads/IsStreetTypeSelection && Roads/IsRoadOrFerry && Roads/IsFirstOfNW_ID)
 	{
 		// Het speedprofile heeft per wegelement een rij per richting (VAL_DIR 2 = positief, van F_JNCTID naar T_JNCTID;
 		// 3 = negatief), met eigen profielen en een eigen freeflowsnelheid. 'fwd' is de rijrichting van het wegelement

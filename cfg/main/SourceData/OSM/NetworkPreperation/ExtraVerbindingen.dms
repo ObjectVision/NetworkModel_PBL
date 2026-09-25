@@ -796,7 +796,8 @@ container ExtraVerbindingen
 		attribute<link_src>                    sequence   := Elements/Text[value(UInt32(ID(.))* nrAttr + 2, Elements)][link_src];
 		attribute<uint32>                      order      := Elements/Text[value(UInt32(ID(.))* nrAttr + 3, Elements)][uint32];
 		attribute<classifications/OSM/roadType> roadType_rel    := Elements/Text[value(UInt32(ID(.))* nrAttr + 4, Elements)][classifications/OSM/roadType];
-		attribute<km_hr>                       maxspeed   := const(ModelParameters/Advanced/CarDefaultSpeed,.);
+		// Sinds 2026-09-25 (audit 4.11) rijden als veer getypeerde handmatige verbindingen op Ferry_Speed, zoals ExtraBoatConnections; tot dan 50 km/u.
+		attribute<km_hr>                       maxspeed   := strcount(classifications/OSM/roadType/label[roadType_rel], 'ferry') > 0 ? ModelParameters/Advanced/Ferry_Speed : ModelParameters/Advanced/CarDefaultSpeed;
 		
 		attribute<geometries/rdc>              location   := point_xy(X,Y,geometries/rdc);
 		// attribute<geometries/LambertEA>        location   := location_rd[LambertEA];
@@ -808,22 +809,42 @@ container ExtraVerbindingen
 		attribute<classifications/OSM/roadType>     roadType_rel           := rjoin(id(.),coordinates/sequence, coordinates/roadType_rel);
 		attribute<km_hr>                           maxspeed          := rjoin(id(.),coordinates/sequence, coordinates/maxspeed);
 	}
-	unit<uint32> nodes_src := union_unit(link_src, link_src)
+	// Sinds 2026-09-25 (audit 4.11) alleen reeksen met punten: de reeksen 239 (Texel) en 258 (Den Helder) zijn uitgecommentarieerd
+	// maar bestonden als lege link, die als rij met 0 punten en zonder wegtype in de OSM-netwerkstore belandde.
+	unit<uint32> link_src_valid := select_with_org_rel(pcount(coordinates/sequence) >= 2)
 	{
-		attribute<geometries/rdc>            geometry          := union_data(.,first_point(link_src/geometry), last_point(link_src/geometry));
+		attribute<geometries/rdc>                  geometry (arc)    := link_src/geometry[org_rel];
+		attribute<classifications/OSM/roadType>     roadType_rel      := link_src/roadType_rel[org_rel];
+		attribute<km_hr>                           maxspeed          := link_src/maxspeed[org_rel];
 	}
-	
-	
-	unit<uint32> link := union_unit(link_src, ExtraBoatConnections/link)
+	unit<uint32> link_all := union_unit(link_src_valid, ExtraBoatConnections/link)
 	{
-		attribute<geometries/rdc>                  geometry (arc)       := union_data(., link_src/geometry, ExtraBoatConnections/link/geometry);
-		attribute<classifications/OSM/roadType>     roadType_rel              := union_data(., link_src/roadType_rel, ExtraBoatConnections/link/roadType_rel);
-		attribute<km_hr>                           maxspeed             := union_data(., link_src/maxspeed, ExtraBoatConnections/link/maxspeed);
-		///
+		attribute<geometries/rdc>                  geometry (arc)       := union_data(., link_src_valid/geometry, ExtraBoatConnections/link/geometry);
+		attribute<classifications/OSM/roadType>     roadType_rel              := union_data(., link_src_valid/roadType_rel, ExtraBoatConnections/link/roadType_rel);
+		attribute<km_hr>                           maxspeed             := union_data(., link_src_valid/maxspeed, ExtraBoatConnections/link/maxspeed);
+		attribute<float64>                         SnapDist_first       := Snap/dist[value(id(.), nodes_all)], Descr = "Afstand van het beginpunt tot het dichtstbijzijnde wegsegment.";
+		attribute<float64>                         SnapDist_last        := Snap/dist[value(id(.) + #link_all, nodes_all)];
+		attribute<bool>                            IsCovered            := SnapDist_first <= float64(ModelParameters/Advanced/ExtraLink_MaxSnapDistance) && SnapDist_last <= float64(ModelParameters/Advanced/ExtraLink_MaxSnapDistance);
 	}
-	unit<uint32> nodes := union_unit(nodes_src, ExtraBoatConnections/nodes)
+	unit<uint32> nodes_all := union_unit(link_all, link_all)
 	{
-		attribute<geometries/rdc>            geometry             := union_data(., nodes_src/geometry, ExtraBoatConnections/nodes/geometry);
+		attribute<geometries/rdc>            geometry             := union_data(., first_point(link_all/geometry), last_point(link_all/geometry));
+	}
+	// Sinds 2026-09-25 (audit 4.11): connect koppelt een eindpunt aan het dichtstbijzijnde wegsegment zonder maximumafstand.
+	// De bootverbindingen naar Neuwerk en de Noord-Friese eilanden (Pellworm, Hooge, Langeness, Amrum, Foehr, Sylt) liggen
+	// buiten de OSM-regio's van het model en werden aan een weg op meer dan 1 km gekoppeld; alleen verbindingen waarvan beide
+	// eindpunten binnen ExtraLink_MaxSnapDistance van het wegennet liggen doen nog mee (de Nederlandse liggen binnen 131 m).
+	container Snap := connect_info(road_segments/geometry, nodes_all/geometry, float64(ModelParameters/Advanced/ExtraLink_MaxSnapDistance) * float64(ModelParameters/Advanced/ExtraLink_MaxSnapDistance) * 4d);
+
+	unit<uint32> link := select_with_org_rel(link_all/IsCovered)
+	{
+		attribute<geometries/rdc>                  geometry (arc)       := link_all/geometry[org_rel];
+		attribute<classifications/OSM/roadType>     roadType_rel         := link_all/roadType_rel[org_rel];
+		attribute<km_hr>                           maxspeed             := link_all/maxspeed[org_rel];
+	}
+	unit<uint32> nodes := union_unit(link, link)
+	{
+		attribute<geometries/rdc>            geometry             := union_data(., first_point(link/geometry), last_point(link/geometry));
 	}
 
 	#include <ExtraBoatConnections.dms>
