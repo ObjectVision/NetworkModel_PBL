@@ -9,7 +9,7 @@ De metingen zijn gedaan met de lokale build van GeoDMS 20.21 (ObjectVision/GeoDM
 - **Modelparameters (sectie 3)**: alle negen genummerde configfouten zijn gerepareerd, van de onbruikbare NS-korting tot de datum van de vorige dag. De namen van de stores dragen nu de instellingen waar hun inhoud van afhangt, zodat een gewijzigde parameter of datum niet meer stil een oude store leest.
 - **Netwerkgeneratie (sectie 4)**: twaalf van de vijftien bevindingen zijn gerepareerd, waaronder de TomTom-freeflowsnelheid (4.1 tot en met 4.3), de 130 km/u op het OSM-autonet (4.7), de 8,3% OSM-wegen met onbekend wegtype (4.8), de verkeerd om gedigitaliseerde eenrichtingswegen (4.9) en de dubbele TomTom-wegelementen (4.5). Drie (4.12, 4.13, 4.15) zijn toegelicht: geen fout, wel een grens van de data of een keuze.
 - **Kruispuntpenalty (sectie 5)**: telt nu een keer per kruispunt, en de aanhechtpunten van herkomsten en bestemmingen zijn geen kruispunt meer.
-- **Pareto-dominantie (sectie 6)**: de vier handgeschreven vergelijkers zijn vervangen door `pareto_optimal_eps` (GeoDMS 20.21). Open blijven 6.1 (andere criteria in de ketenrijger dan in het eindfront) en 6.5 (de merge-keten over blokken en vertrekmomenten).
+- **Pareto-dominantie (sectie 6)**: de vier handgeschreven vergelijkers zijn vervangen door `pareto_optimal_eps` (GeoDMS 20.21). 6.1 (andere criteria in de ketenrijger dan in het eindfront) en 6.5 (de merge-keten over blokken en vertrekmomenten) zijn gerepareerd; 6.2 tot en met 6.4, 6.6 en 6.7 staan open.
 - **Gevolg voor de rekenresultaten**: het TomTom-autonet, het OSM-net, de GTFS-dienstdagen en de haltenummering zijn veranderd. Alle stores van voor 25 september zijn daardoor achterhaald; de nieuwe namen (revisies `_r2`/`_r3`, datumtags) voorkomen dat ze nog gelezen worden. De resultaten worden opnieuw gerekend, voor de peildata 1 oktober 2024, 30 september 2025, 16 juni 2026 en (voorlopig) 6 oktober 2026.
 
 ## 2. Consistentie met de wiki
@@ -118,7 +118,11 @@ Open blijven onder meer: connectiviteit in de OSM-store over alle modaliteiten s
 
 ## 6. Pareto-dominantie
 
-De vier handgeschreven vergelijkers zijn vervangen door `pareto_optimal_eps` (5831c8e): met epsilon 0 selecteert die op het eerste haltenblok exact dezelfde ketens, in 166 in plaats van 251 seconden; met epsilon 10 ct en 60 s dunt hij de ketenrijging uit. De directe autorit is een (reistijd, kosten)-front per HB-paar met zoek-epsilon 10 ct (#1282). Open: 6.1 (de ketenrijger snoeit op Price_augm, het eindfront op Price), 6.2 tot en met 6.4, 6.5 (de merge-keten over blokken en vertrekmomenten), 6.6 en 6.7, zoals in de audit beschreven.
+De vier handgeschreven vergelijkers zijn vervangen door `pareto_optimal_eps` (5831c8e): met epsilon 0 selecteert die op het eerste haltenblok exact dezelfde ketens, in 166 in plaats van 251 seconden; met epsilon 10 ct en 60 s dunt hij de ketenrijging uit. De directe autorit is een (reistijd, kosten)-front per HB-paar met zoek-epsilon 10 ct (#1282). Open: 6.2 tot en met 6.4, 6.6 en 6.7, zoals in de audit beschreven.
+
+**6.1 Verschillende criteria per stap.** Vondst: de ketenrijger snoeit op Price_augm (prijs plus tijdkosten van overstappen), het blok- en eindfront op Price, dus een keten met lagere kaartprijs maar langere overstap kan in de ketenrijger sneuvelen terwijl hij op (Price, Time) het front hoort te halen. Stand: gerepareerd (a8afb35). De ketenrijger vergelijkt nu ook op Price zodra het eindfront op Price kiest (`Classifications/ChainJoinerParetoAttr_Candidates`, `IsSelected`); Price_augm blijft criterium, zodat van twee ketens met dezelfde prijs de keten met minder overstaptijd overblijft. Met `'Price_Augm'` in `MinimiseCriteria` vergelijkt de ketenrijger alleen op Price_augm, zoals voorheen. Gemeten op haltenblok 1 van 1 oktober 2024, vertrek 07:00 [V]: in 65% van de 343.698 groepen (instaptijdhalte, bestemmingshalte) staat nu een goedkopere keten in het front, gemiddeld 25 ct (5,9%) en hoogstens 4,18 euro goedkoper; het front heeft 1,33 in plaats van 1,13 rijen per groep (18% meer) en het blok kost 82 in plaats van 50 seconden. 338 groepen zijn 1 tot 9 ct duurder; dat valt binnen de prijsbak van 10 ct van de epsilon-dominantie. De ketenstore heeft daarom revisie `_r3`.
+
+**6.5 Merge-keten kapot.** Vondst: de per-blok-lezer zocht `_ORG-<Orgset>` en `_MaxOV-` en de kolommen `VoortransTime_`/`NatransTime_`, de schrijver schrijft `_ORG-<OrgSet_string>`, `_MaxPT-` en `PretransTime_`/`PosttransTime_`; de lezer eiste een Price-kolom; `Merge_Times` schreef `tt__...` en `FindMedian` las `tt_...`; de samenvoegtemplates voor auto, fiets en lopen verwezen naar het niet-bestaande `Advanced/Regio`. Stand: gerepareerd (fefdbd1). Schrijver, lezers, `Merge_Regions`, `Merge_Times` en `FindMedian` bouwen hun namen nu uit een gedeelde staart, `ModelParameters/Advanced/PT_OutputFileTail`; de lezers gebruiken de kolomnamen van de schrijver en lezen Price alleen als de kolom er is; lezen en schrijven gaan via GDAL in plaats van het hele bestand als een string; `FindMedian` gebruikt de herkomsten en bestemmingen van de run in plaats van buurten. De vier dode templates zijn verwijderd. Getest op de 07:00-uitvoer van 1 oktober 2024, 450 blokken [V]: samenvoegen per vertrekmoment 35 minuten, 39.138.870 rijen (3,2 GB, 15 GB piek); samenvoegen over de vertrekmomenten 30 minuten, hetzelfde aantal rijen; `FindMedian` 7 minuten, 581.022 herkomst-bestemmingparen met een mediane reistijd tot 30 minuten (gemiddeld 24,1). Met vier vertrekmomenten is het bestand over alle momenten ongeveer vier keer zo groot; dat is niet gemeten.
 
 ## 7. Consistentie met de toegewezen issues
 
@@ -142,17 +146,20 @@ Ongewijzigd ten opzichte van de audit. #88 (afstand als criterium) is nog niet g
 | configpad van UpdateAll, pad van de ketenstore, kostentag, subset | 19afe9a, 62ebbae, bda1a38, eba4c0c |
 | UpdateAll als geplande taak | 60009c4 |
 | GTFS-feeds 20250930, 20260615, 20260925 | d27f1e8 (en deze sessie) |
+| OV-uitvoernamen zonder datumtag in de bestemmingsset (pad onder 260 tekens) | 45faf19 |
+| 6.1 Price in de ketenrijger | a8afb35 |
+| 6.5 samenvoegketen en FindMedian | fefdbd1 |
 
 **Storenamen en revisies.** Elke store draagt nu de instellingen waar zijn inhoud van afhangt, en een revisie voor codewijzigingen:
 - OSM-netwerk: `Final_Network_<datum>_r3.mmd` (`OSM/StoreRevision`); `_r2` kwam met 4.8 en 4.9, `_r3` met 4.10, 4.11 en 4.14.
 - Autostores: `..._DEST-ov_knooppunten_<Analysis_date>..._r2.mmd` (`DestSet_DateTag`, `CarNetwork_Revision`).
-- Ketenstore: `..._<Analysis_date>[_gtfs<feed>]..._dova_ov500-3750-19-5-0-35_h100-350_r2.mmd`.
+- Ketenstore: `..._<Analysis_date>[_gtfs<feed>]..._dova_ov500-3750-19-5-0-35_h100-350_r3.mmd` (`ChainStore_Revision`); `_r2` kwam met 3.5, `_r3` met 6.1.
 
 Alle stores van voor deze revisies zijn achterhaald en worden onder de nieuwe namen niet meer gelezen.
 
 ## 9. Open
 
-- 6.1 criteria per paretostap en 6.5 de merge-keten; verder 6.2 tot en met 6.4, 6.6 en 6.7.
+- 6.2 tot en met 6.4, 6.6 en 6.7.
 - De ongenummerde punten van 3 ("niet of half toegepast") en de overige punten van 2, 5 en 7.
 - Loopparameters voor de decay (PBL).
 
