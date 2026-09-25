@@ -65,13 +65,25 @@ container OSM : using = "classifications/OSM"
 		,	DialogData = "geometry_rd"
 		{
 			attribute<wgs84_base>        geometry    (arc);
-			attribute<rdc>               geometry_rd (arc)   := LatLongWgs842RD(geometry, dpoint)[rdc];
+			attribute<rdc>               geometry_rd_src (arc) := LatLongWgs842RD(geometry, dpoint)[rdc];
+			// Sinds 2026-09-25 (audit 4.9) liggen de punten van een eenrichtingsweg met oneway 'T' (rijrichting tegen de digitaliseerrichting in)
+			// omgekeerd, zodat de rijrichting van elke eenrichtingsweg van het eerste naar het laatste punt loopt: het netwerk gebruikt een
+			// eenrichtingslink alleen van F1 naar F2. Daarvoor waren deze wegen (512, 53 km in OSM 20260601) alleen tegen de rijrichting in berijdbaar.
+			unit<uint32> Points_rd := sequence2points(geometry_rd_src)
+			{
+				attribute<uint32> NrPoints (..) := pcount(Sequence_rel);
+				attribute<uint32> Ordinal_dir   := ../Direction[Sequence_rel] == Directions_OSM/v/backwards ? NrPoints[Sequence_rel] - 1 - Ordinal : Ordinal;
+			}
+			attribute<rdc>               geometry_rd (arc)   := points2sequence(Points_rd/Point, Points_rd/Sequence_rel, Points_rd/Ordinal_dir), Descr = "Geometrie in RD, in de rijrichting als de weg eenrichting is.";
 			attribute<string>            fclass;
 			attribute<string>            oneway;
 			attribute<int32>             maxspeed;
 			attribute<Directions_OSM>    Direction      := MakeDefined(rlookup(Oneway, Directions_OSM/code), Directions_OSM/v/dual); 
 			attribute<bool>              IsOneDirection := Direction == Directions_OSM/v/backwards || Direction == Directions_OSM/v/forwards;
-			attribute<roadType>          roadType_rel    := rlookup(fclass, roadType/name);  
+			// Een fclass die niet in Classifications/OSM/roadType staat wordt 'unknown' (alleen beloopbaar); tot 2026-09-25 werd hij
+			// null en daarna connectlink, ook in het autonet (audit 4.8). NrUnmappedFclass telt ze, om nieuwe fclasses op te merken.
+			attribute<roadType>          roadType_rel    := MakeDefined(rlookup(fclass, roadType/name), roadType/V/unknown);
+			parameter<uint32>            NrUnmappedFclass := sum(uint32(IsNull(rlookup(fclass, roadType/name))));
 		}
 	}
 	
@@ -278,8 +290,11 @@ container OSM : using = "classifications/OSM"
 		}
 	}
 
+	parameter<string> StoreRevision := '_r2'
+	,   Descr = "Revisie van de netwerkopbouw in de naam van de OSM-netwerkstore; verhoog hem bij elke wijziging die de inhoud van de store verandert, anders wordt de oude store gelezen. _r2 (2026-09-25): expliciete klassen voor track_grade1-5, busway en unknown (audit 4.8) en omgedraaide oneway-'T'-wegen (audit 4.9).";
+
 	unit<uint32> Make_Final_Network := Final_Network_src
-	,   StorageName = "='%LocalDataProjDir%/OSM/Final_Network_'+file_date+'.mmd'"
+	,   StorageName = "='%LocalDataProjDir%/OSM/Final_Network_'+file_date+StoreRevision+'.mmd'"
 	{
 		attribute<rdc>                          geometry (arc)        := Final_Network_src/geometry;
 		attribute<roadType>                     roadType_rel          := Final_Network_src/roadType_rel;
