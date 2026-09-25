@@ -389,6 +389,9 @@ container TomTom
 		{ 
 			parameter<string> Time;
 			///
+			// Plafond op de autosnelheid van dit congestiemoment (ModelParameters/Advanced/CongestionTimes/MaxSpeed; 0 = geen):
+			// 100 km/u overdag. Freeflow valt er niet onder. Sinds 2026-09-25.
+			parameter<km_hr> MaxSpeed := MakeDefined(rjoin(Time, ModelParameters/Advanced/CongestionTimes/name, ModelParameters/Advanced/CongestionTimes/MaxSpeed), 0[km_hr]);
 			
 			container PerMoment :=
 				for_each_ne(
@@ -404,8 +407,12 @@ container TomTom
 				// (Speednetworks/CalcTimes/<tijd>/PerMoment/<moment>/Speed); zonder speedprofile-rij de reistijd van het
 				// wegennet (MINUTES van MultiNet). Minutes en kph zijn de rijrichting van het autonet (fwd), Minutes_bwd en
 				// kph_bwd de tegenrichting van een tweerichtingsweg (audit 4.1, 4.2 en 4.3, 2026-09-25).
-				attribute<min_f> Minutes       (Roads_selection) := ='MakeDefined(convert(convert(Roads_selection/meters, km) / Speednetworks/CalcTimes/'+Time+'/PerMoment/'+Moment+'/Speed[Speednetworks_fwd_rel], min_f), Roads_selection/Minutes)';
-				attribute<min_f> Minutes_bwd   (Roads_selection) := ='MakeDefined(convert(convert(Roads_selection/meters, km) / Speednetworks/CalcTimes/'+Time+'/PerMoment/'+Moment+'/Speed[Speednetworks_bwd_rel], min_f), Roads_selection/Minutes)';
+				parameter<bool>  IsCapped                         := MaxSpeed > 0[km_hr] && lowercase(Moment) != 'freeflow';
+				attribute<min_f> Minutes_uncapped     (Roads_selection) := ='MakeDefined(convert(convert(Roads_selection/meters, km) / Speednetworks/CalcTimes/'+Time+'/PerMoment/'+Moment+'/Speed[Speednetworks_fwd_rel], min_f), Roads_selection/Minutes)';
+				attribute<min_f> Minutes_bwd_uncapped (Roads_selection) := ='MakeDefined(convert(convert(Roads_selection/meters, km) / Speednetworks/CalcTimes/'+Time+'/PerMoment/'+Moment+'/Speed[Speednetworks_bwd_rel], min_f), Roads_selection/Minutes)';
+				attribute<min_f> Minutes_at_MaxSpeed  (Roads_selection) := convert(convert(Roads_selection/meters, km) / (MaxSpeed > 0[km_hr] ? MaxSpeed : 1000[km_hr]), min_f);
+				attribute<min_f> Minutes       (Roads_selection) := IsCapped ? max_elem(Minutes_uncapped, Minutes_at_MaxSpeed) : Minutes_uncapped;
+				attribute<min_f> Minutes_bwd   (Roads_selection) := IsCapped ? max_elem(Minutes_bwd_uncapped, Minutes_at_MaxSpeed) : Minutes_bwd_uncapped;
 				attribute<km_hr> kph_src       (Roads_selection) := convert(Roads_selection/meters, km) / convert(Minutes, hr_f);
 				attribute<km_hr> kph           (Roads_selection) := IsFerry ? ModelParameters/Advanced/Ferry_Speed : kph_src;
 				attribute<km_hr> kph_bwd       (Roads_selection) := IsFerry ? ModelParameters/Advanced/Ferry_Speed : convert(Roads_selection/meters, km) / convert(Minutes_bwd, hr_f);

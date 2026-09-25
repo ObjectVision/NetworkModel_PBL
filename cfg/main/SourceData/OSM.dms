@@ -372,9 +372,15 @@ container OSM : using = "classifications/OSM"
 		attribute<km_hr>                        speed_max_walking                := const((0/0)[km_hr],.);
 		attribute<km_hr>                        speed_congested_cycling          := const((0/0)[km_hr],.);
 		attribute<km_hr>                        speed_congested_e_bike           := const((0/0)[km_hr],.);
-		attribute<km_hr>                        speed_congested_morning_car      := Read_Final_Network/congestion_speed_MorningRush[org_rel];
-		attribute<km_hr>                        speed_congested_noon_car         := Read_Final_Network/congestion_speed_NoonRush[org_rel];
-		attribute<km_hr>                        speed_congested_late_car         := Read_Final_Network/congestion_speed_LateEveningRush[org_rel];
+		// OSM heeft geen congestie; de spitssnelheid is de maximumsnelheid van de weg met het plafond van het moment
+		// (ModelParameters/Advanced/CongestionTimes/MaxSpeed: 100 km/u overdag). Tot 2026-09-25 waren deze null en viel
+		// het autonet door een hoofdlettergevoelige vergelijking terug op 130 km/u (audit 3.3 en 4.7).
+		parameter<km_hr>                        MaxSpeed_MorningRush             := MakeDefined(rjoin('MorningRush', ModelParameters/Advanced/CongestionTimes/name, ModelParameters/Advanced/CongestionTimes/MaxSpeed), 0[km_hr]);
+		parameter<km_hr>                        MaxSpeed_NoonRush                := MakeDefined(rjoin('NoonRush', ModelParameters/Advanced/CongestionTimes/name, ModelParameters/Advanced/CongestionTimes/MaxSpeed), 0[km_hr]);
+		parameter<km_hr>                        MaxSpeed_LateEveningRush         := MakeDefined(rjoin('LateEveningRush', ModelParameters/Advanced/CongestionTimes/name, ModelParameters/Advanced/CongestionTimes/MaxSpeed), 0[km_hr]);
+		attribute<km_hr>                        speed_congested_morning_car      := MakeDefined(Read_Final_Network/congestion_speed_MorningRush[org_rel], MaxSpeed_MorningRush > 0[km_hr] && speed_max_car > MaxSpeed_MorningRush ? MaxSpeed_MorningRush : speed_max_car);
+		attribute<km_hr>                        speed_congested_noon_car         := MakeDefined(Read_Final_Network/congestion_speed_NoonRush[org_rel], MaxSpeed_NoonRush > 0[km_hr] && speed_max_car > MaxSpeed_NoonRush ? MaxSpeed_NoonRush : speed_max_car);
+		attribute<km_hr>                        speed_congested_late_car         := MakeDefined(Read_Final_Network/congestion_speed_LateEveningRush[org_rel], MaxSpeed_LateEveningRush > 0[km_hr] && speed_max_car > MaxSpeed_LateEveningRush ? MaxSpeed_LateEveningRush : speed_max_car);
 		
 		unit<uint32> isVerbonden := select_with_attr_by_cond(., Connectiveness/isVerbonden);
 		

@@ -194,7 +194,7 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 				attribute<.>   DestNode_rel (dest) := rlookup(dest/geometry, geometry);
 			}
 				
-			container Calc_Traveltimes_maxspeed_Walking := Calc_Traveltimes_T(LinkSet, NodeSet, LinkSet/Impedance_per_ImpedanceType/max_Walking, LinkSet/Distance_per_ImpedanceType/max_Walking, ModelParameters/MaxWalkingTime_Org2Dest);
+			container Calc_Traveltimes_maxspeed_Walking := Calc_Traveltimes_T(LinkSet, NodeSet, LinkSet/Impedance_per_ImpedanceType/max_Walking, LinkSet/Distance_per_ImpedanceType/max_Walking, ModelParameters/MaxWalkingTime_Org2Dest, 'walk');
 			
 			unit<uint64> ExportTable_Traveltimes := Calc_Traveltimes_maxspeed_Walking/Traveltimes
 			{
@@ -228,8 +228,8 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 				attribute<.>   OrgNode_rel   (org) := rlookup(org/geometry,  geometry);
 				attribute<.>   DestNode_rel (dest) := rlookup(dest/geometry, geometry);	
 			}
-			container Calc_Traveltimes_maxspeed_Cycling  := Calc_Traveltimes_T(LinkSet_Cycling, NodeSet_Cycling, LinkSet_Cycling/Impedance_per_ImpedanceType/max_Cycling, LinkSet_Cycling/Distance_per_ImpedanceType/max_Cycling, ModelParameters/MaxCyclingTime_Org2Dest);
-			container Calc_Traveltimes_congested_Cycling := Calc_Traveltimes_T(LinkSet_Cycling, NodeSet_Cycling, LinkSet_Cycling/Impedance_per_ImpedanceType/congested_Cycling, LinkSet_Cycling/Distance_per_ImpedanceType/congested_Cycling, ModelParameters/MaxCyclingTime_Org2Dest);
+			container Calc_Traveltimes_maxspeed_Cycling  := Calc_Traveltimes_T(LinkSet_Cycling, NodeSet_Cycling, LinkSet_Cycling/Impedance_per_ImpedanceType/max_Cycling, LinkSet_Cycling/Distance_per_ImpedanceType/max_Cycling, ModelParameters/MaxCyclingTime_Org2Dest, 'bike');
+			container Calc_Traveltimes_congested_Cycling := Calc_Traveltimes_T(LinkSet_Cycling, NodeSet_Cycling, LinkSet_Cycling/Impedance_per_ImpedanceType/congested_Cycling, LinkSet_Cycling/Distance_per_ImpedanceType/congested_Cycling, ModelParameters/MaxCyclingTime_Org2Dest, 'bike');
 			
 			unit<uint32> LinkSet_e_bike := PublicTransport_Prep/Create_Optimised_Network_EBike/CreateMoreEfficientNetwork/FinalLinkSet;
 			unit<uint32> NodeSet_e_bike := PublicTransport_Prep/Create_Optimised_Network_EBike/CreateMoreEfficientNetwork/FinalNodeSet
@@ -237,8 +237,8 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 				attribute<.>   OrgNode_rel   (org) := rlookup(org/geometry,  geometry);
 				attribute<.>   DestNode_rel (dest) := rlookup(dest/geometry, geometry);	
 			}
-			container Calc_Traveltimes_maxspeed_e_bike := Calc_Traveltimes_T(LinkSet_e_bike, NodeSet_e_bike, LinkSet_e_bike/Impedance_per_ImpedanceType/max_e_bike, LinkSet_e_bike/Distance_per_ImpedanceType/max_e_bike, ModelParameters/MaxCyclingTime_Org2Dest);
-			container Calc_Traveltimes_congested_e_bike := Calc_Traveltimes_T(LinkSet_e_bike, NodeSet_e_bike, LinkSet_e_bike/Impedance_per_ImpedanceType/congested_e_bike, LinkSet_e_bike/Distance_per_ImpedanceType/congested_e_bike, ModelParameters/MaxCyclingTime_Org2Dest);
+			container Calc_Traveltimes_maxspeed_e_bike := Calc_Traveltimes_T(LinkSet_e_bike, NodeSet_e_bike, LinkSet_e_bike/Impedance_per_ImpedanceType/max_e_bike, LinkSet_e_bike/Distance_per_ImpedanceType/max_e_bike, ModelParameters/MaxCyclingTime_Org2Dest, 'bike');
+			container Calc_Traveltimes_congested_e_bike := Calc_Traveltimes_T(LinkSet_e_bike, NodeSet_e_bike, LinkSet_e_bike/Impedance_per_ImpedanceType/congested_e_bike, LinkSet_e_bike/Distance_per_ImpedanceType/congested_e_bike, ModelParameters/MaxCyclingTime_Org2Dest, 'bike');
 			
 			unit<uint64> ExportTable_Traveltimes := Calc_Traveltimes_maxspeed_Cycling/Traveltimes
 			{
@@ -295,7 +295,12 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 			attribute<s_f>   impedance   (LinkSet_dom);
 			attribute<km>    distance    (LinkSet_dom);
 			parameter<min_f> MaxTraveltime_min;
+			parameter<string> DecayMode; // 'walk' of 'bike': de parameterset in ModelParameters/Advanced/Distance_decay
 			///
+			// De decay gebruikt de parameters van de eigen modaliteit; tot 2026-09-25 altijd die van de auto (audit 3.2).
+			parameter<float32> decay_a := ='Advanced/Distance_Decay/'+DecayMode+'_a';
+			parameter<float32> decay_b := ='Advanced/Distance_Decay/'+DecayMode+'_b';
+			parameter<float32> decay_c := ='Advanced/Distance_Decay/'+DecayMode+'_c';
 			
 			unit<uint64> Traveltimes :=
 				impedance_matrix_od64('bidirectional;startPoint(Node_rel):max_imp;endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel'
@@ -352,7 +357,7 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 					, MaxTraveltime_min
 					, 1f                                 // v_i
 					, dest/nr_items_of_interest[float32] // w_j
-					, Advanced/Distance_Decay/car_a , Advanced/Distance_Decay/car_b , Advanced/Distance_Decay/car_c
+					, decay_a, decay_b, decay_c
 				);
 		}
 	}
