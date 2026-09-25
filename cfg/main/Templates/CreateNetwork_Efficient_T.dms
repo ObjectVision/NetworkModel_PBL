@@ -113,8 +113,10 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 		unit<uint32> NodeSet := unique(union_data(LinkSet/PointSet, LinkSet/first_point, LinkSet/last_point))
 		{
 			attribute<rdc>    geometry         := values;
-			attribute<uint32> NrConnectedLinks := pcount(LinkSet/F1) + pcount(LinkSet/F2);
-			attribute<uint32> NrConnectedLinks_withSlowTrafficRoad := pcount(LinkSet/IsSlowTrafficRoad ? LinkSet/F1 : null_u) + pcount(LinkSet/IsSlowTrafficRoad ? LinkSet/F2 : null_u);
+			// De knoopgraad telt de weglinks, niet de OD-koppellinks: die splitsen een weg op het aanhechtpunt en maakten
+			// daar een kruispunt van drie links met penalty voor het doorgaande verkeer (audit 5, 2026-09-25).
+			attribute<uint32> NrConnectedLinks := pcount(LinkSet/IsOD_connection_road ? null_u : LinkSet/F1) + pcount(LinkSet/IsOD_connection_road ? null_u : LinkSet/F2);
+			attribute<uint32> NrConnectedLinks_withSlowTrafficRoad := pcount(LinkSet/IsSlowTrafficRoad && !LinkSet/IsOD_connection_road ? LinkSet/F1 : null_u) + pcount(LinkSet/IsSlowTrafficRoad && !LinkSet/IsOD_connection_road ? LinkSet/F2 : null_u);
 			
 			attribute<bool>   Crossroad_could_result_in_lower_speed_penalty := NrConnectedLinks == NrConnectedLinks_withSlowTrafficRoad;
 		}
@@ -124,7 +126,9 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 		// dit bepaalt of het een bocht (2 links), zijweg (3 links), kruising (4 links) of complexe kruising (meer dan 4 links) is
 		// afhankelijk van dit aantal wordt een aantal seconden opgeteld bij de totale impedance
 		{
-			// helft van de opgegeven waarden omdat er zowel bij begin als einde een factor wordt opgeteld
+			// Een route die een knoop passeert, rijdt over een link die er eindigt en een die er begint; elke link krijgt
+			// daarom de helft van de penalty van zijn begin- en eindknoop, zodat een gepasseerd kruispunt zijn waarde een
+			// keer kost. Tot 2026-09-25 telde de volle waarde aan beide uiteinden, dus dubbel (audit 5).
 			parameter<s>       Impedance2Links               := ='ModelParameters/Advanced/Junction_Penalties/with_2Links_'+NetworkType;
 			parameter<s>       Impedance3Links               := ='ModelParameters/Advanced/Junction_Penalties/with_3Links_'+NetworkType;
 			parameter<s>       Impedance4Links               := ='ModelParameters/Advanced/Junction_Penalties/with_4Links_'+NetworkType;
@@ -141,8 +145,8 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 			attribute<bool>    Start_IsOnlyLowerSpeed (LinkSet)     := NodeSet/Crossroad_could_result_in_lower_speed_penalty[LinkSet/F1];
 			attribute<bool>    End_IsOnlyLowerSpeed   (LinkSet)     := NodeSet/Crossroad_could_result_in_lower_speed_penalty[LinkSet/F2];
 		
-			attribute<s> impedance_Start (LinkSet):=
-				switch(
+			attribute<s_f> impedance_Start (LinkSet):= 0.5f *
+				convert(switch(
 					 case(Start_IsOnlyLowerSpeed && Start <= 2, Impedance2_lowerSpeedLinks)
 					,case(Start <= 2, Impedance2Links)
 					,case(Start_IsOnlyLowerSpeed && Start  = 3, Impedance3_lowerSpeedLinks)
@@ -151,10 +155,10 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 					,case(Start  = 4, Impedance4Links)
 					,case(Start_IsOnlyLowerSpeed && Start  > 4, Impedance_gt4_lowerSpeedLinks)
 					,Impedance_gt4Links
-				);
+				), s_f);
 		
-			attribute<s> impedance_End (LinkSet):=
-				switch(
+			attribute<s_f> impedance_End (LinkSet):= 0.5f *
+				convert(switch(
 					 case(End_IsOnlyLowerSpeed && End <= 2, Impedance2_lowerSpeedLinks)
 					,case(End <= 2, Impedance2Links)
 					,case(End_IsOnlyLowerSpeed && End  = 3, Impedance3_lowerSpeedLinks)
@@ -163,7 +167,7 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 					,case(End  = 4, Impedance4Links)
 					,case(End_IsOnlyLowerSpeed && End  > 4, Impedance_gt4_lowerSpeedLinks)
 					,Impedance_gt4Links
-				);
+				), s_f);
 		}
 	}
 	

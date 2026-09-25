@@ -87,6 +87,7 @@ container TomTom
 		, StorageName = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Speednetworks.mmd'"
 		{
 			attribute<uint64> NW_ID                        := ='union_data(., '+asList('Read_TomTom_Files_SP_network/'+FileNames_Speedprofiles_network/name+'/Read/network_id[uint64]', ',')+')', Descr = "network id";
+			attribute<uint8>  VAL_DIR                      := ='union_data(., '+asList('Read_TomTom_Files_SP_network/'+FileNames_Speedprofiles_network/name+'/Read/val_dir[uint8]', ',')+')', Descr = "validity direction: 2 = positieve richting (van F_JNCTID naar T_JNCTID van het wegelement), 3 = negatieve richting";
 			attribute<string> region_code                  := ='union_data(., '+asList('const('+quote(FileNames_Speedprofiles_network/SP_regioncode)+', Read_TomTom_Files_SP_network/'+FileNames_Speedprofiles_network/name+'/Read)', ',')+')', Descr = "file region code";
 			attribute<uint16> SP_freeflow                  := ='union_data(., '+asList('Read_TomTom_Files_SP_network/'+FileNames_Speedprofiles_network/name+'/Read/spfreeflow[uint16]', ',')+')', Descr = "speedprofile freeflow";
 			attribute<uint16> SP_weekday                   := ='union_data(., '+asList('Read_TomTom_Files_SP_network/'+FileNames_Speedprofiles_network/name+'/Read/spweekday[uint16]', ',')+')', Descr = "speedprofile weekday";
@@ -333,7 +334,14 @@ container TomTom
 	
 	unit<uint32> Roads_selection := select_with_attr_by_cond(Roads, Roads/IsStreetTypeSelection)
 	{
-		attribute<Speednetworks>  Speednetworks_rel      := rlookup(NW_ID, Speednetworks/NW_ID);
+		// Het speedprofile heeft per wegelement een rij per richting (VAL_DIR 2 = positief, van F_JNCTID naar T_JNCTID;
+		// 3 = negatief), met eigen profielen en een eigen freeflowsnelheid. 'fwd' is de rijrichting van het wegelement
+		// zoals het autonet hem gebruikt (F_JNCTID_directed naar T_JNCTID_directed; bij TF de negatieve richting), 'bwd'
+		// de tegenrichting van een tweerichtingsweg. Tot 2026-09-25 kregen beide richtingen de eerste rij (audit 4.2).
+		attribute<Speednetworks>  Speednetworks_pos_rel  := rlookup(NW_ID * 4u64 + 2u64, Speednetworks/NW_DIR_key);
+		attribute<Speednetworks>  Speednetworks_neg_rel  := rlookup(NW_ID * 4u64 + 3u64, Speednetworks/NW_DIR_key);
+		attribute<Speednetworks>  Speednetworks_fwd_rel  := Direction == Directions_TomTom/v/backwards ? Speednetworks_neg_rel : Speednetworks_pos_rel;
+		attribute<Speednetworks>  Speednetworks_bwd_rel  := Direction == Directions_TomTom/v/backwards ? Speednetworks_pos_rel : Speednetworks_neg_rel;
 		
 		container CalcTimes :=
 			for_each_ne(
@@ -392,15 +400,15 @@ container TomTom
 			{
 				parameter<string> Moment;
 				//
-				// Een snelheidsmoment (freeflow, weekday, weekend, week): lengte gedeeld door de TomTom-snelheid van dat
-				// moment; een profielmoment (een weekdag): de reistijd van het wegennet gedeeld door de relatieve snelheid op
-				// het tijdstip. Zonder speedprofile-link blijft de reistijd van het wegennet staan (audit 4.1, 2026-09-25).
-				parameter<bool>  IsSpeedMoment                    := lowercase(Moment) == 'freeflow' || lowercase(Moment) == 'weekday' || lowercase(Moment) == 'weekend' || lowercase(Moment) == 'week';
-				attribute<min_f> Minutes       (Roads_selection) := = IsSpeedMoment
-					? 'MakeDefined(convert(convert(Roads_selection/meters, km) / Speednetworks/CalcTimes/'+Time+'/PerMoment/'+Moment+'/Speed[Speednetworks_rel], min_f), Roads_selection/Minutes)'
-					: 'Roads_selection/Minutes / MakeDefined(Speednetworks/CalcTimes/'+Time+'/PerMoment/'+Moment+'/factor[Speednetworks_rel], 1f)';
+				// Reistijd per rijrichting: lengte gedeeld door de TomTom-snelheid van die richting op dit moment
+				// (Speednetworks/CalcTimes/<tijd>/PerMoment/<moment>/Speed); zonder speedprofile-rij de reistijd van het
+				// wegennet (MINUTES van MultiNet). Minutes en kph zijn de rijrichting van het autonet (fwd), Minutes_bwd en
+				// kph_bwd de tegenrichting van een tweerichtingsweg (audit 4.1, 4.2 en 4.3, 2026-09-25).
+				attribute<min_f> Minutes       (Roads_selection) := ='MakeDefined(convert(convert(Roads_selection/meters, km) / Speednetworks/CalcTimes/'+Time+'/PerMoment/'+Moment+'/Speed[Speednetworks_fwd_rel], min_f), Roads_selection/Minutes)';
+				attribute<min_f> Minutes_bwd   (Roads_selection) := ='MakeDefined(convert(convert(Roads_selection/meters, km) / Speednetworks/CalcTimes/'+Time+'/PerMoment/'+Moment+'/Speed[Speednetworks_bwd_rel], min_f), Roads_selection/Minutes)';
 				attribute<km_hr> kph_src       (Roads_selection) := convert(Roads_selection/meters, km) / convert(Minutes, hr_f);
 				attribute<km_hr> kph           (Roads_selection) := IsFerry ? ModelParameters/Advanced/Ferry_Speed : kph_src;
+				attribute<km_hr> kph_bwd       (Roads_selection) := IsFerry ? ModelParameters/Advanced/Ferry_Speed : convert(Roads_selection/meters, km) / convert(Minutes_bwd, hr_f);
 				attribute<km_hr> Speed_PerRPS  (RoadPointSet)    := kph[RoadPointSet/Sequence_rel];
 			}
 		}
@@ -421,6 +429,8 @@ container TomTom
 	{
 		attribute<uint64> NW_ID := Speednetworks_store/NW_ID;
 		attribute<string> region_code := Speednetworks_store/region_code;
+		attribute<uint8>  VAL_DIR := Speednetworks_store/VAL_DIR;
+		attribute<uint64> NW_DIR_key := NW_ID * 4u64 + uint64(VAL_DIR), Descr = "Sleutel (wegelement, richting); een wegelement heeft een rij per richting (audit 4.2).";
 		
 		attribute<uint16> SP_freeflow := Speednetworks_store/SP_freeflow;
 		attribute<uint16> SP_weekday := Speednetworks_store/SP_weekday;
@@ -463,14 +473,18 @@ container TomTom
 				parameter<string> Moment;
 				//
 				
-				// De weekdagen dragen in SP_<dag> een profiel-id (profile_1..7), met per kwartier een relatieve snelheid;
-				// freeflow, weekday, weekend en week dragen in SP_<moment> een snelheid in km/u (spfreeflow enz.). Tot
-				// 2026-09-25 werd die snelheid ook als profiel-id opgezocht (audit 4.1): omdat de snelheden 2..133 binnen het
-				// bereik van de profiel-id's vallen, kreeg elke link een factor van een willekeurig ander profiel (gemiddeld
-				// 0,90) en was Freeflow gemiddeld het langzaamste moment.
+				// De weekdagen dragen in SP_<dag> een profiel-id (profile_1..7), met per kwartier een relatieve snelheid in
+				// procenten van SPFREEFLOW; freeflow, weekday, weekend en week dragen in SP_<moment> zelf een snelheid in km/u.
+				// Speed is daarom SP_<moment> voor een snelheidsmoment en SP_freeflow x relatieve snelheid voor een weekdag.
+				// Tot 2026-09-25 werd een snelheid als profiel-id opgezocht (audit 4.1, gemiddeld factor 0,90 van een willekeurig
+				// profiel) en werd de relatieve snelheid op de MultiNet-reistijd gezet (audit 4.3), die op 64% van de links
+				// sneller is dan SPFREEFLOW; Freeflow was daardoor het langzaamste moment.
 				parameter<bool>    IsSpeedMoment                 := lowercase(Moment) == 'freeflow' || lowercase(Moment) == 'weekday' || lowercase(Moment) == 'weekend' || lowercase(Moment) == 'week', Descr = "TRUE als SP_<moment> een snelheid is in plaats van een profiel-id.";
 				attribute<uint16>  SP            (Speednetworks) := ='SP_'+Moment;
-				attribute<km_hr>   Speed         (Speednetworks) := = IsSpeedMoment ? 'SP > 0w ? value(float32(SP), km_hr) : value(null_f, km_hr)' : 'const(null_f, Speednetworks, km_hr)', Descr = "De snelheid van een snelheidsmoment (freeflow, weekday, weekend, week); null voor een profielmoment.";
+				attribute<km_hr>   Speed         (Speednetworks) := = IsSpeedMoment
+					? 'SP > 0w ? value(float32(SP), km_hr) : value(null_f, km_hr)'
+					: 'SP_freeflow > 0w ? value(float32(SP_freeflow), km_hr) * factor : value(null_f, km_hr)'
+				,	Descr = "De snelheid van deze rij (een richting van een wegelement) op dit moment; null zonder snelheid of profiel.";
 				attribute<string>  Region_SP_key (Speednetworks) := region_code + '_' + string(SP) + '_' + string(Time_in_seconds);
 				attribute<float32> factor        (Speednetworks) := = IsSpeedMoment ? 'const(null_f, Speednetworks, float32)' : 'rjoin(Region_SP_key, Speedprofiles/Region_Profile_TimeSlot_key, Speedprofiles/rel_sp / 100f)', Descr = "De relatieve snelheid van het profiel op dit tijdstip; null voor een snelheidsmoment.";
 			}

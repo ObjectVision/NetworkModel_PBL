@@ -58,6 +58,17 @@ Template CreateNetwork_TomTom_T
 			{
 				attribute<km_hr> Freeflow (..) := ='CalcTimes/'+first(ModelParameters/Advanced/CongestionTimes/name)+'/PerMoment/freeflow/KPH';
 			}
+			// De snelheden van de tegenrichting van een tweerichtingsweg (audit 4.2).
+			container Speed_per_ImpedanceType_bwd :=
+				for_each_nedv(
+					ModelParameters/Advanced/CongestionTimes/name
+					,'CalcTimes/'+ModelParameters/Advanced/CongestionTimes/name+'/PerMoment/'+ModelParameters/Advanced/CongestionSpeed_DaySelection+'/KPH_bwd'
+					, .
+					, km_hr
+				)
+			{
+				attribute<km_hr> Freeflow (..) := ='CalcTimes/'+first(ModelParameters/Advanced/CongestionTimes/name)+'/PerMoment/freeflow/KPH_bwd';
+			}
 		}
 		
 		unit<uint32> Roads_with_unconnected_subnetworks_wo_CarRoads := select(Roads_with_unconnected_subnetworks_w_CarRoads/IsCarRoad)
@@ -82,6 +93,16 @@ Template CreateNetwork_TomTom_T
 				)
 			{
 				attribute<km_hr> Freeflow (..) := collect_by_cond(Roads_with_unconnected_subnetworks_wo_CarRoads,Roads_with_unconnected_subnetworks_w_CarRoads/IsCarRoad, Roads_with_unconnected_subnetworks_w_CarRoads/Speed_per_ImpedanceType/Freeflow);
+			}
+			container Speed_per_ImpedanceType_bwd :=
+				for_each_nedv(
+					ModelParameters/Advanced/CongestionTimes/name
+					,'collect_by_cond(Roads_with_unconnected_subnetworks_wo_CarRoads,Roads_with_unconnected_subnetworks_w_CarRoads/IsCarRoad, Roads_with_unconnected_subnetworks_w_CarRoads/Speed_per_ImpedanceType_bwd/'+ModelParameters/Advanced/CongestionTimes/name+')'
+					, .
+					, km_hr
+				)
+			{
+				attribute<km_hr> Freeflow (..) := collect_by_cond(Roads_with_unconnected_subnetworks_wo_CarRoads,Roads_with_unconnected_subnetworks_w_CarRoads/IsCarRoad, Roads_with_unconnected_subnetworks_w_CarRoads/Speed_per_ImpedanceType_bwd/Freeflow);
 			}
 
 			container Connectiveness := Templates/Check_Connectiveness_T(.,Junctions, F_JNCT_rel, T_JNCT_rel);
@@ -112,6 +133,18 @@ Template CreateNetwork_TomTom_T
 			{
 				attribute<km_hr> Freeflow (..) := Collect_by_cond(..,Roads_isConnected,Roads_with_unconnected_subnetworks_wo_CarRoads/Speed_per_ImpedanceType/Freeflow);
 			}
+			container Speed_per_ImpedanceType_bwd :=
+				for_each_nedv(
+					ModelParameters/Advanced/CongestionTimes/name
+					, 'Collect_by_cond(..,Roads_isConnected,Roads_with_unconnected_subnetworks_wo_CarRoads/Speed_per_ImpedanceType_bwd/'+ModelParameters/Advanced/CongestionTimes/name+')'
+					, .
+					, km_hr
+				)
+			{
+				attribute<km_hr> Freeflow (..) := Collect_by_cond(..,Roads_isConnected,Roads_with_unconnected_subnetworks_wo_CarRoads/Speed_per_ImpedanceType_bwd/Freeflow);
+			}
+			attribute<NodeSet>         F1_node      := rlookup(F_JNCTID, NodeSet/JNCTID), Descr = "Beginknoop van het wegelement, voor de knoopgraad.";
+			attribute<NodeSet>         F2_node      := rlookup(T_JNCTID, NodeSet/JNCTID), Descr = "Eindknoop van het wegelement, voor de knoopgraad.";
 			
 			//needed for OD-connection lines
 			unit<uint32> UseableJunctions := union_unit(.,.)
@@ -131,17 +164,40 @@ Template CreateNetwork_TomTom_T
 			}
 		}
 
-		unit<uint32> LinkSet := union_unit(Road_linestrings, UniqueLocations)
+		// Een tweerichtingsweg wordt twee gerichte links, elk met de snelheid van zijn eigen richting (audit 4.2): de
+		// wegelementen zelf in hun rijrichting, en voor de tweerichtingswegen een omgekeerde kopie. Met
+		// InterpretAllRoadsAsBidirectional blijft alles zoals voorheen een ongerichte link per wegelement.
+		unit<uint32> Road_linestrings_bwd := select_with_org_rel(not(Road_linestrings/IsOneDirection) && not(ModelParameters/Advanced/InterpretAllRoadsAsBidirectional))
 		{
-			attribute<rdc>        geometry(arc)    := union_data(., Road_linestrings/geometry, UniqueLocations/OD_line);
-			attribute<bool>       IsOneDirection   := union_data(., Road_linestrings/IsOneDirection, const(FALSE,UniqueLocations));
-			attribute<m>          Meters           := union_data(., Road_linestrings/Meters, UniqueLocations/Length);
-			attribute<uint64>     F_JNCTID         := union_data(., Road_linestrings/F_JNCTID, UniqueLocations/F_JNCTID);
-			attribute<uint64>     T_JNCTID         := union_data(., Road_linestrings/T_JNCTID, UniqueLocations/T_JNCTID);
-			attribute<Classifications/FuncRoadClass> FRC_rel := union_data(., Road_linestrings/FRC_rel, const(Classifications/FuncRoadClass/V/Not_Applicable, UniqueLocations)), Descr = "Wegklasse per link; de OD-koppellinks krijgen Not Applicable.";
+			attribute<rdc>        geometry (arc)   := Road_linestrings/geometry[org_rel];
+			attribute<m>          Meters           := Road_linestrings/Meters[org_rel];
+			attribute<uint64>     F_JNCTID         := Road_linestrings/T_JNCTID[org_rel];
+			attribute<uint64>     T_JNCTID         := Road_linestrings/F_JNCTID[org_rel];
+			attribute<Classifications/FuncRoadClass> FRC_rel := Road_linestrings/FRC_rel[org_rel];
+			container Speed_per_ImpedanceType :=
+				for_each_nedv(
+					ModelParameters/Advanced/CongestionTimes/name
+					, 'Road_linestrings/Speed_per_ImpedanceType_bwd/'+ModelParameters/Advanced/CongestionTimes/name+'[org_rel]'
+					, .
+					, km_hr
+				)
+			{
+				attribute<km_hr> Freeflow (..) := Road_linestrings/Speed_per_ImpedanceType_bwd/Freeflow[org_rel];
+			}
+		}
+
+		unit<uint32> LinkSet := union_unit(Road_linestrings, Road_linestrings_bwd, UniqueLocations)
+		{
+			attribute<rdc>        geometry(arc)    := union_data(., Road_linestrings/geometry, Road_linestrings_bwd/geometry, UniqueLocations/OD_line);
+			attribute<bool>       IsOneDirection   := union_data(., Road_linestrings/IsOneDirection || not(ModelParameters/Advanced/InterpretAllRoadsAsBidirectional), const(TRUE, Road_linestrings_bwd), const(FALSE,UniqueLocations)), Descr = "Wegelementen zijn gerichte links (een tweerichtingsweg heeft ook een omgekeerde kopie); de OD-koppellinks zijn in beide richtingen berijdbaar.";
+			attribute<bool>       IsBackward       := union_data(., const(FALSE, Road_linestrings), const(TRUE, Road_linestrings_bwd), const(FALSE,UniqueLocations)), Descr = "De omgekeerde kopie van een tweerichtingsweg.";
+			attribute<m>          Meters           := union_data(., Road_linestrings/Meters, Road_linestrings_bwd/Meters, UniqueLocations/Length);
+			attribute<uint64>     F_JNCTID         := union_data(., Road_linestrings/F_JNCTID, Road_linestrings_bwd/F_JNCTID, UniqueLocations/F_JNCTID);
+			attribute<uint64>     T_JNCTID         := union_data(., Road_linestrings/T_JNCTID, Road_linestrings_bwd/T_JNCTID, UniqueLocations/T_JNCTID);
+			attribute<Classifications/FuncRoadClass> FRC_rel := union_data(., Road_linestrings/FRC_rel, Road_linestrings_bwd/FRC_rel, const(Classifications/FuncRoadClass/V/Not_Applicable, UniqueLocations)), Descr = "Wegklasse per link; de OD-koppellinks krijgen Not Applicable.";
 			
-			attribute<rdc>        FromPoint        := union_data(., rjoin(Road_linestrings/F_JNCTID, Junctions/JNCTID, Junctions/geometry), UniqueLocations/geometry);
-			attribute<rdc>        ToPoint          := union_data(., rjoin(Road_linestrings/T_JNCTID, Junctions/JNCTID, Junctions/geometry), UniqueLocations/Clostest_JNCT_geometry);
+			attribute<rdc>        FromPoint        := union_data(., rjoin(Road_linestrings/F_JNCTID, Junctions/JNCTID, Junctions/geometry), rjoin(Road_linestrings_bwd/F_JNCTID, Junctions/JNCTID, Junctions/geometry), UniqueLocations/geometry);
+			attribute<rdc>        ToPoint          := union_data(., rjoin(Road_linestrings/T_JNCTID, Junctions/JNCTID, Junctions/geometry), rjoin(Road_linestrings_bwd/T_JNCTID, Junctions/JNCTID, Junctions/geometry), UniqueLocations/Clostest_JNCT_geometry);
 			
 			attribute<NodeSet>    F1               := rlookup(F_JNCTID, NodeSet/JNCTID);
 			attribute<NodeSet>    F2               := rlookup(T_JNCTID, NodeSet/JNCTID);
@@ -150,12 +206,12 @@ Template CreateNetwork_TomTom_T
 			container Speed_per_ImpedanceType :=
 				for_each_nedv(
 					ModelParameters/Advanced/CongestionTimes/name
-					, 'union_data(.., MakeDefined(Road_linestrings/Speed_per_ImpedanceType/'+ModelParameters/Advanced/CongestionTimes/name+', ModelParameters/Advanced/CarDefaultSpeed_low), const(ModelParameters/Advanced/CarDefaultSpeed_low, UniqueLocations))'
+					, 'union_data(.., MakeDefined(Road_linestrings/Speed_per_ImpedanceType/'+ModelParameters/Advanced/CongestionTimes/name+', ModelParameters/Advanced/CarDefaultSpeed_low), MakeDefined(Road_linestrings_bwd/Speed_per_ImpedanceType/'+ModelParameters/Advanced/CongestionTimes/name+', ModelParameters/Advanced/CarDefaultSpeed_low), const(ModelParameters/Advanced/CarDefaultSpeed_low, UniqueLocations))'
 					, .
 					, km_hr
 				)
 			{
-				attribute<km_hr> Freeflow (LinkSet) := union_data(.., MakeDefined(Road_linestrings/Speed_per_ImpedanceType/Freeflow, ModelParameters/Advanced/CarDefaultSpeed_low), const(ModelParameters/Advanced/CarDefaultSpeed_low, UniqueLocations));
+				attribute<km_hr> Freeflow (LinkSet) := union_data(.., MakeDefined(Road_linestrings/Speed_per_ImpedanceType/Freeflow, ModelParameters/Advanced/CarDefaultSpeed_low), MakeDefined(Road_linestrings_bwd/Speed_per_ImpedanceType/Freeflow, ModelParameters/Advanced/CarDefaultSpeed_low), const(ModelParameters/Advanced/CarDefaultSpeed_low, UniqueLocations));
 			}
 			
 			attribute<km>      LengthKm       := convert(meters, km);
@@ -186,7 +242,9 @@ Template CreateNetwork_TomTom_T
 			attribute<uint64> JNCTID           := union_data(., Junctions/JNCTID,   UniqueLocations/F_JNCTID);
 			attribute<rdc>    geometry         := union_data(., Junctions/geometry, UniqueLocations/geometry);
 			
-			attribute<uint32> NrConnectedLinks                              := pcount(LinkSet/F1) + pcount(LinkSet/F2);
+			// De knoopgraad telt wegelementen: niet de OD-koppellinks (die maakten van elk aanhechtpunt een kruispunt met
+			// penalty voor het doorgaande verkeer) en niet de omgekeerde kopie van een tweerichtingsweg (audit 5, 2026-09-25).
+			attribute<uint32> NrConnectedLinks                              := pcount(Road_linestrings/F1_node) + pcount(Road_linestrings/F2_node);
 			attribute<uint32> NrConnectedLinks_withSlowTrafficRoad := pcount(LinkSet/IsSlowTrafficRoad ? LinkSet/F1 : null_u) + pcount(LinkSet/IsSlowTrafficRoad ? LinkSet/F2 : null_u);
 			
 			attribute<.>   OrgNode_rel  (OrgDomain)  := rlookup(OrgDomain/geometry,  geometry);
@@ -201,7 +259,9 @@ Template CreateNetwork_TomTom_T
 		// dit bepaalt of het een bocht (2 links), zijweg (3 links), kruising (4 links) of complexe kruising (meer dan 4 links) is
 		// afhankelijk van dit aantal wordt een aantal seconden opgeteld bij de totale impedance
 		{
-			// helft van de opgegeven waarden omdat er zowel bij begin als einde een factor wordt opgeteld
+			// Een route die een knoop passeert, rijdt over een link die er eindigt en een die er begint; elke link krijgt
+			// daarom de helft van de penalty van zijn begin- en eindknoop, zodat een gepasseerd kruispunt zijn waarde een
+			// keer kost. Tot 2026-09-25 telde de volle waarde aan beide uiteinden, dus dubbel (audit 5).
 			parameter<s>       Impedance2Links    := ModelParameters/Advanced/Junction_Penalties/with_2Links_Car;
 			parameter<s>       Impedance3Links    := ModelParameters/Advanced/Junction_Penalties/with_3Links_Car;
 			parameter<s>       Impedance4Links    := ModelParameters/Advanced/Junction_Penalties/with_4Links_Car;
@@ -215,21 +275,21 @@ Template CreateNetwork_TomTom_T
 			attribute<uint32>  Start (LinkSet)     := NodeSet/NrConnectedLinks[LinkSet/F1];
 			attribute<uint32>  End   (LinkSet)     := NodeSet/NrConnectedLinks[LinkSet/F2];
 		
-			attribute<s> impedance_Start (LinkSet):=
-				switch(
+			attribute<s_f> impedance_Start (LinkSet):= 0.5f *
+				convert(switch(
 					 case(Start <= 2, Impedance2Links)
 					,case(Start  = 3, Impedance3Links)
 					,case(Start  = 4, Impedance4Links)
 					,Impedance_gt4Links
-				);
+				), s_f);
 		
-			attribute<s> impedance_End (LinkSet):=
-				switch(
+			attribute<s_f> impedance_End (LinkSet):= 0.5f *
+				convert(switch(
 					 case(End <= 2, Impedance2Links)
 					,case(End  = 3, Impedance3Links)
 					,case(End  = 4, Impedance4Links)
 					,Impedance_gt4Links
-				);
+				), s_f);
 				
 				
 			// attribute<bool>    Start_IsOnlyLowerSpeed (LinkSet)     := NodeSet/Crossroad_could_result_in_lower_speed_penalty[LinkSet/F1];
