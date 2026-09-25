@@ -48,7 +48,7 @@ Stand na de wiki-update van 23 september (commits 96e4213 en 690a8e8 van Jip: ni
 
 ## 3. Toepassing van modelparameters
 
-**Configfouten** (elk zelf nagelezen)
+### Configfouten (elk zelf nagelezen)
 1. **NS-korting onbruikbaar** [V]: `OVprijzen.dms:966-971` leest `NS_PricePerTariffUnit/Price_20pct_Discount` en `/Price_40pct_Discount`; de tabel heet ze `Discount_20pct`/`Discount_40pct` (`:897-898`). Alleen `Price_FullFare` werkt; de Descr noemt ook een niet-bestaand `Prijs_voltarief`.
 2. **Loop- en fietsdecay met auto-parameters** [V]: `NetworkSetup.dms:355`.
 3. **OSM-auto in de spits = 130 km/u overal** [V]: de spitssnelheden zijn null (`OSM.dms:313-315`); `CreateNetwork_Efficient_T.dms:77` vult null met `NetworkType = 'Car' ? CarDefaultSpeed_low : <NetworkType>Speed_kmhr`; elke auto-aanroep geeft `'car'` mee (`PrivateTransport_Car_T.dms:7`, `OV_Knooppunten.dms:238`), stringvergelijking is hoofdlettergevoelig (probe: `'car' = 'Car'` geeft false) en itemnamen niet, dus de fallback is `CarSpeed_kmhr` = 130. Dat raakt de OSM-matrices MorningRush/NoonRush/LateEveningRush en de OD-koppellinks van het OSM-autonet. Met `UseTomTomNetworkForCars = TRUE` (default) is alleen `Bereikbaarheid_Auto` van de knooppunten geraakt (altijd OSM, `OV_Knooppunten.dms:238`).
@@ -59,7 +59,8 @@ Stand na de wiki-update van 23 september (commits 96e4213 en 690a8e8 van Jip: ni
 8. **Bestemmingsselectoren** [V]: `Destset_EnkeleCorop_Selection` en `Destset_EnkeleProv_Selection` worden nergens gebruikt; de bestemmingensets `Buurt_enkele_Prov/Corop` gebruiken de Orgset-selectoren (`RegioIndelingen.dms:115-116`).
 9. **Latent** [V]: `CreateNetwork_TomTom_T.dms:178` leest `LinkSet/IsSlowTrafficRoad`, dat de TomTom-LinkSet niet heeft (de langzaamverkeer-penalty voor TomTom is uitgecommentarieerd, `:223-248`).
 
-**Niet of half toegepast** [A, steekproefsgewijs bevestigd]
+### Niet of half toegepast [A, steekproefsgewijs bevestigd]
+
 - Dood: `Car_TCO_PerKm` (alleen ter documentatie), `OV_PostTransport_Typen/MaxTime`, `Concessiegebied_source` ('manual' heeft geen tak), `ConnectSearchDist` (de enige levende connect_info gebruikt een lokale `8d*8d`, `OSM.dms:271`), `bike_*`/`ov_*` decay, `Dests_geclusterd` (clustering gebeurt altijd; de vlag zet alleen de bestandsnaam).
 - Slapend tot de fietstypen aan gaan: alle `Max*Time_*RMT/RM/Ric/OVF*`, `Pre/PostTransport_Cycling_Time_Costs`, `Cycling_PreTransport_Penalty`, `Cycling_ParkingTime_IC_Station`, `OVFiets_RentalPrice`, `UseOVFietsPriceForAllCyclingPostTransport`.
 - Per-type `MaxTime` wordt na de cut alsnog geknipt op de generieke `Max*Time_Org2Stops`/`Stops2Dest` (`PerDepartureMoment_T.dms:85-86,153-154`).
@@ -73,7 +74,8 @@ Stand na de wiki-update van 23 september (commits 96e4213 en 690a8e8 van Jip: ni
 
 ## 4. Netwerkgeneratie: TomTom, OSM, Fietstelweek, Fietsersbond
 
-**TomTom (auto)**
+### TomTom (auto)
+
 1. **Freeflow-snelheid via een verkeerde sleutel** [V]: `Moments` bevat naast de weekdagen ook 'freeflow', 'weekday', 'weekend' en 'week' (`TomTom.dms:5-7`); `PerMoment_T` maakt voor elk moment `SP := 'SP_'+Moment` en zoekt `region_code + '_' + string(SP) + '_' + tijd` op in de profielen (`:460-462`). Voor de weekdagen is SP een profiel-id (PROFILE_1..7), maar `SP_freeflow`/`SP_weekday`/`SP_weekend`/`SP_week` zijn snelheden (spfreeflow enz., `:91-94`). De freeflow-factor komt dus uit een willekeurig ander profiel, of wordt 1 als de sleutel niet bestaat. Geraakt: `Freeflow_TomTom` (de MaxSpeed-kolom van de auto-exports, `PrivateTransport_Car_T.dms:256-257`, en `speed_freeflow` in de gpkg-export) en de directe autorit bij `Car_CongestionMoment_ForDirect = 'Freeflow'`. De spitsmomenten (profile_3 = dinsdag) zijn wel goed.
 2. **Richting van het speedprofile genegeerd** [V mechanisme, A data]: `Speednetworks_rel := rlookup(NW_ID, Speednetworks/NW_ID)` (`:336`) neemt de eerste rij; de speedprofile-netwerktabel heeft per id een rij per richting (VAL_DIR, volgens de agent bij 45% van de ids twee rijen). Beide richtingen krijgen het profiel van de eerste.
 3. **rel_sp op MultiNet-MINUTES** [S]: `Minutes := Roads_selection/Minutes / factor` met factor = rel_sp/100 (`:395`). TomTom definieert rel_sp als percentage van SPFREEFLOW; als MINUTES op een andere nominale snelheid berust, zit er een bias in alle spitstijden.
@@ -81,7 +83,8 @@ Stand na de wiki-update van 23 september (commits 96e4213 en 690a8e8 van Jip: ni
 5. Dekking en fallback [A]: 83% van de wegen heeft een speedprofile-rij; de rest factor 1; ontbrekende snelheid wordt 30 km/u (`CarDefaultSpeed_low`), geen bovengrens. Wegen worden niet ontdubbeld (4.078 dubbele NW_ID's), knopen wel (`unique(JNCTID)`). Alleen NL+BE, terwijl OSM ook Duitse regio's heeft.
 6. `CreateNetwork_TomTom_T(org, dest, RoadDomain_TomTom, JunctionDomain_TomTom, FALSE)` geeft 5 argumenten aan een template met 4 parameters (`PrivateTransport_Car_T.dms:35`) [V, effect S: onschadelijk, de run slaagt].
 
-**OSM (auto, fiets, lopen)**
+### OSM (auto, fiets, lopen)
+
 7. **OSM-auto in de spits en op de OD-koppellinks: 130 km/u** [V]: zie 3.3. Alle drie de spitsmatrices van OSM zijn daarmee betekenisloos, en elke OD-koppellink van het OSM-autonet loopt op 130.
 8. **Onbekende fclass wordt 'connectlink' op 50 km/u in ALLE drie de netten** [V]: `roadType_rel := rlookup(fclass, roadType/name)` (`OSM.dms:74`) geeft null voor track_grade1-5, busway en unknown (620.000 features, 8,3%); `NetworkPreperation.dms:32-33` vult null met `connectlink` en `CarDefaultSpeed`; connectlink zit in auto, fiets en loop (`Classifications/OSM.dms:120`). Intussen is gewoon `track` wel uitgesloten voor auto en fiets. In de store 4,4 M connectlinks.
 9. **Eenrichting 'T' niet omgekeerd** [V]: `IsOneDirection := backwards || forwards` (`OSM.dms:73`), nergens wordt de geometrie van 'T'-wegen (512 in de data) omgedraaid, en de Dijkstra rijdt eenrichtingslinks alleen F1 naar F2 (`bidirectional(link_flag)`, `PrivateTransport_Car_T.dms:92-96`): die wegen zijn dus alleen tegen de toegestane richting in berijdbaar. Fiets- en loopnet zetten `IsOneDirection` op FALSE (`OSM.dms:424,483`); 880.570 eenrichtingsfietspaden worden tweerichting.
@@ -89,27 +92,32 @@ Stand na de wiki-update van 23 september (commits 96e4213 en 690a8e8 van Jip: ni
 11. Handmatige verbindingen [V]: 285 links uit 732 punten; twee lege reeksen (239 Texel, 258 Den Helder) bestaan nog als lege rij en belanden als rij 0 met 0 punten en null-wegtype in `Final_Network_20260601.mmd`; alle handmatige links krijgen `CarDefaultSpeed` 50, ook de 19 als ferry/riverferry getypeerde (`ExtraVerbindingen.dms:798-799`), terwijl `ExtraBoatConnections` 25 gebruikt; hun eindpunten snappen zonder maximumafstand aan het dichtstbijzijnde segment van welk wegtype ook (`NetworkPreperation.dms:29`). De Geofabrik-wegenlaag heeft geen ferries, dus buiten die 40 handmatige links ontbreken veren voor lopen en fietsen [S].
 12. Regio's [V]: 12 provincies, Belgie, Niedersachsen, Duesseldorf/Koeln/Muenster; Arnsberg en Detmold (rest NRW) ontbreken.
 
-**Fietstelweek**
+### Fietstelweek
+
 13. Koppeling [V]: alleen fietslinks; `connect_info` met lokale `8d*8d` en `Fietstel_OSM_link_dist` 8 m (`OSM.dms:266-276`), gemiddelde per link; punten om de 25 m (`Fietstelweek.dms:25`) tegen OSM-segmenten van 2 punten (`arc2segm`). Dekking 16,5% van de fietslinks (5,18 M van 31,3 M) [A].
 14. **Imputaties als metingen** [A/S]: in de bron staat SNEL_ABS op 8, 10 of 12 bij alle 1,68 M links met INTENS_MEE = 0; de config filtert alleen op 0 (`Fietstelweek.dms:14`). Gekoppelde links worden zo langzamer (8-10) dan de fallback 14.
 15. Toepassing [V]: de gemeten snelheid zit alleen in `Calc_Traveltimes_congested_Cycling` (exportkolommen bij `UseActualCyclingSpeeds`, decay-tabel). Voor-/natransport en de directe fietsrit rijden altijd op de constante 14 km/u. Data 2015-2017 op OSM 2026; geometrie float32 WebMercator [S].
 
-**Fietsersbond en NDW** [V]: de Fietsersbond-lezer (6b77078) is nergens aangesloten; NDW: lezer zonder data en zonder afnemer (zie 7).
+### Fietsersbond en NDW
+
+[V]: de Fietsersbond-lezer (6b77078) is nergens aangesloten; NDW: lezer zonder data en zonder afnemer (zie 7).
 
 ## 5. Connectiviteitstoets, OD-koppeling en clean-up
 
-**Connectiviteit** [V]
+### Connectiviteit [V]
 - Een template: `connected_parts(F1, F2)`, grootste component op AANTAL KNOPEN, `IsVerbonden := IsConnected[F1] && IsConnected[F2]` (`Check_Connectiveness_T.dms:9-16`). Ongericht: eenrichtingsvallen worden niet gezien.
 - Toegepast op vier plaatsen: (1) in de OSM-voorbereiding op ALLE modaliteiten samen (`NetworkPreperation.dms:57-88`), het enige resultaat dat in de store zit; een autodeel dat alleen via een voetpad hangt blijft; een null-eindpunt telt als verbonden (`:60`), vandaar de lege rij in de store; (2) per modaliteit op de store (`Network_Car/Cycling/Walking/Connectiveness`), maar alleen `Network_Car/isVerbonden` wordt gebruikt, fiets en lopen gebruiken het ruwe net (`PublicTransport_Prep.dms:126-128`); (3) in `CreateNetwork_Efficient_T:59-63` per netwerkbouw (lopen, fietsen, e-bike, OSM-auto, UAI, PostAnalysis, knooppunten), voor het aanhechten van herkomsten en bestemmingen; het commentaar "for checking and visualisation only" is achterhaald; (4) TomTom op de autowegen (`CreateNetwork_TomTom_T.dms:86-91`), niet opgeslagen, knopenset blijft alle 3,4 M junctions. `Check_Connectiveness_T_adhoc` wordt geinstantieerd (`Efficient_T:239`) maar niet gebruikt; `Read_Final_Network/Connectiveness` is dood.
 
-**OD-koppeling** [V]
+### OD-koppeling [V]
+
 - Herkomsten zijn celmiddens van 500 m (`BAG.dms:291`), bestemmingen de 462 knooppunten; `Places := union_unit(SL_Places, org, dest)` zonder geometrische ontdubbeling.
 - OSM-modaliteiten: `connect_ne(Roads_Connected/geometry, Connectable, UniqueLocations/geometry, 0)` (`Efficient_T:68`): dichtstbijzijnde koppelbare segment van de hoofdcomponent, segment wordt gesplitst, rechte koppellink; GEEN maximale afstand; koppelbaar = niet motorway/motorway_link (trunk en ferry wel, `OSM.dms:367`). Koppellinksnelheid = fallback: lopen 4,5, fietsen 14, e-bike 20, auto 130 (3.3). Routering gebruikt dezelfde knopenset als het snappen; OD-knopen zijn beschermd in de clean-up.
 - TomTom: `capacitated_connect(uqGeoJunctions/geometry, float64(Connectable), geometry, 1)` (`CreateNetwork_TomTom_T.dms:30`): dichtstbijzijnde koppelbare JUNCTION (geen linksplitsing), koppellink 30 km/u, geen maximale afstand; koppelbaar = raakt een niet-FRC-0-weg, bepaald met een `rjoin` op de eerste treffer (`:120`) en per locatie `first(JNCTID)` naast `any(Connectable)` (`:126-128`), dus een koppeling kan aan een snelwegjunction op dezelfde plek landen [S].
 - Geen herkomst wordt weggelaten bij het koppelen; onbereikbare paren geven geen rij. Ids overleven de matrices (Start_rel/End_rel, Org_rel, OrgZone_rel); blokken op `rnd_rel / MaxOrgBlockSize` (450 x 200 >= 88.126, check in `main.dms:18-20`); voor-/natransport en directe matrices worden voor ALLE herkomsten gerekend en per blok gefilterd.
 - Het TomTom- en OSM-autonet verschillen stil op zeven punten: koppeldoel (junction vs gesplitste link), koppelsnelheid (30 vs 130), koppelbaar (niet FRC 0 vs niet motorway), clean-up (geen vs Efficient_T), dekking (NL+BE vs +DE-deel), snelheidscap (geen vs 100), congestie (profielen vs geen).
 
-**Clean-up** [V]
+### Clean-up [V]
+
 - OSM-voorbereiding/store: alleen identieke geometrie in dezelfde richting (`unique(geometry)`, eerste treffer wint); geen self-loops, doodlopers, null-snelheid of lege links verwijderd; knopen op exacte coordinaten.
 - `CreateNetwork_Efficient_T`: vast 10 rondes (`NumberOfItersForNetworkCleanUp`); doodlopers die geen OD zijn; graad-2-ketens samengevoegd; self-loops; duplicaten op ONGERICHT knopenpaar met de minimale impedantie van de groep (`:534-566`, eigen TO DO-commentaar) waardoor tegengestelde eenrichtingslinks samenvallen [A]; een samengevoegde keten wordt tweerichting zodra een deel tweerichting is (`IsOneDirection := First && Last && all(inside)`, `:392`) [V]; knopen met graad 0 weg.
 - **Kruispuntpenalty dubbel** [V]: het commentaar zegt "helft van de opgegeven waarden omdat er zowel bij begin als einde een factor wordt opgeteld" (`Efficient_T:127`, `TomTom_T:192`), maar de volle parameters worden aan beide linkuiteinden opgeteld; een kruispunt kost dus 2 x 5 = 10 s voor de auto (de wiki beschrijft juist die 10 s). En de knoopgraad wordt geteld INCLUSIEF de OD-koppellinks en voor de clean-up (`Efficient_T:116`), dus elk aanhechtpunt wordt een graad-3-kruispunt met penalty voor doorgaand verkeer; in de loop- en fietsnetten voor OV zijn alle haltes zulke knopen.
