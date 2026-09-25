@@ -392,7 +392,13 @@ container TomTom
 			{
 				parameter<string> Moment;
 				//
-				attribute<min_f> Minutes       (Roads_selection) := ='Roads_selection/Minutes / MakeDefined(Speednetworks/CalcTimes/'+Time+'/PerMoment/'+Moment+'/factor[Speednetworks_rel], 1f)';
+				// Een snelheidsmoment (freeflow, weekday, weekend, week): lengte gedeeld door de TomTom-snelheid van dat
+				// moment; een profielmoment (een weekdag): de reistijd van het wegennet gedeeld door de relatieve snelheid op
+				// het tijdstip. Zonder speedprofile-link blijft de reistijd van het wegennet staan (audit 4.1, 2026-09-25).
+				parameter<bool>  IsSpeedMoment                    := lowercase(Moment) == 'freeflow' || lowercase(Moment) == 'weekday' || lowercase(Moment) == 'weekend' || lowercase(Moment) == 'week';
+				attribute<min_f> Minutes       (Roads_selection) := = IsSpeedMoment
+					? 'MakeDefined(convert(convert(Roads_selection/meters, km) / Speednetworks/CalcTimes/'+Time+'/PerMoment/'+Moment+'/Speed[Speednetworks_rel], min_f), Roads_selection/Minutes)'
+					: 'Roads_selection/Minutes / MakeDefined(Speednetworks/CalcTimes/'+Time+'/PerMoment/'+Moment+'/factor[Speednetworks_rel], 1f)';
 				attribute<km_hr> kph_src       (Roads_selection) := convert(Roads_selection/meters, km) / convert(Minutes, hr_f);
 				attribute<km_hr> kph           (Roads_selection) := IsFerry ? ModelParameters/Advanced/Ferry_Speed : kph_src;
 				attribute<km_hr> Speed_PerRPS  (RoadPointSet)    := kph[RoadPointSet/Sequence_rel];
@@ -457,9 +463,16 @@ container TomTom
 				parameter<string> Moment;
 				//
 				
+				// De weekdagen dragen in SP_<dag> een profiel-id (profile_1..7), met per kwartier een relatieve snelheid;
+				// freeflow, weekday, weekend en week dragen in SP_<moment> een snelheid in km/u (spfreeflow enz.). Tot
+				// 2026-09-25 werd die snelheid ook als profiel-id opgezocht (audit 4.1): omdat de snelheden 2..133 binnen het
+				// bereik van de profiel-id's vallen, kreeg elke link een factor van een willekeurig ander profiel (gemiddeld
+				// 0,90) en was Freeflow gemiddeld het langzaamste moment.
+				parameter<bool>    IsSpeedMoment                 := lowercase(Moment) == 'freeflow' || lowercase(Moment) == 'weekday' || lowercase(Moment) == 'weekend' || lowercase(Moment) == 'week', Descr = "TRUE als SP_<moment> een snelheid is in plaats van een profiel-id.";
 				attribute<uint16>  SP            (Speednetworks) := ='SP_'+Moment;
+				attribute<km_hr>   Speed         (Speednetworks) := = IsSpeedMoment ? 'SP > 0w ? value(float32(SP), km_hr) : value(null_f, km_hr)' : 'const(null_f, Speednetworks, km_hr)', Descr = "De snelheid van een snelheidsmoment (freeflow, weekday, weekend, week); null voor een profielmoment.";
 				attribute<string>  Region_SP_key (Speednetworks) := region_code + '_' + string(SP) + '_' + string(Time_in_seconds);
-				attribute<float32> factor        (Speednetworks) := rjoin(Region_SP_key, Speedprofiles/Region_Profile_TimeSlot_key, Speedprofiles/rel_sp / 100f); 
+				attribute<float32> factor        (Speednetworks) := = IsSpeedMoment ? 'const(null_f, Speednetworks, float32)' : 'rjoin(Region_SP_key, Speedprofiles/Region_Profile_TimeSlot_key, Speedprofiles/rel_sp / 100f)', Descr = "De relatieve snelheid van het profiel op dit tijdstip; null voor een snelheidsmoment.";
 			}
 		}
 	}
