@@ -37,8 +37,45 @@ container Templates: Using = "Units;geometries;Classifications"
 			attribute<uint32> hour     := uint32(substr(TimesString, 0, hour_sep));
 			attribute<uint32> min      := uint32(substr(TimesString, hour_sep + 1, sec_sep - hour_sep - 1));
 			attribute<uint32> sec      := uint32(substr(TimesString, sec_sep + 1, 2));
-			attribute<uint32> hoursyst := hour <= max(Time/Hour) ? hour : sub_or_null(hour,max(Time/Hour));
+			attribute<uint32> hoursyst := hour <= max(Time/Hour) ? hour : sub_or_null(hour, max(Time/Hour) + 1);
 			attribute<Time>   Time_rel  := ((hoursyst * 60 * 60) + (min * 60) + sec)[Time];
 		}
+	}
+
+	// Datumrekenen zonder datumtype (audit 3.5): een datum jjjjmmdd als dagnummer, het aantal dagen sinds 1 januari 1970,
+	// en terug. Zo is de dag voor 20241001 20240930 en niet 20241000. De formules zijn die van de gregoriaanse kalender
+	// (H. Hinnant, days_from_civil en civil_from_days), in uint32, geldig vanaf 1 maart 1970.
+	Template DayNr_T
+	{
+		unit<uint32>      Dom;
+		attribute<uint32> yyyymmdd (Dom);
+		//
+		attribute<uint32> Y       (Dom) := yyyymmdd / 10000;
+		attribute<uint32> M       (Dom) := (yyyymmdd / 100) % 100;
+		attribute<uint32> D       (Dom) := yyyymmdd % 100;
+		attribute<uint32> y_mar   (Dom) := Y - uint32(M <= 2), Descr = "Het jaar dat op 1 maart begint.";
+		attribute<uint32> era     (Dom) := y_mar / 400;
+		attribute<uint32> yoe     (Dom) := y_mar - era * 400;
+		attribute<uint32> doy     (Dom) := (153 * ((M + 9) % 12) + 2) / 5 + D - 1;
+		attribute<uint32> doe     (Dom) := yoe * 365 + yoe / 4 - yoe / 100 + doy;
+		attribute<uint32> DayNr   (Dom) := era * 146097 + doe - 719468, Descr = "Dagen sinds 1970-01-01.";
+		attribute<uint32> Weekday (Dom) := (DayNr + 3) % 7, Descr = "0 = maandag, zoals Units/Weekdays.";
+	}
+
+	Template CivilDate_T
+	{
+		unit<uint32>      Dom;
+		attribute<uint32> DayNr (Dom);
+		//
+		attribute<uint32> z        (Dom) := DayNr + 719468;
+		attribute<uint32> era      (Dom) := z / 146097;
+		attribute<uint32> doe      (Dom) := z - era * 146097;
+		attribute<uint32> yoe      (Dom) := (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+		attribute<uint32> doy      (Dom) := doe - (365 * yoe + yoe / 4 - yoe / 100);
+		attribute<uint32> mp       (Dom) := (5 * doy + 2) / 153;
+		attribute<uint32> D        (Dom) := doy - (153 * mp + 2) / 5 + 1;
+		attribute<uint32> M        (Dom) := (mp + 2) % 12 + 1;
+		attribute<uint32> Y        (Dom) := yoe + era * 400 + uint32(M <= 2);
+		attribute<uint32> yyyymmdd (Dom) := Y * 10000 + M * 100 + D;
 	}
 }

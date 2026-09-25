@@ -46,8 +46,17 @@ container OV_Knooppunten : using = "RelevantSelection"
 	attribute<uint32>   NrVertrekkenVandaag (Stops)    := sum_uint32(VertrekVandaag, StopTimes/Stop_rel);
 
 	//// Stap 1: haltes clusteren tot knooppunt-kandidaten (single linkage binnen DistanceKnooppuntClusters)
-	unit<uint32> NearbyStopPairs := join_near_values(Stops/geometry, Stops/geometry, float64(ModelParameters/Advanced/DistanceKnooppuntClusters))
-	, Descr = "Alle haltenparen binnen clusterafstand; input voor connected_parts.";
+	// Sinds 2026-09-25 (audit 3.5) bevat Stops ook haltes die alleen de ritten van de vorige dag na middernacht of van de volgende
+	// dag gebruiken. Die tellen niet mee in de clustering: een knooppunt beschrijft de dienstregeling van Analysis_date, en zo'n
+	// halte zou twee clusters kunnen verbinden (op 20241001 verschoof daardoor het hoofdpunt van 23 van de 462 knooppunten).
+	attribute<bool>    HalteVandaag (Stops) := NrVertrekkenVandaag > 0, Descr = "Halte met een haltering op Analysis_date.";
+	unit<uint32> NearbyStopPairs_alle := join_near_values(Stops/geometry, Stops/geometry, float64(ModelParameters/Advanced/DistanceKnooppuntClusters));
+	unit<uint32> NearbyStopPairs := select_with_org_rel(HalteVandaag[NearbyStopPairs_alle/first_rel] && HalteVandaag[NearbyStopPairs_alle/second_rel])
+	, Descr = "Alle paren van haltes met vertrekken op Analysis_date binnen clusterafstand; input voor connected_parts."
+	{
+		attribute<Stops> first_rel  := NearbyStopPairs_alle/first_rel[org_rel];
+		attribute<Stops> second_rel := NearbyStopPairs_alle/second_rel[org_rel];
+	}
 
 	unit<uint32> Knopen := connected_parts(NearbyStopPairs/first_rel, NearbyStopPairs/second_rel)
 	, Descr = "Halteclusters: elke samenhangende groep haltes is een knooppunt-kandidaat. Subitem PartNr relateert elke halte aan zijn cluster."

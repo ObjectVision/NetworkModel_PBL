@@ -161,8 +161,77 @@ container LoadFeeds
 		attribute<uint32>   nDate       := uint32(Read/Calendar_dates/data/date), Descr = "Date when service exception occurs";
 		attribute<uint32>   nType       := uint32(Read/Calendar_dates/data/exception_type), Descr = "exception_type = 1 -> Service has been added for the specified date; exception_type = 2 -> Service has been removed for the specified date.";
 		attribute<Services> Services_rel := rlookup(Read/Calendar_dates/data/service_id, Services/Values), Descr = "Identifies a set of dates when a service exception occurs for one or more routes.";
-		attribute<uint32>   Today       := uint32(uint32(ModelParameters/Analysis_date) = nDate);  
-		attribute<uint32>   Yesterday   := uint32(uint32(ModelParameters/Analysis_date) - 1 = nDate);
+		// Sinds 2026-09-25 (audit 3.5) via ServiceDays: tot dan was gisteren uint32(Analysis_date) - 1, op de eerste van
+		// een maand een datum die niet bestaat (20241001 - 1 = 20241000), zodat geen enkele rit van de vorige dag meedeed.
+		attribute<uint32>   Today       := uint32(ServiceDays/Today_date     = nDate);
+		attribute<uint32>   Yesterday   := uint32(ServiceDays/Yesterday_date = nDate);
+		attribute<uint32>   Tomorrow    := uint32(ServiceDays/Tomorrow_date  = nDate);
+		attribute<CalendarDates> CalendarDate_rel := rlookup(nDate, CalendarDates/values);
+	}
+
+	unit<uint32> CalendarDates := unique(Calendar_dates/nDate)
+	, Descr = "De datums in calendar_dates, met het aantal ritten per datum en de drukste datum per weekdag, voor de controle in ServiceDays."
+	{
+		attribute<uint32>   yyyymmdd              := values;
+		container           Day                   := /Templates/DayNr_T(., yyyymmdd);
+		attribute<Weekdays> Weekday_rel           := value(Day/Weekday, Weekdays);
+		attribute<uint32>   NrTrips               := sum(Calendar_dates/nType == 1 ? Services/NrTrips[Calendar_dates/Services_rel] : 0, Calendar_dates/CalendarDate_rel), Descr = "Ritten van de diensten die op deze datum worden toegevoegd (exception_type 1).";
+		attribute<uint32>   MaxTrips_PerWeekday (Weekdays) := max(NrTrips, Weekday_rel);
+	}
+
+	container ServiceDays
+	: Descr = "De dienstdagen rond Analysis_date (D): D-1, D en D+1. Het netwerk legt ze op een tijdas in seconden sinds 00:00 van D: van D alle ritten met hun GTFS-tijd (ook 24:00 en later), van D-1 de ritten na middernacht (GTFS-tijd 24:00 en later, min 24 uur), van D+1 de ritten die beginnen voor het einde van het analysevenster (plus 24 uur). De datums volgen uit een dagnummer, niet uit rekenen op de cijfers."
+	{
+		unit<uint32> AnalysisDay : nrofrows = 1
+		{
+			attribute<uint32> yyyymmdd := const(uint32(ModelParameters/Analysis_date), .);
+		}
+		container AnalysisDayNr := /Templates/DayNr_T(AnalysisDay, AnalysisDay/yyyymmdd);
+
+		unit<uint32> Days : nrofrows = 3
+		{
+			attribute<string>        name                 : ['Yesterday', 'Today', 'Tomorrow'];
+			attribute<string>        label                : ['D-1', 'D', 'D+1'];
+			attribute<uint32>        DayNr                := first(AnalysisDayNr/DayNr) + id(.) - 1;
+			container                Civil                := /Templates/CivilDate_T(., DayNr);
+			attribute<uint32>        yyyymmdd             := Civil/yyyymmdd;
+			attribute<Weekdays>      Weekday_rel          := value((DayNr + 3) % 7, Weekdays);
+			attribute<bool>          IsDSTChange          := Weekday_rel == Weekdays/V/sunday && (Civil/M == 3 || Civil/M == 10) && Civil/D >= 25, Descr = "Laatste zondag van maart of oktober: de GTFS-tijden van die dag tellen vanaf 12:00 min 12 uur, en dat is dan geen middernacht.";
+			attribute<bool>          IsNeeded             := id(.) == 1
+			                                                 || (id(.) == 0 && ModelParameters/Advanced/PT_FirstDepartureMoment < ModelParameters/Advanced/PrevServiceDayTailEnd)
+			                                                 || (id(.) == 2 && uint32(ModelParameters/Advanced/PT_LastArrivalMoment) > 86400)
+			, Descr = "D altijd; D-1 als het venster voor PrevServiceDayTailEnd begint; D+1 als het venster na middernacht doorloopt.";
+			attribute<CalendarDates> CalendarDate_rel     := rlookup(yyyymmdd, CalendarDates/yyyymmdd);
+			attribute<uint32>        NrTrips              := MakeDefined(CalendarDates/NrTrips[CalendarDate_rel], 0);
+			attribute<uint32>        MaxTrips_SameWeekday := MakeDefined(CalendarDates/MaxTrips_PerWeekday[Weekday_rel], 0);
+			attribute<float32>       TripShare            := MaxTrips_SameWeekday > 0 ? float32(NrTrips) / float32(MaxTrips_SameWeekday) : 0f;
+			attribute<bool>          IsComplete           := TripShare >= ModelParameters/Advanced/MinServiceDayTripShare;
+			attribute<string>        Report               := label + ' ' + string(yyyymmdd) + ' (' + Weekdays/name[Weekday_rel] + '): ' + string(NrTrips) + ' ritten, '
+			                                                 + string(round(TripShare * 100f)) + '% van de drukste ' + Weekdays/name[Weekday_rel] + ' in de feed'
+			                                                 + (IsNeeded ? (IsComplete ? '' : ', ONVOLLEDIG') : ', niet nodig voor dit venster')
+			                                                 + (IsDSTChange ? ', zomertijdwissel' : '');
+		}
+		parameter<uint32> Yesterday_date := Days/yyyymmdd[value(0, Days)];
+		parameter<uint32> Today_date     := Days/yyyymmdd[value(1, Days)];
+		parameter<uint32> Tomorrow_date  := Days/yyyymmdd[value(2, Days)];
+		parameter<string> Report         := asList(Days/Report, '; ');
+
+		// De drie controles worden gerekend zodra het OV-netwerk wordt opgebouwd (ExplicitSuppliers van RelevantSelection/ScheduledLinks).
+		parameter<bool> Check_ServiceDaysComplete := all(!Days/IsNeeded || Days/IsComplete)
+		, IntegrityCheck = "Check_ServiceDaysComplete == True"
+		, Descr = "Elke dienstdag die het analysevenster nodig heeft staat in de feed met minstens MinServiceDayTripShare van de ritten van de drukste dag van dezelfde weekdag. Zie Report voor de aantallen.";
+		parameter<string>   CongestionDay := lowercase(ModelParameters/Advanced/CongestionSpeed_DaySelection);
+		parameter<Weekdays> Today_Weekday := Days/Weekday_rel[value(1, Days)];
+		parameter<bool> Check_WeekdayMatchesCongestionDay :=
+			CongestionDay == 'week'
+			|| (CongestionDay == 'weekday' && Today_Weekday < Weekdays/V/saturday)
+			|| (CongestionDay == 'weekend' && Today_Weekday >= Weekdays/V/saturday)
+			|| CongestionDay == Weekdays/name[Today_Weekday]
+		, IntegrityCheck = "Check_WeekdayMatchesCongestionDay == True"
+		, Descr = "De weekdag van Analysis_date past bij Advanced/CongestionSpeed_DaySelection, de dag van de TomTom-snelheden voor de auto.";
+		parameter<bool> Check_NoDSTChange := all(!(Days/IsDSTChange && Days/IsNeeded && id(Days) >= 1))
+		, IntegrityCheck = "Check_NoDSTChange == True"
+		, Descr = "D, en D+1 als het venster na middernacht doorloopt, is geen dag van een zomertijdwissel (de ritten van D-1 na middernacht komen ook dan goed uit).";
 	}
 	
 	unit<uint32> protoStops := Read/Stops/domain
@@ -174,7 +243,7 @@ container LoadFeeds
 		attribute<dpoint>            point_wgs           := point_xy(float64(stop_lon), float64(stop_lat), wgs84_base);
 		attribute<rdc>               geometry            := LatLongWgs842RD(point_wgs, rdc);
 		attribute<string>            Label               := stop_name;
-		attribute<bool>              StopUsed            := (any(protoStopTimes/SelToday, protoStopTimes/protoStop_rel) || any(protoStopTimes/SelYesterday, protoStopTimes/protoStop_rel));
+		attribute<bool>              StopUsed            := any(protoStopTimes/SelToday, protoStopTimes/protoStop_rel) || any(protoStopTimes/SelYesterday, protoStopTimes/protoStop_rel) || any(protoStopTimes/SelTomorrow, protoStopTimes/protoStop_rel);
 	}
 	
 	unit<uint32> protoTrips  := Read/Trips/domain
@@ -185,6 +254,9 @@ container LoadFeeds
 		attribute<Services>                Services_rel     := rlookup(service_id, Services/Values);
 		attribute<bool>                    sel_today       := Services/Today_exc[Services_rel] = 1;
 		attribute<bool>                    sel_yesterday   := Services/Yesterday_exc[Services_rel] = 1;
+		attribute<bool>                    sel_tomorrow    := Services/Tomorrow_exc[Services_rel] = 1;
+		attribute<Time>                    StartTime       := min(protoStopTimes/departureTime/TimesVector/Time_rel, protoStopTimes/protoTrip_rel);
+		attribute<bool>                    sel_tomorrow_window := sel_tomorrow && uint32(StartTime) + 86400 < uint32(ModelParameters/Advanced/PT_LastArrivalMoment), Descr = "Ritten van D+1 die beginnen voor het einde van het analysevenster; bij een venster voor middernacht geen enkele.";
 		attribute<Trips_x_order_uq>        first_txo       := min_index(Trips_x_order_uq/ord, Trips_x_order_uq/protoTrip_rel);
 		attribute<shapes>                  shape_rel       := rlookup(shape_id, shapes/shape_id);
 	}
@@ -195,6 +267,7 @@ container LoadFeeds
 		attribute<protoTrips>              protoTrip_rel            := rlookup(Read/Stop_times/data/trip_id, protoTrips/trip_id);
 		attribute<bool>                    SelToday                 := protoTrips/sel_today[protoTrip_rel];
 		attribute<bool>                    SelYesterday             := protoTrips/sel_yesterday[protoTrip_rel] && (Time/Day[departureTime/TimesVector/Time_rel] > 0);
+		attribute<bool>                    SelTomorrow              := protoTrips/sel_tomorrow_window[protoTrip_rel] && (Time/Day[departureTime/TimesVector/Time_rel] == 0) && (Time/Day[arrivalTime/TimesVector/Time_rel] == 0), Descr = "Hele ritten van D+1 die voor het einde van het venster beginnen; GTFS-tijd onder 24:00, zodat ze plus 24 uur binnen de tijdas van 48 uur vallen.";
 		attribute<protoStops>              protoStop_rel            := rlookup(Read/Stop_times/data/stop_id, protoStops/stop_id);
 		attribute<protoStops>              NextprotoStop_rel        := protoStop_rel[NextStopId];
 		attribute<uint32>                  Stop_Sequence            := uint32(Read/Stop_times/data/stop_sequence);
@@ -218,55 +291,43 @@ container LoadFeeds
 		container departureTime := Templates/GTFS_getTimes_T(.,Read/Stop_times/data/departure_time);
 		container arrivalTime   := Templates/GTFS_getTimes_T(.,Read/Stop_times/data/arrival_time);
 	
-		container Yesterday 
+		// De links per dienstdag, op de tijdas in seconden sinds 00:00 van Analysis_date (D). Sinds 2026-09-25 (audit 3.5) uit een
+		// template: D+1 is erbij gekomen, en de lengte van een link van D-1 zonder bruikbare shape_dist_traveled valt terug op
+		// de hemelsbrede afstand zoals bij D (tot dan 0).
+		container Yesterday := DayLinks_T(SelYesterday, 0, 24 * 60 * 60), Descr = "Ritten van D-1 na middernacht (GTFS-tijd 24:00 en later), min 24 uur.";
+		container Today     := DayLinks_T(SelToday,     0, 0),            Descr = "Ritten van D met hun GTFS-tijd, ook na middernacht (24:00 en later).";
+		container Tomorrow  := DayLinks_T(SelTomorrow,  24 * 60 * 60, 0), Descr = "Ritten van D+1 die voor het einde van het analysevenster beginnen, plus 24 uur.";
+	}
+
+	Template DayLinks_T
+	{
+		attribute<bool>   Sel (protoStopTimes);
+		parameter<uint32> AddSec;
+		parameter<uint32> SubSec;
+		//
+		unit<uint32> Links := select_with_org_rel(Sel && !protoStopTimes/EndPoint)
 		{
-			unit<uint32> Links := select_with_org_rel(SelYesterday && !EndPoint)
-			{
-				attribute<rdc>         geometry     (arc) := points2sequence(GenLines/Points,GenLines/Sequence_rel,GenLines/Ordinal);
-				attribute<uint32>      dist_traveled      := MakeDefined(sub_or_null(.../next_shape_dist_traveled[org_rel], .../shape_dist_traveled[org_rel]), 0);
-				attribute<m>           dist_euclid        := arc_length(geometry, m_f64)[m];
-				attribute<rdc>         fromPoint          := protoStops/geometry[protoStopTimes/protoStop_rel[org_rel]];
-				attribute<protoStops>  From_protoStop_rel := .../protoStop_rel[org_rel];
-				attribute<rdc>         ToPoint            := protoStops/geometry[protoStopTimes/NextprotoStop_rel[org_rel]];
-				attribute<protoStops>  To_protoStop_rel   := .../protoStop_rel[.../NextStopId[org_rel]];
-				attribute<protoTrips>  protoTrip_rel      := .../protoTrip_rel[org_rel];
-				attribute<Time>        depTime            := sub_or_null(departureTime/TimesVector/Time_rel[org_rel],(24*60*60));
-				attribute<Time>        arrTime            := sub_or_null(arrivalTime/TimesVector/Time_rel[.../NextStopId[org_rel]],(24*60*60));
-				attribute<km>          Length             := MakeDefined(convert(float32(dist_traveled)[m], km), convert(dist_euclid, km));
-			}
-			
-			unit<uint32> GenLines := union_unit(Links, Links)
-			{
-				attribute<rdc>    Points          := union_data(., Links/FromPoint, Links/toPoint);
-				attribute<Links>  Sequence_rel    := union_data(., id(Links), id(Links));
-				attribute<uint32> Ordinal         := union_data(., const(0,Links,uint32), const(1,Links,uint32));
-			}
+			attribute<rdc>         geometry     (arc) := points2sequence(GenLines/Points, GenLines/Sequence_rel, GenLines/Ordinal);
+			attribute<uint32>      dist_shape         := sub_or_null(protoStopTimes/next_shape_dist_traveled[org_rel], protoStopTimes/shape_dist_traveled[org_rel]);
+			attribute<uint32>      dist_traveled      := dist_shape <= 100 ? null_u : dist_shape;
+			attribute<m>           dist_euclid        := arc_length(geometry, m_f64)[m];
+			attribute<rdc>         fromPoint          := protoStops/geometry[protoStopTimes/protoStop_rel[org_rel]];
+			attribute<protoStops>  From_protoStop_rel := protoStopTimes/protoStop_rel[org_rel];
+			attribute<rdc>         ToPoint            := protoStops/geometry[protoStopTimes/NextprotoStop_rel[org_rel]];
+			attribute<protoStops>  To_protoStop_rel   := protoStopTimes/protoStop_rel[protoStopTimes/NextStopId[org_rel]];
+			attribute<protoTrips>  protoTrip_rel      := protoStopTimes/protoTrip_rel[org_rel];
+			attribute<Time>        depTime            := value(sub_or_null(uint32(protoStopTimes/departureTime/TimesVector/Time_rel[org_rel]) + AddSec, SubSec), Time);
+			attribute<Time>        arrTime            := value(sub_or_null(uint32(protoStopTimes/arrivalTime/TimesVector/Time_rel[protoStopTimes/NextStopId[org_rel]]) + AddSec, SubSec), Time);
+			attribute<km>          Length             := MakeDefined(convert(float32(dist_traveled)[m], km), convert(dist_euclid, km));
 		}
-		container Today  
+		unit<uint32> GenLines := union_unit(Links, Links)
 		{
-			unit<uint32> Links := select_with_org_rel(SelToday && !EndPoint)
-			{
-				attribute<rdc>         geometry     (arc) := points2sequence(GenLines/Points,GenLines/Sequence_rel,GenLines/Ordinal);
-				attribute<uint32>      dist_traveled      := sub_or_null(.../next_shape_dist_traveled[org_rel], .../shape_dist_traveled[org_rel]) <= 100 ? null_u : sub_or_null(.../next_shape_dist_traveled[org_rel], .../shape_dist_traveled[org_rel]);
-				attribute<m>           dist_euclid        := arc_length(geometry, m_f64)[m];
-				attribute<rdc>         fromPoint          := protoStops/geometry[protoStopTimes/protoStop_rel[org_rel]];
-				attribute<protoStops>  From_protoStop_rel := .../protoStop_rel[org_rel];
-				attribute<rdc>         ToPoint            := protoStops/geometry[protoStopTimes/NextprotoStop_rel[org_rel]];
-				attribute<protoStops>  To_protoStop_rel   := .../protoStop_rel[.../NextStopId[org_rel]];
-				attribute<protoTrips>  protoTrip_rel      := .../protoTrip_rel[org_rel];
-				attribute<Time>        depTime            := departureTime/TimesVector/Time_rel[org_rel];
-				attribute<Time>        arrTime            := arrivalTime/TimesVector/Time_rel[.../NextStopId[org_rel]];
-				attribute<km>          Length             := MakeDefined(convert(float32(dist_traveled)[m], km), convert(dist_euclid, km));
-			}
-			unit<uint32> GenLines := union_unit(Links, Links)
-			{
-				attribute<rdc>    Points          := union_data(., Links/FromPoint, Links/ToPoint);
-				attribute<Links>  Sequence_rel    := union_data(., id(Links), id(Links));
-				attribute<uint32> Ordinal         := union_data(., const(0,Links,uint32), const(1,Links,uint32));
-			}
+			attribute<rdc>    Points          := union_data(., Links/FromPoint, Links/ToPoint);
+			attribute<Links>  Sequence_rel    := union_data(., id(Links), id(Links));
+			attribute<uint32> Ordinal         := union_data(., const(0,Links,uint32), const(1,Links,uint32));
 		}
 	}
-	
+
 	unit<uint32> Trips_x_order_uq := unique(protoStopTimes/Trip_x_Ordinal) 
 	{
 		attribute<protoTrips>  protoTrip_rel:= pointRow(Values)[protoTrips];
@@ -278,6 +339,8 @@ container LoadFeeds
 	{
 		attribute<uint32>  Today_exc     := sum(Calendar_dates/Today * Calendar_dates/nType, Calendar_dates/Services_rel);
 		attribute<uint32>  Yesterday_exc := sum(Calendar_dates/Yesterday * Calendar_dates/nType, Calendar_dates/Services_rel);
+		attribute<uint32>  Tomorrow_exc  := sum(Calendar_dates/Tomorrow * Calendar_dates/nType, Calendar_dates/Services_rel);
+		attribute<uint32>  NrTrips       := pcount(protoTrips/Services_rel);
 	}
 	
 	unit<uint32> Shapes := Read/Shapes/domain
