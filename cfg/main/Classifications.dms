@@ -239,14 +239,21 @@ container Classifications: Using = "Units"
 		
 		container V := for_each_nedv(name, String(ID(.))+'[..]', void, .);
 	}
-	unit<uint8> ChainJoinerParetoAttr: nrofrows = 3
+	// De criteria van de ketenrijger. Binnen een groep van de ketenrijger (dezelfde instap- en uitstaptijdhalte) is de reistijd
+	// gelijk; de ketenrijger snoeit op Price_augm (prijs plus tijdkosten van overstappen) en de resttijden die bepalen of een
+	// keten nog verlengd kan worden. Sinds 2026-09-25 (audit 6.1) ook op Price zodra het eindfront (FinalParetoAttr) op Price
+	// kiest: tot dan kon de goedkoopste keten van een groep sneuvelen tegen een duurdere met minder overstaptijd, terwijl hij
+	// op (Price, TravelTime) het eindfront hoorde te halen.
+	unit<uint8> ChainJoinerParetoAttr_Candidates: nrofrows = 4
 	{
 		// note that TraveTime constant is binnen iedere keuze-set die door de ketenrijger wordt gemaakt tbv de volgende stap in het proces
 		// toevoeging van TravelTime hier heeft dus geen invloed op de resultaten, wel op de rekentijd en memory attr.
-		attribute<string> Name : [ 'Price_augm', 'remaining_time_excl_RO_transfer', 'remaining_time_excl_NS_transfer' ];
-		attribute<string> EpsilonExpr : [ '/ModelParameters/Advanced/ChainParetoPriceEpsilon', '/ModelParameters/Advanced/ChainParetoTimeEpsilon_t', '/ModelParameters/Advanced/ChainParetoTimeEpsilon_t' ], Descr = "Per criterium het epsilon voor pareto_optimal_eps (GeoDMS >= 20.21.0), in de eenheid van het criterium.";
-	}	
-	
+		attribute<string> Name : [ 'Price_augm', 'remaining_time_excl_RO_transfer', 'remaining_time_excl_NS_transfer', 'Price' ];
+		attribute<string> EpsilonExpr : [ '/ModelParameters/Advanced/ChainParetoPriceEpsilon', '/ModelParameters/Advanced/ChainParetoTimeEpsilon_t', '/ModelParameters/Advanced/ChainParetoTimeEpsilon_t', '/ModelParameters/Advanced/ChainParetoPriceEpsilon' ], Descr = "Per criterium het epsilon voor pareto_optimal_eps (GeoDMS >= 20.21.0), in de eenheid van het criterium.";
+		attribute<bool>   IsSelected  := id(.) < 3b || CandidateParetoAttr/IsFinalParetoSelection[CandidateParetoAttr/V/Price];
+	}
+	unit<uint8> ChainJoinerParetoAttr := select_with_attr_by_cond(ChainJoinerParetoAttr_Candidates, ChainJoinerParetoAttr_Candidates/IsSelected);
+
 	unit<uint8> CandidateParetoAttr: nrofrows = 3
 	{
 		attribute<string> Name               : [ 'Price', 'Price_augm', 'TravelTime']; // kan hier gereguleerd worden; maak dit afhankelijk van MinimiseCriterium
