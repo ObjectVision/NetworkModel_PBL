@@ -51,11 +51,12 @@ met 0,20 EUR/km variabel, 0,21 EUR/km vast (in de prijs) en 0,30 EUR per penalty
 | MorningRush | 12,95 M | 55,6 M | 4,3 / 9 / 53 | 62,2 tot 65,8 min | 29,76 tot 30,92 EUR | 97 min | 97 min | 5,1 GB | 0,9 GB |
 | NoonRush | 15,68 M | 68,8 M | 4,4 / 9 / 53 | 62,0 tot 66,1 min | 32,90 tot 34,17 EUR | 131 min | 132 min | 5,3 GB | 1,1 GB |
 | LateEveningRush | 16,78 M | 77,1 M | 4,6 / 10 / 52 | 61,8 tot 66,2 min | 34,13 tot 35,48 EUR | 150 min | 150 min | 5,4 GB | 1,2 GB |
-| Freeflow | | | | | | | | | |
+| Freeflow | 14,15 M | 61,7 M | 4,4 / 9 / 47 | 62,3 tot 66,3 min | 31,20 tot 32,39 EUR | 112 min | 114 min | 5,2 GB | 1,0 GB |
 
 - Geen fouten. PeakLiveLarge was 4,1 GB in alle drie; geheugen is geen beperking.
 - Het aantal paren verschilt per moment door MaxCarTime: in de spits is minder binnen 90 minuten bereikbaar.
-- Freeflow is om 10:09 afgebroken op 40.235 van de 88.126 herkomsten en moet nog gerekend worden: `batch\UpdateAll.cmd cars Freeflow`, naar verwachting 3 tot 4 uur.
+- Freeflow is om 10:09 afgebroken en in de nacht van 24 op 25 september opnieuw gerekend (22:55 tot 02:41), met een kopie van dezelfde bin-build in `C:\LocalData\GeoDMS_engine\20.21.0_c2f64650`, zodat een build in Visual Studio de run niet raakte (`scratch\run_updateall_engcopy.bat`).
+- Freeflow bereikt minder HB-paren (14,15 M) dan de middag- en de avondspits (15,68 M en 16,78 M), terwijl het het snelste moment zou moeten zijn. Dat past bij audit 4.1: de freeflow-snelheid wordt via een verkeerde sleutel uit de TomTom-profielen gehaald, zodat de factor uit een ander profiel komt of 1 wordt. Niet hersteld; de Freeflow-store is tot die reparatie niet bruikbaar als vrije-doorstromingsvariant.
 
 ## 2. OV-ketenrijging met pareto_optimal_eps
 
@@ -146,6 +147,7 @@ De reistijd van de fiets bevat de starttijd (`Cycling_StartTime`); daardoor ligt
 - Het aantal vertrekmomenten voor de ketenstore: 1, 2 of 4, met ca. 4, 15 of 24 uur rekentijd.
 - NetworkModel_PBL#88: afstand is geen apart criterium geworden; de kilometerprijs zit in de kosten. Een front voor de fiets ontbreekt nog.
 - Voor productie is een geinstalleerde 20.21-setup nodig; nu draait het model op een werkboom-build.
+- Audit 4.1 (freeflow-snelheid van TomTom via een verkeerde sleutel) repareren voordat de Freeflow-store gebruikt wordt?
 - Moet de prijs standaard in de uitvoer (`Export_PriceInformation`)?
 
 ## 6. Bijvangst, hersteld
