@@ -4,73 +4,52 @@ Template ReadExport_OV_perTime_T
 	parameter<string> Org_str;
 	parameter<string> Dest_str;
 	///
-	
+	// Leest de OV-uitvoer van een herkomstblok (Org_str = blok) of de per vertrekmoment samengevoegde uitvoer (Org_str = 'All').
+	// Sinds 2026-09-25 (audit 6.5) met dezelfde naamopbouw als de schrijver (ModelParameters/Advanced/PT_OutputFileTail; tot dan
+	// zocht de lezer _ORG-<Orgset> en _MaxOV-, de schrijver schrijft _ORG-<OrgSet_string> en _MaxPT- plus de pareto-tags), met de
+	// kolomnamen van de schrijver (PretransTime/PosttransTime, niet VoortransTime/NatransTime), Price alleen als de kolom er is
+	// (File_woPrice, de default, heeft hem niet), en via GDAL in plaats van het hele bestand als een string: een vertrekmoment
+	// samengevoegd over de 450 blokken is 39 M regels.
 	parameter<bool> IsRegionMerged := Org_str == 'All';
-	
-	container PerTime := 
+
+	container PerTime :=
 		for_each_ne(
 			Advanced/MeasureMoments/name
 			, 'ReadCSV_T('+quote(Advanced/MeasureMoments/name)+')'
 		);
-		
+
 	Template ReadCSV_T
-	{ 
-		parameter<string> Time;	
+	{
+		parameter<string> Time;
 		///
 		parameter<string> inTime_str_short := rjoin(Time, ModelParameters/Advanced/MeasureMoments/Name , ModelParameters/Advanced/MeasureMoments/TemplatableTextShrt);
+		parameter<string> fileNamePrefix   := IsRegionMerged ? '%LocalDataProjDir%/Output/' : ModelParameters/Advanced/fileNamePrefix;
+		parameter<string> fileNameSuffix   :=
+			'_' + ModelParameters/Analysis_Date +
+			'_' + inTime_str_short +
+			'_ORG-' + ModelParameters/Advanced/OrgSet_string + (IsRegionMerged ? '' : '-' + Org_str) +
+			ModelParameters/Advanced/PT_OutputFileTail;
+		parameter<string> filename         := fileNamePrefix + 'tt' + fileNameSuffix + '.csv';
+		parameter<string> ColSuffix        := IsRegionMerged ? '' : '_' + inTime_str_short, Descr = "De uitvoer per blok zet het vertrekmoment in de kolomnamen, de samengevoegde uitvoer in de bestandsnaam.";
 
-		parameter<string> fileNamePrefix := IsRegionMerged ? '%LocalDataProjDir%/Output/' : ModelParameters/Advanced/fileNamePrefix;
-		
-		parameter<string> ORG := IsRegionMerged ? '_ORG-' + ModelParameters/Orgset : '_ORG-' + ModelParameters/Orgset + '-' + Org_str; 
-		
-		parameter<string> fileNameSuffix :=  
-			'_' + ModelParameters/Analysis_Date + 
-			'_' + inTime_str_short + 
-			ORG + 
-			'_DEST-'   + ModelParameters/Advanced/DestSet_string +
-			'_'+ Export_CombinationTypes +
-			'_Trsf-' + string(ModelParameters/Advanced/Max_transfers) +
-			'_MinCrit-' + asList(Classifications/FinalParetoAttr/FileNameElement, '_') +
-			'_MaxOV-' + string(ModelParameters/MaxPTTime) + 'min' +
-			ModelParameters/Advanced/FlexMode_FileTag // #113: '_noflex' of '_flexpen<n>min', leeg bij FlexMode 'asis'
-			;
-		
-		parameter<string> filename       := fileNamePrefix+'tt'+fileNameSuffix +'.csv';
-		
-		unit<uint64>      domain         := range(uint64, 0[uint64], count_rows);
-		parameter<string> fieldseparator := ';';
-		parameter<string> filedata       :  StorageType   = "str",  StorageName = "=filename",  StorageReadOnly = "true";
-		parameter<uint64> count_rows     := (strcount(filedata, fieldseparator) / strcount(headerline, fieldseparator))[uint64] - 1[uint64];
-		parameter<string> headerline     := readLines(filedata, void, 0);
-		
-		unit<uint32> field := Range(uint32, 0, strcount(headerline, fieldseparator) + 1)
-		{
-			attribute<string> name := ReadArray(headerline , field, string, 0);
-		}
-			
-		attribute<string> bodylines (domain) := readLines(filedata, domain, headerline/ReadPos);
+		unit<uint32> domain
+		:	StorageName     = "=filename"
+		,	StorageType     = "gdal.vect"
+		,	StorageReadOnly = "true";
+		unit<uint32> field := SubItem_PropValues(domain, 'name');
 
-		container data := 
-			for_each_nedv(
-				field/name
-				,'ReadElems(
-					BodyLines
-					,string
-					,'+ MakeDefined(field/name[sub_or_null(id(field),1)] + '/ReadPos','const(0, domain)')+'
-					, 17
-				)'
-				,domain
-				,string
-			)
+		container data
 		{
-			attribute<min_f>               Traveltime              (domain) := ='Traveltime_'+inTime_str_short+'[float32] * 1[min_f]';
-			attribute<string>              ModeUsed                (domain) := ='ModeUsed_'+inTime_str_short;
-			attribute<string>              OrgDestName             (domain) := OrgName + '_' + DestName;
-			attribute<string>              Price                   (domain) := ='Price_'+inTime_str_short;
-			attribute<string>              WaitingTime             (domain) := ='WaitingTime_'+inTime_str_short;
-			attribute<string>              VoortransTime           (domain) := ='VoortransTime_'+inTime_str_short;
-			attribute<string>              PTTime                  (domain) := ='PTTime_'+inTime_str_short;
-			attribute<string>              NatransTime             (domain) := ='NatransTime_'+inTime_str_short;
+			attribute<string> OrgName       (domain) := domain/OrgName;
+			attribute<string> DestName      (domain) := domain/DestName;
+			attribute<string> OrgDestName   (domain) := OrgName + '_' + DestName;
+			attribute<min_f>  Traveltime    (domain) := ='float32(domain/Traveltime' + ColSuffix + ') * 1[min_f]';
+			attribute<string> ModeUsed      (domain) := ='domain/ModeUsed' + ColSuffix;
+			attribute<string> Price         (domain) := =IsDefined(rlookup('Price' + ColSuffix, field/name)) ? 'domain/Price' + ColSuffix : 'const('''', domain, string)';
+			attribute<string> WaitingTime   (domain) := ='domain/WaitingTime' + ColSuffix;
+			attribute<string> PretransTime  (domain) := ='domain/PretransTime' + ColSuffix;
+			attribute<string> PTTime        (domain) := ='domain/PTTime' + ColSuffix;
+			attribute<string> PosttransTime (domain) := ='domain/PosttransTime' + ColSuffix;
 		}
 	}
 }

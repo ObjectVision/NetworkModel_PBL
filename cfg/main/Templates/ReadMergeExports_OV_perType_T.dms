@@ -3,34 +3,34 @@ Template ReadMergeExports_OV_perType_T
 	parameter<string> Export_CombinationTypes;
 	parameter<string> Dest;
 	//
-	
-	container Read_Regions := 
+	// Samenvoegen van de OV-uitvoer: eerst per vertrekmoment over alle herkomstblokken (Merge_Regions), dan over de
+	// vertrekmomenten (Merge_Times). Sinds 2026-09-25 (audit 6.5) met de naamstaart van de schrijver en via GDAL; de
+	// bestandsnaam van Merge_Times begint met 'tt_<datum>', zoals FindMedian (PostAnalysis) hem leest (tot dan 'tt__').
+
+	container Read_Regions :=
 		for_each_ne(
-			Impl/OrgBlockDomain/name 
+			Impl/OrgBlockDomain/name
 			, 'Templates/ReadExport_OV_perTime_T('+quote(Export_CombinationTypes)+','+quote(Impl/OrgBlockDomain/name)+','+quote(Dest)+')'
 		);
-		
+
 	container Merge_Regions :=
 		for_each_ne(
 			 Advanced/MeasureMoments/name
 			, 'Templates/Merge_Regions_OV_T('+quote(Export_CombinationTypes)+','+quote( Advanced/MeasureMoments/name)+','+quote(Dest)+')'
 		)
 	{
-		parameter<string>   OUTPUT_Merge_Regions  := =asList(Advanced/MeasureMoments/Name+'/LongFormat/File_fullOD',' + ');
+		parameter<string>   OUTPUT_Merge_Regions  := 'Ready', ExplicitSuppliers = "=asList(Advanced/MeasureMoments/Name+'/LongFormat/File_fullOD',';')";
 	}
-	
+
 	container Read_Times  := Templates/ReadExport_OV_perTime_T(Export_CombinationTypes,'All',Dest);
 	container Merge_Times := Merge_Times_OV_T(Export_CombinationTypes,Dest);
-	
-	
-	
-	
+
 	Template Merge_Times_OV_T
 	{
 		parameter<string> Export_CombinationTypes;
 		parameter<string> Dest_str;
 		//
-		
+
 		unit<uint32> Merged := ='union_unit('+AsItemList('Read_Times/PerTime/'+Advanced/MeasureMoments/Name+'/domain')+')'
 		{
 			attribute<string>  OrgName    := ='union_data(.,'+AsItemList('Read_Times/PerTime/'+Advanced/MeasureMoments/Name+'/data/OrgName')+')';
@@ -41,31 +41,25 @@ Template ReadMergeExports_OV_perType_T
 			attribute<string>  Price      := ='union_data(.,'+AsItemList('Read_Times/PerTime/'+Advanced/MeasureMoments/Name+'/data/Price')+')';
 			attribute<string>  Label      := OrgName +'_'+DestName, DialogType = "LabelText";
 		}
-		
+
 		container LongFormat
 		{
-			attribute<string>  BodyLines_fullOD      (Merged) := Merged/OrgName + ';' + Merged/DestName +';' + Merged/DepTime + ';' + string(Merged/Traveltime) + ';' + Merged/ModeUsed + ';' + Merged/Price;
-			parameter<string>  File_fullOD                    := 'OrgName;DestName;DepTime;Traveltime;ModeUsed;Price\n'+asList(BodyLines_fullOD, '\n')
-																			, StorageName = "= '%LocalDataProjDir%/Output/tt_'+fileNameSuffix +'.csv'", StorageType = "str";
-			//attribute<string>  BodyLines_fullOD      (Merged) := Merged/OrgName + ';' + Merged/DestName +';' + Merged/DepTime + ';' + string(Merged/Traveltime) + ';' + Merged/ModeUsed;
-			//parameter<string>  File_fullOD                    := 'OrgName;DestName;DepTime;Traveltime;ModeUsed\n'+asList(BodyLines_fullOD, '\n')
-			//																, StorageName = "= '%LocalDataProjDir%/Output/tt'+fileNameSuffix +'.csv'", StorageType = "str";
+			unit<uint32> File_fullOD := Merged
+			,	StorageName = "='%LocalDataProjDir%/Output/tt'+fileNameSuffix+'.csv'"
+			,	StorageType = "gdalwrite.vect"
+			{
+				attribute<string> OrgName    := Merged/OrgName;
+				attribute<string> DestName   := Merged/DestName;
+				attribute<string> DepTime    := Merged/DepTime;
+				attribute<string> Traveltime := MakeDefined(string(Merged/Traveltime), '');
+				attribute<string> ModeUsed   := Merged/ModeUsed;
+				attribute<string> Price      := Merged/Price;
+			}
 		}
-		
-		// parameter<string> Export_filename       := Advanced/fileNamePrefix+'tt_'+Export_CombinationTypes+''+fileNameSuffix+'.csv';
-		parameter<string> fileNameSuffix :=  
-			'_' + Analysis_Date + 
-			'_ORG-' + Orgset + 
-			'_DEST-' + Dest_str +
-			'_'+ Export_CombinationTypes +
-			'_Trsf-' + string(ModelParameters/Advanced/Max_transfers) +
-			'_MinCrit-' + asList(Classifications/FinalParetoAttr/FileNameElement, '_') +
-			'_MaxOV-' + string(ModelParameters/MaxPTTime) + 'min' +
-			ModelParameters/Advanced/FlexMode_FileTag // #113: '_noflex' of '_flexpen<n>min', leeg bij FlexMode 'asis'
-			;
-			
-			
+
+		parameter<string> fileNameSuffix :=
+			'_' + ModelParameters/Analysis_Date +
+			'_ORG-' + ModelParameters/Advanced/OrgSet_string +
+			ModelParameters/Advanced/PT_OutputFileTail;
 	}
-	
-	
 }
