@@ -239,18 +239,29 @@ container Classifications: Using = "Units"
 		
 		container V := for_each_nedv(name, String(ID(.))+'[..]', void, .);
 	}
-	// De criteria van de ketenrijger. Binnen een groep van de ketenrijger (dezelfde instap- en uitstaptijdhalte) is de reistijd
-	// gelijk; de ketenrijger snoeit op Price_augm (prijs plus tijdkosten van overstappen) en de resttijden die bepalen of een
-	// keten nog verlengd kan worden. Sinds 2026-09-25 (audit 6.1) ook op Price zodra het eindfront (FinalParetoAttr) op Price
-	// kiest: tot dan kon de goedkoopste keten van een groep sneuvelen tegen een duurdere met minder overstaptijd, terwijl hij
-	// op (Price, TravelTime) het eindfront hoorde te halen.
-	unit<uint8> ChainJoinerParetoAttr_Candidates: nrofrows = 4
+	// De criteria van de ketenrijger. Een groep van de ketenrijger heeft dezelfde instap- en uitstaptijdhalte en, sinds audit 6.3,
+	// hetzelfde eerste NS-station van de lopende NS-reis (ChainJoiner_T, Part_rel). De ketenrijger kiest op de prijs van het
+	// eindfront (Price, of Price_augm als MinimiseCriteria die noemt) en op de resttijden die bepalen of een keten nog tegen een
+	// doorgaand tarief verlengd kan worden. Bij een eindfront op Price beslist Price_augm (prijs plus tijdkosten van
+	// overstappen) alleen tussen ketens die verder gelijk zijn (epsilon 1e9: een bak, dus geen extra frontrijen); dat kan
+	// alleen pareto_optimal_eps. De reistijd is binnen een groep gelijk, behalve met een tijdpenalty
+	// (GradeSeparatedTransferPenalty, of FlexMode 'penalty' met FlexBoardingPenalty): dan is TravelTime ook een criterium (audit 6.2).
+	// Geschiedenis: tot 2026-09-25 alleen Price_augm, zodat de goedkoopste keten van een groep kon sneuvelen tegen een duurdere
+	// met minder overstaptijd (audit 6.1); op 2026-09-25 Price_augm en Price samen (_r3), wat de ketenrijging ruim twee keer zo
+	// traag maakte zonder het eindfront te verbeteren; sinds 2026-09-26 (_r4) deze opzet.
+	unit<uint8> ChainJoinerParetoAttr_Candidates: nrofrows = 6
 	{
-		// note that TraveTime constant is binnen iedere keuze-set die door de ketenrijger wordt gemaakt tbv de volgende stap in het proces
-		// toevoeging van TravelTime hier heeft dus geen invloed op de resultaten, wel op de rekentijd en memory attr.
-		attribute<string> Name : [ 'Price_augm', 'remaining_time_excl_RO_transfer', 'remaining_time_excl_NS_transfer', 'Price' ];
-		attribute<string> EpsilonExpr : [ '/ModelParameters/Advanced/ChainParetoPriceEpsilon', '/ModelParameters/Advanced/ChainParetoTimeEpsilon_t', '/ModelParameters/Advanced/ChainParetoTimeEpsilon_t', '/ModelParameters/Advanced/ChainParetoPriceEpsilon' ], Descr = "Per criterium het epsilon voor pareto_optimal_eps (GeoDMS >= 20.21.0), in de eenheid van het criterium.";
-		attribute<bool>   IsSelected  := id(.) < 3b || CandidateParetoAttr/IsFinalParetoSelection[CandidateParetoAttr/V/Price];
+		parameter<bool>   IsPriceFinal   := CandidateParetoAttr/IsFinalParetoSelection[CandidateParetoAttr/V/Price];
+		parameter<bool>   HasTimePenalty := ModelParameters/Advanced/GradeSeparatedTransferPenalty > 0[min_f] || (ModelParameters/Advanced/FlexMode == 'penalty' && ModelParameters/Advanced/FlexBoardingPenalty > 0[min_f]);
+		attribute<string> Name : [ 'Price', 'Price_augm', 'remaining_time_excl_RO_transfer', 'remaining_time_excl_NS_transfer', 'TravelTime', 'Price_augm' ];
+		attribute<bool>   IsTieBreakOnly : [ FALSE, FALSE, FALSE, FALSE, FALSE, TRUE ];
+		attribute<string> EpsilonExpr : [ '/ModelParameters/Advanced/ChainParetoPriceEpsilon', '/ModelParameters/Advanced/ChainParetoPriceEpsilon', '/ModelParameters/Advanced/ChainParetoTimeEpsilon_t', '/ModelParameters/Advanced/ChainParetoTimeEpsilon_t', '/ModelParameters/Advanced/ChainParetoTimeEpsilon', '1e9' ], Descr = "Per criterium het epsilon voor pareto_optimal_eps (GeoDMS >= 20.21.0), in de eenheid van het criterium.";
+		attribute<bool>   IsSelected  := switch(
+			  case(id(.) == 0b, IsPriceFinal)
+			, case(id(.) == 1b, NOT(IsPriceFinal))
+			, case(id(.) == 4b, HasTimePenalty && CandidateParetoAttr/IsFinalParetoSelection[CandidateParetoAttr/V/TravelTime])
+			, case(id(.) == 5b, IsPriceFinal && ModelParameters/Advanced/EngineHasParetoEpsilon)
+			, TRUE);
 	}
 	unit<uint8> ChainJoinerParetoAttr := select_with_attr_by_cond(ChainJoinerParetoAttr_Candidates, ChainJoinerParetoAttr_Candidates/IsSelected);
 
