@@ -7,7 +7,10 @@ Template PerDepartureMoment_T
 	                                  + /ModelParameters/Advanced/Cycling_StartTime + /ModelParameters/Advanced/Cycling_PreTransport_Penalty + /ModelParameters/Advanced/Cycling_ParkingTime_IC_Station
 	,	Descr = "Langste voortransportbeen dat nog geldig kan zijn: de grootste Max*Time-grens (op netwerktijd) plus de start- en parkeertijden die sinds 2026-09-23 in het been zitten. Begrenst het venster van OV-vertrekken; te ruim is onschadelijk, te krap laat combinaties weg.";
 	unit<uint8>         ParetoAttr := Classifications/FinalParetoAttr;
-	attribute<bool>     Within_VW_Window_SelectionCriterium (PublicTransport_Prep/PT) := PublicTransport_Prep/PT/From_Time_rel <= inTime + convert(Max_V_Time, s_f)[Time] + ModelParameters/Advanced/MaxWaitingTimeAtOrigin;
+	// De OV-ketens die binnen voortransport plus wachten thuis vertrekken. Sinds 2026-09-27 (audit 6.7) met de ondergrens inTime:
+	// een keten die eerder vertrekt haalt IsWaitingTimeValid toch nooit, maar werd wel aan alle voortransportbenen gekoppeld;
+	// bij vertrek 07:45 met de ketenstore 07:00-09:29 was dat 59% van de rijen (307 van 523 miljoen op herkomstblok 1).
+	attribute<bool>     Within_VW_Window_SelectionCriterium (PublicTransport_Prep/PT) := PublicTransport_Prep/PT/From_Time_rel >= inTime[Time] && PublicTransport_Prep/PT/From_Time_rel <= inTime + convert(Max_V_Time, s_f)[Time] + ModelParameters/Advanced/MaxWaitingTimeAtOrigin;
 	
 	unit<uint64> Within_VW_Window := select(Within_VW_Window_SelectionCriterium)
 	, Descr = "Opties binnen PreTransport + wachten thuis window"
@@ -54,7 +57,10 @@ Template PerDepartureMoment_T
 		
 		attribute<Time>                                        WaitingStart_Time_rel            := V_To_Time_rel_org;
 		attribute<Time>                                        WaitingEnd_Time_rel              := value(PT_c_fromTime_Place_rel / uint64(#Places), Time);
-		attribute<bool>                                        IsWaitingTimeValid               := WaitingStart_Time_rel < WaitingEnd_Time_rel;
+		// Aankomst bij de halte uiterlijk op het vertrek; sinds 2026-09-27 (audit 6.7) mag dat ook precies op het vertrek, zoals bij
+		// een overstap (CreateTransfers_T: Transfer_Time >= Walking_Time). Tot dan niet, zodat vanaf een herkomst met toegangstijd 0
+		// het vertrek op het vertrekmoment zelf ontbrak (herkomstblok 1, 07:45: 32 van 31.903 paren een ander front).
+		attribute<bool>                                        IsWaitingTimeValid               := WaitingStart_Time_rel <= WaitingEnd_Time_rel;
 		
 		attribute<s>                                           V_time_wo_Penalty                := V/impedance[V_rel];
 		attribute<s>                                           V_time_net                       := V/impedance_net[V_rel], Descr = "Netwerkreistijd van het voortransport, zonder start- en parkeertijd; hierop toetst IsVTimeNotTooLong.";

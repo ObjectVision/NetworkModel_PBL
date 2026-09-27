@@ -304,28 +304,35 @@ container PostAnalysis : using = "units;geometries;modelparameters;classificatio
 	
 	container FindMedian
 	{
-		// Mediane reistijd per herkomst en bestemming over de frontrijen van alle vertrekmomenten, uit de samengevoegde
-		// OV-uitvoer (NetworkSetup/ConfigurationPerBlock/Merge_Output/MergeTimes). Sinds 2026-09-25 (audit 6.5) met de
-		// herkomsten en bestemmingen van de run (tot dan buurten, die bij andere herkomstsets niets vonden), de naamstaart van
-		// de schrijver (tot dan _ORG-<Orgset>, _DEST-<Destset> en _MaxOV-) en via GDAL.
-		parameter<min_f> SearchLimit := 30[min_f];
+		// Mediane reistijd per herkomst en bestemming: per vertrekmoment de snelste frontrij, dan de mediaan over de vertrekmomenten
+		// met een verbinding (NrMoments). Uit de samengevoegde OV-uitvoer (NetworkSetup/ConfigurationPerBlock/Merge_Output/MergeTimes).
+		// Sinds 2026-09-25 (audit 6.5) met de herkomsten en bestemmingen van de run (tot dan buurten), de naamstaart van de schrijver
+		// en via GDAL. Sinds 2026-09-27 (audit 6.7) per vertrekmoment de snelste rij en zonder de modaliteiten in ExcludedModes: tot
+		// dan de mediaan over alle frontrijen van alle vertrekmomenten en modaliteiten samen, dus ook over de tragere goedkope
+		// ketens van het front en over de directe autorit, en alleen over rijen tot SearchLimit.
+		parameter<min_f>  SearchLimit   := 30[min_f], Descr = "Paren met een mediane reistijd tot en met deze waarde komen in Result.";
+		parameter<string> ExcludedModes := 'AA'
+		, Descr = "ModeUsed-waarden, kommagescheiden, die niet meetellen. Standaard de directe autorit (AA), zodat de mediaan de bereikbaarheid zonder auto beschrijft; leeg telt alle rijen mee.";
 
-		unit<uint32> Dest := /NetworkSetup/PublicTransport_Prep/Impl/dest;
-		unit<uint32> Org  := /NetworkSetup/PublicTransport_Prep/Impl/org
+		unit<uint32> Dest    := /NetworkSetup/PublicTransport_Prep/Impl/dest;
+		unit<uint32> Org     := /NetworkSetup/PublicTransport_Prep/Impl/org
 		{
 			attribute<uint32> NumberOfDestReachable := pcount(Result/Origin_rel);
 		}
+		unit<uint32> Moments := /ModelParameters/Advanced/MeasureMoments;
 
 		unit<uint32> c_Org_Dest := combine_unit(Org, Dest)
 		{
-			attribute<min_f>  MedianTT     := rth_element(ReadCSV/LimitMaxTraveltime/Traveltime, 0.5f, ReadCSV/LimitMaxTraveltime/c_Org_Dest_rel);
+			attribute<min_f>  MedianTT     := rth_element(ReadCSV/PerMoment/MinTT, 0.5f, ReadCSV/PerMoment/c_Org_Dest_rel);
+			attribute<uint32> NrMoments    := pcount(ReadCSV/PerMoment/c_Org_Dest_rel);
 			attribute<Org>    Origin_rel   := value(id(.) / uint32(#Dest), Org);
 			attribute<Dest>   Dest_rel     := value(id(.) % uint32(#Dest), Dest);
 		}
 
-		unit<uint32> Result := select_with_org_rel(IsDefined(c_Org_Dest/MedianTT))
+		unit<uint32> Result := select_with_org_rel(IsDefined(c_Org_Dest/MedianTT) && c_Org_Dest/MedianTT <= SearchLimit)
 		{
 			attribute<min_f>  MedianTT     := org_rel -> MedianTT;
+			attribute<uint32> NrMoments    := org_rel -> NrMoments;
 			attribute<Org>    Origin_rel   := org_rel -> Origin_rel;
 			attribute<Dest>   Dest_rel     := org_rel -> Dest_rel;
 			attribute<string> Org_name     := Org/name[Origin_rel];
@@ -343,19 +350,24 @@ container PostAnalysis : using = "units;geometries;modelparameters;classificatio
 
 			container data
 			{
-				attribute<min_f>  Traveltime_val (domain) := float32(domain/Traveltime) * 1[min_f];
-				attribute<string> OrgName        (domain) := domain/OrgName;
-				attribute<string> DestName       (domain) := domain/DestName;
+				attribute<min_f>      Traveltime_val (domain) := float32(domain/Traveltime) * 1[min_f];
+				attribute<Org>        Origin_rel     (domain) := rlookup(domain/OrgName, Org/name);
+				attribute<Dest>       Dest_rel       (domain) := rlookup(domain/DestName, Dest/name);
+				attribute<Moments>    Moment_rel     (domain) := rlookup(domain/DepTime, Moments/Name);
+				attribute<uint64>     Key            (domain) := uint64(combine_data(c_Org_Dest, Origin_rel, Dest_rel)) * uint64(#Moments) + uint64(Moment_rel);
+				attribute<bool>       IsExcluded     (domain) := IsDefined(strpos(const(',' + ExcludedModes + ',', domain), ',' + domain/ModeUsed + ','));
 			}
 
-			unit<uint32> LimitMaxTraveltime := select_with_org_rel(data/Traveltime_val <= SearchLimit)
+			unit<uint32> Rows := select_with_org_rel(IsDefined(data/Traveltime_val) && IsDefined(data/Key) && NOT(data/IsExcluded))
 			{
-				attribute<min_f>      Traveltime      := org_rel -> data/Traveltime_val;
-				attribute<string>     OrgName         := org_rel -> data/OrgName;
-				attribute<string>     DestName        := org_rel -> data/DestName;
-				attribute<Org>        Orgin_rel       := rlookup(OrgName, Org/name);
-				attribute<Dest>       Dest_rel        := rlookup(DestName, Dest/name);
-				attribute<c_Org_Dest> c_Org_Dest_rel  := combine_data(c_Org_Dest, Orgin_rel, Dest_rel);
+				attribute<min_f>      Traveltime     := org_rel -> data/Traveltime_val;
+				attribute<uint64>     Key            := org_rel -> data/Key;
+				attribute<PerMoment>  PerMoment_rel  := rlookup(Key, PerMoment/values);
+			}
+			unit<uint32> PerMoment := unique_uint32(Rows/Key), Descr = "Een element per herkomst, bestemming en vertrekmoment met een verbinding."
+			{
+				attribute<min_f>      MinTT          := min(Rows/Traveltime, Rows/PerMoment_rel);
+				attribute<c_Org_Dest> c_Org_Dest_rel := value(values / uint64(#Moments), c_Org_Dest);
 			}
 		}
 	}
