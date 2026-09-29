@@ -25,11 +25,21 @@ Template ChainJoiner_T
 	container StartCalc0{parameter<string> ChainName := Leftstr+RightStr;}
 	container StartCalc := PhaseContainer(StartCalc0, 'Start calculating '+string(StartCalc0/ChainName)+' for '+BlockDomain/name[BlockDomain_id]);
 	
-	unit<uint64> Join_Left_Transf   := join_equal_values_uint64(Left/uq_c_ToTime_Stop_rel, Transfers/uq_c_Exit_rel)
+	// Sinds 2026-09-29 vallen de combinaties van linkerketen en overstap die met het kortste rechterbeen al boven MaxPTTime
+	// komen weg voor de tweede koppeling: bij RRRR van haltenblok 1 gaat Join_LeftT_Right van 268 naar 166 miljoen rijen,
+	// met dezelfde geldige ketens (IsJourneyLongerThanAllowed toetst dezelfde som plus een eventuele penalty).
+	unit<uint64> Join_Left_Transf0  := join_equal_values_uint64(Left/uq_c_ToTime_Stop_rel, Transfers/uq_c_Exit_rel)
 	, Descr = "join left To_rel met de de transfer from_rel"
 	{
 		attribute<Left>      Left_rel      := first_rel;
 		attribute<Transfers> Transfers_rel := second_rel;
+		attribute<bool>      CanStayWithinMaxPT := Left_rel -> traveltime + Transfers_rel -> Transfer_Time + MinRightTraveltime <= convert(/ModelParameters/MaxPTTime, s);
+	}
+	parameter<s>  MinRightTraveltime := min(Right/traveltime);
+	unit<uint64> Join_Left_Transf   := select_with_org_rel(Join_Left_Transf0/CanStayWithinMaxPT)
+	{
+		attribute<Left>      Left_rel      := org_rel -> Left_rel;
+		attribute<Transfers> Transfers_rel := org_rel -> Transfers_rel;
 	}
 
 	unit<uint64> Join_LeftT_Right   := join_equal_values_uint64(Join_Left_Transf/transfers_rel->uq_c_Reboard_rel, Right/uq_c_FromTime_Stop_rel), Descr = "join Left+Transfer To_rel met de de Right from_rel"
@@ -115,8 +125,6 @@ Template ChainJoiner_T
 			attribute<uq_c_ToTime_Stop>     uq_c_ToTime_Stop_rel        := Right_rel->uq_c_ToTime_Stop_rel;
 			attribute<c_FromTS_ToTS>        OD_pair_key                 := combine_data(c_FromTS_ToTS, uq_c_FromTime_Stop_rel, uq_c_ToTime_Stop_rel);
 
-			unit<uint32>          OD_pair                          := unique_uint32(OD_pair_key);
-			attribute<OD_pair>    OD_pair_rel                      := rlookup(OD_pair_key, OD_pair/values); //attribuut om partitionering van price/traveltime etc te doen.
 
 			// De eerste NS-station van de lopende NS-reis; de NS-prijs van een verlenging tegen doorgaand tarief hangt ervan af.
 			attribute<NS_Stations> First_NS_Station :=
@@ -129,7 +137,11 @@ Template ChainJoiner_T
 			// ander eerste station kunnen na verlenging met NS van volgorde in prijs wisselen, omdat het doorgaande tarief degressief
 			// is; gemeten op haltenblok 1 van 1 oktober 2024 gaf de groepering alleen op het OD-paar in 218 van 754.029 groepen een
 			// blokfront dat gemiddeld 33 ct (hoogstens 1,61 euro) te duur was. Een keten zonder NS-station telt als eigen station.
-			attribute<uint64>     Part_key                         := uint64(OD_pair_rel) * uint64(#NS_Stations + 1) + uint64(MakeDefined(uint32(First_NS_Station), #NS_Stations));
+			// Sinds 2026-09-29 is de groepering een 64-bits sleutel die pareto_optimal_eps rechtstreeks gebruikt; tot dan nummerden
+			// twee unique_uint32 over alle geldige combinaties (bij RRRR van haltenblok 1: 112 miljoen) eerst het OD-paar en dan de
+			// groep. Part en Part_rel blijven voor de handgeschreven vergelijker van engines voor 20.21.
+			attribute<uint64>     Part_key                         := uint64(OD_pair_key) * uint64(#NS_Stations + 1) + uint64(MakeDefined(uint32(First_NS_Station), #NS_Stations))
+			, IntegrityCheck = "float64(#uq_c_FromTime_Stop) * float64(#uq_c_ToTime_Stop) * float64(#NS_Stations + 1) < 1.8e19";
 			unit<uint32>          Part                             := unique_uint32(Part_key);
 			attribute<Part>       Part_rel                         := rlookup(Part_key, Part/values);
 
@@ -162,7 +174,7 @@ Template ChainJoiner_T
 			// index-tiebreak) in een sortering en een veegslag, met per criterium een epsilon (Classifications/../EpsilonExpr; 0 = exact):
 			// rijen van dezelfde groep in dezelfde prijs- of tijdbak tellen als gelijk en alleen de beste blijft.
 			attribute<bool> Pareto_condition                 := = /ModelParameters/Advanced/EngineHasParetoEpsilon
-				? 'pareto_optimal_eps(Part_rel, ' + asList(ParetoAttr/Name + ', ' + ParetoAttr/EpsilonExpr, ', ') + ')'
+				? 'pareto_optimal_eps(Part_key, ' + asList(ParetoAttr/Name + ', ' + ParetoAttr/EpsilonExpr, ', ') + ')'
 				: 'Pareto_condition_classic';
 		}
 		attribute<bool>     Valid_pareto_optimal             := recollect_by_cond(is_valid_connection,  Valid1/pareto_condition, false);
@@ -180,8 +192,8 @@ Template ChainJoiner_T
 			attribute<Right>                   Right_rel                       := collect_by_cond(., Join_LeftT_Right/Right_rel);
 			attribute<Join_LeftT_Right/Valid1> Valid1_rel                      := collect_by_cond(., Join_LeftT_Right/Valid1_rel);
 			
-			attribute<string>                  ModeUsed                        := collect_by_cond(., Join_LeftT_Right/ModeUsed);
-			attribute<Modes>                   Mode_rel                        := collect_by_cond(., Join_LeftT_Right/Mode_rel);
+			attribute<string>                  ModeUsed                        := Left_rel -> ModeUsed + Right_rel -> ModeUsed, Descr = "Sinds 2026-09-29 alleen voor de overgebleven ketens samengesteld; tot dan voor elke combinatie van Join_LeftT_Right (bij RRRR van haltenblok 1: 268 miljoen voor 1 miljoen ketens), ruim een derde van de rekentijd van de ketenstap.";
+			attribute<Modes>                   Mode_rel                        := Right_rel -> Mode_rel;
 			attribute<bool>                    NS_through_fare_cheaper           := Valid1_rel->NS_through_fare_cheaper;
 
 			attribute<NS_Stations>             First_NS_Station                : Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden van de eerste en laaste ns-stations zijn.",
