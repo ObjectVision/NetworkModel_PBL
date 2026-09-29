@@ -7,8 +7,9 @@
 # bij het eerste blok zonder store.
 #
 # Aanroep (door UpdateAll.cmd chains): WriteChainBlocks.ps1 -Exe <GeoDmsRun.exe> -Cfg <cfg\main.dms> -LogDir <batch\log>
-#   -BatchSize  blokken per GeoDmsRun (standaard 20; tot 2026-09-29 40, maar dan hield de allocator binnen een proces zoveel
-#               vrijgegeven geheugen vast, 91 GB naast 27 GB in gebruik bij blok 35, dat vanaf ~28 blokken per portie werd gepagineerd)
+#   -BatchSize  blokken per GeoDmsRun (standaard 20, tot 2026-09-29 40). Een portie deelt alleen de opstart van ~25 s, dus de
+#               grootte maakt voor de rekentijd weinig uit. De trage blokken (~2%, 3 tot 7 minuten) hebben zelf 150-200 GB aan
+#               levende data nodig en pagineren daardoor op een machine met 128 GB, ook in een vers proces.
 #   -MaxBlocks  hooguit zoveel blokken in deze aanroep (0 = alle; om te testen)
 # Exitcode 0 als alle blokken een store hebben (of MaxBlocks bereikt is), anders 1.
 param(
