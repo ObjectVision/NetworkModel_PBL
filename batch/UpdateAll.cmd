@@ -33,6 +33,8 @@ if defined GEODMS_EXE set "EXE=%GEODMS_EXE%"
 REM De volledige padnaam zonder "..": GeoDMS leidt %LocalDataProjDir% af uit de naam van de map boven cfg, en
 REM met batch\..\cfg\main.dms werd dat "..", zodat de stores in c:\LocalData\..\IntermediateResults (= C:\) kwamen.
 for %%I in ("%~dp0..\cfg\main.dms") do set CFG=%%~fI
+REM De batchmap vastleggen voor het argumentenlusje: na shift wijst %~dp0 niet meer naar deze map.
+set "BATCHDIR=%~dp0"
 set LOGDIR=%~dp0log
 if not exist "%LOGDIR%" mkdir "%LOGDIR%"
 set PREP=/NetworkSetup/PublicTransport_Prep
@@ -110,7 +112,7 @@ if errorlevel 1 (
 if defined CHAINSTORE_SINGLE goto chains_single
 echo === ketens: de haltenblokken zonder store, in porties (WriteChainBlocks.ps1) ===
 set STEP=chains
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0WriteChainBlocks.ps1" -Exe "%EXE%" -Cfg "%CFG%" -LogDir "%LOGDIR%"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%BATCHDIR%WriteChainBlocks.ps1" -Exe "%EXE%" -Cfg "%CFG%" -LogDir "%LOGDIR%"
 set RC=!ERRORLEVEL!
 if not "!RC!"=="0" goto failed
 goto chains_done
@@ -125,7 +127,7 @@ if /I not "%SECTION%"=="all" goto done
 if "%SKIP_OUTPUT%"=="1" goto done
 REM Pauze voor de uitvoerstap (sinds 2026-09-29): zolang batch\pause_before_output.flag bestaat, wacht de uitvoerstap
 REM zonder rekenproces, bijvoorbeeld om de machine vrij te geven voor prestatietests; weghalen van de vlag laat hem starten.
-set "PAUSEFLAG=%~dp0pause_before_output.flag"
+set "PAUSEFLAG=%BATCHDIR%pause_before_output.flag"
 if not exist "%PAUSEFLAG%" goto output_go
 echo %DATE% %TIME% pauze voor de uitvoerstap: wacht tot %PAUSEFLAG% weg is
 :output_wait
