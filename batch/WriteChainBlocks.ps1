@@ -7,14 +7,15 @@
 # bij het eerste blok zonder store.
 #
 # Aanroep (door UpdateAll.cmd chains): WriteChainBlocks.ps1 -Exe <GeoDmsRun.exe> -Cfg <cfg\main.dms> -LogDir <batch\log>
-#   -BatchSize  blokken per GeoDmsRun (standaard 40)
+#   -BatchSize  blokken per GeoDmsRun (standaard 20; tot 2026-09-29 40, maar dan hield de allocator binnen een proces zoveel
+#               vrijgegeven geheugen vast, 91 GB naast 27 GB in gebruik bij blok 35, dat vanaf ~28 blokken per portie werd gepagineerd)
 #   -MaxBlocks  hooguit zoveel blokken in deze aanroep (0 = alle; om te testen)
 # Exitcode 0 als alle blokken een store hebben (of MaxBlocks bereikt is), anders 1.
 param(
 	[Parameter(Mandatory=$true)][string]$Exe,
 	[Parameter(Mandatory=$true)][string]$Cfg,
 	[Parameter(Mandatory=$true)][string]$LogDir,
-	[int]$BatchSize = 40,
+	[int]$BatchSize = 20,
 	[int]$MaxBlocks = 0
 )
 $ErrorActionPreference = 'Stop'
