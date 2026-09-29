@@ -454,6 +454,24 @@ container PublicTransport_Prep
 			}
 		}
 	 	container Fence := PhaseContainer(BlockResultContainer, 'Calculated: '+string(StartCalc/BlockDomain_name));
+		// Sinds 2026-09-29 schrijft elk blok zijn ketens in een eigen store (StorageBlockDir_Str/<blok>.mmd), zodat de resultaten
+		// niet tot het eind in het geheugen blijven en een onderbroken ketenstap bij het eerste ontbrekende blok verder kan
+		// (batch/WriteChainBlocks.ps1, ChainStore_Blocks/ToDo).
+		unit<uint64> Write_Block := Fence/Result
+		, StorageName = "=/NetworkSetup/PublicTransport_Prep/StorageBlockDir_Str + '/' + StartCalc0/BlockDomain_name + '.mmd'"
+		{
+			attribute<string> ModeUsed := Fence/Result/ModeUsed;
+			attribute<Ct> Price := Fence/Result/Price;
+			attribute<Ct> Price_augm := Fence/Result/Price_augm;
+			attribute<s> Traveltime := Fence/Result/Traveltime;
+			attribute<dam> TravelDist_Bus := Fence/Result/TravelDist_Bus;
+			attribute<dam> Traveldist_Metro := Fence/Result/Traveldist_Metro;
+			attribute<dam> Traveldist_Tram := Fence/Result/Traveldist_Tram;
+			attribute<dam> Traveldist_Rail := Fence/Result/Traveldist_Rail;
+			attribute<dam> Traveldist_Ferry := Fence/Result/Traveldist_Ferry;
+			attribute<uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel := Fence/Result/uq_c_FromTime_Stop_rel;
+			attribute<uq_c_ToTime_Stop> uq_c_ToTime_Stop_rel := Fence/Result/uq_c_ToTime_Stop_rel;
+		}
 	}
 	
 	container x 
@@ -502,6 +520,31 @@ container PublicTransport_Prep
 		}
 	}
 	
+	// De ketenstore per blok (sinds 2026-09-29, ModelParameters/Advanced/ChainStore_PerBlock): een lezer per blok, de blokken
+	// waarvan de store nog ontbreekt (0Dictionary.dms wordt als laatste geschreven) en de lijst van hun schrijvers voor
+	// batch/WriteChainBlocks.ps1.
+	container ChainStore_Blocks
+	{
+		Template ReadBlock_T
+		{
+			parameter<string> BlockName;
+			///
+			unit<uint64> Store : StorageName = "=/NetworkSetup/PublicTransport_Prep/StorageBlockDir_Str + '/' + BlockName + '.mmd'", StorageReadOnly = "true";
+			parameter<bool> IsWritten := ExistingFile('', /NetworkSetup/PublicTransport_Prep/StorageBlockDir_Str + '/' + BlockName + '.mmd/0Dictionary.dms') != '';
+		}
+		container Read := for_each_ne(impl/BlockDomain/name, 'ReadBlock_T(' + quote(impl/BlockDomain/name) + ')');
+
+		attribute<bool>   IsWritten (impl/BlockDomain) := ='union_data(impl/BlockDomain, ' + AsItemList('Read/' + impl/BlockDomain/name + '/IsWritten') + ')';
+		parameter<uint32> NrBlocks  := #impl/BlockDomain;
+		parameter<uint32> NrWritten := sum(uint32(IsWritten));
+		unit<uint32> ToDo := select_with_attr_by_cond(impl/BlockDomain, NOT(IsWritten))
+		{
+			attribute<string> Item := '/NetworkSetup/PublicTransport_Prep/KetenGeneratie_PerBlock/' + name + '/Write_Block';
+		}
+		parameter<string> ToDo_List := AsList(ToDo/Item, '\n'), StorageName = "%ConfigDir%/../../batch/log/chain_blocks_todo.txt", StorageType = "str"
+		, Descr = "De schrijvers van de blokken die nog geen store hebben, een per regel; batch/WriteChainBlocks.ps1 leest dit bestand.";
+	}
+
 	// Een read-only MMD-lezer mag zelf niets declareren (#1245): de dictionary van de store bepaalt de
 	// kolommen. PT_store is de kale lezer, PT geeft ze door en houdt de afgeleide relaties.
 	unit<uint64> PT_store
@@ -510,20 +553,21 @@ container PublicTransport_Prep
 	, Descr = "Kale lezer van de ketenstore; declareert niets."
 	;
 
-	unit<uint64> PT := PT_store
+	// PT leest de ketens uit de store per blok (ChainStore_PerBlock) of uit de ene store van voor 2026-09-29 (PT_store).
+	unit<uint64> PT := = ModelParameters/Advanced/ChainStore_PerBlock ? 'union_unit_uint64(' + AsItemList('ChainStore_Blocks/Read/' + impl/BlockDomain/name + '/Store') + ')' : 'PT_store'
 	, using = "impl"
 	{ 
-		attribute<string>                ModeUsed                 := PT_store/ModeUsed;
-		attribute<ct>                    Price                    := PT_store/Price;
-		attribute<ct>                    Price_augm               := PT_store/Price_augm;
-		attribute<s>                     Traveltime               := PT_store/Traveltime;
-		attribute<dam>                   TravelDist_Bus           := PT_store/TravelDist_Bus;
-		attribute<dam>                   Traveldist_Metro         := PT_store/Traveldist_Metro;
-		attribute<dam>                   Traveldist_Tram          := PT_store/Traveldist_Tram;
-		attribute<dam>                   Traveldist_Rail          := PT_store/Traveldist_Rail;
-		attribute<dam>                   Traveldist_Ferry         := PT_store/Traveldist_Ferry;
-		attribute<uq_c_FromTime_Stop>    uq_c_FromTime_Stop_rel   := PT_store/uq_c_FromTime_Stop_rel;
-		attribute<uq_c_ToTime_Stop>      uq_c_ToTime_Stop_rel     := PT_store/uq_c_ToTime_Stop_rel;
+		attribute<string>                ModeUsed                 := =ModelParameters/Advanced/ChainStore_PerBlock ? 'union_data(., ' + AsItemList('ChainStore_Blocks/Read/' + impl/BlockDomain/name + '/Store/ModeUsed') + ')' : 'PT_store/ModeUsed';
+		attribute<ct>                    Price                    := =ModelParameters/Advanced/ChainStore_PerBlock ? 'union_data(., ' + AsItemList('ChainStore_Blocks/Read/' + impl/BlockDomain/name + '/Store/Price') + ')' : 'PT_store/Price';
+		attribute<ct>                    Price_augm               := =ModelParameters/Advanced/ChainStore_PerBlock ? 'union_data(., ' + AsItemList('ChainStore_Blocks/Read/' + impl/BlockDomain/name + '/Store/Price_augm') + ')' : 'PT_store/Price_augm';
+		attribute<s>                     Traveltime               := =ModelParameters/Advanced/ChainStore_PerBlock ? 'union_data(., ' + AsItemList('ChainStore_Blocks/Read/' + impl/BlockDomain/name + '/Store/Traveltime') + ')' : 'PT_store/Traveltime';
+		attribute<dam>                   TravelDist_Bus           := =ModelParameters/Advanced/ChainStore_PerBlock ? 'union_data(., ' + AsItemList('ChainStore_Blocks/Read/' + impl/BlockDomain/name + '/Store/TravelDist_Bus') + ')' : 'PT_store/TravelDist_Bus';
+		attribute<dam>                   Traveldist_Metro         := =ModelParameters/Advanced/ChainStore_PerBlock ? 'union_data(., ' + AsItemList('ChainStore_Blocks/Read/' + impl/BlockDomain/name + '/Store/Traveldist_Metro') + ')' : 'PT_store/Traveldist_Metro';
+		attribute<dam>                   Traveldist_Tram          := =ModelParameters/Advanced/ChainStore_PerBlock ? 'union_data(., ' + AsItemList('ChainStore_Blocks/Read/' + impl/BlockDomain/name + '/Store/Traveldist_Tram') + ')' : 'PT_store/Traveldist_Tram';
+		attribute<dam>                   Traveldist_Rail          := =ModelParameters/Advanced/ChainStore_PerBlock ? 'union_data(., ' + AsItemList('ChainStore_Blocks/Read/' + impl/BlockDomain/name + '/Store/Traveldist_Rail') + ')' : 'PT_store/Traveldist_Rail';
+		attribute<dam>                   Traveldist_Ferry         := =ModelParameters/Advanced/ChainStore_PerBlock ? 'union_data(., ' + AsItemList('ChainStore_Blocks/Read/' + impl/BlockDomain/name + '/Store/Traveldist_Ferry') + ')' : 'PT_store/Traveldist_Ferry';
+		attribute<uq_c_FromTime_Stop>    uq_c_FromTime_Stop_rel   := =ModelParameters/Advanced/ChainStore_PerBlock ? 'union_data(., ' + AsItemList('ChainStore_Blocks/Read/' + impl/BlockDomain/name + '/Store/uq_c_FromTime_Stop_rel') + ')' : 'PT_store/uq_c_FromTime_Stop_rel';
+		attribute<uq_c_ToTime_Stop>      uq_c_ToTime_Stop_rel     := =ModelParameters/Advanced/ChainStore_PerBlock ? 'union_data(., ' + AsItemList('ChainStore_Blocks/Read/' + impl/BlockDomain/name + '/Store/uq_c_ToTime_Stop_rel') + ')' : 'PT_store/uq_c_ToTime_Stop_rel';
 
 	
 	
@@ -566,6 +610,8 @@ container PublicTransport_Prep
 		ModelParameters/Advanced/ChainStore_ParamTag+
 		ModelParameters/Advanced/ChainStore_Revision+ // '_r2' sinds audit 3.5 (2026-09-25)
 		'.mmd';
+	parameter<string>     StorageBlockDir_Str := left(StorageName_Str, strlen(StorageName_Str) - 4) + '_blocks'
+	, Descr = "Map van de ketenstore per blok (sinds 2026-09-29): dezelfde naam als de ene store, met _blocks in plaats van .mmd.";
 		
 	#include<ChainJoiner_T.dms>
 	#include<CreateTransfers_T.dms>

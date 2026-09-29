@@ -14,7 +14,8 @@ REM                                 (PublicTransport_Prep/Direct/CarPerMoment/<m
 REM                                 zonder momenten alle vier: MorningRush NoonRush LateEveningRush
 REM                                 en Freeflow (TomTom) of MaxSpeed (OSM); 40 min scalair per
 REM                                 moment, langer met ParetoLegs_Car
-REM   UpdateAll.cmd chains          de OV-ketenstore (PublicTransport_Prep/x/Write_Result), na de
+REM   UpdateAll.cmd chains          de OV-ketenstore per haltenblok (WriteChainBlocks.ps1; met de omgevingsvariabele
+REM                                 CHAINSTORE_SINGLE de ene store van PublicTransport_Prep/x/Write_Result), na de
 REM                                 voorcheck op haltenblokken en prijsdekking; uren, veel geheugen
 REM   UpdateAll.cmd output          de OV-uitvoer: een csv per herkomstblok en vertrekmoment in
 REM                                 %LocalDataProjDir%\Output\PerBlock (ConfigurationPerBlock/Generate_Output),
@@ -106,7 +107,15 @@ if errorlevel 1 (
   echo ABORT: de prijsdekking is niet OK, zie %LOGDIR%\UpdateAll_chains_precheck.txt
   goto failed
 )
-echo === ketens: Write_Result (uren) ===
+if defined CHAINSTORE_SINGLE goto chains_single
+echo === ketens: de haltenblokken zonder store, in porties (WriteChainBlocks.ps1) ===
+set STEP=chains
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0WriteChainBlocks.ps1" -Exe "%EXE%" -Cfg "%CFG%" -LogDir "%LOGDIR%"
+set RC=!ERRORLEVEL!
+if not "!RC!"=="0" goto failed
+goto chains_done
+:chains_single
+echo === ketens: Write_Result, de ene store van voor 2026-09-29 (CHAINSTORE_SINGLE; zet ook ChainStore_PerBlock op FALSE) ===
 call :run chains %PREP%/x/Write_Result
 if not "!RC!"=="0" goto failed
 :chains_done
