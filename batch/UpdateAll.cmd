@@ -123,6 +123,16 @@ if /I not "%SECTION%"=="all" goto done
 
 :output
 if "%SKIP_OUTPUT%"=="1" goto done
+REM Pauze voor de uitvoerstap (sinds 2026-09-29): zolang batch\pause_before_output.flag bestaat, wacht de uitvoerstap
+REM zonder rekenproces, bijvoorbeeld om de machine vrij te geven voor prestatietests; weghalen van de vlag laat hem starten.
+set "PAUSEFLAG=%~dp0pause_before_output.flag"
+if not exist "%PAUSEFLAG%" goto output_go
+echo %DATE% %TIME% pauze voor de uitvoerstap: wacht tot %PAUSEFLAG% weg is
+:output_wait
+ping -n 61 127.0.0.1 >nul
+if exist "%PAUSEFLAG%" goto output_wait
+echo %DATE% %TIME% pauze voorbij, de uitvoerstap start
+:output_go
 echo === uitvoer: csv per herkomstblok en vertrekmoment (uren) ===
 call :run output /NetworkSetup/ConfigurationPerBlock/Generate_Output/OUTPUT_Generate_PublicTransport_fullOD_long_CSVFiles
 if not "!RC!"=="0" goto failed
