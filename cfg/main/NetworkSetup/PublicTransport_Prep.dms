@@ -118,6 +118,7 @@ container PublicTransport_Prep
 		unit<uint32>      BlockDomain   := range(0, ModelParameters/Advanced/NumberOfStopBlocks)
 		{
 			attribute<string> name          := 'Block_'+string(id(.)+1)+'of'+string(max(id(.))+1);
+			attribute<string> StoreName     := string(id(.)+1)+'of'+string(max(id(.))+1), Descr = "Naam van de blokstore in StorageBlockDir_Str (sinds 2026-09-30 zonder 'Block_', voor de padlengte).";
 			attribute<uint64> BlockOffset   := min_elem(uint64(id(.)) * uint64(ModelParameters/Advanced/MaxStopBlockSize), uint64(#BlockSelections));
 			attribute<uint64> BlockEnd      := min_elem(BlockOffset + uint64(ModelParameters/Advanced/MaxStopBlockSize), uint64(#BlockSelections));
 			attribute<uint32> BlockSize     := uint32(BlockEnd - BlockOffset);
@@ -454,11 +455,11 @@ container PublicTransport_Prep
 			}
 		}
 	 	container Fence := PhaseContainer(BlockResultContainer, 'Calculated: '+string(StartCalc/BlockDomain_name));
-		// Sinds 2026-09-29 schrijft elk blok zijn ketens in een eigen store (StorageBlockDir_Str/<blok>.mmd), zodat de resultaten
+		// Sinds 2026-09-29 schrijft elk blok zijn ketens in een eigen store (StorageBlockDir_Str/<n>of<N>.mmd), zodat de resultaten
 		// niet tot het eind in het geheugen blijven en een onderbroken ketenstap bij het eerste ontbrekende blok verder kan
 		// (batch/WriteChainBlocks.ps1, ChainStore_Blocks/ToDo).
 		unit<uint64> Write_Block := Fence/Result
-		, StorageName = "=/NetworkSetup/PublicTransport_Prep/StorageBlockDir_Str + '/' + StartCalc0/BlockDomain_name + '.mmd'"
+		, StorageName = "=/NetworkSetup/PublicTransport_Prep/StorageBlockDir_Str + '/' + BlockDomain/StoreName[BlockDomain_id] + '.mmd'"
 		{
 			attribute<string> ModeUsed := Fence/Result/ModeUsed;
 			attribute<Ct> Price := Fence/Result/Price;
@@ -528,11 +529,12 @@ container PublicTransport_Prep
 		Template ReadBlock_T
 		{
 			parameter<string> BlockName;
+			parameter<string> StoreName;
 			///
-			unit<uint64> Store : StorageName = "=/NetworkSetup/PublicTransport_Prep/StorageBlockDir_Str + '/' + BlockName + '.mmd'", StorageReadOnly = "true";
-			parameter<bool> IsWritten := ExistingFile('', /NetworkSetup/PublicTransport_Prep/StorageBlockDir_Str + '/' + BlockName + '.mmd/0Dictionary.dms') != '';
+			unit<uint64> Store : StorageName = "=/NetworkSetup/PublicTransport_Prep/StorageBlockDir_Str + '/' + StoreName + '.mmd'", StorageReadOnly = "true";
+			parameter<bool> IsWritten := ExistingFile('', /NetworkSetup/PublicTransport_Prep/StorageBlockDir_Str + '/' + StoreName + '.mmd/0Dictionary.dms') != '';
 		}
-		container Read := for_each_ne(impl/BlockDomain/name, 'ReadBlock_T(' + quote(impl/BlockDomain/name) + ')');
+		container Read := for_each_ne(impl/BlockDomain/name, 'ReadBlock_T(' + quote(impl/BlockDomain/name) + ', ' + quote(impl/BlockDomain/StoreName) + ')');
 
 		attribute<bool>   IsWritten (impl/BlockDomain) := ='union_data(impl/BlockDomain, ' + AsItemList('Read/' + impl/BlockDomain/name + '/IsWritten') + ')';
 		parameter<uint32> NrBlocks  := #impl/BlockDomain;
@@ -541,8 +543,10 @@ container PublicTransport_Prep
 		{
 			attribute<string> Item := '/NetworkSetup/PublicTransport_Prep/KetenGeneratie_PerBlock/' + name + '/Write_Block';
 		}
+		parameter<uint32> PathLength := strlen(expand(., /NetworkSetup/PublicTransport_Prep/StorageBlockDir_Str)) + max(strlen(impl/BlockDomain/StoreName)) + strlen('/.mmd/uq_c_FromTime_Stop_rel')
+		, Descr = "Lengte van het langste bestandspad in de blokstores (uq_c_FromTime_Stop_rel is de langste attribuutnaam). Windows staat 259 tekens toe; op 2026-09-30 maakte de flextag _flex5i5w15ct dat 265 (met _blocks en Block_ in de namen), waarna elk blok pas bij het schrijven faalde. ToDo_List, het eerste wat batch/WriteChainBlocks.ps1 opvraagt, controleert het.";
 		parameter<string> ToDo_List := AsList(ToDo/Item, '\n'), StorageName = "%ConfigDir%/../../batch/log/chain_blocks_todo.txt", StorageType = "str"
-		, Descr = "De schrijvers van de blokken die nog geen store hebben, een per regel; batch/WriteChainBlocks.ps1 leest dit bestand.";
+		, IntegrityCheck = "PathLength <= 259", Descr = "De schrijvers van de blokken die nog geen store hebben, een per regel; batch/WriteChainBlocks.ps1 leest dit bestand.";
 	}
 
 	// Een read-only MMD-lezer mag zelf niets declareren (#1245): de dictionary van de store bepaalt de
@@ -610,8 +614,8 @@ container PublicTransport_Prep
 		ModelParameters/Advanced/ChainStore_ParamTag+
 		ModelParameters/Advanced/ChainStore_Revision+ // '_r2' sinds audit 3.5 (2026-09-25)
 		'.mmd';
-	parameter<string>     StorageBlockDir_Str := left(StorageName_Str, strlen(StorageName_Str) - 4) + '_blocks'
-	, Descr = "Map van de ketenstore per blok (sinds 2026-09-29): dezelfde naam als de ene store, met _blocks in plaats van .mmd.";
+	parameter<string>     StorageBlockDir_Str := left(StorageName_Str, strlen(StorageName_Str) - 4)
+	, Descr = "Map van de ketenstore per blok (sinds 2026-09-29): de naam van de ene store zonder .mmd (tot 2026-09-30 met _blocks erachter), met daarin <n>of<N>.mmd per blok.";
 		
 	#include<ChainJoiner_T.dms>
 	#include<CreateTransfers_T.dms>
