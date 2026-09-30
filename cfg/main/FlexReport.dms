@@ -1,6 +1,6 @@
 container FlexReport
 : using = "units;Classifications;SourceData"
-, Descr = "Rapport voor ObjectVision/NetworkModel_PBL#113: welke GTFS-routes gelden als flex-/belbuslijn (Routes/IsFlex, zoektermen ModelParameters/Advanced/FlexRouteTerms) en welke bijna-treffers bewust niet. Draai /FlexReport/Report (goedkoop: alleen routes/trips/stop_times) en per FlexMode /FlexReport/Net/Report (duur: trekt het OV-net en OD_R/OD_L). Uitvoer in %LocalDataProjDir%/Output/flex_*."
+, Descr = "Rapport voor ObjectVision/NetworkModel_PBL#113: welke GTFS-routes gelden als flex-/belbuslijn (Routes/IsFlex, zoektermen ModelParameters/Advanced/FlexRouteTerms) en welke bijna-treffers bewust niet. Draai /FlexReport/Report (goedkoop: alleen routes/trips/stop_times) en per flexinstelling /FlexReport/Net/Report (duur: trekt het OV-net en OD_R/OD_L). Uitvoer in %LocalDataProjDir%/Output/flex_*."
 {
 	// Waarom een apart rapport en niet alleen Routes/IsFlex: de modelkeuze (uitsluiten, toeslag of
 	// laten) is aan PBL, en die vraagt per feed een lijst van wat de heuristiek raakt, met ritten per
@@ -53,12 +53,13 @@ container FlexReport
 		}
 	}
 
+	parameter<string> FlexSettings := 'flex=' + (ModelParameters/Advanced/IsFlexMeenemen ? 'meenemen' : 'uitsluiten') + ' min_interval=' + string(ModelParameters/Advanced/FlexMinInterval) + 'min extra_wait=' + string(ModelParameters/Advanced/FlexExtraWaitingTime) + 'min call_costs=' + string(ModelParameters/Advanced/FlexCallCosts) + 'euro';
 	container Flagged  := RouteList_T(Routes/IsFlex,         Routes/FlexMatch,    FileStem+'_routes.csv');
 	container NearMiss := RouteList_T(Routes/IsFlexNearMiss, Routes/FlexNearMiss, FileStem+'_nearmiss.csv');
 
 	parameter<string> Report :=
 		  'gtfs_file_date=' + ModelParameters/GTFS_file_date + ' analysis_date=' + ModelParameters/Analysis_date + '\n'
-		+ 'flexmode=' + ModelParameters/Advanced/FlexMode + ' penalty=' + string(ModelParameters/Advanced/FlexBoardingPenalty) + 'min\n'
+		+ FlexSettings + '\n'
 		+ 'pattern=' + ModelParameters/Advanced/FlexRoutePattern + ' nearmiss_pattern=' + ModelParameters/Advanced/FlexNearMissPattern + '\n'
 		+ 'routes=' + string(#Routes) + ' pseudo=' + string(sum(uint32(Routes/IsPseudoRoute)))
 		+ ' flagged=' + string(#Flagged/Rows) + ' trips_today_flagged=' + string(sum(Flagged/Rows/nr_trips_today))
@@ -68,7 +69,7 @@ container FlexReport
 	, ExplicitSuppliers = "Flagged/Rows;NearMiss/Rows";
 
 	container Net
-	: Descr = "Netwerk-kentallen; draai /FlexReport/Net/Report met FlexMode = 'asis', 'exclude' en 'penalty' en vergelijk (verificatie #113)."
+	: Descr = "Netwerk-kentallen; draai /FlexReport/Net/Report met verschillende flexinstellingen (IsFlexMeenemen, FlexMinInterval, FlexExtraWaitingTime) en vergelijk (verificatie #113, #116)."
 	{
 		container Impl := /NetworkSetup/PublicTransport_Prep/impl;
 		parameter<uint32>  n_links_R           := #Impl/Set_R/Set;
@@ -79,31 +80,31 @@ container FlexReport
 		parameter<uint32>  n_flexlegs_R        := sum(uint32(Impl/OD_R/IsFlexLeg));
 		parameter<uint32>  n_OD_R_result       := #Impl/OD_R/Result;
 		parameter<uint32>  n_flexlegs_R_result := sum(uint32(Impl/OD_R/Result/IsFlexLeg));
-		parameter<uint32>  n_flexlegs_over_cut := sum(uint32(Impl/OD_R/Result/IsFlexLeg && Impl/OD_R/Result/Impedance > convert(ModelParameters/MaxPTTime - ModelParameters/Advanced/FlexBoardingPenalty, s_f)))
-		, Descr = "voorspelt in 'asis' hoeveel Result-rijen 'penalty' minder heeft: flex-benen die met de toeslag boven MaxPTTime uitkomen";
+		parameter<uint32>  n_flexlegs_over_cut := sum(uint32(Impl/OD_R/Result/IsFlexLeg && Impl/OD_R/Result/Impedance > convert(ModelParameters/MaxPTTime - ModelParameters/Advanced/FlexExtraWaitingTime, s_f)))
+		, Descr = "voorspelt zonder extra wachttijd hoeveel Result-rijen er met FlexExtraWaitingTime afvallen: flex-benen die met de wachttijd boven MaxPTTime uitkomen";
 		parameter<float64> sum_tt_R_result     := sum(float64(Impl/OD_R/Result/Traveltime));
 		parameter<uint32>  n_links_L           := #Impl/Set_L/Set;
 		parameter<uint32>  n_OD_L_result       := #Impl/OD_L/Result;
 
 		parameter<string>  Report :=
-			  'flexmode=' + ModelParameters/Advanced/FlexMode + ' penalty=' + string(ModelParameters/Advanced/FlexBoardingPenalty) + 'min\n'
+			  FlexSettings + '\n'
 			+ 'Set_R links=' + string(n_links_R) + ' flexlinks=' + string(n_flexlinks_R) + ' nodes=' + string(n_nodes_R) + ' flexnodes=' + string(n_flexnodes_R) + '\n'
 			+ 'OD_R rows=' + string(n_OD_R) + ' flexlegs=' + string(n_flexlegs_R) + ' result=' + string(n_OD_R_result) + ' flexlegs_result=' + string(n_flexlegs_R_result) + ' flexlegs_over_cut=' + string(n_flexlegs_over_cut) + ' sum_tt=' + string(sum_tt_R_result) + '\n'
 			+ 'Set_L links=' + string(n_links_L) + ' OD_L result=' + string(n_OD_L_result) + '\n'
 			+ 'price_check=' + /MakeUnlinkedData/PublicTransportNet/CheckEerstDezeIntegrityCheck_2 + '\n'
-		, StorageName = "=FileStem+'_net_'+ModelParameters/Advanced/FlexMode+'.txt'", StorageType = "str";
+		, StorageName = "=FileStem+'_net'+ModelParameters/Advanced/Flex_FileTag+'.txt'", StorageType = "str";
 
 		container Block1
-		: Descr = "Ketenrijen van haltenblok 1 per FlexMode: ca. 4 min en ~70 GB als het blok niet in de CalcCache staat. De asis-referentie is het aantal block==0-rijen in de steekproef-csv van #115 (pareto_chains_sample_<arm>_n20.csv). Draai /FlexReport/Net/Block1/Report."
+		: Descr = "Ketenrijen van haltenblok 1 per flexinstelling: ca. 4 min en ~70 GB als het blok niet in de CalcCache staat. De asis-referentie is het aantal block==0-rijen in de steekproef-csv van #115 (pareto_chains_sample_<arm>_n20.csv). Draai /FlexReport/Net/Block1/Report."
 		{
 			unit<uint64>       Result   := /NetworkSetup/PublicTransport_Prep/KetenGeneratie_PerBlock/Block_1of500/Fence/Result;
 			parameter<uint64>  n_rows   := #Result;
 			parameter<float64> mean_tt  := mean(float64(Result/Traveltime));
 			parameter<float64> mean_prc := mean(float64(Result/Price));
 			parameter<string>  Report :=
-				  'flexmode=' + ModelParameters/Advanced/FlexMode + ' penalty=' + string(ModelParameters/Advanced/FlexBoardingPenalty) + 'min\n'
+				  FlexSettings + '\n'
 				+ 'block1 rows=' + string(n_rows) + ' mean_traveltime_s=' + string(mean_tt) + ' mean_price_ct=' + string(mean_prc) + '\n'
-			, StorageName = "=FileStem+'_block1_'+ModelParameters/Advanced/FlexMode+'.txt'", StorageType = "str";
+			, StorageName = "=FileStem+'_block1'+ModelParameters/Advanced/Flex_FileTag+'.txt'", StorageType = "str";
 		}
 	}
 }

@@ -259,6 +259,14 @@ container LoadFeeds
 		attribute<bool>                    sel_tomorrow_window := sel_tomorrow && uint32(StartTime) + 86400 < uint32(ModelParameters/Advanced/PT_LastArrivalMoment), Descr = "Ritten van D+1 die beginnen voor het einde van het analysevenster; bij een venster voor middernacht geen enkele.";
 		attribute<Trips_x_order_uq>        first_txo       := min_index(Trips_x_order_uq/ord, Trips_x_order_uq/protoTrip_rel);
 		attribute<shapes>                  shape_rel       := rlookup(shape_id, shapes/shape_id);
+		// Flexvervoer (sinds 2026-09-30): een rit van een flexlijn die in hetzelfde blok van ModelParameters/Advanced/FlexMinInterval
+		// vertrekt als een eerdere rit van hetzelfde ritpatroon, doet niet mee in het OV-net (FlexOptions, protoStopTimes/Sel*Net).
+		// De OV-knooppunten tellen alle ritten (StopTimes/SelToday), zodat de bestemmingen niet van de flexparameters afhangen.
+		attribute<bool>                    IsFlex          := MakeDefined(RelevantSelection/Routes/IsFlex[RelevantSelection/Trips/Route_rel], false);
+		attribute<bool>                    KeepFlexOption  := = ModelParameters/Advanced/IsFlexMeenemen && ModelParameters/Advanced/FlexMinInterval_sec > 0
+			? 'not(IsFlex) || MakeDefined(FlexOptions/Keep[invert(FlexOptions/org_rel)], true)'
+			: 'const(true, ., bool)'
+			, Descr = "Doet de rit mee in het OV-net? Alleen ritten van flexlijnen kunnen afvallen, zie FlexOptions.";
 	}
 	
 	unit<uint32> protoStopTimes := Read/Stop_times/domain //StopTimes
@@ -268,6 +276,9 @@ container LoadFeeds
 		attribute<bool>                    SelToday                 := protoTrips/sel_today[protoTrip_rel];
 		attribute<bool>                    SelYesterday             := protoTrips/sel_yesterday[protoTrip_rel] && (Time/Day[departureTime/TimesVector/Time_rel] > 0);
 		attribute<bool>                    SelTomorrow              := protoTrips/sel_tomorrow_window[protoTrip_rel] && (Time/Day[departureTime/TimesVector/Time_rel] == 0) && (Time/Day[arrivalTime/TimesVector/Time_rel] == 0), Descr = "Hele ritten van D+1 die voor het einde van het venster beginnen; GTFS-tijd onder 24:00, zodat ze plus 24 uur binnen de tijdas van 48 uur vallen.";
+		attribute<bool>                    SelYesterdayNet          := SelYesterday && protoTrips/KeepFlexOption[protoTrip_rel], Descr = "SelYesterday zonder de gedunde flexopties (protoTrips/KeepFlexOption): de ritten van het OV-net.";
+		attribute<bool>                    SelTodayNet              := SelToday     && protoTrips/KeepFlexOption[protoTrip_rel], Descr = "SelToday zonder de gedunde flexopties (protoTrips/KeepFlexOption): de ritten van het OV-net.";
+		attribute<bool>                    SelTomorrowNet           := SelTomorrow  && protoTrips/KeepFlexOption[protoTrip_rel], Descr = "SelTomorrow zonder de gedunde flexopties (protoTrips/KeepFlexOption): de ritten van het OV-net.";
 		attribute<protoStops>              protoStop_rel            := rlookup(Read/Stop_times/data/stop_id, protoStops/stop_id);
 		attribute<protoStops>              NextprotoStop_rel        := protoStop_rel[NextStopId];
 		attribute<uint32>                  Stop_Sequence            := uint32(Read/Stop_times/data/stop_sequence);
@@ -294,9 +305,29 @@ container LoadFeeds
 		// De links per dienstdag, op de tijdas in seconden sinds 00:00 van Analysis_date (D). Sinds 2026-09-25 (audit 3.5) uit een
 		// template: D+1 is erbij gekomen, en de lengte van een link van D-1 zonder bruikbare shape_dist_traveled valt terug op
 		// de hemelsbrede afstand zoals bij D (tot dan 0).
-		container Yesterday := DayLinks_T(SelYesterday, 0, 24 * 60 * 60), Descr = "Ritten van D-1 na middernacht (GTFS-tijd 24:00 en later), min 24 uur.";
-		container Today     := DayLinks_T(SelToday,     0, 0),            Descr = "Ritten van D met hun GTFS-tijd, ook na middernacht (24:00 en later).";
-		container Tomorrow  := DayLinks_T(SelTomorrow,  24 * 60 * 60, 0), Descr = "Ritten van D+1 die voor het einde van het analysevenster beginnen, plus 24 uur.";
+		container Yesterday := DayLinks_T(SelYesterdayNet, 0, 24 * 60 * 60), Descr = "Ritten van D-1 na middernacht (GTFS-tijd 24:00 en later), min 24 uur.";
+		container Today     := DayLinks_T(SelTodayNet,     0, 0),            Descr = "Ritten van D met hun GTFS-tijd, ook na middernacht (24:00 en later).";
+		container Tomorrow  := DayLinks_T(SelTomorrowNet,  24 * 60 * 60, 0), Descr = "Ritten van D+1 die voor het einde van het analysevenster beginnen, plus 24 uur.";
+	}
+
+	// Dunnen van de flexopties (ModelParameters/Advanced/FlexMinInterval, sinds 2026-09-30). De feeds van 2026 roosteren een deel
+	// van het gebiedsvervoer op afroep als rit per minuut in (U-flex Maarssen/Utrecht-Noordwest en Houten-Schalkwijk: 296 tot 728
+	// ritten per richting per dag), wat ~550 OV-benen per vertrek en haltenblokken van 150-200 GB gaf. Per ritpatroon (route,
+	// eerste en laatste halte, aantal haltes) blijft per blok van FlexMinInterval, geteld vanaf 00:00 van de GTFS-dag, de eerste rit.
+	unit<uint32> FlexOptions := select_with_org_rel(protoTrips/IsFlex)
+	{
+		attribute<protoStopTimes> First_st      := min_index(protoStopTimes/Stop_Sequence, protoStopTimes/protoTrip_rel)[org_rel];
+		attribute<protoStopTimes> Last_st       := max_index(protoStopTimes/Stop_Sequence, protoStopTimes/protoTrip_rel)[org_rel];
+		attribute<uint32>         NrStops       := pcount(protoStopTimes/protoTrip_rel)[org_rel];
+		attribute<uint64>         PatternKey    := ((uint64(RelevantSelection/Trips/Route_rel[org_rel]) * uint64(#protoStops) + uint64(protoStopTimes/protoStop_rel[First_st])) * uint64(#protoStops) + uint64(protoStopTimes/protoStop_rel[Last_st])) * uint64(1024) + uint64(min_elem(NrStops, uint32(1023)));
+		unit<uint32>              Pattern       := unique_uint32(PatternKey);
+		attribute<Pattern>        Pattern_rel   := rlookup(PatternKey, Pattern/values);
+		attribute<uint32>         StartSec      := uint32(protoTrips/StartTime[org_rel]);
+		attribute<uint64>         GroupKey      := uint64(Pattern_rel) * uint64(65536) + uint64(StartSec / ModelParameters/Advanced/FlexMinInterval_sec);
+		unit<uint32>              Group         := unique_uint32(GroupKey);
+		attribute<Group>          Group_rel     := rlookup(GroupKey, Group/values);
+		attribute<.>              First (Group) := min_index(StartSec, Group_rel), Descr = "de eerste rit van elk blok; bij gelijke starttijd de eerste in de feed";
+		attribute<bool>           Keep          := First[Group_rel] == ID(.);
 	}
 
 	Template DayLinks_T
