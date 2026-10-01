@@ -27,6 +27,9 @@ REM ----------------------------------------------------------------------------
 REM Engine: sinds 2026-09-23 de lokale msbuild-build 20.21.x in C:\dev\GeoDMS_2026\bin\Release\x64, want het model
 REM gebruikt de pareto-epsilon van GeoDMS #1282 (impedance_matrix_od64 met pareto(imp2_epsilon), pareto_optimal_eps);
 REM de geinstalleerde 20.20.0.m kent die niet en rekent dan met kwantisatie per link.
+REM Sinds 2026-10-01 vraagt de eindafweging met MinimiseCriteria 'Car' en 'Bike' (#117) bool-criteria in pareto_optimal_eps
+REM (GeoDMS #1287, vanaf commit e04ad20f0; een eerdere 20.22.1 geeft 'Cannot find operator'). Lange runs gebruiken een kopie
+REM van de build in C:\LocalData\GeoDMS_engine via GEODMS_EXE, nu 20.22.1_e04ad20f0.
 set EXE=C:\dev\GeoDMS_2026\bin\Release\x64\GeoDmsRun.exe
 REM Met de omgevingsvariabele GEODMS_EXE draait een andere GeoDmsRun.exe, bijvoorbeeld een proefbuild.
 if defined GEODMS_EXE set "EXE=%GEODMS_EXE%"

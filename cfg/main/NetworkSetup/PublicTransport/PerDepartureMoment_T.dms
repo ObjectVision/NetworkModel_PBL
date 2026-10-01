@@ -5,7 +5,7 @@ Template PerDepartureMoment_T
 	///
 	parameter<min_f>    Max_V_Time := /ModelParameters/Advanced/PT_Max_V_Time
 	,	Descr = "Langste voortransportbeen dat nog geldig kan zijn: de grootste Max*Time-grens (op netwerktijd) plus de start- en parkeertijden die sinds 2026-09-23 in het been zitten. Begrenst het venster van OV-vertrekken; te ruim is onschadelijk, te krap laat combinaties weg.";
-	unit<uint8>         ParetoAttr := Classifications/FinalParetoAttr;
+	unit<uint8>         ParetoAttr := Classifications/OutputParetoAttr; // sinds 2026-10-01 met NeedsCar en NeedsBike (#117); tot dan FinalParetoAttr
 	// De OV-ketens die binnen voortransport plus wachten thuis vertrekken. Sinds 2026-09-27 (audit 6.7) met de ondergrens inTime:
 	// een keten die eerder vertrekt haalt IsWaitingTimeValid toch nooit, maar werd wel aan alle voortransportbenen gekoppeld;
 	// bij vertrek 07:45 met de ketenstore 07:00-09:29 was dat 59% van de rijen (307 van 523 miljoen op herkomstblok 1).
@@ -66,6 +66,7 @@ Template PerDepartureMoment_T
 		attribute<Modes>                                       V_mode_rel                       := V/Mode_rel[V_rel];
 		attribute<VN_ModeClasses/Uq>                           V_ModeClass_rel                  := V/ModeClass_rel[V_rel];
 		attribute<ct>                                          V_price                          := V/Price[V_rel];
+		attribute<bool>                                        NeedsBike                        := VN_ModeClasses/Uq/NeedsBike[V_ModeClass_rel];
 		attribute<s>                                           V_time                           := V_time_wo_Penalty; // start- en parkeertijden zitten sinds 2026-09-23 in het been zelf (ODMatrix/Duration_seconds_ext)
 		
 		attribute<Time>                                        WaitingTime_rel                  := MakeDefined(sub_or_null(WaitingEnd_Time_rel, WaitingStart_Time_rel), 0[Time]);
@@ -112,6 +113,7 @@ Template PerDepartureMoment_T
 			attribute<ct>                          Price_augm                       := collect_by_cond(., ../IsValid, ../Price_augm);
 			attribute<s>                           Traveltime                       := collect_by_cond(., ../IsValid, ../Traveltime);
 			attribute<string>                      ModeUsed                         := collect_by_cond(., ../IsValid, ../ModeUsed);
+			attribute<bool>                        NeedsBike                        := collect_by_cond(., ../IsValid, ../NeedsBike);
 
 			attribute<dam>                         TravelDist_V                     := collect_by_cond(., ../IsValid, ../TravelDist_V);
 			attribute<dam>                         TravelDist_Bus                   := collect_by_cond(., ../IsValid, ../TravelDist_Bus);
@@ -148,6 +150,7 @@ Template PerDepartureMoment_T
 																									: Add_V_to_PT/Result/Price[PT_rel];
 		attribute<ct>                                          Price_augm                       := Add_V_to_PT/Result/Price_augm[PT_rel] + N_price;
 		attribute<string>                                      ModeUsed                         := Add_V_to_PT/Result/ModeUsed[PT_rel] + '_' + VN_ModeClasses/Uq/name[N_ModeClass_rel];
+		attribute<bool>                                        NeedsBike                        := Add_V_to_PT/Result/NeedsBike[PT_rel] || VN_ModeClasses/Uq/NeedsBike[N_ModeClass_rel];
 		attribute<s>                                           Traveltime                       := Add_V_to_PT/Result/Traveltime[PT_rel] + N_time;
 		attribute<s>                                           W_time                           := Add_V_to_PT/Result/W_time[PT_rel];
 		attribute<s>                                           V_time                           := Add_V_to_PT/Result/V_time[PT_rel];
@@ -182,6 +185,7 @@ Template PerDepartureMoment_T
 			attribute<ct>                          Price_augm                       := collect_by_cond(., ../IsValid, ../Price_augm);
 			attribute<s>                           Traveltime                       := collect_by_cond(., ../IsValid, ../Traveltime);
 			attribute<string>                      ModeUsed                         := collect_by_cond(., ../IsValid, ../ModeUsed);
+			attribute<bool>                        NeedsBike                        := collect_by_cond(., ../IsValid, ../NeedsBike);
 
 			attribute<dam>                         TravelDist_V                     := collect_by_cond(., ../IsValid, ../TravelDist_V);
 			attribute<dam>                         TravelDist_Bus                   := collect_by_cond(., ../IsValid, ../TravelDist_Bus);
@@ -218,7 +222,13 @@ Template PerDepartureMoment_T
 		attribute<ct>                          Price_augm                       := union_data(., Add_N_to_VPT/Result/Price_augm, Direct_OD/Price_Augm);
 		attribute<s>                           Traveltime                       := union_data(., Add_N_to_VPT/Result/Traveltime, Direct_OD/duration_seconds);
 		attribute<string>                      ModeUsed                         := union_data(., Add_N_to_VPT/Result/ModeUsed, Direct_OD/ModeUsed);
-		
+		// Criteria van de eindafweging als MinimiseCriteria 'Car' en 'Bike' noemt (Classifications/OwnershipParetoAttr, #117).
+		// Een OV-keten vraagt geen auto (er is geen P+R-voortransport), en alleen een fiets als een voor- of natransporttype dat doet.
+		attribute<bool>                        NeedsCar                         := union_data(., const(FALSE, Add_N_to_VPT/Result), Direct_OD/NeedsCar);
+		attribute<bool>                        NeedsBike                        := = VN_ModeClasses/AnyNeedsBike
+			? 'union_data(., Add_N_to_VPT/Result/NeedsBike, Direct_OD/NeedsBike)'
+			: 'union_data(., const(FALSE, Add_N_to_VPT/Result), Direct_OD/NeedsBike)';
+
 		attribute<bool>                        IsDirectTravel                   := union_data(., const(FALSE, Add_N_to_VPT/Result), const(TRUE, Direct_OD));
 		
 		attribute<dam>                         TravelDist_V                     := union_data(., Add_N_to_VPT/Result/TravelDist_V, Direct_OD/distance);
@@ -246,6 +256,8 @@ Template PerDepartureMoment_T
 			attribute<s>          TravelTime       := collect_by_cond(., ../TravelTime);
 			attribute<Ct>         Price            := collect_by_cond(., ../Price);
 			attribute<Ct>         Price_augm       := collect_by_cond(., ../Price_augm);
+			attribute<bool>       NeedsCar         := collect_by_cond(., ../NeedsCar);
+			attribute<bool>       NeedsBike        := collect_by_cond(., ../NeedsBike);
 		}
 		unit<uint64> pareto_vergelijker := join_equal_values_uint64(Valid/uq_OD_key_rel, Valid/uq_OD_key_rel)
 		{
@@ -258,8 +270,10 @@ Template PerDepartureMoment_T
 		// Sinds GeoDMS 20.21.0 (#1282) doet pareto_optimal_eps hetzelfde als de handgeschreven vergelijker (zwakke dominantie,
 		// index-tiebreak) in een sortering en een veegslag, met per criterium een epsilon (Classifications/../EpsilonExpr; 0 = exact):
 		// rijen van dezelfde groep in dezelfde prijs- of tijdbak tellen als gelijk en alleen de beste blijft.
+		// NeedsCar en NeedsBike (#117) zijn bool-criteria zonder epsilon (GeoDMS #1287, vanaf e04ad20f0; een oudere engine geeft
+		// 'Cannot find operator'). pareto_condition_classic vergelijkt bools met < en <= ook goed (false < true).
 		attribute<bool>       pareto_condition                 := = /ModelParameters/Advanced/EngineHasParetoEpsilon
-			? 'pareto_optimal_eps(uq_OD_key_rel, ' + asList(ParetoAttr/Name + ', ' + ParetoAttr/EpsilonExpr, ', ') + ')'
+			? 'pareto_optimal_eps(uq_OD_key_rel, ' + asList(ParetoAttr/ParetoArgs, ', ') + ')'
 			: 'pareto_condition_classic';
 	}
 	
@@ -270,6 +284,8 @@ Template PerDepartureMoment_T
 		attribute<ct>                                       Price_augm                  := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Price_augm);
 		attribute<s>                                        Traveltime                  := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Traveltime);
 		attribute<string>                                   ModeUsed                    := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/ModeUsed);
+		attribute<bool>                                     NeedsCar                    := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/NeedsCar);
+		attribute<bool>                                     NeedsBike                   := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/NeedsBike);
 		attribute<s>                                        W_time                      := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/W_time), Descr = "Waiting at home";
 		attribute<s>                                        V_time                      := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/V_time);
 		attribute<s>                                        PT_time                     := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/PT_time);
@@ -304,6 +320,8 @@ Template PerDepartureMoment_T
 			attribute<s>          TravelTime       := collect_by_cond(., ../TravelTime);
 			attribute<Ct>         Price            := collect_by_cond(., ../Price);
 			attribute<Ct>         Price_augm       := collect_by_cond(., ../Price_augm);
+			attribute<bool>       NeedsCar         := collect_by_cond(., ../NeedsCar);
+			attribute<bool>       NeedsBike        := collect_by_cond(., ../NeedsBike);
 		}
 		unit<uint64> pareto_vergelijker := join_equal_values_uint64(Valid/uq_OD_key_rel, Valid/uq_OD_key_rel)
 		{
@@ -316,8 +334,10 @@ Template PerDepartureMoment_T
 		// Sinds GeoDMS 20.21.0 (#1282) doet pareto_optimal_eps hetzelfde als de handgeschreven vergelijker (zwakke dominantie,
 		// index-tiebreak) in een sortering en een veegslag, met per criterium een epsilon (Classifications/../EpsilonExpr; 0 = exact):
 		// rijen van dezelfde groep in dezelfde prijs- of tijdbak tellen als gelijk en alleen de beste blijft.
+		// NeedsCar en NeedsBike (#117) zijn bool-criteria zonder epsilon (GeoDMS #1287, vanaf e04ad20f0; een oudere engine geeft
+		// 'Cannot find operator'). pareto_condition_classic vergelijkt bools met < en <= ook goed (false < true).
 		attribute<bool>       pareto_condition                 := = /ModelParameters/Advanced/EngineHasParetoEpsilon
-			? 'pareto_optimal_eps(uq_OD_key_rel, ' + asList(ParetoAttr/Name + ', ' + ParetoAttr/EpsilonExpr, ', ') + ')'
+			? 'pareto_optimal_eps(uq_OD_key_rel, ' + asList(ParetoAttr/ParetoArgs, ', ') + ')'
 			: 'pareto_condition_classic';
 	}
 	
@@ -328,6 +348,8 @@ Template PerDepartureMoment_T
 		attribute<ct>                                       Price_augm                  := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Price_augm);
 		attribute<s>                                        Traveltime                  := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Traveltime);
 		attribute<string>                                   ModeUsed                    := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/ModeUsed);
+		attribute<bool>                                     NeedsCar                    := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/NeedsCar);
+		attribute<bool>                                     NeedsBike                   := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/NeedsBike);
 		attribute<s>                                        W_time                      := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/W_time), Descr = "Waiting at home";
 		attribute<s>                                        V_time                      := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/V_time);
 		attribute<s>                                        PT_time                     := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/PT_time);

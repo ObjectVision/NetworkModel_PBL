@@ -82,6 +82,8 @@ container Classifications: Using = "Units"
 		attribute<string> Name_short     := ConnectionType + '_' + Mode_abbrev;
 		attribute<GTFS_Modes/Selection>  Mode_rel       := rlookup(Mode_Abbrev, GTFS_Modes/Selection/name_abbr);
 		attribute<bool>   IsOVfiets      := lowercase(StopClass) == lowercase('OVf');
+		attribute<bool>   IsOVFietsPriced := IsOVfiets || (id(.) == V/RMT_Stops2Dest_Cycling && ModelParameters/Advanced/UseOVFietsPriceForAllCyclingPostTransport), Descr = "Krijgt dit been de huurprijs van de OV-fiets, zoals Templates/CreateNetwork_Pedestrian_Bike_T/Price die zet?";
+		attribute<bool>   NeedsOwnBike   := Mode_abbrev == 'C' && NOT(IsOVFietsPriced), Descr = "Vraagt dit been een eigen fiets (NetworkModel_PBL#117)? Fietsen wel, behalve met een gehuurde OV-fiets.";
 		attribute<min_f>  MaxTime        := ='union_data(.,'+asList('ModelParameters/Max'+Mode+'Time_'+ConnectionType, ',')+')';
 		
 		
@@ -130,12 +132,17 @@ container Classifications: Using = "Units"
 	unit<uint8> VN_ModeClasses := union_unit_uint8(/ModelParameters/Advanced/OV_PreTransport_Typen,/ModelParameters/Advanced/OV_PostTransport_Typen)
 	{
 		attribute<string> name := union_data(., ModelParameters/Advanced/OV_PreTransport_Typen/ExportName, ModelParameters/Advanced/OV_PostTransport_Typen/ExportName);
-		
+		attribute<TimeInvariantTypes> TimeInvariantTypes_rel := union_data(., ModelParameters/Advanced/OV_PreTransport_Typen/TimeInvariantTypes_rel, ModelParameters/Advanced/OV_PostTransport_Typen/TimeInvariantTypes_rel);
+		attribute<bool>   NeedsBike := TimeInvariantTypes/NeedsOwnBike[TimeInvariantTypes_rel];
+		attribute<uq>     uq_rel    := rlookup(name, uq/values);
+
 		unit<uint8> uq := unique_uint8(name)
-		{	
+		{
 			attribute<string> name := values;
 			attribute<string> label := values;
+			attribute<bool>   NeedsBike := any(VN_ModeClasses/NeedsBike, VN_ModeClasses/uq_rel), Descr = "Vraagt een voor- of natransportbeen van deze klasse een eigen fiets (NetworkModel_PBL#117)?";
 		}
+		parameter<bool> AnyNeedsBike := any(uq/NeedsBike), Descr = "Vraagt een van de voor- of natransporttypen een eigen fiets? Zo niet, dan heeft geen OV-keten een fiets nodig.";
 	}
 
 	#include<modes.dms>
@@ -285,4 +292,30 @@ container Classifications: Using = "Units"
 	
 	
 	unit<uint8> FinalParetoAttr := select_with_attr_by_cond(CandidateParetoAttr, CandidateParetoAttr/IsFinalParetoSelection);
+
+	// Autobezit en fietsbezit als criteria in de eindafweging (NetworkModel_PBL#117, sinds 2026-10-01): een optie die geen auto
+	// of fiets vraagt, blijft naast een goedkopere en snellere optie die dat wel doet. Alleen in de condensaties per vertrekmoment
+	// (NetworkSetup/PublicTransport/PerDepartureMoment_T); de ketenrijger rekent alleen OV en houdt FinalParetoAttr, zodat de
+	// ketenstore dezelfde blijft. Bool-criteria, geminimaliseerd (false voor true) en zonder epsilon: GeoDMS #1287, vanaf e04ad20f0.
+	unit<uint8> OwnershipParetoAttr_Candidates : nrofrows = 2
+	{
+		attribute<string> Name              : [ 'NeedsCar', 'NeedsBike' ];
+		attribute<string> CriteriaName      : [ 'Car', 'Bike' ], Descr = "Het element in MinimiseCriteria.";
+		attribute<string> FileNameElement   : [ 'A', 'C' ], Descr = "Het element in de uitvoernamen (PT_OutputFileTail): de letter van auto en fiets in ModeUsed. Kort, want het langste uitvoerpad was al 252 van de 259 tekens (NetworkModel_PBL#118).";
+		attribute<string> EpsilonExpr       : [ '', '' ], Descr = "Leeg: een bool-criterium heeft geen epsilon in pareto_optimal_eps.";
+		attribute<bool>   IsCriteriaInLijst := IsDefined(strpos(lowercase(ModelParameters/MinimiseCriteria), lowercase(CriteriaName)));
+		attribute<bool>   IsRelevant        := union_data(., ModelParameters/AllowDirectCar, ModelParameters/AllowDirectCycling || VN_ModeClasses/AnyNeedsBike)
+		,	Descr = "Kan een optie een auto of fiets vragen? Een auto alleen de directe autorit (er is geen P+R-voortransport), een fiets de directe fietsroute en voor- of natransport met een eigen fiets. Een criterium dat voor alle opties gelijk is, verandert het front niet en blijft weg, ook uit de uitvoernamen.";
+		attribute<bool>   IsSelected        := IsCriteriaInLijst && IsRelevant;
+	}
+	unit<uint8> OwnershipParetoAttr := select_with_attr_by_cond(OwnershipParetoAttr_Candidates, OwnershipParetoAttr_Candidates/IsSelected);
+
+	unit<uint8> OutputParetoAttr := union_unit_uint8(FinalParetoAttr, OwnershipParetoAttr)
+	, Descr = "De criteria van de eindafweging per vertrekmoment: FinalParetoAttr plus de geselecteerde bezitscriteria."
+	{
+		attribute<string> Name            := union_data(., FinalParetoAttr/Name, OwnershipParetoAttr/Name);
+		attribute<string> FileNameElement := union_data(., FinalParetoAttr/FileNameElement, OwnershipParetoAttr/FileNameElement);
+		attribute<string> EpsilonExpr     := union_data(., FinalParetoAttr/EpsilonExpr, OwnershipParetoAttr/EpsilonExpr);
+		attribute<string> ParetoArgs      := Name + (EpsilonExpr != '' ? ', ' + EpsilonExpr : ''), Descr = "De argumenten van dit criterium voor pareto_optimal_eps: een getal met zijn epsilon, een bool zonder.";
+	}
 }
