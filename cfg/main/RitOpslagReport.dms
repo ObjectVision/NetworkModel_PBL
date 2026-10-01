@@ -1,0 +1,191 @@
+container RitOpslagReport
+: using = "units;Classifications;SourceData"
+, Descr = "Rapport voor ObjectVision/NetworkModel_PBL#3: NS-tariefeenheden zonder HSL-kanten, rit-opslag (HSL Schiphol-Rotterdam, ICE binnenland), NS International in het L-net en in- en uitstappen volgens de GTFS (pickup_type/drop_off_type). Draai /RitOpslagReport/Report (goedkoop: tariefnet, routes, trips en stop_times) en /RitOpslagReport/Net/Report (duur: trekt OD_L en OD_R). Uitvoer in %LocalDataProjDir%/Output/ritopslag_*."
+{
+	parameter<string> FileStem := '%LocalDataProjDir%/Output/ritopslag_'+ModelParameters/GTFS_file_date+'_'+ModelParameters/Analysis_date;
+
+	// Steekproef van tariefeenheden tegen NS (rijdendetreinen.nl, 2026-10-01). Tot 2026-10-02 gaf de kortste route over de
+	// HSL-kanten 55, 74, 66, 44, 99 en 74 eenheden.
+	container TE
+	{
+		unit<uint32> NS_Stations    := /SourceData/Infrastructure/OVprijzen/NS/NS_stations;
+		unit<uint32> c_NS_start_end := /SourceData/Infrastructure/OVprijzen/NS/NS_TariffUnits_matrix/c_NS_start_end;
+		unit<uint32> Matrix         := /SourceData/Infrastructure/OVprijzen/NS/NS_TariffUnits_matrix/ODMatrix;
+
+		unit<uint32> Steekproef : nrofrows = 6
+		{
+			attribute<string>         org      : ['shl', 'asd', 'asdz', 'rtd', 'bd',  'hvs'];
+			attribute<string>         dest     : ['rtd', 'rtd', 'rtd',  'bd',  'shl', 'rtd'];
+			attribute<uint32>         TE_NS    : [67,    86,    78,     50,    117,   74];
+			attribute<NS_Stations>    org_rel  := rlookup(org,  NS_Stations/code);
+			attribute<NS_Stations>    dest_rel := rlookup(dest, NS_Stations/code);
+			attribute<c_NS_start_end> c_rel    := combine_data(c_NS_start_end, org_rel, dest_rel);
+			attribute<uint32>         TE_model := rjoin(c_rel, Matrix/c_NS_start_end_rel, Matrix/impedance);
+			attribute<Euro>           Prijs    := rjoin(c_rel, Matrix/c_NS_start_end_rel, Matrix/Prijs);
+			attribute<bool>           OK       := MakeDefined(TE_model == TE_NS, false);
+		}
+		parameter<string> Report := (all(Steekproef/OK) ? 'PASS' : 'FAIL') + ' tariefeenheden ' + ModelParameters/Advanced/NS_prijzen_year + ': '
+			+ asList(Steekproef/org + '-' + Steekproef/dest + ' ' + MakeDefined(string(Steekproef/TE_model), '?') + ' TE (NS ' + string(Steekproef/TE_NS) + ') EUR ' + MakeDefined(string(Steekproef/Prijs), '?'), '; ');
+	}
+
+	// Per rit: kan je binnen Nederland in- en verderop weer uitstappen? Eerste NL-halte met instappen voor de laatste NL-halte
+	// met uitstappen (protoStopTimes/PickupAllowed en DropOffAllowed). Zo niet, dan rijdt de rit binnenlands niet mee.
+	unit<uint32> protoStops     := SourceData/Infrastructure/GTFS/LoadFeeds/protoStops;
+	unit<uint32> protoTrips     := SourceData/Infrastructure/GTFS/LoadFeeds/protoTrips;
+	unit<uint32> protoStopTimes := SourceData/Infrastructure/GTFS/LoadFeeds/protoStopTimes;
+	unit<uint32> Routes         := SourceData/Infrastructure/GTFS/RelevantSelection/Routes;
+	unit<uint32> Trips          := SourceData/Infrastructure/GTFS/RelevantSelection/Trips;
+	unit<uint8>  Treinen        := ModelParameters/Advanced/RitOpslagTreinen;
+
+	attribute<bool>   Stop_InNL        (protoStops)     := IsDefined(point_in_polygon(protoStops/geometry, /SourceData/RegioIndelingen/NL/geometry));
+	attribute<bool>   ST_InNL          (protoStopTimes) := Stop_InNL[protoStopTimes/protoStop_rel];
+	attribute<bool>   ST_Board         (protoStopTimes) := protoStopTimes/PickupAllowed  && ST_InNL;
+	attribute<bool>   ST_Alight        (protoStopTimes) := protoStopTimes/DropOffAllowed && ST_InNL;
+	attribute<bool>   HasBoard         (protoTrips)     := any(ST_Board,  protoStopTimes/protoTrip_rel);
+	attribute<bool>   HasAlight        (protoTrips)     := any(ST_Alight, protoStopTimes/protoTrip_rel);
+	attribute<uint32> FirstBoardSeq    (protoTrips)     := min(ST_Board  ? protoStopTimes/Stop_Sequence : null_u, protoStopTimes/protoTrip_rel), Descr = "Alleen zinvol als HasBoard: zonder instaphalte geeft min() een grote waarde, geen null.";
+	attribute<uint32> LastAlightSeq    (protoTrips)     := max(ST_Alight ? protoStopTimes/Stop_Sequence : null_u, protoStopTimes/protoTrip_rel), Descr = "Alleen zinvol als HasAlight.";
+	attribute<bool>   IsBinnenlands    (protoTrips)     := HasBoard && HasAlight && FirstBoardSeq < LastAlightSeq;
+
+	attribute<uint32> NrTrips_today        (Routes) := sum_uint32(Trips/sel_today, Trips/Route_rel);
+	attribute<uint32> NrTrips_today_binnen (Routes) := sum_uint32(Trips/sel_today && IsBinnenlands, Trips/Route_rel);
+
+	// Treinen buiten NS die binnenlands interessant zijn: alles van het L-net met een opslagproduct, alle NS International,
+	// en de vervoerders die binnenlands niet mogen (European Sleeper, GoVolta).
+	unit<uint32> Treinroutes := select_with_org_rel(not(Routes/IsPseudoRoute) && NrTrips_today > 0
+		&& (IsDefined(Routes/RitOpslag_rel) || Agencies/IsNSInternational[Routes/agency_rel] || Agencies/name[Routes/agency_rel] == 'eu_sleeper' || Agencies/name[Routes/agency_rel] == 'european_sleeper' || Agencies/name[Routes/agency_rel] == 'govolta'))
+	, StorageName = "=FileStem+'_routes.csv'", StorageType = "gdalwrite.vect"
+	{
+		attribute<string> route_id              := Routes/route_id[org_rel];
+		attribute<string> agency                := Routes/agency_name[org_rel];
+		attribute<string> route_short_name      := Routes/route_short_name[org_rel];
+		attribute<string> route_long_name       := Routes/route_long_name[org_rel];
+		attribute<bool>   in_Lnet               := Agencies/IsLnet[Routes/agency_rel[org_rel]] && not(Routes/IsZonderNSKaartje[org_rel]);
+		attribute<bool>   in_Rnet               := Agencies/IsRO[Routes/agency_rel[org_rel]];
+		attribute<string> ritopslag             := MakeDefined(Treinen/name[Routes/RitOpslag_rel[org_rel]], '');
+		attribute<uint32> nr_trips_today        := NrTrips_today[org_rel];
+		attribute<uint32> nr_trips_binnenlands  := NrTrips_today_binnen[org_rel];
+	}
+
+	// De ritten van vandaag op de Treinroutes, met de eerste NL-halte met instappen en de laatste met uitstappen.
+	attribute<Treinroutes> Treinroute_rel (protoTrips) := invert(Treinroutes/org_rel)[Trips/Route_rel];
+	unit<uint32> Treinritten := select_with_org_rel(IsDefined(Treinroute_rel) && Trips/sel_today)
+	, StorageName = "=FileStem+'_ritten.csv'", StorageType = "gdalwrite.vect"
+	{
+		attribute<string> route                := Treinroutes/route_short_name[Treinroute_rel[org_rel]] + ' ' + Treinroutes/route_long_name[Treinroute_rel[org_rel]];
+		attribute<string> trip_id              := protoTrips/trip_id[org_rel];
+		attribute<string> eerste_halte         := protoStops/stop_name[protoStopTimes/protoStop_rel[min_index(protoStopTimes/Stop_Sequence, protoStopTimes/protoTrip_rel)[org_rel]]];
+		attribute<string> laatste_halte        := protoStops/stop_name[protoStopTimes/protoStop_rel[max_index(protoStopTimes/Stop_Sequence, protoStopTimes/protoTrip_rel)[org_rel]]];
+		attribute<string> vertrek              := MakeDefined(Time/Label[protoTrips/StartTime[org_rel]], '');
+		attribute<string> eerste_NL_instap     := HasBoard[org_rel]  ? string(FirstBoardSeq[org_rel]) : '';
+		attribute<string> laatste_NL_uitstap   := HasAlight[org_rel] ? string(LastAlightSeq[org_rel]) : '';
+		attribute<bool>   binnenlands          := IsBinnenlands[org_rel];
+	}
+
+	parameter<string> Settings :='NS International in L-net=' + string(ModelParameters/Advanced/IsNSInternationalInLnet) + ', rit-opslag=' + string(ModelParameters/Advanced/IsRitOpslagMeenemen)
+		+ ', toeslag ' + ModelParameters/Advanced/NS_prijzen_year + '=EUR ' + string(/SourceData/Infrastructure/OVprijzen/NS/RitOpslag/Toeslag_ICE_ICD)
+		+ ', extra tijd: ' + asList(Treinen/name + '=' + string(Treinen/ExtraTijd) + 'min', ', ');
+	parameter<string> Report :=
+		'feed ' + ModelParameters/GTFS_file_date + ', dag ' + ModelParameters/Analysis_date + ' | ' + Settings
+		+ ' | ' + TE/Report
+		+ ' | L-net-vervoerders: ' + asList(Agencies/IsLnet ? Agencies/label : '', ' ')
+		+ ' | treinroutes (ritten vandaag, waarvan binnenlands bruikbaar): ' + asList(Treinroutes/agency + ' ' + Treinroutes/route_short_name + ' ' + Treinroutes/route_long_name + ' [' + Treinroutes/ritopslag + '] ' + string(Treinroutes/nr_trips_today) + '/' + string(Treinroutes/nr_trips_binnenlands), '; ')
+	, StorageName = "=FileStem+'_report.txt'", StorageType = "str"
+	, ExplicitSuppliers = "Treinroutes;Treinritten";
+
+	// De ketenrijger op het eerste haltenblok (~0,5 min): telt de opslag mee in de prijs van ketens met NS, ook als het doorgaande
+	// NS-tarief Price_L herberekent? Price is daar Price_O + Price_I + Price_L (+ Price_F na NS links) + Price_S (ChainJoiner_T).
+	container Keten
+	{
+		parameter<string> Blok := first(/NetworkSetup/PublicTransport_Prep/impl/BlockDomain/name);
+		unit<uint32> RL := ='/NetworkSetup/PublicTransport_Prep/KetenGeneratie_PerBlock/'+Blok+'/Chain_Generation/RL/Result';
+		unit<uint32> LR := ='/NetworkSetup/PublicTransport_Prep/KetenGeneratie_PerBlock/'+Blok+'/Chain_Generation/LR/Result';
+		unit<uint32> LL := ='/NetworkSetup/PublicTransport_Prep/KetenGeneratie_PerBlock/'+Blok+'/Chain_Generation/LL/Result';
+		parameter<bool> RL_OK := all(RL/Price == RL/Price_O + RL/Price_I + RL/Price_L + RL/Price_S);
+		parameter<bool> LR_OK := all(LR/Price == LR/Price_O + LR/Price_I + LR/Price_L + LR/Price_F + LR/Price_S);
+		parameter<bool> LL_OK := all(LL/Price == LL/Price_L + LL/Price_F + LL/Price_S);
+		parameter<string> Report := (RL_OK && LR_OK && LL_OK ? 'PASS' : 'FAIL') + ' ketenprijs = onderdelen + opslag in ' + Blok
+			+ ': RL ' + string(#RL) + ' ketens, ' + string(sum(uint32(RL/Price_S > 0[Ct]))) + ' met opslag'
+			+ '; LR ' + string(#LR) + ', ' + string(sum(uint32(LR/Price_S > 0[Ct])))
+			+ '; LL ' + string(#LL) + ', ' + string(sum(uint32(LL/Price_S > 0[Ct])))
+		, StorageName = "=FileStem+'_keten_report.txt'", StorageType = "str";
+	}
+
+	// Het duurdere deel: de benen van het L- en R-net (trekt het OV-net, Set_L/Set_R en OD_L/OD_R).
+	container Net
+	{
+		unit<uint32> OD_L     := /NetworkSetup/PublicTransport_Prep/impl/OD_L;
+		unit<uint32> OD_R     := /NetworkSetup/PublicTransport_Prep/impl/OD_R;
+		unit<uint32> L_Result := OD_L/Result;
+		unit<uint32> R_Result := OD_R/Result;
+		unit<uint32> NS_Stations := /SourceData/Infrastructure/OVprijzen/NS/NS_stations;
+
+		parameter<uint32> L_Benen             := #OD_L;
+		parameter<uint32> L_Result_Benen      := #L_Result;
+		// Benen die alleen door de in- en uitstapregel (pickup_type/drop_off_type 1) afvallen: de andere filters van Result laten ze door.
+		parameter<uint32> L_GeenInUitstap     := sum(uint32(not(OD_L/IsBoardAlightAllowed) && not(OD_L/impl/IsStartEndWithinSameStopCluster) && OD_L/IsBinnenlandsBeen));
+		attribute<uint32> L_GeenInUitstap_PerAgency (Agencies) := sum_uint32(not(OD_L/IsBoardAlightAllowed) && not(OD_L/impl/IsStartEndWithinSameStopCluster) && OD_L/IsBinnenlandsBeen, OD_L/Agency_rel);
+		parameter<uint32> L_Buitenlands       := sum(uint32(not(OD_L/IsBinnenlandsBeen) && not(OD_L/impl/IsStartEndWithinSameStopCluster)));
+		parameter<uint32> L_NSInt_Result      := sum(uint32(Agencies/IsNSInternational[L_Result/Agency_rel]));
+		attribute<uint32> L_Opslag_PerProduct (Treinen) := sum_uint32(L_Result/Price_S > 0[Ct], L_Result/RitOpslag_rel);
+		attribute<uint32> L_Product_PerProduct (Treinen) := pcount(L_Result/RitOpslag_rel);
+		parameter<uint32> R_Benen             := #OD_R;
+		parameter<uint32> R_Result_Benen      := #R_Result;
+		parameter<uint32> R_GeenInUitstap     := sum(uint32(not(OD_R/IsBoardAlightAllowed) && not(OD_R/impl/IsOD_completely_foreign) && not(OD_R/impl/IsStartEndWithinSameStopCluster)));
+		attribute<uint32> R_GeenInUitstap_PerAgency (Agencies) := sum_uint32(not(OD_R/IsBoardAlightAllowed) && not(OD_R/impl/IsOD_completely_foreign) && not(OD_R/impl/IsStartEndWithinSameStopCluster), OD_R/Agency_rel);
+
+		// Benen die alleen door de in- en uitstapregel afvallen, voor een controle met de hand.
+		Template GeenInUitstap_T
+		{
+			unit<uint32> OD;
+			attribute<bool> Mee (OD);
+			parameter<string> csvName;
+			///
+			unit<uint32> Rows := select_with_org_rel(not(OD/IsBoardAlightAllowed) && not(OD/impl/IsStartEndWithinSameStopCluster) && Mee)
+			, StorageName = "=csvName", StorageType = "gdalwrite.vect"
+			{
+				attribute<string> agency     := Agencies/label[OD/Agency_rel[org_rel]];
+				attribute<string> route      := Routes/route_short_name[OD/Route_rel[org_rel]] + ' ' + Routes/route_long_name[OD/Route_rel[org_rel]];
+				attribute<string> van        := protoStops/stop_name[SourceData/Infrastructure/GTFS/RelevantSelection/Stops/org_rel[OD/From_Stop_rel[org_rel]]];
+				attribute<string> naar       := protoStops/stop_name[SourceData/Infrastructure/GTFS/RelevantSelection/Stops/org_rel[OD/To_Stop_rel[org_rel]]];
+				attribute<string> vertrek    := Time/Label[OD/From_Time_rel[org_rel]];
+				attribute<string> aankomst   := Time/Label[OD/To_Time_rel[org_rel]];
+				attribute<bool>   instappen  := OD/ThisSet/NodeSet/CanBoard[OD/OrgZone_rel[org_rel]];
+				attribute<bool>   uitstappen := OD/ThisSet/NodeSet/CanAlight[OD/DstZone_rel[org_rel]];
+			}
+		}
+		container L_GeenInUitstap_Lijst := GeenInUitstap_T(OD_L, OD_L/IsBinnenlandsBeen, FileStem+'_L_geeninuitstap.csv');
+		container R_GeenInUitstap_Lijst := GeenInUitstap_T(OD_R, not(OD_R/impl/IsOD_completely_foreign), FileStem+'_R_geeninuitstap.csv');
+
+		// Voorbeeldbenen van het L-net tussen een paar stations rond de HSL, voor een controle met de hand.
+		unit<uint32> Voorbeeldstations : nrofrows = 8
+		{
+			attribute<string>      code       : ['shl', 'rtd', 'asd', 'asdz', 'hvs', 'bd', 'ut', 'ah'];
+			attribute<NS_Stations> Station_rel := rlookup(code, NS_Stations/code);
+		}
+		attribute<bool> IsVoorbeeld (L_Result) := IsDefined(rlookup(L_Result/First_NS_Station, Voorbeeldstations/Station_rel)) && IsDefined(rlookup(L_Result/Last_NS_Station, Voorbeeldstations/Station_rel));
+		unit<uint32> Voorbeelden := select_with_org_rel(IsVoorbeeld)
+		, StorageName = "=FileStem+'_Lbenen.csv'", StorageType = "gdalwrite.vect"
+		{
+			attribute<string> agency      := Agencies/label[L_Result/Agency_rel[org_rel]];
+			attribute<string> route       := Routes/route_short_name[L_Result/Route_rel[org_rel]] + ' ' + Routes/route_long_name[L_Result/Route_rel[org_rel]];
+			attribute<string> van         := NS_Stations/code[L_Result/First_NS_Station[org_rel]];
+			attribute<string> naar        := NS_Stations/code[L_Result/Last_NS_Station[org_rel]];
+			attribute<string> vertrek     := Time/Label[L_Result/From_Time_rel[org_rel]];
+			attribute<string> aankomst    := Time/Label[L_Result/To_Time_rel[org_rel]];
+			attribute<uint32> TE          := OD_L/impl/TariffUnits[L_Result/org_rel[org_rel]];
+			attribute<Ct>     Price_L     := L_Result/Price_L[org_rel];
+			attribute<Ct>     Price_S     := L_Result/Price_S[org_rel];
+			attribute<string> ritopslag   := MakeDefined(Treinen/name[L_Result/RitOpslag_rel[org_rel]], '');
+		}
+
+		parameter<string> Report :=
+			'L-net: ' + string(L_Benen) + ' benen, ' + string(L_GeenInUitstap) + ' alleen zonder in- of uitstap weg, ' + string(L_Buitenlands) + ' niet binnenlands, ' + string(L_Result_Benen) + ' in Result, waarvan ' + string(L_NSInt_Result) + ' NS International'
+			+ ' | L zonder in- of uitstap per vervoerder: ' + asList(L_GeenInUitstap_PerAgency > 0 ? Agencies/label + ' ' + string(L_GeenInUitstap_PerAgency) : '', ' ')
+			+ ' | rit-opslag per product (benen met opslag / benen op het product): ' + asList(Treinen/name + ' ' + string(L_Opslag_PerProduct) + '/' + string(L_Product_PerProduct), ', ')
+			+ ' | R-net: ' + string(R_Benen) + ' benen, ' + string(R_GeenInUitstap) + ' alleen zonder in- of uitstap weg, ' + string(R_Result_Benen) + ' in Result'
+			+ ' | R zonder in- of uitstap per vervoerder: ' + asList(R_GeenInUitstap_PerAgency > 0 ? Agencies/label + ' ' + string(R_GeenInUitstap_PerAgency) : '', ' ')
+		, StorageName = "=FileStem+'_net_report.txt'", StorageType = "str"
+		, ExplicitSuppliers = "Voorbeelden";
+	}
+}

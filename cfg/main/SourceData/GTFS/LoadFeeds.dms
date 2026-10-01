@@ -284,7 +284,12 @@ container LoadFeeds
 		attribute<uint32>                  Stop_Sequence            := uint32(Read/Stop_times/data/stop_sequence);
 		attribute<uint32>                  shape_dist_traveled      := uint32(Read/Stop_times/data/shape_dist_traveled);
 		attribute<uint32>                  next_shape_dist_traveled := shape_dist_traveled[NextStopId];
-		
+		// #3 (sinds 2026-10-02): GTFS pickup_type en drop_off_type 1 = hier geen in- of uitstappen; 2 en 3 (bellen, afspreken met
+		// de chauffeur) gelden als toegestaan, zoals bij flexlijnen. Leeg = 0. Zo vallen Eurostar, Nightjet, European Sleeper en
+		// GoVolta binnenlands af: op hun NL-haltes staat instappen (2) of uitstappen (1) toe, nooit allebei.
+		attribute<bool>                    PickupAllowed            := MakeDefined(uint32(Read/Stop_times/data/pickup_type), 0) != 1;
+		attribute<bool>                    DropOffAllowed           := MakeDefined(uint32(Read/Stop_times/data/drop_off_type), 0) != 1;
+
 		attribute<upoint>                  Trip_x_Ordinal           := point_xy(Stop_Sequence, protoTrip_rel, upoint);
 		attribute<Trips_x_order_uq>        txo_uq_rel               := rlookup(Trip_x_Ordinal, Trips_x_order_uq/Values);
 		attribute<uint32>                  ordered_ord              := txo_uq_rel - protoTrips/first_txo[protoTrip_rel];
@@ -350,6 +355,10 @@ container LoadFeeds
 			attribute<Time>        depTime            := value(sub_or_null(uint32(protoStopTimes/departureTime/TimesVector/Time_rel[org_rel]) + AddSec, SubSec), Time);
 			attribute<Time>        arrTime            := value(sub_or_null(uint32(protoStopTimes/arrivalTime/TimesVector/Time_rel[protoStopTimes/NextStopId[org_rel]]) + AddSec, SubSec), Time);
 			attribute<km>          Length             := MakeDefined(convert(float32(dist_traveled)[m], km), convert(dist_euclid, km));
+			attribute<bool>        FromPickupAllowed  := protoStopTimes/PickupAllowed[org_rel];
+			attribute<bool>        FromDropOffAllowed := protoStopTimes/DropOffAllowed[org_rel];
+			attribute<bool>        ToPickupAllowed    := protoStopTimes/PickupAllowed[protoStopTimes/NextStopId[org_rel]];
+			attribute<bool>        ToDropOffAllowed   := protoStopTimes/DropOffAllowed[protoStopTimes/NextStopId[org_rel]];
 		}
 		unit<uint32> GenLines := union_unit(Links, Links)
 		{

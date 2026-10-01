@@ -102,7 +102,9 @@ container PublicTransport_Prep
 		parameter<string> FlexSelection_str := ModelParameters/Advanced/IsFlexMeenemen ? '' : ' && not(PTnet_prep/IsFlexLink)';
 
 		container Set_R := Get_Windowed_Agency_Set_T(' &&  '+impl/PT_path_str+'/Agency_rel->IsRO &&  '+impl/PT_path_str+'/Duration > 0f' + impl/FlexSelection_str), Descr = "subset of public transport net for the relevant time windows and agency-set.", using = "impl";
-		container Set_L := Get_Windowed_Agency_Set_T(' && ('+impl/PT_path_str+'/Agency_rel == Agencies/V/ns || ('+impl/PT_path_str+'/Mode_rel == impl/Modes/V/Waiting && IsDefined('+impl/PT_path_str+'/c_NS_start_end_rel))) && '+impl/PT_path_str+'/Duration > 0f' + impl/FlexSelection_str);
+		// Het L-net: de vervoerders met NS-tarief (Agencies/IsLnet: NS en, sinds 2026-10-02 (#3), NS International) zonder de
+		// treinen waarop een NS-kaartje nooit geldt (Routes/IsZonderNSKaartje: Eurostar, Nightjet), plus de stilstandlinks op NS-stations.
+		container Set_L := Get_Windowed_Agency_Set_T(' && (('+impl/PT_path_str+'/Agency_rel->IsLnet && not('+impl/PT_path_str+'/Route_rel->IsZonderNSKaartje)) || ('+impl/PT_path_str+'/Mode_rel == impl/Modes/V/Waiting && IsDefined('+impl/PT_path_str+'/c_NS_start_end_rel))) && '+impl/PT_path_str+'/Duration > 0f' + impl/FlexSelection_str);
 		
 		unit<uint32> All_Time_Stops := union_unit_uint32(OD_L/Result, OD_R/Result)
 		{
@@ -610,6 +612,8 @@ container PublicTransport_Prep
 			: '')+
 		// Flexvervoer (ObjectVision/NetworkModel_PBL#113, #116): '_noflex', of '_flex<i>i<w>w<c>ct' met de flexparameters; leeg als die alle drie 0 zijn.
 		ModelParameters/Advanced/Flex_FileTag+
+		// NS International en rit-opslag (ObjectVision/NetworkModel_PBL#3): leeg met de standaard, anders '_' met I, R of w<min>.
+		ModelParameters/Advanced/RitOpslag_FileTag+
 		// Prijs-, overstap- en halteparameters (audit 3.4): zonder deze tag las een gewijzigde parameter stil de oude ketens terug.
 		ModelParameters/Advanced/ChainStore_ParamTag+
 		ModelParameters/Advanced/ChainStore_Revision+ // '_r2' sinds audit 3.5 (2026-09-25)

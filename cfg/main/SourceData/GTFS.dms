@@ -29,6 +29,9 @@ container GTFS : using = "geometries;classifications"
 			attribute<rdc>       geometry       := union_data(., Network/fromPoint, Network/toPoint);
 			attribute<Stops>     Stop_rel       := rlookup(geometry, Stops/geometry);
 			attribute<c_Trip_Time>     c_Trip_Time_rel     := combine_data(c_Trip_Time, Trip_rel, Time_rel);
+			// #3: in- en uitstappen van de stop_time van dit moment (aankomst of vertrek, dezelfde GTFS-regel).
+			attribute<bool>      PickupAllowed  := union_data(., Network/FromPickupAllowed,  Network/ToPickupAllowed);
+			attribute<bool>      DropOffAllowed := union_data(., Network/FromDropOffAllowed, Network/ToDropOffAllowed);
 			
 			attribute<WaitingAtStop>  uq_c_Trip_Time_rel := rlookup(c_Trip_Time_rel, WaitingAtStop/c_Trip_Time_rel);
 		}
@@ -69,6 +72,14 @@ container GTFS : using = "geometries;classifications"
 														? float32(sub_or_null(ToTime_rel,FromTime_rel))[s_f] 
 														: float32(sub_or_null(ToTime_rel + #Time,FromTime_rel))[s_f]; // duration in seconds
 			attribute<string>       Label          := 'Waiting at stop: ' + Stops/Name[FromStop_rel] + ' from ' + Time/Label[FromTime_rel] + ' to ' + Time/Label[ToTime_rel];
+			// #3: stilstand tussen aankomst en vertrek op een halte hoort bij een GTFS-stop_time; beide knopen krijgen diens in- en
+			// uitstapregel. Nodig aan de rand van het tijdvenster, waar de binnenkomende geplande link buiten de set valt.
+			attribute<bool>         PickupAllowed      := doubledLinks/PickupAllowed[invert(doubledLinks/uq_c_Trip_Time_rel)];
+			attribute<bool>         DropOffAllowed     := doubledLinks/DropOffAllowed[invert(doubledLinks/uq_c_Trip_Time_rel)];
+			attribute<bool>         FromPickupAllowed  := PickupAllowed;
+			attribute<bool>         FromDropOffAllowed := DropOffAllowed;
+			attribute<bool>         ToPickupAllowed    := PickupAllowed[NextMoment];
+			attribute<bool>         ToDropOffAllowed   := DropOffAllowed[NextMoment];
 		}
 	}
 
@@ -135,6 +146,13 @@ container GTFS : using = "geometries;classifications"
 		attribute<string>                  RouteName                       := union_data(., RelevantSelection/ScheduledLinks/RouteName, const('Waiting', GetWaitingAtStop/WaitingAtStop));
 		attribute<string>                  RouteName_short                 := union_data(., RelevantSelection/ScheduledLinks/RouteName_short, const('Waiting', GetWaitingAtStop/WaitingAtStop)); 
 		 
+		// #3: in- en uitstappen volgens de GTFS-stop_times, aan begin en eind van elke link (ook een wachtlink: stilstand binnen
+		// een rit, met de regel van zijn stop_time); zie Get_Windowed_Agency_Set_T/Set/NodeSet/CanBoard en CanAlight.
+		attribute<bool>                    FromPickupAllowed               := union_data(., RelevantSelection/ScheduledLinks/FromPickupAllowed,  GetWaitingAtStop/WaitingAtStop/FromPickupAllowed);
+		attribute<bool>                    FromDropOffAllowed              := union_data(., RelevantSelection/ScheduledLinks/FromDropOffAllowed, GetWaitingAtStop/WaitingAtStop/FromDropOffAllowed);
+		attribute<bool>                    ToPickupAllowed                 := union_data(., RelevantSelection/ScheduledLinks/ToPickupAllowed,    GetWaitingAtStop/WaitingAtStop/ToPickupAllowed);
+		attribute<bool>                    ToDropOffAllowed                := union_data(., RelevantSelection/ScheduledLinks/ToDropOffAllowed,   GetWaitingAtStop/WaitingAtStop/ToDropOffAllowed);
+
 		attribute<c_NS_start_end>          c_NS_start_end_rel              := combine_data(c_NS_start_end, NS_StartPoint_rel, NS_EndPoint_rel);
 		attribute</SourceData/Infrastructure/OVprijzen/NS/NS_stations>             NS_StartPoint_rel              := Stops/NS_Stations_rel[From_Stop_rel];
 		attribute</SourceData/Infrastructure/OVprijzen/NS/NS_stations>             NS_EndPoint_rel                := Stops/NS_Stations_rel[To_Stop_rel];

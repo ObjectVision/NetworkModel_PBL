@@ -88,6 +88,11 @@ container RelevantSelection : using = "LoadFeeds"
 		attribute<rdc>                     toPoint         := last_point(geometry);
 		attribute<km>                      Length          := union_data(., protoStopTimes/Yesterday/Links/Length, protoStopTimes/Today/Links/Length, protoStopTimes/Tomorrow/Links/Length);
 		// attribute<km>                      Length          := arc_length(geometry, m)[km];
+		// #3: mag je aan het begin (From) en eind (To) van de link in- of uitstappen (GTFS pickup_type/drop_off_type, zie LoadFeeds/protoStopTimes)?
+		attribute<bool>                    FromPickupAllowed  := union_data(., protoStopTimes/Yesterday/Links/FromPickupAllowed,  protoStopTimes/Today/Links/FromPickupAllowed,  protoStopTimes/Tomorrow/Links/FromPickupAllowed);
+		attribute<bool>                    FromDropOffAllowed := union_data(., protoStopTimes/Yesterday/Links/FromDropOffAllowed, protoStopTimes/Today/Links/FromDropOffAllowed, protoStopTimes/Tomorrow/Links/FromDropOffAllowed);
+		attribute<bool>                    ToPickupAllowed    := union_data(., protoStopTimes/Yesterday/Links/ToPickupAllowed,    protoStopTimes/Today/Links/ToPickupAllowed,    protoStopTimes/Tomorrow/Links/ToPickupAllowed);
+		attribute<bool>                    ToDropOffAllowed   := union_data(., protoStopTimes/Yesterday/Links/ToDropOffAllowed,   protoStopTimes/Today/Links/ToDropOffAllowed,   protoStopTimes/Tomorrow/Links/ToDropOffAllowed);
 		attribute<s_f>                     Duration        := fromTime_rel <= toTime_rel 
 																? float32(sub_or_null(toTime_rel,fromTime_rel))[s_f]
 																: float32(sub_or_null(toTime_rel + #Time, fromTime_rel))[s_f];
@@ -161,6 +166,13 @@ container RelevantSelection : using = "LoadFeeds"
 		attribute<bool>     IsPseudoRoute    := union_data(., const(false, Read/Routes/domain, bool), const(true, Classifications/TimeInvariantTypes, bool)), Descr = "voor-/natransport-pseudoroutes uit de union_unit";
 		attribute<bool>     IsFlex           := not(IsPseudoRoute) && IsDefined(FlexMatch), Descr = "flex-/belbuslijn: boeken vooraf, geen vaste dienstregeling; zie ModelParameters/Advanced/IsFlexMeenemen en de flexparameters erna";
 		attribute<bool>     IsFlexNearMiss   := not(IsPseudoRoute) && not(IsFlex) && IsDefined(FlexNearMiss);
+
+		// #3: het product met rit-opslag (ModelParameters/Advanced/RitOpslagTreinen) van een route van het L-net, herkend aan de
+		// route_short_name (RitOpslagRouteNamen); null = geen opslag. Routes buiten het L-net krijgen een lege zoeknaam.
+		attribute<string>   RitOpslag_zoeknaam := not(IsPseudoRoute) && Agencies/IsLnet[agency_rel] ? lowercase(MakeDefined(route_short_name, '')) : '';
+		attribute<ModelParameters/Advanced/RitOpslagTreinen> RitOpslag_rel := ModelParameters/Advanced/RitOpslagRouteNamen/RitOpslag_rel[rlookup(RitOpslag_zoeknaam, ModelParameters/Advanced/RitOpslagRouteNamen/route_short_name)];
+		attribute<bool>     IsZonderNSKaartje := IsDefined(rlookup(lowercase(MakeDefined(route_short_name, '')), ModelParameters/Advanced/TreinenZonderNSKaartje/route_short_name))
+		, Descr = "#3: trein waarop een NS-kaartje nooit geldt (Eurostar, Nightjet, ...); rijdt niet mee in het L-net, zie PublicTransport_Prep/Set_L.";
 	}
 	
 }

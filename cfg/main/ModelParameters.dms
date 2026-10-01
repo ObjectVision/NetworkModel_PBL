@@ -205,6 +205,39 @@
 		}
 		parameter<string>   FlexNearMissPattern                       := asList(FlexNearMissTerms/term, '|');
 
+		// RIT-OPSLAG VOOR SPECIALE TREINEN EN NS INTERNATIONAL (ObjectVision/NetworkModel_PBL#3, sinds 2026-10-02)
+		// De NS-prijs van een reis volgt uit de tariefeenheden van het stationspaar (begin en eind van de NS-reis), over de
+		// klassieke route: de HSL telt voor het tarief niet mee (SourceData/Infrastructure/OVprijzen/NS/Tariefnet_UitgeslotenKanten).
+		// Wie tussen Schiphol en Rotterdam over de HSL reist (Intercity direct, Eurocity Direct) of binnenlands de ICE neemt,
+		// betaalt daarbovenop per rit een toeslag. Die hangt van de rit af, niet van het stationspaar: hij komt per NS-been bij
+		// de prijs (Price_S in PublicTransport_Prep/OD_L) en de ketenrijger telt hem los van het doorgaande NS-tarief op.
+		parameter<bool>     IsRitOpslagMeenemen                       := TRUE                   , Descr = "Telt de rit-opslag van de treinen in RitOpslagTreinen mee in de prijs, en hun ExtraTijd in de reistijd? FALSE = geen toeslag, zoals tot 2026-10-02.";
+		parameter<bool>     IsNSInternationalInLnet                   := TRUE                   , Descr = "Doen de treinen van NS International (Eurocity Direct, EuroCity, ICE, IC Berlijn) mee in het NS-net (L-net) voor binnenlandse reizen, met het NS-tarief en hun rit-opslag? Treinen waarop een NS-kaartje nooit geldt (Eurostar, Nightjet) vallen er toch uit: zie TreinenZonderNSKaartje, en de GTFS staat op hun NL-haltes meestal geen in- of uitstappen toe (pickup_type of drop_off_type 1). FALSE = alle NS International-treinen buiten het net, zoals tot 2026-10-02.";
+		unit<uint8> RitOpslagTreinen : nrofrows = 2
+		, Descr = "Treinproducten met een rit-opslag. Station_A en Station_B: NS-stationscodes van het traject waarover de opslag geldt; een been betaalt hem als zijn rit tussen in- en uitstappen beide stations aandoet. Leeg: elk been op het product betaalt hem. ExtraTijd: extra reistijd per instap, zoals FlexExtraWaitingTime (bijvoorbeeld voor reserveren). Het bedrag per jaar staat in SourceData/Infrastructure/OVprijzen/NS/RitOpslag; welke routes bij een product horen in RitOpslagRouteNamen."
+		{
+			attribute<string> name        : ['HSL_Schiphol_Rotterdam', 'ICE_binnenland'];
+			attribute<string> Station_A   : ['shl', ''];
+			attribute<string> Station_B   : ['rtd', ''];
+			attribute<min_f>  ExtraTijd   : [0, 0];
+			attribute<string> toelichting : ['NS-toeslag ICE/IC direct tussen Schiphol Airport en Rotterdam Centraal (sinds 15-12-2013 alleen dit traject), ook in de Eurocity Direct; Breda-Rotterdam over de HSL is toeslagvrij', 'NS-toeslag ICE/IC direct op elk binnenlands traject van de ICE (Amsterdam-Utrecht-Arnhem, Amsterdam-Amersfoort-Hengelo)'];
+		}
+		unit<uint8> RitOpslagRouteNamen : nrofrows = 4
+		, Descr = "De route_short_name's (kleine letters, exact) waaraan een route van het L-net een product van RitOpslagTreinen herkent; zie SourceData/Infrastructure/GTFS/RelevantSelection/Routes/RitOpslag_rel. 'Intercity direct' heet zo bij NS en NS International (2024: HSN-treinen, 2025-2026: ICD-treinen), de ICE heet 'ICE International' (2024-2025) of 'ICE' (2026)."
+		{
+			attribute<string>           route_short_name : ['intercity direct', 'eurocity direct', 'ice', 'ice international'];
+			attribute<RitOpslagTreinen> RitOpslag_rel    : [0, 0, 1, 1];
+		}
+		unit<uint8> TreinenZonderNSKaartje : nrofrows = 4
+		, Descr = "Treinproducten van het L-net waarop een NS-kaartje nooit geldt (alleen een eigen kaartje met reservering), op route_short_name (kleine letters, exact); hun ritten doen niet mee in het L-net (PublicTransport_Prep/Set_L, GTFS/RelevantSelection/Routes/IsZonderNSKaartje). Nodig naast pickup_type/drop_off_type: in de feed van 20241001 laten 4 van de 30 Eurostar-ritten Amsterdam-Parijs uitstappen in Rotterdam toe, met een Eurostar-kaartje."
+		{
+			attribute<string> route_short_name : ['eurostar', 'thalys', 'nightjet', 'european sleeper'];
+		}
+		parameter<bool>     RitOpslagHasTimePenalty                   := IsRitOpslagMeenemen && max(RitOpslagTreinen/ExtraTijd) > 0[min_f], Descr = "Krijgt een been met rit-opslag extra reistijd?";
+		parameter<string>   RitOpslag_Flags                           := (IsNSInternationalInLnet ? '' : 'I') + (IsRitOpslagMeenemen ? (RitOpslagHasTimePenalty ? 'w' + string(round(sum(RitOpslagTreinen/ExtraTijd))) : '') : 'R');
+		parameter<string>   RitOpslag_FileTag                         := RitOpslag_Flags == '' ? '' : '_' + RitOpslag_Flags
+		, Descr = "Naamsuffix voor de PT_Chains-cache (PublicTransport_Prep/StorageName_Str) en de OV-uitvoer (PT_OutputFileTail): leeg met de standaard (NS International mee, rit-opslag mee, geen extra tijd), anders '_' met I (zonder NS International), R (zonder rit-opslag) of w<min> (extra tijd in minuten). Zo kort omdat het langste uitvoerpad al 256 van de 259 tekens is (NetworkModel_PBL#118).";
+
 		parameter<bool>     IncludeWalkingCostsInPrice                := FALSE                  , Descr = "Wil je reistijdkosten van lopen meenemen in de uiteindelijke 'te bepalen' prijs.";
 		parameter<bool>     IncludeCyclingCostsInPrice                := TRUE                   , Descr = "Wil je reistijdkosten van fietsen meenemen in de uiteindelijke 'te bepalen' prijs.";
 		parameter<bool>     IncludeCarCostsInPrice                    := TRUE                   , Descr = "Telt de kostprijs van de directe autorit (Car_FixedCosts_PerTrip + km x Car_CostsInPrice_PerKm) mee in Price? Zo niet, dan is de auto in het front gratis en wint hij op prijs altijd.";
@@ -271,8 +304,8 @@
 		, Descr = "Kwantiel van de getagde maxspeed per wegtype en land, voor OSM-wegen zonder bruikbare maxspeed-tag. Sinds 2026-09-25 (audit 4.10) over de getagde wegen alleen; tot dan was het het 90e percentiel over alle wegen inclusief de 75% zonder tag (maxspeed 0). De mediaan beschrijft een typische ongetagde weg; het 90e percentiel van de getagde wegen gaf servicewegen 50 km/u (6% getagd, de snellere).";
 		parameter<bool>     ChainStore_PerBlock                       := TRUE
 		, Descr = "De ketenstap schrijft elk haltenblok in een eigen store (PublicTransport_Prep/StorageBlockDir_Str, sinds 2026-09-29) en de uitvoerstap leest ze samen; FALSE: de ene store van Write_Result, zoals voor die datum. Per blok blijven de resultaten niet tot het eind in het geheugen, en een onderbroken ketenstap gaat bij het eerste ontbrekende blok verder (batch/WriteChainBlocks.ps1).";
-		parameter<string>   ChainStore_Revision                       := '_r5'
-		, Descr = "Revisie van de ketenopbouw in de naam van de ketenstore; verhoog hem bij elke codewijziging die de ketens verandert, anders wordt de oude store gelezen. _r2 (2026-09-25): de dienstdagen D-1 en D+1 via een dagnummer (audit 3.5); daarmee verandert ook de haltenummering waar de ketens naar verwijzen. _r3 (2026-09-25): de ketenrijger snoeit ook op Price als het eindfront op Price kiest (audit 6.1). _r4 (2026-09-26): de ketenrijger kiest op de prijs van het eindfront met Price_augm alleen als tiebreak (6.1), op TravelTime bij een tijdpenalty (6.2) en groepeert ook op het eerste NS-station (6.3). _r5 (2026-09-29): geen ketens meer die na PT_LastBoardingMoment instappen (de naam draagt daarom ook _v<PT_Max_V_Time>); de ketens zelf zijn verder gelijk.";
+		parameter<string>   ChainStore_Revision                       := '_r6'
+		, Descr = "Revisie van de ketenopbouw in de naam van de ketenstore; verhoog hem bij elke codewijziging die de ketens verandert, anders wordt de oude store gelezen. _r2 (2026-09-25): de dienstdagen D-1 en D+1 via een dagnummer (audit 3.5); daarmee verandert ook de haltenummering waar de ketens naar verwijzen. _r3 (2026-09-25): de ketenrijger snoeit ook op Price als het eindfront op Price kiest (audit 6.1). _r4 (2026-09-26): de ketenrijger kiest op de prijs van het eindfront met Price_augm alleen als tiebreak (6.1), op TravelTime bij een tijdpenalty (6.2) en groepeert ook op het eerste NS-station (6.3). _r5 (2026-09-29): geen ketens meer die na PT_LastBoardingMoment instappen (de naam draagt daarom ook _v<PT_Max_V_Time>); de ketens zelf zijn verder gelijk. _r6 (2026-10-02, #3): NS-tariefeenheden zonder de HSL-kanten, rit-opslag voor HSL en ICE (Price_S), NS International in het L-net en geen in- of uitstappen waar de GTFS pickup_type of drop_off_type 1 heeft.";
 		parameter<string>   ParetoLegs_Car_FileTag                    := ParetoLegs_Car ? '_paretoCar' + (EngineHasParetoEpsilon && CarFrontCostEpsilon > 0[Euro] ? 'e'+string(round(CarFrontCostEpsilon * 100f))+'ct' : (CarLegCostQuantum > 0[Euro] ? 'q'+string(round(CarLegCostQuantum * 100f))+'ct' : '')) : '', Descr = "Naamsuffix voor de OV-uitvoer per blok en vertrekmoment, want het front met de directe autorit hangt van deze twee parameters af; leeg als ParetoLegs_Car uit staat.";
 		parameter<string>   Car_CostTag                               := '_c' + string(round(/ModelParameters/Car_VariableCosts_PerKm * 100f)) + '-' + string(round(/ModelParameters/Car_FixedCosts_PerKm * 100f)) + (IncludeCarFixedCostsInPrice ? 'f' : 'v')
 		                                                             + '-t' + string(round(/ModelParameters/Car_TurnCosts_PerPenaltyMinute * 100f))
@@ -309,7 +342,7 @@
 		, Descr = "De bestemmingsset in bestandsnamen die Analysis_date zelf al dragen (de OV-uitvoer per blok en vertrekmoment); zonder DestSet_DateTag, zodat het pad onder de 260 tekens van Windows blijft.";
 		parameter<string>   PT_CombinationType                        := 'V-' + (Direct_str != '' ? Direct_str + ',' : '') + asList(OV_PreTransport_Typen/ExportName, ',') + '_N-' + asList(OV_PostTransport_Typen/ExportName, ',')
 		, Descr = "De directe modaliteiten en de voor- en natransporttypen zoals ze in de namen van de OV-uitvoer staan.";
-		parameter<string>   PT_OutputFileTail                         := '_DEST-' + DestSet_string_nodate + '_' + PT_CombinationType + '_Trsf-' + string(Max_transfers) + '_MinCrit-' + asList(/Classifications/OutputParetoAttr/FileNameElement, '_') + '_MaxPT-' + string(/ModelParameters/MaxPTTime) + 'min' + Flex_FileTag + ParetoLegs_Car_FileTag + CarFront_FileTag + ChainPareto_FileTag
+		parameter<string>   PT_OutputFileTail                         := '_DEST-' + DestSet_string_nodate + '_' + PT_CombinationType + '_Trsf-' + string(Max_transfers) + '_MinCrit-' + asList(/Classifications/OutputParetoAttr/FileNameElement, '_') + '_MaxPT-' + string(/ModelParameters/MaxPTTime) + 'min' + Flex_FileTag + RitOpslag_FileTag + ParetoLegs_Car_FileTag + CarFront_FileTag + ChainPareto_FileTag
 		, Descr = "De staart van de naam van elk OV-uitvoerbestand na datum, vertrekmoment en herkomstset; de schrijver per blok en de lezers en samenvoegers (ReadExport_OV_perTime_T, Merge_Regions_OV_T, Merge_Times, FindMedian) gebruiken hem alle, zodat ze hetzelfde bestand bedoelen (audit 6.5).";
 		parameter<string>   DestSet_string                            := (Dests_geclusterd 
 																			? lowercase(Destset) + '_' + lowercase(Dest_location_scale)

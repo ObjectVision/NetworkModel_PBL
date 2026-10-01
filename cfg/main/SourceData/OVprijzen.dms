@@ -897,6 +897,64 @@ container OVprijzen
 			attribute<euro>    Discount_20pct   := float32(_20_korting_incl_btw)[euro];
 			attribute<euro>    Discount_40pct   := float32(_40_korting_incl_btw)[euro];
 		}
+
+		// NS rekent de tariefeenheden van een stationspaar over de klassieke route; wie over de HSL reist betaalt daarbovenop
+		// de rit-opslag (RitOpslag hieronder). Het tariefnet van NDOV (tariefnet.dat) bevat ook de HSL-kanten, en de kortste
+		// route daarover gaf tot 2026-10-02 te weinig eenheden voor 2.880 van de 80.200 stationsparen, tot 18 te weinig
+		// (ObjectVision/NetworkModel_PBL#3). Steekproef tegen NS (rijdendetreinen.nl, 2026): Schiphol-Rotterdam C 67 (was 55),
+		// Amsterdam C-Rotterdam C 86 (74), Amsterdam Zuid-Rotterdam C 78 (66), Rotterdam C-Breda 50 (44), Breda-Schiphol 117
+		// (99); zonder deze kanten komen alle vijf exact uit.
+		unit<uint8> Tariefnet_UitgeslotenKanten : nrofrows = 2
+		, Descr = "Kanten van NS_tariefnet.csv die NS voor het tarief niet meetelt: de HSL-Zuid (beide richtingen). Zie NS_TariffUnits_matrix/IsUitgesloten."
+		{
+			attribute<string> org         : ['hfd', 'rlb'];
+			attribute<string> dest        : ['rtd', 'bdpb'];
+			attribute<string> key         := org + '_' + dest;
+			attribute<string> toelichting : ['HSL-Zuid Hoofddorp - Rotterdam Centraal (50 TE; klassiek via Leiden en Den Haag 62)', 'HSL-Zuid Rotterdam Lombardijen - Breda-Prinsenbeek (32 TE; klassiek via Dordrecht en Lage Zwaluwe 38)'];
+		}
+
+		// Rit-opslag voor speciale treinen (ObjectVision/NetworkModel_PBL#3): de NS-toeslag 'ICE / IC direct' per enkele rit,
+		// voor de producten in ModelParameters/Advanced/RitOpslagTreinen (HSL Schiphol-Rotterdam en ICE binnenland). Het
+		// bedrag is dat van NS_prijzen_year, vol tarief: de dalkorting aan de toeslagpaal (40%, alleen met OV-chipkaart; 2024
+		// 1,74 en 2026 1,92) zit er niet in.
+		container RitOpslag
+		{
+			unit<uint8> Treinen := ModelParameters/Advanced/RitOpslagTreinen;
+
+			unit<uint8> PerJaar : nrofrows = 14
+			, Descr = "NS-toeslag ICE / IC direct per enkele rit, per tariefjaar."
+			{
+				attribute<string> jaar            : ['2013', '2014', '2015', '2016', '2017', '2018', '2019', '2020', '2021', '2022', '2023', '2024', '2025', '2026'];
+				attribute<Euro>   Toeslag_ICE_ICD : [ 2.30,   2.30,   2.30,   2.40,   2.40,   2.40,   2.40,   2.60,   2.60,   2.70,   2.90,   2.90,   3.00,   3.20 ];
+				attribute<string> bron            :
+				[
+					'GEEN BRON GEVONDEN: gelijk aan 2015 gehouden; tot 15-12-2013 gold de toeslag ook op andere HSL-delen (wiki.ovinnederland.nl)',
+					'GEEN BRON GEVONDEN: gelijk aan 2015 gehouden',
+					'treinreiziger.nl 24-1-2015: toeslag enkele reis 2,30',
+					'GEEN BRON GEVONDEN: 2,30 in 2015, 2,40 in 2017',
+					'NS-tarievenlijst 1-1-2017 (treinreiziger.nl/downloads)',
+					'treinreiziger.nl 6-4-2018: normaal 2,40, in de daluren vanaf 9-4-2018 1,40',
+					'NS-tarievenlijst 1-1-2019',
+					'NS-tarievenlijst 1-1-2020',
+					'NS-tarievenlijst 1-1-2021',
+					'NS-tarievenlijst 1-1-2022',
+					'NS-tarievenlijst consumenten 1-1-2023',
+					'NS-tarievenlijst consumenten 1-1-2024 (daluren 1,74)',
+					'treinenweb.nl (NS-tarieven 2025: van 2,90 naar 3,00), rover.nl',
+					'NS-prijslijst consumenten 1-1-2026 (daluren 1,92 aan de toeslagpaal)'
+				];
+			}
+			parameter<Euro> Toeslag_ICE_ICD := rjoin(ModelParameters/Advanced/NS_prijzen_year, PerJaar/jaar, PerJaar/Toeslag_ICE_ICD)
+			, IntegrityCheck = "IsDefined(this)", Descr = "De toeslag van NS_prijzen_year.";
+
+			attribute<Euro>        Opslag       (Treinen) := const(Toeslag_ICE_ICD, Treinen), Descr = "Opslag per enkele rit; beide producten volgen de NS-toeslag ICE / IC direct.";
+			attribute<s>           ExtraTijd    (Treinen) := convert(Treinen/ExtraTijd, s);
+			attribute<bool>        HeeftTraject (Treinen) := Treinen/Station_A != '' && Treinen/Station_B != '';
+			attribute<NS_stations> StationA_rel (Treinen) := rlookup(Treinen/Station_A, NS_stations/code);
+			attribute<NS_stations> StationB_rel (Treinen) := rlookup(Treinen/Station_B, NS_stations/code);
+			parameter<bool>        Check_Stations := all(not(HeeftTraject) || (IsDefined(StationA_rel) && IsDefined(StationB_rel)))
+			, IntegrityCheck = "Check_Stations", Descr = "De stations van elk traject in RitOpslagTreinen bestaan in NS_stations.";
+		}
 				
 		unit<uint32> NS_TariffUnits_matrix
 		: StorageName = "%ProjDir%/Data/Tarieven_NS/NS_tariefnet.csv"
@@ -913,7 +971,9 @@ container OVprijzen
 			attribute<rdc>         geometry (arc) := points2sequence(LinkPoints/Point, LinkPoints/Sequence_rel, LinkPoints/Ordinal);
 
 			attribute<uint32> c_NS_start_end_rel := combine_data(c_NS_start_end, StartPoint_rel, EndPoint_rel);
-			
+			attribute<bool>   IsUitgesloten      := IsDefined(rlookup(org + '_' + dest, Tariefnet_UitgeslotenKanten/key)) || IsDefined(rlookup(dest + '_' + org, Tariefnet_UitgeslotenKanten/key))
+			, Descr = "Kant die NS voor het tarief niet meetelt (Tariefnet_UitgeslotenKanten); doet niet mee in ConnectedNetwork.";
+
 			unit<uint32> c_NS_start_end := combine(NS_stations, NS_stations)
 			{
 				attribute<string> label         := NS_stations/code[first_rel] + '_' + NS_stations/code[second_rel];
@@ -933,7 +993,7 @@ container OVprijzen
 				attribute<uint32>               Ordinal      := union_data(., const(0,..,uint32), const(1,..,uint32));
 			}
 			
-			unit<uint32> ConnectedNetwork := select_with_attr_by_cond(., IsDefined(StartPoint) && IsDefined(EndPoint))
+			unit<uint32> ConnectedNetwork := select_with_attr_by_cond(., IsDefined(StartPoint) && IsDefined(EndPoint) && not(IsUitgesloten))
 			{
 				unit<uint32> NodeSet := unique(LinkPoints/Point)
 				{

@@ -29,21 +29,72 @@ unit<uint32> OD_L := =
 	// Sinds 2026-09-27 (audit 6.6) moet elk NS-been een prijs hebben, niet alleen een start-eindstationpaar: een been met een
 	// paar dat niet in TariffUnitsMatrix staat kreeg Price_L null, en een rij met een null-criterium is in pareto_optimal_eps
 	// nooit optimaal, zodat het been en elke keten erover stil uit de ketens verdween. In de feed van 20241001 geen enkel.
+	// Sinds 2026-10-02 (#3) rijden ook de treinen van NS International in het L-net; hun benen naar of van het buitenland hebben
+	// geen NS-prijs en vallen uit Result (IsBinnenlandsBeen). De check blijft dus voor de benen van NS zelf.
 	attribute<bool>          NS_Station_Price_IntegrityCheck := =ModelParameters/Advanced/PriceExportsAndIntegrityChecksNeeded
-																	? 'Agencies/IsNS[Agency_rel] ? IsDefined(rjoin(impl/c_NS_start_end_rel, TariffUnitsMatrix/c_NS_start_end_rel, TariffUnitsMatrix/Prijs_Ct)) : TRUE'
+																	? 'Agency_rel == Agencies/V/ns ? IsDefined(rjoin(impl/c_NS_start_end_rel, TariffUnitsMatrix/c_NS_start_end_rel, TariffUnitsMatrix/Prijs_Ct)) : TRUE'
 																	: 'const(TRUE, .)';
 	attribute<Ct>            Price_L                         := rjoin(impl/c_NS_start_end_rel, TariffUnitsMatrix/c_NS_start_end_rel, TariffUnitsMatrix/Prijs_Ct)
 																, IntegrityCheck = "all(NS_Station_Price_IntegrityCheck)";
-	attribute<Ct>            Price                           := Price_L;
-	
-	unit<uint32> Result := select_with_org_rel_with_attr_by_cond(., !impl/IsStartEndWithinSameStopCluster)
+	attribute<bool>          IsBinnenlandsBeen               := Agency_rel == Agencies/V/ns
+																	|| (IsDefined(Price_L) && NS_Stations/LigtInNL[impl/From_NS_Stations_rel] && NS_Stations/LigtInNL[impl/To_NS_Stations_rel])
+																, Descr = "#3: een been van NS, of een been tussen twee NS-stations in Nederland met een NS-prijs (NS International binnenlands).";
+
+	// RIT-OPSLAG (#3, sinds 2026-10-02). De toeslag van een speciale trein (ModelParameters/Advanced/RitOpslagTreinen) hangt van
+	// de rit af, niet van het stationspaar. Een been ligt op een route, en omdat de wachtlinks stilstand binnen een rit zijn, in de
+	// praktijk op een rit: die van de link waarmee het uit zijn beginknoop vertrekt (NodeSet/DepTrip_rel). Een product met een
+	// traject (HSL: Schiphol-Rotterdam) kost de opslag als die rit tussen in- en uitstaptijd beide stations aandoet, ook zonder
+	// daar te stoppen of over te stappen; een product zonder traject (ICE) kost hem op elk been. De opslag staat apart in
+	// Price_S, zodat de ketenrijger hem bij een doorgaand NS-tarief (dat Price_L herberekent) niet kwijtraakt.
+	unit<uint8>                  RitOpslagTreinen            := ModelParameters/Advanced/RitOpslagTreinen;
+	attribute<RitOpslagTreinen>  RitOpslag_rel               := Routes/RitOpslag_rel[Route_rel];
+	attribute<uint32>            Been_Trip_rel               := ThisSet/NodeSet/DepTrip_rel[OrgZone_rel];
+
+	// De passages van de ritten met een trajectproduct langs de stations van hun traject: per geplande link begin en eind.
+	unit<uint32> TrajectLinks := select_with_org_rel(ThisSet/LinkType_rel == LinkTypes/V/Scheduled && MakeDefined(/SourceData/Infrastructure/OVprijzen/NS/RitOpslag/HeeftTraject[Routes/RitOpslag_rel[ThisSet/Route_rel]], false))
+	{
+		attribute<RitOpslagTreinen> RitOpslag_rel := Routes/RitOpslag_rel[ThisSet/Route_rel[org_rel]];
+	}
+	unit<uint32> TrajectPassages := union_unit(TrajectLinks, TrajectLinks)
+	{
+		attribute<uint32>           Trip_rel      := union_data(., ThisSet/Trip_rel[TrajectLinks/org_rel], ThisSet/Trip_rel[TrajectLinks/org_rel]);
+		attribute<Time>             Time_rel      := union_data(., ThisSet/From_Time_rel[TrajectLinks/org_rel], ThisSet/To_Time_rel[TrajectLinks/org_rel]);
+		attribute<NS_Stations>      Station_rel   := union_data(., ThisSet/NS_StartPoint_rel[TrajectLinks/org_rel], ThisSet/NS_EndPoint_rel[TrajectLinks/org_rel]);
+		attribute<RitOpslagTreinen> RitOpslag_rel := union_data(., TrajectLinks/RitOpslag_rel, TrajectLinks/RitOpslag_rel);
+		attribute<bool>             IsA           := IsDefined(Station_rel) && Station_rel == /SourceData/Infrastructure/OVprijzen/NS/RitOpslag/StationA_rel[RitOpslag_rel];
+		attribute<bool>             IsB           := IsDefined(Station_rel) && Station_rel == /SourceData/Infrastructure/OVprijzen/NS/RitOpslag/StationB_rel[RitOpslag_rel];
+	}
+	unit<uint32> TrajectBenen := select_with_org_rel(MakeDefined(/SourceData/Infrastructure/OVprijzen/NS/RitOpslag/HeeftTraject[RitOpslag_rel], false))
+	{
+		attribute<uint32> Trip_rel      := ../Been_Trip_rel[org_rel];
+		attribute<Time>   From_Time_rel := ../From_Time_rel[org_rel];
+		attribute<Time>   To_Time_rel   := ../To_Time_rel[org_rel];
+	}
+	unit<uint32> TrajectParen := join_equal_values_uint32(TrajectBenen/Trip_rel, TrajectPassages/Trip_rel)
+	{
+		attribute<bool> InBeen := TrajectPassages/Time_rel[second_rel] >= TrajectBenen/From_Time_rel[first_rel] && TrajectPassages/Time_rel[second_rel] <= TrajectBenen/To_Time_rel[first_rel];
+		attribute<bool> IsA    := InBeen && TrajectPassages/IsA[second_rel];
+		attribute<bool> IsB    := InBeen && TrajectPassages/IsB[second_rel];
+	}
+	attribute<bool>              BerijdtTraject (TrajectBenen) := any(TrajectParen/IsA, TrajectParen/first_rel) && any(TrajectParen/IsB, TrajectParen/first_rel);
+	attribute<bool>              IsRitOpslagBeen             := IsDefined(RitOpslag_rel) && (not(MakeDefined(/SourceData/Infrastructure/OVprijzen/NS/RitOpslag/HeeftTraject[RitOpslag_rel], false)) || MakeDefined(BerijdtTraject[invert(TrajectBenen/org_rel)], false))
+	, Descr = "Kost dit been de rit-opslag van zijn product?";
+	attribute<Ct>                Price_S                     := =ModelParameters/Advanced/IsRitOpslagMeenemen ? 'IsRitOpslagBeen ? rounded_convert(/SourceData/Infrastructure/OVprijzen/NS/RitOpslag/Opslag[RitOpslag_rel], Ct) : 0[Ct]' : 'const(0[Ct], .)'
+	, Descr = "Rit-opslag van dit been (#3); de ketenrijger telt hem op naast het NS-tarief.";
+	attribute<s>                 RitOpslag_ExtraTijd         := =ModelParameters/Advanced/RitOpslagHasTimePenalty ? 'IsRitOpslagBeen ? /SourceData/Infrastructure/OVprijzen/NS/RitOpslag/ExtraTijd[RitOpslag_rel] : 0[s]' : 'const(0[s], .)'
+	, Descr = "Extra reistijd van de rit-opslag (RitOpslagTreinen/ExtraTijd), via Traveltime in OD_extra_attributen.";
+	attribute<Ct>                Price                       := Price_L + Price_S;
+
+	unit<uint32> Result := =ModelParameters/Advanced/RitOpslagHasTimePenalty
+		? 'select_with_org_rel_with_attr_by_cond(., !impl/IsStartEndWithinSameStopCluster && IsBoardAlightAllowed && IsBinnenlandsBeen && Traveltime <= convert(ModelParameters/MaxPTTime, s))'
+		: 'select_with_org_rel_with_attr_by_cond(., !impl/IsStartEndWithinSameStopCluster && IsBoardAlightAllowed && IsBinnenlandsBeen)'
 	{
 		attribute<Time>               BoardingTime_RO              := const(null_u,.);
 		attribute<Time>               BoardingTime_NS              := From_time_rel;
 		attribute<Ct>                 Price_NonNS                 := const(0, ., Ct);
 		attribute<Ct>                 Price_F                     := const(0[Ct],.), Descr = "Final costs, not subject to subsequent recalculation";
 		attribute<Ct>                 Price_T                     := const(0[Ct],.), Descr = "Augmented costs for tranfers";
-		attribute<Ct>                 Price_augm                  := Price_L;
+		attribute<Ct>                 Price_augm                  := Price_L + Price_S;
 		
 		attribute<Stops>              Last_Stop_rel               := ThisSet/NodeSet/Stop_rel[DstZone_rel];
 		attribute<NS_Stations>        First_NS_Station            := impl/From_NS_Stations_rel[org_rel];
@@ -83,17 +134,21 @@ unit<uint32> OD_R := =
 		, IntegrityCheck = "all(impl/Price_IntegrityCheck)", Descr = "Variabel deel van de prijs, plus sinds 2026-09-30 de belkosten per instap op een flexlijn (ModelParameters/Advanced/FlexCallCosts): de ketenrijger telt Price_O bij elke overstap op en maximeert Price_I binnen een reis, dus belkosten horen hier.";
 	attribute<Ct>                Price_F                          := const(0[Ct],.), Descr = "Final costs, not subject to subsequent recalculation";
 	attribute<Ct>                Price_T                          := const(0[Ct],.), Descr = "Augmented costs for tranfers";
+	attribute<Ct>                Price_S                          := const(0[Ct],.), Descr = "Rit-opslag (#3): alleen in het L-net.";
+	attribute<s>                 RitOpslag_ExtraTijd              := const(0[s],.), Descr = "Extra tijd van de rit-opslag (#3): alleen in het L-net.";
 	attribute<Ct>                Price                            := Price_I + Price_O;
 	attribute<Ct>                Price_augm                       := Price;
-	
+
 	#include<../OD_extra_attributen.dms>
 
 	// #113: bij extra wachttijd voor flex (ModelParameters/Advanced/FlexHasTimePenalty) hier dezelfde grens als IsJourneyLongerThanAllowed in de ketenrijger, want de
 	// cut van impedance_matrix zit op de ruwe impedantie en de enkelvoudige keten R passeert de ketenrijger niet.
 	// Equivalent aan een cut van MaxPTTime-toeslag op alleen de flex-links (componenten zijn per route).
+	// #3 (sinds 2026-10-02): alleen benen waar de GTFS in- en uitstappen toestaat (IsBoardAlightAllowed); zo valt onder meer GoVolta
+	// binnenlands af (op zijn NL-haltes alleen instappen, met reservering; uitstappen pas in Duitsland).
 	unit<uint32> Result := =ModelParameters/Advanced/FlexHasTimePenalty
-		? 'select_with_org_rel_with_attr_by_cond(., !impl/IsOD_completely_foreign && !impl/IsStartEndWithinSameStopCluster && Traveltime <= convert(ModelParameters/MaxPTTime, s))'
-		: 'select_with_org_rel_with_attr_by_cond(., !impl/IsOD_completely_foreign && !impl/IsStartEndWithinSameStopCluster)'
+		? 'select_with_org_rel_with_attr_by_cond(., !impl/IsOD_completely_foreign && !impl/IsStartEndWithinSameStopCluster && IsBoardAlightAllowed && Traveltime <= convert(ModelParameters/MaxPTTime, s))'
+		: 'select_with_org_rel_with_attr_by_cond(., !impl/IsOD_completely_foreign && !impl/IsStartEndWithinSameStopCluster && IsBoardAlightAllowed)'
 	{
 		attribute<Time>               BoardingTime_NS              := const(null_u,.);
 		attribute<Time>               BoardingTime_RO              := From_time_rel;
