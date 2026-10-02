@@ -1,0 +1,81 @@
+container Validatie
+: using = "units;Classifications;SourceData"
+, Descr = "Validatie van de OV-ketens tegen 9292.nl, halte tot halte (ObjectVision/NetworkModel_PBL#53, skill .claude/skills/model-validatie). Schrijft voor de haltenparen in Paren de ketens uit de ketenstore die tussen VertrekVan en VertrekTot vertrekken, met vertrek, aankomst, reistijd, prijs, rit-opslag (Price_S, de ICD/ICE-toeslag die 9292 niet in de prijs telt) en ModeUsed: bereken /Validatie/Rows; csv in %LocalDataProjDir%/Output/validatie_*. Leest alleen de blokstores waarin de vertrekhaltes vallen; met LeesStore = FALSE rekent het die blokken zelf (zonder te schrijven), om te testen zonder ketenstore. Bereken /Validatie/Schrijf om alle kolommen weg te schrijven."
+{
+	parameter<string> FileStem   := '%LocalDataProjDir%/Output/validatie_'+ModelParameters/GTFS_file_date+'_'+ModelParameters/Analysis_date;
+	parameter<bool>   LeesStore  := TRUE, Descr = "TRUE: lees de blokken uit de ketenstore (PublicTransport_Prep/ChainStore_Blocks); FALSE: reken ze in het geheugen (KetenGeneratie_PerBlock/<blok>/BlockResultContainer/Result; via Fence/Result faalt de engine op een interne check).";
+	parameter<Time>   VertrekVan := /ModelParameters/Advanced/PT_FirstDepartureMoment;
+	parameter<Time>   VertrekTot := value(uint32(VertrekVan) + 3600, Time), Descr = "Een uur na VertrekVan.";
+
+	unit<uint32> Stops       := /NetworkSetup/PublicTransport_Prep/impl/Stops;
+	unit<uint32> BlockDomain := /NetworkSetup/PublicTransport_Prep/impl/BlockDomain;
+
+	// Haltenparen op GTFS-naam (Stops/name); alle haltes met die naam tellen mee (perrons, beide richtingen).
+	unit<uint32> Paren : nrofrows = 8
+	{
+		attribute<string> soort : ['HSL', 'HSL', 'HSL ICD1800', 'NS', 'grens VIAS', 'grens DB', 'Waterbus', 'eilandbus'];
+		attribute<string> van   : ['Schiphol Airport', 'Amsterdam Zuid', 'Hilversum', 'Amsterdam Zuid', 'Arnhem Centraal', 'Enschede', 'Dordrecht, Merwekade', 'Nes, Veerhaven'];
+		attribute<string> naar  : ['Rotterdam Centraal', 'Rotterdam Centraal', 'Rotterdam Centraal', 'Utrecht Centraal', 'Zevenaar', 'Glanerbrug', 'Rotterdam, Erasmusbrug', 'Hollum, Amelander Kaap'];
+	}
+	// join_equal_values kent geen strings: koppel via het nummer van de haltenaam.
+	unit<uint32> Namen := unique(Stops/name);
+	attribute<Namen> Stop_Naam_rel (Stops) := rlookup(Stops/name, Namen/values);
+	attribute<Namen> Van_Naam_rel  (Paren) := rlookup(Paren/van,  Namen/values);
+	attribute<Namen> Naar_Naam_rel (Paren) := rlookup(Paren/naar, Namen/values);
+	parameter<bool>  Check_Namen := all(IsDefined(Van_Naam_rel) && IsDefined(Naar_Naam_rel))
+	, IntegrityCheck = "Check_Namen", Descr = "Elke van- en naarnaam van Paren bestaat als haltenaam in de feed.";
+
+	unit<uint32> VanHaltes := join_equal_values_uint32(Van_Naam_rel, Stop_Naam_rel)
+	{
+		attribute<Paren>       Paar_rel := first_rel;
+		attribute<Stops>       Stop_rel := second_rel;
+		attribute<BlockDomain> Blok_rel := value(/NetworkSetup/PublicTransport_Prep/impl/BlockSelections/rnd_rel[Stop_rel] / ModelParameters/Advanced/MaxStopBlockSize, BlockDomain), Descr = "Het haltenblok van de ketenstap, zoals ChainGeneration_PerBlock_T kiest.";
+	}
+	unit<uint32> NaarHaltes := join_equal_values_uint32(Naar_Naam_rel, Stop_Naam_rel)
+	{
+		attribute<uint64> key := uint64(first_rel) * uint64(#Stops) + uint64(second_rel);
+	}
+	unit<uint32> Blokken := unique(VanHaltes/Blok_rel)
+	{
+		attribute<string> name := BlockDomain/name[values];
+		attribute<string> bron := (LeesStore ? '/NetworkSetup/PublicTransport_Prep/ChainStore_Blocks/Read/' : '/NetworkSetup/PublicTransport_Prep/KetenGeneratie_PerBlock/')
+		                        + name + (LeesStore ? '/Store' : '/BlockResultContainer/Result');
+	}
+
+	unit<uint64> Ketens := ='union_unit_uint64(' + AsItemList(Blokken/bron) + ')'
+	{
+		attribute</NetworkSetup/PublicTransport_Prep/uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel := ='union_data(., ' + AsItemList(Blokken/bron + '/uq_c_FromTime_Stop_rel') + ')';
+		attribute</NetworkSetup/PublicTransport_Prep/uq_c_ToTime_Stop>   uq_c_ToTime_Stop_rel   := ='union_data(., ' + AsItemList(Blokken/bron + '/uq_c_ToTime_Stop_rel') + ')';
+		attribute<s>      Traveltime := ='union_data(., ' + AsItemList(Blokken/bron + '/Traveltime') + ')';
+		attribute<Ct>     Price      := ='union_data(., ' + AsItemList(Blokken/bron + '/Price') + ')';
+		attribute<Ct>     Price_S    := ='union_data(., ' + AsItemList(Blokken/bron + '/Price_S') + ')';
+		attribute<string> ModeUsed   := ='union_data(., ' + AsItemList(Blokken/bron + '/ModeUsed') + ')';
+		attribute<Stops>  From_Stop_rel := /NetworkSetup/PublicTransport_Prep/uq_c_FromTime_Stop/From_Stop_rel[uq_c_FromTime_Stop_rel];
+		attribute<Time>   From_Time_rel := /NetworkSetup/PublicTransport_Prep/uq_c_FromTime_Stop/From_Time_rel[uq_c_FromTime_Stop_rel];
+		attribute<Stops>  To_Stop_rel   := /NetworkSetup/PublicTransport_Prep/uq_c_ToTime_Stop/To_Stop_rel[uq_c_ToTime_Stop_rel];
+		attribute<Time>   To_Time_rel   := /NetworkSetup/PublicTransport_Prep/uq_c_ToTime_Stop/To_Time_rel[uq_c_ToTime_Stop_rel];
+	}
+
+	// Ketens van een vertrekhalte van een paar naar een aankomsthalte van hetzelfde paar, binnen het vertrekvenster.
+	unit<uint64> Kandidaten := join_equal_values_uint64(Ketens/From_Stop_rel, VanHaltes/Stop_rel)
+	{
+		attribute<Paren>  Paar_rel := VanHaltes/Paar_rel[second_rel];
+		attribute<uint64> naarkey  := uint64(Paar_rel) * uint64(#Stops) + uint64(Ketens/To_Stop_rel[first_rel]);
+		attribute<bool>   IsMee    := IsDefined(rlookup(naarkey, NaarHaltes/key)) && Ketens/From_Time_rel[first_rel] >= VertrekVan && Ketens/From_Time_rel[first_rel] <= VertrekTot;
+	}
+	unit<uint64> Rows := select_with_org_rel(Kandidaten/IsMee)
+	, StorageName = "=FileStem+'.csv'", StorageType = "gdalwrite.vect"
+	{
+		attribute<string>  soort      := Paren/soort[Kandidaten/Paar_rel[org_rel]];
+		attribute<string>  van        := Paren/van[Kandidaten/Paar_rel[org_rel]];
+		attribute<string>  naar       := Paren/naar[Kandidaten/Paar_rel[org_rel]];
+		attribute<string>  vertrek    := Time/Label[Ketens/From_Time_rel[Kandidaten/first_rel[org_rel]]];
+		attribute<string>  aankomst   := Time/Label[Ketens/To_Time_rel[Kandidaten/first_rel[org_rel]]];
+		attribute<float32> reistijd   := float32(Ketens/Traveltime[Kandidaten/first_rel[org_rel]]) / 60f, Descr = "Traveltime van de keten in minuten (inclusief eventuele overstappenalty's).";
+		attribute<float32> prijs      := float32(Ketens/Price[Kandidaten/first_rel[org_rel]]) / 100f, Descr = "Price in euro, inclusief de rit-opslag.";
+		attribute<float32> rit_opslag := float32(Ketens/Price_S[Kandidaten/first_rel[org_rel]]) / 100f, Descr = "Price_S in euro: de ICD/ICE-toeslag, die 9292 niet in de prijs telt.";
+		attribute<string>  ModeUsed   := Ketens/ModeUsed[Kandidaten/first_rel[org_rel]];
+	}
+
+	parameter<string> Schrijf := 'validatie: ' + string(#Rows) + ' ketens voor ' + string(#Paren) + ' haltenparen', ExplicitSuppliers = "Rows", Descr = "Bereken dit item om Rows met alle kolommen naar FileStem.csv te schrijven.";
+}

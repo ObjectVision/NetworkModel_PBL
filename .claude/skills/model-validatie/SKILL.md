@@ -8,11 +8,11 @@ description: Model-uitkomsten van NetworkModel_PBL valideren - OV-reistijden en 
 Drie lagen, van goedkoop naar duur.
 
 1. **Interne steekproeven in de config.** `/RitOpslagReport/Report` (TE-steekproef tegen NS, treinroutes), `/RitOpslagReport/Net/Report` en `/Keten/Report` (benen en ketenprijs), `/FlexReport/Report`. Draaien met GeoDmsRun vanuit PowerShell; zie de skill `ov-prijzen` voor engine en scratchkopie.
-2. **Consistentie van het front (#53)**, per HB-paar en vertrekmoment in de uitvoer (`Output/PerBlock/tt_*.csv`):
+2. **Consistentie van het front (#53)**, per HB-paar en vertrekmoment in de uitvoer (`Output/PerBlock/tt_*.csv`), met `python batch\ValidateFronts.py --a "<glob run A>" --b "<glob run B>" [--blocks 1-10] [--md verslag.md]` (ongeveer 1 minuut per 20 blokken x 4 vertrekmomenten). Voor prijschecks moeten beide runs `Export_PriceInformation` = TRUE hebben. De checks:
    - kortste reistijd van de nieuwe opzet (`MinimiseCriteria` 'Price,Time,...') = kortste reistijd van een run op alleen 'Time', binnen `ChainParetoTimeEpsilon` (60 s);
    - prijs bij de kortste reistijd (nieuw) <= prijs bij de kortste reistijd (alleen tijd); bij gelijke tijd kiest de tijd-run een willekeurige prijs;
    - kortste reistijd <= reistijd bij de laagste prijs, en prijs bij de kortste reistijd >= laagste prijs (sanity: in een front altijd waar; een schending wijst op een fout in de condensatie).
-3. **Extern tegen 9292.nl**, voor een steekproef van HB-paren en voor bijzondere gevallen (HSL, eilanden, veerboten, grensvervoer).
+3. **Extern tegen 9292.nl**, voor een steekproef van HB-paren en voor bijzondere gevallen (HSL, eilanden, veerboten, grensvervoer). Halte tot halte met `/Validatie/Schrijf` (schrijft `/Validatie/Rows`; `cfg/main/Validatie.dms`): voor de haltenparen in `Validatie/Paren` (GTFS-haltenamen) de ketens uit de ketenstore die tussen `VertrekVan` en `VertrekTot` vertrekken, met vertrek, aankomst, reistijd, prijs, `rit_opslag` (de toeslag die 9292 niet meetelt) en ModeUsed, in `Output/validatie_<feed>_<dag>.csv`. Het leest alleen de blokstores van de vertrekhaltes; zonder ketenstore `LeesStore` = FALSE (rekent die blokken, ~0,5 min en ~17 GB per blok). Vergelijk per paar en vertrektijd de vroegste aankomst en de prijs met 9292 (datum en vertrektijd gelijk, tijd in de URL in UTC).
 
 ## 9292.nl in de browser
 
