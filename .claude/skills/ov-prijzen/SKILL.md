@@ -28,7 +28,7 @@ Een vast rittarief hangt af van de **lijn**, niet van de prijsmethode. Drie groe
 3. **Met OV-chip/OVpay en afstandsafhankelijk: geen vast tarief.** De vaste FareTable-regels zijn hier een slechtere benadering dan DOVA.
    - VIAS: Arnhem-Zevenaar 4,72 (9292, gelijk aan de regionale trein), niet de vaste 2,79.
    - DB RB51: Enschede-Glanerbrug 3,18 (9292); DOVA-overzicht: DB-km-tarief.
-   - Waterbus: in- en uitchecken, afstandstabel 1,52-6,51 (Merwekade-Erasmusbrug 5,78; waterbus.nl, OV-tarieven 2026). Let op: het DOVA-overzicht geeft dit tarief **per mijl**; het model gebruikt het als km-tarief.
+   - Waterbus: in- en uitchecken, afstandstabel 1,52-6,51 (Merwekade-Erasmusbrug 5,78; waterbus.nl, OV-tarieven 2026). Het DOVA-overzicht noemt het Waterbus-tarief (0,243 in 2026) **per mijl**; het model gebruikt het als km-tarief. Omrekenen helpt niet: Merwekade-Erasmusbrug (~21,5 km) wordt per km 6,38, per mijl 4,41, en de Waterbus vraagt 5,78. Gebruik de afstandstabel van de Waterbus (of een km-tarief van ongeveer 0,21).
 
 Implementatievoorstel (#55): een vast tarief als `Price_S` per been (`Price_I` = 0), de ketenrijger telt `Price_S` in elke keten op, en na een been van groep 2 loopt een OV-chipreis niet door. Geen extra letter per variant (30 -> 120 ketentypen). Bronnen per lijn: groep 1 uit de DOVA-rijen (per jaar), groep 2 uit de vervoerders.
 
