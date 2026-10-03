@@ -46,17 +46,22 @@ def parse(step):
     errs = [l for l in s.splitlines() if "[E]" in l and not any(x in l for x in ("Inwoners", "aantal_inwoners", "cbs_vk100"))]
     r["errors"] = len(errs); r["first_error"] = errs[0][:200] if errs else None
     m = re.search(r"GeoDmsRun failed with code (\d+)", s); r["failed"] = m.group(1) if m else None
-    pat = "PT_Chains_*.mmd" if step == "chains" else ("DirectCar_%s_*.mmd" % step.split("_", 1)[1] if step.startswith("car_") else None)
-    stores = sorted(glob.glob(os.path.join(STORES, pat)), key=os.path.getmtime) if pat else []
+    # Sinds 2026-10-03 (#118) PT_Chains_<datum>_<venster>_<hash> (een map met een store per blok) en
+    # DirectCar_<moment>_<herkomst>_<bestemming>_<hash>.mmd, met de handtekening in <naam>.signature.txt ernaast.
+    pat = "PT_Chains_*" if step == "chains" else ("DirectCar_%s_*.mmd" % step.split("_", 1)[1] if step.startswith("car_") else None)
+    stores = sorted([d for d in glob.glob(os.path.join(STORES, pat)) if os.path.isdir(d)], key=os.path.getmtime) if pat else []
     if stores:
         d = stores[-1]
         r["store"] = os.path.basename(d)
-        r["store_mb"] = sum(os.path.getsize(os.path.join(d, f)) for f in os.listdir(d)) / 1e6
+        r["store_mb"] = sum(os.path.getsize(os.path.join(w, f)) for w, _, fs in os.walk(d) for f in fs) / 1e6
         r["store_time"] = datetime.datetime.fromtimestamp(os.path.getmtime(d)).strftime(TS)
     if step == "output" and r["start"]:
         t0 = datetime.datetime.strptime(r["start"], TS).timestamp()
-        csv = [f for f in glob.glob(os.path.join(LOCAL, "Output", "PerBlock", "*.csv")) if os.path.getmtime(f) >= t0]
-        r["store"] = "%d csv-bestanden in Output\\PerBlock sinds de start" % len(csv)
+        # De uitvoermap (Output/<datum>_<label>, sinds #118) staat in batch\log\output_dir.txt, die UpdateAll.cmd output schrijft.
+        od = os.path.join(LOG, "output_dir.txt")
+        outdir = open(od).read().strip() if os.path.exists(od) else os.path.join(LOCAL, "Output", "*")
+        csv = [f for f in glob.glob(os.path.join(outdir, "PerBlock", "*.csv")) if os.path.getmtime(f) >= t0]
+        r["store"] = "%d csv-bestanden in %s sinds de start" % (len(csv), os.path.join(outdir, "PerBlock"))
         r["store_mb"] = sum(os.path.getsize(f) for f in csv) / 1e6
         r["store_time"] = datetime.datetime.fromtimestamp(max(os.path.getmtime(f) for f in csv)).strftime(TS) if csv else "-"
         r["rows"] = "%d blokken" % len(re.findall(r"Results for all departure times in Block_\d+of\d+ are finished", s))

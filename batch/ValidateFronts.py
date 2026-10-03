@@ -4,9 +4,11 @@
 #                                  [--eps-time 1.0] [--eps-price 0.10] [--md rapport.md]
 #
 # A is de referentie (bijv. MinimiseCriteria 'Time', het oude model), B de nieuwe opzet (bijv. 'Price,Time'). Invoer: de
-# csv's per herkomstblok en vertrekmoment uit Output/PerBlock (tt_<datum>_<hhmm>_ORG-...-Block_<i>of<n>_...csv), gekoppeld
-# op (datum, vertrekmoment, blok). Kolommen op naam: OrgName, DestName, Traveltime_<t> (min), Price_<t> (euro, alleen met
-# Export_PriceInformation), ModeUsed_<t>, NeedsCar_<t> en NeedsBike_<t> (sinds 70eec9d).
+# csv's per herkomstblok en vertrekmoment, gekoppeld op (datum, vertrekmoment, blok): sinds 2026-10-03 (#118)
+# Output/<datum>_<label>/PerBlock/tt_<datum>_<hhmm>_<i>of<n>.csv, met de parameters in signature.txt in Output/<datum>_<label>;
+# tot dan Output/PerBlock/tt_<datum>_<hhmm>_ORG-...-Block_<i>of<n>_...csv, met de parameters in de naam. Beide worden gelezen.
+# Kolommen op naam: OrgName, DestName, Traveltime_<t> (min), Price_<t> (euro, alleen met Export_PriceInformation),
+# ModeUsed_<t>, NeedsCar_<t> en NeedsBike_<t> (sinds 70eec9d).
 #
 # Checks per HB-paar en vertrekmoment, over alle opties en apart over alleen OV-ketens (ModeUsed V_PT_N):
 #   1. kortste reistijd B = kortste reistijd A, binnen --eps-time minuten (ChainParetoTimeEpsilon is 60 s);
@@ -15,20 +17,21 @@
 #   3. kortste reistijd B <= reistijd bij de laagste prijs B, en 4. prijs bij de kortste reistijd B >= laagste prijs B.
 #      Per definitie waar; een schending wijst op ontbrekende of onleesbare waarden;
 #   5. het front van B: geen rij die door een andere rij van hetzelfde paar wordt gedomineerd op reistijd, prijs en de
-#      bezitscriteria die de bestandsnaam van B noemt (MinCrit-..._A = NeedsCar, _C = NeedsBike). Geteld als strikt en als
+#      bezitscriteria die de handtekening (of de oude bestandsnaam) van B noemt (MinCrit-..._A = NeedsCar, _C = NeedsBike). Geteld als strikt en als
 #      voorbij de epsilons (beter met meer dan --eps-time of --eps-price);
 #   6. bereikbaarheid: paren die alleen in A of alleen in B voorkomen.
 # Prijschecks vallen weg als een run geen Price-kolom heeft.
 import argparse, csv, glob, os, re, sys
 from collections import defaultdict
 
-NAME_RE = re.compile(r'tt_(\d{8})_(\d\dh\d\dm)_ORG-.*?Block_(\d+)of(\d+)(_.*)\.csv$', re.I)
+NAME_RE = re.compile(r'tt_(\d{8})_(\d\dh\d\dm)_(\d+)of(\d+)\.csv$', re.I)
+OLD_NAME_RE = re.compile(r'tt_(\d{8})_(\d\dh\d\dm)_ORG-.*?Block_(\d+)of(\d+)(_.*)\.csv$', re.I)
 MINCRIT_RE = re.compile(r'MinCrit-([A-Za-z_]+?)_MaxPT', re.I)
 
 def index_files(pattern, blocks, moments):
 	out = {}
 	for p in glob.glob(pattern):
-		m = NAME_RE.search(os.path.basename(p))
+		m = NAME_RE.search(os.path.basename(p)) or OLD_NAME_RE.search(os.path.basename(p))
 		if not m:
 			continue
 		date, moment, blk = m.group(1), m.group(2), int(m.group(3))
@@ -40,8 +43,11 @@ def index_files(pattern, blocks, moments):
 	return out
 
 def mincrit(paths):
+	"""De criteria van de run: uit signature.txt in de uitvoermap (boven PerBlock), of uit de oude bestandsnaam."""
 	for p in paths:
-		m = MINCRIT_RE.search(os.path.basename(p))
+		sig = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(p))), 'signature.txt')
+		text = open(sig, encoding='utf-8').read() if os.path.exists(sig) else os.path.basename(p)
+		m = MINCRIT_RE.search(text)
 		if m:
 			return m.group(1).split('_')
 	return []

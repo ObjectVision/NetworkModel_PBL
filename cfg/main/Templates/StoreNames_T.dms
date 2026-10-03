@@ -1,0 +1,107 @@
+// Namen van stores en uitvoer (NetworkModel_PBL#118, sinds 2026-10-03).
+//
+// Tot 2026-10-03 droeg de naam van elke cache (ketenstore, autostores) en elk uitvoerbestand alle parameters waarvan de
+// inhoud afhangt. Bij de stores is de naam de cachesleutel: een store die bestaat, wordt gelezen. Zo groeide het langste
+// pad tot 252 a 257 van de 259 tekens die Windows toestaat, en faalde een te lang pad pas bij het schrijven, na het rekenen.
+// Nu staat in de naam alleen wat leesbaar moet zijn (datum, tijdvenster of vertrekmoment, herkomst- en bestemmingenset,
+// blok), en voor de caches een hash van 8 tekens over de handtekening: de tekst met alle parameters die de inhoud bepalen,
+// dezelfde tekst die tot nu toe de naam was. De handtekening staat in een tekstbestand naast de store of in de uitvoermap.
+// Een schrijver schrijft hem als hij er nog niet is en weigert te schrijven als er een andere staat; een lezer weigert te
+// lezen als hij ontbreekt of afwijkt. Een hashbotsing geeft zo een fout in plaats van stil een verkeerde store.
+
+// Polynoomhash van een tekst: som over de tekens van code(teken) x 16807^positie, modulo 2^31 - 1, als 8 hexadecimale tekens.
+// GeoDMS heeft geen stringhash (gezocht in 20.22.1); deze is alleen gewone gehele rekenkunde, dus stabiel over versies en
+// platforms, wat een cachesleutel nodig heeft. code(teken) is de positie in Alphabet plus 1, 0 voor een teken dat er niet in
+// staat (de handtekeningen bestaan uit letters, cijfers en leestekens; de enkele aanhalingsteken en de backslash zijn in een
+// GeoDMS-tekst niet zonder escape te schrijven en staan er niet in). 16807 is een primitieve wortel modulo 2^31 - 1, dus de
+// machten zijn verschillend; twee verschillende teksten van n tekens botsen met een kans van orde n / 2^31. De machten volgen
+// uit de bits van de positie (B1 tot en met B1024), zodat alles per element te rekenen is; vandaar hoogstens 2047 tekens.
+// Gecontroleerd tegen een Python-implementatie van dezelfde formule: 'Ab_9-x,=;' geeft 57154c6e.
+Template StringHash_T
+{
+	parameter<string> Text;
+	///
+	parameter<string> Alphabet  := ' !"#$%&()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]^_`abcdefghijklmnopqrstuvwxyz{|}~';
+	parameter<uint64> P         := uint64(2147483647), Descr = "2^31 - 1, een priemgetal.";
+	parameter<uint64> B         := uint64(16807);
+	unit<uint32> Chars := range(uint32, 0, strlen(Alphabet))
+	{
+		attribute<string> Char := substr(const(Alphabet, .), id(.), 1);
+	}
+	parameter<uint64> B1    := B;
+	parameter<uint64> B2    := B1   * B1   % P;
+	parameter<uint64> B4    := B2   * B2   % P;
+	parameter<uint64> B8    := B4   * B4   % P;
+	parameter<uint64> B16   := B8   * B8   % P;
+	parameter<uint64> B32   := B16  * B16  % P;
+	parameter<uint64> B64   := B32  * B32  % P;
+	parameter<uint64> B128  := B64  * B64  % P;
+	parameter<uint64> B256  := B128 * B128 % P;
+	parameter<uint64> B512  := B256 * B256 % P;
+	parameter<uint64> B1024 := B512 * B512 % P;
+	unit<uint32> Pos := range(uint32, 0, strlen(Text))
+	{
+		attribute<string> Char := substr(const(Text, .), id(.), 1);
+		attribute<uint64> Code := uint64(MakeDefined(rlookup(Char, Chars/Char) + 1, 0));
+		attribute<uint64> W0   :=      ((id(.) /    1) % 2 == 1 ? B1    : uint64(1));
+		attribute<uint64> W1   := W0 * ((id(.) /    2) % 2 == 1 ? B2    : uint64(1)) % P;
+		attribute<uint64> W2   := W1 * ((id(.) /    4) % 2 == 1 ? B4    : uint64(1)) % P;
+		attribute<uint64> W3   := W2 * ((id(.) /    8) % 2 == 1 ? B8    : uint64(1)) % P;
+		attribute<uint64> W4   := W3 * ((id(.) /   16) % 2 == 1 ? B16   : uint64(1)) % P;
+		attribute<uint64> W5   := W4 * ((id(.) /   32) % 2 == 1 ? B32   : uint64(1)) % P;
+		attribute<uint64> W6   := W5 * ((id(.) /   64) % 2 == 1 ? B64   : uint64(1)) % P;
+		attribute<uint64> W7   := W6 * ((id(.) /  128) % 2 == 1 ? B128  : uint64(1)) % P;
+		attribute<uint64> W8   := W7 * ((id(.) /  256) % 2 == 1 ? B256  : uint64(1)) % P;
+		attribute<uint64> W9   := W8 * ((id(.) /  512) % 2 == 1 ? B512  : uint64(1)) % P;
+		attribute<uint64> W    := W9 * ((id(.) / 1024) % 2 == 1 ? B1024 : uint64(1)) % P, Descr = "16807^positie modulo P.";
+		attribute<uint64> Term := Code * W;
+	}
+	parameter<uint32> Value     := uint32(sum(Pos/Term) % P), IntegrityCheck = "strlen(Text) < 2048";
+	parameter<string> HexDigits := '0123456789abcdef';
+	parameter<string> Hex       :=
+		  substr(HexDigits, (Value / 268435456) % 16, 1) + substr(HexDigits, (Value / 16777216) % 16, 1)
+		+ substr(HexDigits, (Value /   1048576) % 16, 1) + substr(HexDigits, (Value /    65536) % 16, 1)
+		+ substr(HexDigits, (Value /      4096) % 16, 1) + substr(HexDigits, (Value /      256) % 16, 1)
+		+ substr(HexDigits, (Value /        16) % 16, 1) + substr(HexDigits,  Value             % 16, 1)
+	,	Descr = "De hash als 8 hexadecimale tekens, voor in de naam van een store.";
+}
+
+// De handtekening van een store of uitvoermap: schrijven, lezen en controleren, plus de padlengtecontrole vooraf.
+// - Een schrijver neemt ForWriting op in zijn ExplicitSuppliers. Bestaat SignatureFile niet, dan schrijft ForWriting hem met
+//   Signature; bestaat hij wel, dan moet hij gelijk zijn aan Signature. Daarnaast moet het langste pad (PathLength) binnen
+//   ModelParameters/Advanced/MaxPathLength blijven, zodat een te lang pad faalt voordat er gerekend wordt.
+// - Een lezer bouwt zijn StorageName met ForReading: dat is Path als SignatureFile bestaat en gelijk is aan Signature, anders
+//   een fout.
+// Het schrijven moet via ExplicitSuppliers: een StorageName-expressie rekent Written wel uit, maar schrijft het bestand niet
+// (getest met 20.22.1). En de IntegrityCheck staat op een leverancier (EnsureGate, CheckGate) en niet op het item in de
+// StorageName-expressie, want alleen zo stopt een afwijking het lezen.
+Template StoreSignature_T
+{
+	parameter<string> Path;             // de store of map die de handtekening beschermt, met %LocalDataProjDir%
+	parameter<string> SignatureFile;    // het tekstbestand met de handtekening
+	parameter<string> Signature;        // de handtekening van de huidige parameters
+	parameter<uint32> MaxSubPathLength; // de lengte van het langste deel na Path, de bestanden in de store of map
+	///
+	parameter<uint32> PathLength := strlen(expand(., Path)) + MaxSubPathLength
+	,	Descr = "Lengte van het langste bestandspad in de store of map. Windows staat er 259 toe (ModelParameters/Advanced/MaxPathLength).";
+	parameter<bool>   Exists     := ExistingFile('', expand(., SignatureFile)) != '';
+	parameter<string> Written    := Signature, StorageName = "=SignatureFile", StorageType = "str"
+	,	Descr = "Schrijft de handtekening; alleen via IsEnsured, als SignatureFile nog niet bestaat.";
+	parameter<string> Stored     : StorageName = "=SignatureFile", StorageType = "str", StorageReadOnly = "true"
+	,	Descr = "De handtekening zoals hij in SignatureFile staat.";
+	parameter<bool>   IsEnsured  := = Exists ? 'Stored == Signature' : 'Written == Signature';
+	parameter<bool>   IsChecked  := = Exists ? 'Stored == Signature' : 'false';
+	parameter<string> PathGate   := PathLength <= /ModelParameters/Advanced/MaxPathLength ? 'ok' : 'te lang'
+	,	IntegrityCheck = "PathLength <= /ModelParameters/Advanced/MaxPathLength"
+	,	Descr = "Faalt als het langste pad (PathLength) langer is dan Windows toestaat; maak dan LocalDataDir of OutputLabel korter.";
+	parameter<string> EnsureGate := IsEnsured ? 'ok' : 'andere handtekening'
+	,	IntegrityCheck = "IsEnsured"
+	,	Descr = "Faalt als SignatureFile een andere handtekening heeft dan Signature (Stored tegen Signature). Bij de uitvoer: kies een ander OutputLabel, of maak de uitvoermap leeg (batch/UpdateAll.cmd output doet dat). Bij een cache: een hashbotsing, of een met de hand gewijzigd bestand.";
+	parameter<string> CheckGate  := IsChecked ? 'ok' : 'geen of andere handtekening'
+	,	IntegrityCheck = "IsChecked"
+	,	Descr = "Faalt als SignatureFile ontbreekt of een andere handtekening heeft dan Signature (Stored tegen Signature): de store of uitvoer is niet (of met andere parameters) gemaakt. Maak hem eerst, of herstel de parameters.";
+	parameter<string> ForWriting := PathGate == 'ok' && EnsureGate == 'ok' ? Path : ''
+	,	Descr = "Voor de ExplicitSuppliers van een schrijver: schrijft de handtekening als die er nog niet is, en faalt bij een te lang pad of een andere handtekening.";
+	parameter<string> ForReading := CheckGate == 'ok' ? Path : ''
+	,	Descr = "Voor de StorageName van een lezer: Path, of een fout als de handtekening ontbreekt of afwijkt.";
+}

@@ -18,8 +18,10 @@ REM   UpdateAll.cmd chains          de OV-ketenstore per haltenblok (WriteChainB
 REM                                 CHAINSTORE_SINGLE de ene store van PublicTransport_Prep/x/Write_Result), na de
 REM                                 voorcheck op haltenblokken en prijsdekking; uren, veel geheugen
 REM   UpdateAll.cmd output          de OV-uitvoer: een csv per herkomstblok en vertrekmoment in
-REM                                 %LocalDataProjDir%\Output\PerBlock (ConfigurationPerBlock/Generate_Output),
-REM                                 met de ketenstore van de vertrekmomenten in PT_DepartureHours/Minutes
+REM                                 %LocalDataProjDir%\Output\<Analysis_date>_<OutputLabel>\PerBlock
+REM                                 (ConfigurationPerBlock/Generate_Output), met de ketenstore van de vertrekmomenten in
+REM                                 PT_DepartureHours/Minutes. Maakt die map eerst leeg (sinds 2026-10-03, #118): alleen de
+REM                                 bestanden van het model (tt_*.csv, tt_*.xml, signature.txt/.xml), ook de samengevoegde.
 REM
 REM De oude RunAll.cmd, RunKetens*.cmd, RunPrepare.cmd, RunDayGroups.cmd en RunCongestionSpeeds.cmd
 REM wezen naar itempaden van voor 2025 en zijn op 2026-09-23 verwijderd.
@@ -138,6 +140,30 @@ ping -n 61 127.0.0.1 >nul
 if exist "%PAUSEFLAG%" goto output_wait
 echo %DATE% %TIME% pauze voorbij, de uitvoerstap start
 :output_go
+REM De uitvoermap leegmaken (sinds 2026-10-03, NetworkModel_PBL#118): de bestandsnamen dragen alleen datum, moment en blok, de
+REM parameters staan in signature.txt in de map. Zonder leegmaken zou een run na een codewijziging zijn blokken naast die van de
+REM vorige run zetten. Het model geeft de map (NetworkSetup/OutputDir_ForBatch, naar batch\log\output_dir.txt); alleen de
+REM bestanden die het model daar schrijft gaan weg, en alleen als de map onder een map Output ligt. Output_Sig/PathGate faalt
+REM vooraf als het langste uitvoerpad te lang is.
+call :run output_dir /NetworkSetup/OutputDir_ForBatch /NetworkSetup/Output_Sig/PathGate
+if not "!RC!"=="0" goto failed
+set OUTDIR=
+set /p OUTDIR=<"%LOGDIR%\output_dir.txt"
+if not defined OUTDIR (
+  echo ABORT: geen uitvoermap in %LOGDIR%\output_dir.txt
+  set STEP=output_dir
+  goto failed
+)
+REM Bevat het pad \Output\? (vervangen door niets laat het dan korter; cmd vervangt hoofdletterongevoelig)
+if "!OUTDIR:\Output\=!"=="!OUTDIR!" (
+  echo ABORT: de uitvoermap !OUTDIR! ligt niet onder een map Output
+  set STEP=output_dir
+  goto failed
+)
+if exist "!OUTDIR!\" (
+  echo %DATE% %TIME% uitvoermap leegmaken: !OUTDIR!
+  del /q "!OUTDIR!\PerBlock\tt_*.csv" "!OUTDIR!\PerBlock\tt_*.xml" "!OUTDIR!\tt_*.csv" "!OUTDIR!\tt_*.xml" "!OUTDIR!\signature.txt" "!OUTDIR!\signature.xml" 2>nul
+)
 echo === uitvoer: csv per herkomstblok en vertrekmoment (uren) ===
 call :run output /NetworkSetup/ConfigurationPerBlock/Generate_Output/OUTPUT_Generate_PublicTransport_fullOD_long_CSVFiles
 if not "!RC!"=="0" goto failed

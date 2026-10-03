@@ -174,7 +174,8 @@ container PublicTransport_Prep
 		// Per congestiemoment een store volgens de MMD-regels van 20.19.0 (#1245), zoals de ketens: Car_src is de
 		// rekenkant, Write_Car de holder die alleen de vier kolommen bewaart, Car_store de kale lezer (declareert
 		// niets, de dictionary van de mmd levert de kolommen) en Car de unit die ze doorgeeft en de afgeleiden en de
-		// samenvatting per HB-paar houdt. De naam draagt alles wat de inhoud bepaalt. Eerst Write_Car berekenen
+		// samenvatting per HB-paar houdt. De handtekening (Signature) draagt alles wat de inhoud bepaalt; de naam sinds 2026-10-03
+		// alleen het moment, de herkomst- en bestemmingenset en een hash van de handtekening (NetworkModel_PBL#118). Eerst Write_Car berekenen
 		// (40 min scalair, langer met pareto; batch/UpdateAll.cmd cars doet alle momenten), dan herladen.
 		unit<uint8> CarMoments : nrofrows = 4
 		,	Descr = "De congestiemomenten waarvoor een store van de directe autorit bestaat: de drie spitsen en de vrije stroom (TomTom: Freeflow, OSM: MaxSpeed). Car_CongestionMoment_ForDirect kiest er een."
@@ -191,25 +192,31 @@ container PublicTransport_Prep
 			unit<uint64> Car_src := ='/NetworkSetup/PrivateTransport/Car/Traveltimes/'+Moment+(/ModelParameters/UseTomTomNetworkForCars ? '_TomTom' : '_OSM')+'_w_Cost'+(/ModelParameters/Advanced/ParetoLegs_Car ? '_pareto' : '')+'/impedanceMatrix'
 			,	Descr = "Rekenkant: de (pareto-)kostenmatrix van PrivateTransport_Car_T op dit moment. Niet zelf gebruiken; Write_Car schrijft hem weg en Car leest hem terug.";
 			parameter<km_hr>  MaxSpeed        := MakeDefined(rjoin(Moment, /ModelParameters/Advanced/CongestionTimes/name, /ModelParameters/Advanced/CongestionTimes/MaxSpeed), 0[km_hr]), Descr = "Het snelheidsplafond van dit moment (0 = geen), voor de storenaam.";
-			parameter<string> StorageName_Str := '%LocalDataProjDir%/IntermediateResults/DirectCar_' + Moment
+			parameter<string> Signature := 'DirectCar_' + Moment
 				+ (/ModelParameters/UseTomTomNetworkForCars
 					? '_TomTom-' + /SourceData/Infrastructure/TomTom/file_date + '_' + /ModelParameters/Advanced/CongestionSpeed_DaySelection
 					: '_OSM-' + /SourceData/Infrastructure/OSM/file_date)
 				+ '_MaxTime-' + string(/ModelParameters/MaxCarTime) + 'min'
 				+ '_ORG-' + /ModelParameters/Advanced/OrgSet_string + '_DEST-' + /ModelParameters/Advanced/DestSet_string
 				+ (MaxSpeed > 0[km_hr] ? '_vmax' + string(round(MaxSpeed)) : '')
-				+ /ModelParameters/Advanced/ParetoLegs_Car_FileTag + /ModelParameters/Advanced/Car_CostTag + /ModelParameters/Advanced/CarNetwork_Revision + '.mmd'
-			,	Descr = "Naam van de store: congestiemoment, net en editie, MaxCarTime, herkomst- en bestemmingenset, pareto-tag en kostentag.";
-			unit<uint64> Write_Car := Car_src, StorageName = "=StorageName_Str"
-			,	Descr = "Schrijft de kostenmatrix van de directe autorit op dit moment naar StorageName_Str; bereken dit item om de store (opnieuw) te maken."
+				+ /ModelParameters/Advanced/ParetoLegs_Car_FileTag + /ModelParameters/Advanced/Car_CostTag + /ModelParameters/Advanced/CarNetwork_Revision
+			,	Descr = "Handtekening van de store: congestiemoment, net en editie, MaxCarTime, herkomst- en bestemmingenset, snelheidsplafond, pareto-tag, kostentag en revisie. Tot 2026-10-03 (NetworkModel_PBL#118) was dit de naam; nu staat hij in <store>.signature.txt en als hash in de naam.";
+			container Hash := /Templates/StringHash_T(Signature);
+			parameter<string> StorageBase_Str := '%LocalDataProjDir%/IntermediateResults/DirectCar_' + Moment + '_' + /ModelParameters/Advanced/OrgSet_string + '_' + /ModelParameters/Advanced/DestSet_string + '_' + Hash/Hex
+			,	Descr = "Naam van de store zonder extensie: congestiemoment, herkomst- en bestemmingenset leesbaar, de rest als hash van Signature.";
+			parameter<string> StorageName_Str := StorageBase_Str + '.mmd';
+			container Sig := /Templates/StoreSignature_T(StorageName_Str, StorageBase_Str + '.signature.txt', Signature, strlen('/0Dictionary.dms'))
+			,	Descr = "De handtekening naast de store: Write_Car schrijft hem, Car_store controleert hem.";
+			unit<uint64> Write_Car := Car_src, StorageName = "=StorageName_Str", ExplicitSuppliers = "Sig/ForWriting"
+			,	Descr = "Schrijft de kostenmatrix van de directe autorit op dit moment naar StorageName_Str, en de handtekening ernaast (Sig); bereken dit item om de store (opnieuw) te maken."
 			{
 				attribute<s_f>        impedance   := Car_src/impedance;
 				attribute<Euro>       alt_imp     := Car_src/alt_imp;
 				attribute<impl/org>   OrgZone_rel := Car_src/OrgZone_rel;
 				attribute<impl/dest>  DstZone_rel := Car_src/DstZone_rel;
 			}
-			unit<uint64> Car_store : StorageName = "=StorageName_Str", StorageReadOnly = "true"
-			,	Descr = "Kale lezer van de store; declareert niets. Bestaat de store niet, bereken dan eerst Write_Car.";
+			unit<uint64> Car_store : StorageName = "=Sig/ForReading", StorageReadOnly = "true"
+			,	Descr = "Kale lezer van de store; declareert niets. Faalt als de handtekening ontbreekt of afwijkt (Sig/CheckGate); bestaat de store niet, bereken dan eerst Write_Car.";
 			unit<uint64> Car := Car_store
 			,	Descr = "De directe autorit uit de store: per HB-paar de snelste route (scalair) of het (reistijd, kosten)-front (ParetoLegs_Car), met prijs en de samenvatting per HB-paar in Summary."
 			{
@@ -464,6 +471,7 @@ container PublicTransport_Prep
 		// (batch/WriteChainBlocks.ps1, ChainStore_Blocks/ToDo).
 		unit<uint64> Write_Block := Fence/Result
 		, StorageName = "=/NetworkSetup/PublicTransport_Prep/StorageBlockDir_Str + '/' + BlockDomain/StoreName[BlockDomain_id] + '.mmd'"
+		, ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/ChainStore_Sig/ForWriting"
 		{
 			attribute<string> ModeUsed := Fence/Result/ModeUsed;
 			attribute<Ct> Price := Fence/Result/Price;
@@ -510,6 +518,7 @@ container PublicTransport_Prep
 
 		unit<uint64> Write_Result := Result_src
 		, StorageName = "=StorageName_Str"
+		, ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/ChainStore_Sig/ForWriting"
 		, Descr = "Deze set bevat de geunionede resultaten per block."
 		, using = "impl"
 		{
@@ -538,7 +547,7 @@ container PublicTransport_Prep
 			parameter<string> BlockName;
 			parameter<string> StoreName;
 			///
-			unit<uint64> Store : StorageName = "=/NetworkSetup/PublicTransport_Prep/StorageBlockDir_Str + '/' + StoreName + '.mmd'", StorageReadOnly = "true";
+			unit<uint64> Store : StorageName = "=/NetworkSetup/PublicTransport_Prep/ChainStore_Sig/ForReading + '/' + StoreName + '.mmd'", StorageReadOnly = "true";
 			parameter<bool> IsWritten := ExistingFile('', /NetworkSetup/PublicTransport_Prep/StorageBlockDir_Str + '/' + StoreName + '.mmd/0Dictionary.dms') != '';
 		}
 		container Read := for_each_ne(impl/BlockDomain/name, 'ReadBlock_T(' + quote(impl/BlockDomain/name) + ', ' + quote(impl/BlockDomain/StoreName) + ')');
@@ -550,18 +559,17 @@ container PublicTransport_Prep
 		{
 			attribute<string> Item := '/NetworkSetup/PublicTransport_Prep/KetenGeneratie_PerBlock/' + name + '/Write_Block';
 		}
-		parameter<uint32> PathLength := strlen(expand(., /NetworkSetup/PublicTransport_Prep/StorageBlockDir_Str)) + max(strlen(impl/BlockDomain/StoreName)) + strlen('/.mmd/uq_c_FromTime_Stop_rel')
-		, Descr = "Lengte van het langste bestandspad in de blokstores (uq_c_FromTime_Stop_rel is de langste attribuutnaam). Windows staat 259 tekens toe; op 2026-09-30 maakte de flextag _flex5i5w15ct dat 265 (met _blocks en Block_ in de namen), waarna elk blok pas bij het schrijven faalde. ToDo_List, het eerste wat batch/WriteChainBlocks.ps1 opvraagt, controleert het.";
 		parameter<string> ToDo_List := AsList(ToDo/Item, '\n'), StorageName = "%ConfigDir%/../../batch/log/chain_blocks_todo.txt", StorageType = "str"
-		, IntegrityCheck = "PathLength <= 259", Descr = "De schrijvers van de blokken die nog geen store hebben, een per regel; batch/WriteChainBlocks.ps1 leest dit bestand.";
+		, ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/ChainStore_Sig/ForWriting"
+		, Descr = "De schrijvers van de blokken die nog geen store hebben, een per regel; batch/WriteChainBlocks.ps1 leest dit bestand. Het is het eerste wat dat script opvraagt, dus via ChainStore_Sig/ForWriting schrijft of controleert het hier de handtekening en het langste pad (ChainStore_Sig/PathLength), voordat er gerekend wordt. Tot 2026-10-03 deed ChainStore_Blocks/PathLength dat laatste: op 2026-09-30 maakte de flextag _flex5i5w15ct het langste pad 265 tekens, waarna elk blok pas bij het schrijven faalde.";
 	}
 
 	// Een read-only MMD-lezer mag zelf niets declareren (#1245): de dictionary van de store bepaalt de
 	// kolommen. PT_store is de kale lezer, PT geeft ze door en houdt de afgeleide relaties.
 	unit<uint64> PT_store
-	: StorageName = "=StorageName_Str"
+	: StorageName = "=ChainStore_Sig/ForReading"
 	, StorageReadOnly = "true"
-	, Descr = "Kale lezer van de ketenstore; declareert niets."
+	, Descr = "Kale lezer van de ketenstore; declareert niets. Faalt als de handtekening ontbreekt of afwijkt (ChainStore_Sig/CheckGate)."
 	;
 
 	// PT leest de ketens uit de store per blok (ChainStore_PerBlock) of uit de ene store van voor 2026-09-29 (PT_store).
@@ -599,8 +607,12 @@ container PublicTransport_Prep
 		attribute<c_Time_Places>        c_ToTime_Place_rel       := combine_data(c_Time_Places, To_Time_rel, To_Place_rel);
 	}
 	
-	parameter<string>     StorageName_Str := 
-		'%LocalDataProjDir%/IntermediateResults/PT_Chains_'+Time/TemplatableTextShrt[impl/FirstDepartureMoment]+
+	// De handtekening van de ketenstore: alle parameters waar de ketens van afhangen. Tot 2026-10-03 was dit de naam van de store
+	// (zonder .mmd); sinds NetworkModel_PBL#118 staat hij in <store>.signature.txt en als hash in de naam (StorageBase_Str).
+	parameter<string>     ChainStore_Window := Time/TemplatableTextShrt[impl/FirstDepartureMoment] + '-' + Time/TemplatableTextShrt[impl/LastArrivalMoment]
+	, Descr = "Het tijdvenster van de ketens, bijvoorbeeld 07h00m-09h29m: van het eerste vertrekmoment tot de laatste aankomst.";
+	parameter<string>     ChainStore_Signature :=
+		'PT_Chains_'+Time/TemplatableTextShrt[impl/FirstDepartureMoment]+
 		'_to_'+Time/TemplatableTextShrt[impl/LastArrivalMoment]+
 		'_'+/ModelParameters/Analysis_date+
 		(/ModelParameters/GTFS_file_date == /ModelParameters/Analysis_date ? '' : '_gtfs'+/ModelParameters/GTFS_file_date)+
@@ -608,7 +620,7 @@ container PublicTransport_Prep
 		'_maxtransf-'+string(ModelParameters/Advanced/Max_transfers)+
 		'_MaxOV-' + string(ModelParameters/MaxPTTime) + 'min'+
 		// De pareto-benen (ObjectVision/NetworkModel_PBL#115) veranderen de inhoud van dit bestand,
-		// dus moeten ze in de naam staan: anders overschrijft een pareto-run stilzwijgend het
+		// dus moeten ze in de handtekening staan: anders overschrijft een pareto-run stilzwijgend het
 		// scalaire resultaat waarmee hij vergeleken moet worden.
 		(ModelParameters/Advanced/ParetoLegs_R ? '_paretoR' : '')+
 		ModelParameters/Advanced/ChainPareto_FileTag+ // '_chaineps10ct60s': epsilon-dominantie in de ketenrijging (GeoDMS >= 20.21.0), leeg als die uit staat
@@ -622,10 +634,20 @@ container PublicTransport_Prep
 		ModelParameters/Advanced/RitOpslag_FileTag+
 		// Prijs-, overstap- en halteparameters (audit 3.4): zonder deze tag las een gewijzigde parameter stil de oude ketens terug.
 		ModelParameters/Advanced/ChainStore_ParamTag+
-		ModelParameters/Advanced/ChainStore_Revision+ // '_r2' sinds audit 3.5 (2026-09-25)
-		'.mmd';
-	parameter<string>     StorageBlockDir_Str := left(StorageName_Str, strlen(StorageName_Str) - 4)
+		ModelParameters/Advanced/ChainStore_Revision; // '_r2' sinds audit 3.5 (2026-09-25)
+	container ChainStore_Hash := /Templates/StringHash_T(ChainStore_Signature);
+	parameter<string>     StorageBase_Str := '%LocalDataProjDir%/IntermediateResults/PT_Chains_' + /ModelParameters/Analysis_date + '_' + ChainStore_Window + '_' + ChainStore_Hash/Hex
+	, Descr = "Naam van de ketenstore zonder extensie (sinds 2026-10-03, NetworkModel_PBL#118): datum en tijdvenster leesbaar, de rest als hash van ChainStore_Signature. Bijvoorbeeld PT_Chains_20261006_07h00m-09h29m_11a52bac; tot dan stond de hele handtekening in de naam en was het langste pad 252 tekens.";
+	parameter<string>     StorageName_Str := StorageBase_Str + '.mmd', Descr = "De ene ketenstore van Write_Result (ChainStore_PerBlock FALSE).";
+	parameter<string>     StorageBlockDir_Str := StorageBase_Str
 	, Descr = "Map van de ketenstore per blok (sinds 2026-09-29): de naam van de ene store zonder .mmd (tot 2026-09-30 met _blocks erachter), met daarin <n>of<N>.mmd per blok.";
+	container ChainStore_Sig := /Templates/StoreSignature_T(
+		  ModelParameters/Advanced/ChainStore_PerBlock ? StorageBlockDir_Str : StorageName_Str
+		, StorageBase_Str + '.signature.txt'
+		, ChainStore_Signature
+		, ModelParameters/Advanced/ChainStore_PerBlock ? max(strlen('/' + impl/BlockDomain/StoreName + '.mmd/uq_c_FromTime_Stop_rel')) : strlen('/uq_c_FromTime_Stop_rel')
+		)
+	, Descr = "De handtekening naast de ketenstore: Write_Block, Write_Result en ChainStore_Blocks/ToDo_List schrijven hem (en controleren het langste pad, met uq_c_FromTime_Stop_rel als langste attribuutnaam), PT_store en ChainStore_Blocks/Read controleren hem.";
 		
 	#include<ChainJoiner_T.dms>
 	#include<CreateTransfers_T.dms>
