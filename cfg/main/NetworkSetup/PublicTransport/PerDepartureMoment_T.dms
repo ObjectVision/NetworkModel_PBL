@@ -115,6 +115,7 @@ Template PerDepartureMoment_T
 			attribute<s>                           Traveltime                       := collect_by_cond(., ../IsValid, ../Traveltime);
 			attribute<string>                      ModeUsed                         := collect_by_cond(., ../IsValid, ../ModeUsed);
 			attribute<bool>                        NeedsBike                        := collect_by_cond(., ../IsValid, ../NeedsBike);
+			attribute<Modes>                       V_mode_rel                       := collect_by_cond(., ../IsValid, ../V_mode_rel);
 
 			attribute<dam>                         TravelDist_V                     := collect_by_cond(., ../IsValid, ../TravelDist_V);
 			attribute<dam>                         TravelDist_Bus                   := collect_by_cond(., ../IsValid, ../TravelDist_Bus);
@@ -153,6 +154,7 @@ Template PerDepartureMoment_T
 		attribute<ct>                                          Price_augm                       := Add_V_to_PT/Result/Price_augm[PT_rel] + N_price;
 		attribute<string>                                      ModeUsed                         := Add_V_to_PT/Result/ModeUsed[PT_rel] + '_' + VN_ModeClasses/Uq/name[N_ModeClass_rel];
 		attribute<bool>                                        NeedsBike                        := Add_V_to_PT/Result/NeedsBike[PT_rel] || VN_ModeClasses/Uq/NeedsBike[N_ModeClass_rel];
+		attribute<Modes>                                       V_mode_rel                       := Add_V_to_PT/Result/V_mode_rel[PT_rel];
 		attribute<s>                                           Traveltime                       := Add_V_to_PT/Result/Traveltime[PT_rel] + N_time;
 		attribute<s>                                           W_time                           := Add_V_to_PT/Result/W_time[PT_rel];
 		attribute<s>                                           V_time                           := Add_V_to_PT/Result/V_time[PT_rel];
@@ -190,6 +192,8 @@ Template PerDepartureMoment_T
 			attribute<s>                           Traveltime                       := collect_by_cond(., ../IsValid, ../Traveltime);
 			attribute<string>                      ModeUsed                         := collect_by_cond(., ../IsValid, ../ModeUsed);
 			attribute<bool>                        NeedsBike                        := collect_by_cond(., ../IsValid, ../NeedsBike);
+			attribute<Modes>                       V_mode_rel                       := collect_by_cond(., ../IsValid, ../V_mode_rel);
+			attribute<Modes>                       N_mode_rel                       := collect_by_cond(., ../IsValid, ../N_mode_rel);
 
 			attribute<dam>                         TravelDist_V                     := collect_by_cond(., ../IsValid, ../TravelDist_V);
 			attribute<dam>                         TravelDist_Bus                   := collect_by_cond(., ../IsValid, ../TravelDist_Bus);
@@ -237,7 +241,11 @@ Template PerDepartureMoment_T
 			: 'union_data(., const(FALSE, Add_N_to_VPT/Result), Direct_OD/NeedsBike)';
 
 		attribute<bool>                        IsDirectTravel                   := union_data(., const(FALSE, Add_N_to_VPT/Result), const(TRUE, Direct_OD));
-		
+		// Modaliteit van het voor- en natransport, voor de uitsplitsing naar lopen, fiets en auto in de uitvoer. Een directe rit
+		// staat in het voortransport (zie Price_V); zijn natransport heeft geen modaliteit.
+		attribute<Modes>                       V_mode_rel                       := union_data(., Add_N_to_VPT/Result/V_mode_rel, Direct_OD/Mode_rel);
+		attribute<Modes>                       N_mode_rel                       := union_data(., Add_N_to_VPT/Result/N_mode_rel, const(value(null_b, Modes), Direct_OD));
+
 		attribute<dam>                         TravelDist_V                     := union_data(., Add_N_to_VPT/Result/TravelDist_V, Direct_OD/distance);
 		attribute<dam>                         TravelDist_Bus                   := union_data(., Add_N_to_VPT/Result/TravelDist_Bus, const(0w, Direct_OD, dam));
 		attribute<dam>                         Traveldist_Metro                 := union_data(., Add_N_to_VPT/Result/Traveldist_Metro, const(0w, Direct_OD, dam));
@@ -311,6 +319,8 @@ Template PerDepartureMoment_T
 		attribute<Places>                                   From_Place_rel              := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/From_Place_rel);
 		attribute<Places>                                   To_Place_rel                := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/To_Place_rel);
 		attribute<bool>                                     IsDirectTravel              := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/IsDirectTravel);
+		attribute<Modes>                                    V_mode_rel                  := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/V_mode_rel);
+		attribute<Modes>                                    N_mode_rel                  := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/N_mode_rel);
 	
 		///// ==== Step-wise condensation of result set ==== ////
  		unit<uint64>          OD_key_set                       := combine_unit_uint64(Places, Places), Descr = "Step-wise condensation of result set: third condense the results based on place to place.";
@@ -383,6 +393,28 @@ Template PerDepartureMoment_T
 		attribute<string>                                   OrgDestName                 := OrgName + '_' + DestName;
 		
 		attribute<bool>                                     IsDirectTravel              := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/IsDirectTravel);
+		attribute<Modes>                                    V_mode_rel                  := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/V_mode_rel);
+		attribute<Modes>                                    N_mode_rel                  := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/N_mode_rel);
+
+		// Sinds 2026-10-03 (bespreking PBL 21-09-2026, punt 2) afstand, reistijd en prijs ook per modaliteit. Het OV is de OV-keten
+		// (TravelDist_PT, PT_time, Price_PT), met het lopen en wachten bij overstappen; lopen, fiets en auto zijn het voor- en
+		// natransport en de directe rit met die modaliteit. De wachttijd thuis (W_time) valt onder geen van de vier.
+		attribute<dam>                                      TravelDist_PT               := TravelDist_Bus + Traveldist_Metro + Traveldist_Tram + Traveldist_Rail + Traveldist_Ferry;
+		attribute<bool>                                     V_IsWalking                 := V_mode_rel == Modes/v/Walking;
+		attribute<bool>                                     V_IsCycling                 := V_mode_rel == Modes/v/Cycling;
+		attribute<bool>                                     V_IsCar                     := V_mode_rel == Modes/v/Car;
+		attribute<bool>                                     N_IsWalking                 := N_mode_rel == Modes/v/Walking, Descr = "FALSE bij een directe rit: N_mode_rel is daar leeg.";
+		attribute<bool>                                     N_IsCycling                 := N_mode_rel == Modes/v/Cycling;
+		attribute<dam>                                      TravelDist_Walking          := (V_IsWalking ? TravelDist_V : 0[dam]) + (N_IsWalking ? Traveldist_N : 0[dam]);
+		attribute<dam>                                      TravelDist_Cycling          := (V_IsCycling ? TravelDist_V : 0[dam]) + (N_IsCycling ? Traveldist_N : 0[dam]);
+		attribute<dam>                                      TravelDist_Car              := V_IsCar ? TravelDist_V : 0[dam], Descr = "Leeg bij een directe autorit: het autofront draagt de kosten als alternatieve impedantie, niet de afstand (PublicTransport_Prep/Direct/Car).";
+		attribute<s>                                        Walking_time                := (V_IsWalking ? V_time : 0[s]) + (N_IsWalking ? N_time : 0[s]);
+		attribute<s>                                        Cycling_time                := (V_IsCycling ? V_time : 0[s]) + (N_IsCycling ? N_time : 0[s]);
+		attribute<s>                                        Car_time                    := V_IsCar ? V_time : 0[s];
+		attribute<ct>                                       Price_Walking               := (V_IsWalking ? Price_V : 0[ct]) + (N_IsWalking ? Price_N : 0[ct]);
+		attribute<ct>                                       Price_Cycling               := (V_IsCycling ? Price_V : 0[ct]) + (N_IsCycling ? Price_N : 0[ct]);
+		attribute<ct>                                       Price_Car                   := V_IsCar ? Price_V : 0[ct];
+
 		attribute<bool>                                     HasFerryInTrip              := strcount(ModeUsed, 'F') > 0;
 	
 		attribute<bool>                                     IsPTWithoutPrice            := NOT(IsDirectTravel) && price == 0[ct] && NOT(HasFerryInTrip); //zou allemaal false moeten zijn.In Amsterdam komen dit voor vanwege gratis ferry.
@@ -397,114 +429,66 @@ Template PerDepartureMoment_T
 		// attribute<float32> nr_items_of_interest_bereikbaar_decayed (org) := domain/nr_items_of_interest_bereikbaar_decayed;
 		// Een onbekende waarde wordt een leeg veld: de directe autorit heeft geen afstand (TravelDist_V null), en een null
 		// in de samengestelde regel maakte de hele regel null, zodat alle autoritten uit de csv verdwenen (2026-09-24).
-		attribute<string>  Traveltime                           (domain) := MakeDefined(string(convert(domain/Traveltime, min_f)), ''); 
-		attribute<string>  Price                                (domain) := MakeDefined(string(convert(domain/Price, euro)), ''); 
-		attribute<string>  Price_augm                           (domain) := MakeDefined(string(convert(domain/Price_augm, euro)), ''); 
+		// Sinds 2026-10-03 heet elk item hieronder naar zijn kolom (zonder het vertrekmoment), en bepaalt Columns welke kolommen in
+		// welke volgorde in het bestand komen; tot dan waren er vier met de hand bijgehouden varianten van kop en regel (audit 3.6).
+		attribute<string>  Traveltime                           (domain) := MakeDefined(string(convert(domain/Traveltime, min_f)), '');
+		attribute<string>  Price                                (domain) := MakeDefined(string(convert(domain/Price, euro)), '');
+		attribute<string>  Price_Augm                           (domain) := MakeDefined(string(convert(domain/Price_augm, euro)), '');
 		attribute<string>  ModeUsed                             (domain) := domain/ModeUsed;
 		// Sinds 2026-10-02 (#117) een eigen kolom per bezitscriterium, 0 of 1, ook als MinimiseCriteria ze niet noemt.
 		attribute<string>  NeedsCar                             (domain) := string(uint8(domain/NeedsCar));
 		attribute<string>  NeedsBike                            (domain) := string(uint8(domain/NeedsBike));
-		attribute<string>  TravelDist_V                         (domain) := MakeDefined(string(convert(domain/TravelDist_V, m)), ''); 
-		attribute<string>  TravelDist_Bus                       (domain) := MakeDefined(string(convert(domain/TravelDist_Bus, m)), ''); 
-		attribute<string>  Traveldist_Metro                     (domain) := MakeDefined(string(convert(domain/Traveldist_Metro, m)), '');  
-		attribute<string>  Traveldist_Tram                      (domain) := MakeDefined(string(convert(domain/Traveldist_Tram, m)), ''); 
-		attribute<string>  Traveldist_Rail                      (domain) := MakeDefined(string(convert(domain/Traveldist_Rail, m)), ''); 
-		attribute<string>  Traveldist_Ferry                     (domain) := MakeDefined(string(convert(domain/Traveldist_Ferry, m)), '');  
-		attribute<string>  Traveldist_N                         (domain) := MakeDefined(string(convert(domain/Traveldist_N, m)), '');  
-		attribute<string>  W_time                               (domain) := MakeDefined(string(convert(domain/W_time, min_f)), '');  
-		attribute<string>  V_time                               (domain) := MakeDefined(string(convert(domain/V_time, min_f)), '');  
-		attribute<string>  PT_time                              (domain) := MakeDefined(string(convert(domain/PT_time, min_f)), '');  
-		attribute<string>  N_time                               (domain) := MakeDefined(string(convert(domain/N_time, min_f)), '');  
+		attribute<string>  TravelDist_V                         (domain) := MakeDefined(string(convert(domain/TravelDist_V, m)), '');
+		attribute<string>  TravelDist_Bus                       (domain) := MakeDefined(string(convert(domain/TravelDist_Bus, m)), '');
+		attribute<string>  TravelDist_Metro                     (domain) := MakeDefined(string(convert(domain/Traveldist_Metro, m)), '');
+		attribute<string>  TravelDist_Tram                      (domain) := MakeDefined(string(convert(domain/Traveldist_Tram, m)), '');
+		attribute<string>  TravelDist_Rail                      (domain) := MakeDefined(string(convert(domain/Traveldist_Rail, m)), '');
+		attribute<string>  TravelDist_Ferry                     (domain) := MakeDefined(string(convert(domain/Traveldist_Ferry, m)), '');
+		attribute<string>  TravelDist_N                         (domain) := MakeDefined(string(convert(domain/Traveldist_N, m)), '');
+		attribute<string>  WaitingTime                          (domain) := MakeDefined(string(convert(domain/W_time, min_f)), '');
+		attribute<string>  PretransTime                         (domain) := MakeDefined(string(convert(domain/V_time, min_f)), '');
+		attribute<string>  PTTime                               (domain) := MakeDefined(string(convert(domain/PT_time, min_f)), '');
+		attribute<string>  PosttransTime                        (domain) := MakeDefined(string(convert(domain/N_time, min_f)), '');
 		// Sinds 2026-10-02 (bespreking PBL 21-09-2026, punt 2) Price uitgesplitst zoals de reistijd: voortransport, OV en natransport,
-		// samen precies Price. Een directe rit staat in het voortransport, zoals bij V_time en TravelDist_V. Alleen in de uitvoer met prijzen.
-		attribute<string>  Price_V                              (domain) := MakeDefined(string(convert(domain/Price_V, euro)), '');
-		attribute<string>  Price_PT                             (domain) := MakeDefined(string(convert(domain/Price_PT, euro)), '');
-		attribute<string>  Price_N                              (domain) := MakeDefined(string(convert(domain/Price_N, euro)), '');
+		// samen precies Price. Een directe rit staat in het voortransport, zoals bij V_time en TravelDist_V.
+		attribute<string>  PretransPrice                        (domain) := MakeDefined(string(convert(domain/Price_V, euro)), '');
+		attribute<string>  PTPrice                              (domain) := MakeDefined(string(convert(domain/Price_PT, euro)), '');
+		attribute<string>  PosttransPrice                       (domain) := MakeDefined(string(convert(domain/Price_N, euro)), '');
+		// Sinds 2026-10-03 de OV-afstand in een kolom, en afstand, reistijd en prijs per modaliteit (zie Result_AfterSecondCondensation).
+		// Het OV per modaliteit is het OV-deel hierboven: TravelDist_PT, PTTime en PTPrice.
+		attribute<string>  TravelDist_PT                        (domain) := MakeDefined(string(convert(domain/TravelDist_PT, m)), '');
+		attribute<string>  TravelDist_Walking                   (domain) := MakeDefined(string(convert(domain/TravelDist_Walking, m)), '');
+		attribute<string>  TravelDist_Cycling                   (domain) := MakeDefined(string(convert(domain/TravelDist_Cycling, m)), '');
+		attribute<string>  TravelDist_Car                       (domain) := MakeDefined(string(convert(domain/TravelDist_Car, m)), '');
+		attribute<string>  WalkingTime                          (domain) := MakeDefined(string(convert(domain/Walking_time, min_f)), '');
+		attribute<string>  CyclingTime                          (domain) := MakeDefined(string(convert(domain/Cycling_time, min_f)), '');
+		attribute<string>  CarTime                              (domain) := MakeDefined(string(convert(domain/Car_time, min_f)), '');
+		attribute<string>  WalkingPrice                         (domain) := MakeDefined(string(convert(domain/Price_Walking, euro)), '');
+		attribute<string>  CyclingPrice                         (domain) := MakeDefined(string(convert(domain/Price_Cycling, euro)), '');
+		attribute<string>  CarPrice                             (domain) := MakeDefined(string(convert(domain/Price_Car, euro)), '');
+
+		unit<uint8> Columns : nrofrows = 30
+		, Descr = "De kolommen van de OV-uitvoer na OrgName en DestName, in deze volgorde en elk met het vertrekmoment achter de naam; name is ook het item hierboven. kind 'dist' komt alleen in het bestand met Export_TravelledDistance, 'price' alleen met Export_PriceInformation. Nieuwe kolommen achteraan, zodat een lezer op positie de bestaande houdt."
+		{
+			attribute<string> name : [
+				'Traveltime', 'Price', 'Price_Augm', 'ModeUsed', 'NeedsCar', 'NeedsBike',
+				'TravelDist_V', 'TravelDist_Bus', 'TravelDist_Metro', 'TravelDist_Tram', 'TravelDist_Rail', 'TravelDist_Ferry', 'TravelDist_N',
+				'WaitingTime', 'PretransTime', 'PTTime', 'PosttransTime', 'PretransPrice', 'PTPrice', 'PosttransPrice',
+				'TravelDist_PT', 'TravelDist_Walking', 'TravelDist_Cycling', 'TravelDist_Car', 'WalkingTime', 'CyclingTime', 'CarTime', 'WalkingPrice', 'CyclingPrice', 'CarPrice'];
+			attribute<string> kind : [
+				'', 'price', 'price', '', '', '',
+				'dist', 'dist', 'dist', 'dist', 'dist', 'dist', 'dist',
+				'', '', '', '', 'price', 'price', 'price',
+				'dist', 'dist', 'dist', 'dist', '', '', '', 'price', 'price', 'price'];
+			attribute<bool>   IsExported := (kind != 'dist' || ModelParameters/Export_TravelledDistance) && (kind != 'price' || ModelParameters/Export_PriceInformation);
+		}
+		unit<uint8> ExportColumns := select_with_attr_by_cond(Columns, Columns/IsExported);
 
 		container LongFormat
 		{
-			attribute<string>  BodyLines_fullOD (domain) := domain/OrgName + ';' + domain/DestName + ';' + Traveltime + ';' + Price + ';' + Price_augm + ';' + ModeUsed + ';' + NeedsCar + ';' + NeedsBike + ';' +TravelDist_V + ';' + TravelDist_Bus + ';' + Traveldist_Metro + ';' + Traveldist_Tram + ';' + Traveldist_Rail + ';' + Traveldist_Ferry + ';' + Traveldist_N + ';' + W_time + ';' + V_time + ';' + PT_time + ';' + N_time + ';' + Price_V + ';' + Price_PT + ';' + Price_N;
-			parameter<string>  File_fullOD               := 
-				'OrgName;DestName;Traveltime_'+inTime_str_short+
-				';Price_'+inTime_str_short+
-				';Price_Augm_'+inTime_str_short+
-				';ModeUsed_'+inTime_str_short+
-				';NeedsCar_'+inTime_str_short+
-				';NeedsBike_'+inTime_str_short+
-				';TravelDist_V_'+inTime_str_short+
-				';TravelDist_Bus_'+inTime_str_short+
-				';TravelDist_Metro_'+inTime_str_short+
-				';TravelDist_Tram_'+inTime_str_short+
-				';TravelDist_Rail_'+inTime_str_short+
-				';TravelDist_Ferry_'+inTime_str_short+
-				';TravelDist_N_'+inTime_str_short+
-				';WaitingTime_'+inTime_str_short+
-				';PretransTime_'+inTime_str_short+
-				';PTTime_'+inTime_str_short+
-				';PosttransTime_'+inTime_str_short+
-				';PretransPrice_'+inTime_str_short+
-				';PTPrice_'+inTime_str_short+
-				';PosttransPrice_'+inTime_str_short+'\n'+
-				asList(BodyLines_fullOD, '\n')
+			attribute<string>  BodyLines (domain) := ='domain/OrgName + '';'' + domain/DestName + '';'' + ' + asList(ExportColumns/name, ' + '';'' + ');
+			parameter<string>  File              := 'OrgName;DestName;' + asList(ExportColumns/name + '_' + inTime_str_short, ';') + '\n' + asList(BodyLines, '\n')
 			,	StorageName = "=fileNamePrefix+'tt'+fileNameSuffix +'.csv'", StorageType = "str";
-			
-			attribute<string>  BodyLines_woPrice (domain) := domain/OrgName + ';' + domain/DestName + ';' + Traveltime + ';' + ModeUsed + ';' + NeedsCar + ';' + NeedsBike + ';' +TravelDist_V + ';' + TravelDist_Bus + ';' + Traveldist_Metro + ';' + Traveldist_Tram + ';' + Traveldist_Rail + ';' + Traveldist_Ferry + ';' + Traveldist_N + ';' + W_time + ';' + V_time + ';' + PT_time + ';' + N_time;
-			parameter<string>  File_woPrice               := 
-				'OrgName;DestName;Traveltime_'+inTime_str_short+
-				';ModeUsed_'+inTime_str_short+
-				';NeedsCar_'+inTime_str_short+
-				';NeedsBike_'+inTime_str_short+
-				';TravelDist_V_'+inTime_str_short+
-				';TravelDist_Bus_'+inTime_str_short+
-				';TravelDist_Metro_'+inTime_str_short+
-				';TravelDist_Tram_'+inTime_str_short+
-				';TravelDist_Rail_'+inTime_str_short+
-				';TravelDist_Ferry_'+inTime_str_short+
-				';TravelDist_N_'+inTime_str_short+
-				';WaitingTime_'+inTime_str_short+
-				';PretransTime_'+inTime_str_short+
-				';PTTime_'+inTime_str_short+
-				';PosttransTime_'+inTime_str_short+'\n'+
-				asList(BodyLines_woPrice, '\n')
-			,	StorageName = "=fileNamePrefix+'tt'+fileNameSuffix +'.csv'", StorageType = "str";
-		
-			attribute<string>  BodyLines_woDistance (domain) := domain/OrgName + ';' + domain/DestName + ';' + Traveltime + ';' + Price + ';' + Price_augm + ';' + ModeUsed + ';' + NeedsCar + ';' + NeedsBike + ';' +W_time + ';' + V_time + ';' + PT_time + ';' + N_time + ';' + Price_V + ';' + Price_PT + ';' + Price_N;
-			parameter<string>  File_woDistance               :=
-				'OrgName;DestName;Traveltime_'+inTime_str_short+
-				';Price_'+inTime_str_short+
-				';Price_Augm_'+inTime_str_short+
-				';ModeUsed_'+inTime_str_short+
-				';NeedsCar_'+inTime_str_short+
-				';NeedsBike_'+inTime_str_short+
-				';WaitingTime_'+inTime_str_short+
-				';PretransTime_'+inTime_str_short+
-				';PTTime_'+inTime_str_short+
-				';PosttransTime_'+inTime_str_short+
-				';PretransPrice_'+inTime_str_short+
-				';PTPrice_'+inTime_str_short+
-				';PosttransPrice_'+inTime_str_short+'\n'+
-				asList(BodyLines_woDistance, '\n')
-			,	StorageName = "=fileNamePrefix+'tt'+fileNameSuffix +'.csv'", StorageType = "str";
-			
-			attribute<string>  BodyLines_woDistance_woPrice (domain) := domain/OrgName + ';' + domain/DestName + ';' + Traveltime + ';' + ModeUsed + ';' + NeedsCar + ';' + NeedsBike + ';' +W_time + ';' + V_time + ';' + PT_time + ';' + N_time;
-			parameter<string>  File_woDistance_woPrice               :=
-				'OrgName;DestName;Traveltime_'+inTime_str_short+
-				';ModeUsed_'+inTime_str_short+
-				';NeedsCar_'+inTime_str_short+
-				';NeedsBike_'+inTime_str_short+
-				';WaitingTime_'+inTime_str_short+
-				';PretransTime_'+inTime_str_short+
-				';PTTime_'+inTime_str_short+
-				';PosttransTime_'+inTime_str_short+'\n'+
-				asList(BodyLines_woDistance_woPrice, '\n')
-			,	StorageName = "=fileNamePrefix+'tt'+fileNameSuffix +'.csv'", StorageType = "str";
-			
-			parameter<string>  File              := =switch(
-														 case(ModelParameters/Export_TravelledDistance && ModelParameters/Export_PriceInformation, 'File_fullOD')
-														,case(ModelParameters/Export_TravelledDistance, 'File_woPrice')
-														,case(ModelParameters/Export_PriceInformation,  'File_woDistance')
-														, 'File_woDistance_woPrice'
-													);
 		
 		
 			// attribute<string>  BodyLines_decay     (org) := org/name + ';' + string(nr_items_of_interest_bereikbaar_decayed);

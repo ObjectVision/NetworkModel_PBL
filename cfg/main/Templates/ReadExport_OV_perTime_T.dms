@@ -8,8 +8,8 @@ Template ReadExport_OV_perTime_T
 	// Sinds 2026-09-25 (audit 6.5) met dezelfde naamopbouw als de schrijver (ModelParameters/Advanced/PT_OutputFileTail; tot dan
 	// zocht de lezer _ORG-<Orgset> en _MaxOV-, de schrijver schrijft _ORG-<OrgSet_string> en _MaxPT- plus de pareto-tags), met de
 	// kolomnamen van de schrijver (PretransTime/PosttransTime, niet VoortransTime/NatransTime), Price alleen als de kolom er is
-	// (File_woPrice, de default, heeft hem niet), en via GDAL in plaats van het hele bestand als een string: een vertrekmoment
-	// samengevoegd over de 450 blokken is 39 M regels.
+	// (zonder Export_PriceInformation heeft het bestand hem niet), en via GDAL in plaats van het hele bestand als een string: een
+	// vertrekmoment samengevoegd over de 450 blokken is 39 M regels.
 	parameter<bool> IsRegionMerged := Org_str == 'All';
 
 	container PerTime :=
@@ -40,23 +40,39 @@ Template ReadExport_OV_perTime_T
 
 		container data
 		{
-			attribute<string> OrgName       (domain) := domain/OrgName;
-			attribute<string> DestName      (domain) := domain/DestName;
-			attribute<string> OrgDestName   (domain) := OrgName + '_' + DestName;
-			attribute<min_f>  Traveltime    (domain) := ='float32(domain/Traveltime' + ColSuffix + ') * 1[min_f]';
-			attribute<string> ModeUsed      (domain) := ='domain/ModeUsed' + ColSuffix;
-			// Sinds 2026-10-02 (#117); leeg in uitvoer van daarvoor.
-			attribute<string> NeedsCar      (domain) := =IsDefined(rlookup('NeedsCar' + ColSuffix, field/name)) ? 'domain/NeedsCar' + ColSuffix : 'const('''', domain, string)';
-			attribute<string> NeedsBike     (domain) := =IsDefined(rlookup('NeedsBike' + ColSuffix, field/name)) ? 'domain/NeedsBike' + ColSuffix : 'const('''', domain, string)';
-			attribute<string> Price         (domain) := =IsDefined(rlookup('Price' + ColSuffix, field/name)) ? 'domain/Price' + ColSuffix : 'const('''', domain, string)';
-			attribute<string> WaitingTime   (domain) := ='domain/WaitingTime' + ColSuffix;
-			attribute<string> PretransTime  (domain) := ='domain/PretransTime' + ColSuffix;
-			attribute<string> PTTime        (domain) := ='domain/PTTime' + ColSuffix;
-			attribute<string> PosttransTime (domain) := ='domain/PosttransTime' + ColSuffix;
-			// Price uitgesplitst naar voortransport, OV en natransport: sinds 2026-10-02, en alleen in uitvoer met prijzen.
-			attribute<string> PretransPrice  (domain) := =IsDefined(rlookup('PretransPrice' + ColSuffix, field/name)) ? 'domain/PretransPrice' + ColSuffix : 'const('''', domain, string)';
-			attribute<string> PTPrice        (domain) := =IsDefined(rlookup('PTPrice' + ColSuffix, field/name)) ? 'domain/PTPrice' + ColSuffix : 'const('''', domain, string)';
-			attribute<string> PosttransPrice (domain) := =IsDefined(rlookup('PosttransPrice' + ColSuffix, field/name)) ? 'domain/PosttransPrice' + ColSuffix : 'const('''', domain, string)';
+			// Sinds 2026-10-03 de getallen als float64 en de bezitscriteria als uint8, niet meer als tekst: dat scheelt het meeste
+			// geheugen bij het samenvoegen (een vertrekmoment is 39 M regels, de dag vier keer zoveel), en float64 schrijft de tekst
+			// van de uitvoer per blok ongewijzigd terug (7.35 blijft 7.35). Een kolom die het bestand niet heeft, wordt leeg: Price en
+			// de prijsdelen zonder Export_PriceInformation, de afstanden zonder Export_TravelledDistance, en de kolommen van na de
+			// uitvoer die gelezen wordt (NeedsCar en NeedsBike sinds 2026-10-02, de prijsdelen sinds 2026-10-02, TravelDist_PT en de
+			// kolommen per modaliteit sinds 2026-10-03).
+			attribute<string>  OrgName            (domain) := domain/OrgName;
+			attribute<string>  DestName           (domain) := domain/DestName;
+			attribute<string>  OrgDestName        (domain) := OrgName + '_' + DestName;
+			attribute<string>  ModeUsed           (domain) := ='domain/ModeUsed' + ColSuffix;
+			attribute<uint8>   NeedsCar           (domain) := =IsDefined(rlookup('NeedsCar' + ColSuffix, field/name)) ? 'uint8(domain/NeedsCar' + ColSuffix + ')' : 'const(null_b, domain, uint8)';
+			attribute<uint8>   NeedsBike          (domain) := =IsDefined(rlookup('NeedsBike' + ColSuffix, field/name)) ? 'uint8(domain/NeedsBike' + ColSuffix + ')' : 'const(null_b, domain, uint8)';
+			attribute<float64> Traveltime         (domain) := =IsDefined(rlookup('Traveltime' + ColSuffix, field/name)) ? 'float64(domain/Traveltime' + ColSuffix + ')' : 'const(null_d, domain, float64)';
+			attribute<float64> Price              (domain) := =IsDefined(rlookup('Price' + ColSuffix, field/name)) ? 'float64(domain/Price' + ColSuffix + ')' : 'const(null_d, domain, float64)';
+			attribute<float64> WaitingTime        (domain) := =IsDefined(rlookup('WaitingTime' + ColSuffix, field/name)) ? 'float64(domain/WaitingTime' + ColSuffix + ')' : 'const(null_d, domain, float64)';
+			attribute<float64> PretransTime       (domain) := =IsDefined(rlookup('PretransTime' + ColSuffix, field/name)) ? 'float64(domain/PretransTime' + ColSuffix + ')' : 'const(null_d, domain, float64)';
+			attribute<float64> PTTime             (domain) := =IsDefined(rlookup('PTTime' + ColSuffix, field/name)) ? 'float64(domain/PTTime' + ColSuffix + ')' : 'const(null_d, domain, float64)';
+			attribute<float64> PosttransTime      (domain) := =IsDefined(rlookup('PosttransTime' + ColSuffix, field/name)) ? 'float64(domain/PosttransTime' + ColSuffix + ')' : 'const(null_d, domain, float64)';
+			attribute<float64> PretransPrice      (domain) := =IsDefined(rlookup('PretransPrice' + ColSuffix, field/name)) ? 'float64(domain/PretransPrice' + ColSuffix + ')' : 'const(null_d, domain, float64)';
+			attribute<float64> PTPrice            (domain) := =IsDefined(rlookup('PTPrice' + ColSuffix, field/name)) ? 'float64(domain/PTPrice' + ColSuffix + ')' : 'const(null_d, domain, float64)';
+			attribute<float64> PosttransPrice     (domain) := =IsDefined(rlookup('PosttransPrice' + ColSuffix, field/name)) ? 'float64(domain/PosttransPrice' + ColSuffix + ')' : 'const(null_d, domain, float64)';
+			attribute<float64> TravelDist_V       (domain) := =IsDefined(rlookup('TravelDist_V' + ColSuffix, field/name)) ? 'float64(domain/TravelDist_V' + ColSuffix + ')' : 'const(null_d, domain, float64)';
+			attribute<float64> TravelDist_PT      (domain) := =IsDefined(rlookup('TravelDist_PT' + ColSuffix, field/name)) ? 'float64(domain/TravelDist_PT' + ColSuffix + ')' : 'const(null_d, domain, float64)';
+			attribute<float64> TravelDist_N       (domain) := =IsDefined(rlookup('TravelDist_N' + ColSuffix, field/name)) ? 'float64(domain/TravelDist_N' + ColSuffix + ')' : 'const(null_d, domain, float64)';
+			attribute<float64> TravelDist_Walking (domain) := =IsDefined(rlookup('TravelDist_Walking' + ColSuffix, field/name)) ? 'float64(domain/TravelDist_Walking' + ColSuffix + ')' : 'const(null_d, domain, float64)';
+			attribute<float64> TravelDist_Cycling (domain) := =IsDefined(rlookup('TravelDist_Cycling' + ColSuffix, field/name)) ? 'float64(domain/TravelDist_Cycling' + ColSuffix + ')' : 'const(null_d, domain, float64)';
+			attribute<float64> TravelDist_Car     (domain) := =IsDefined(rlookup('TravelDist_Car' + ColSuffix, field/name)) ? 'float64(domain/TravelDist_Car' + ColSuffix + ')' : 'const(null_d, domain, float64)';
+			attribute<float64> WalkingTime        (domain) := =IsDefined(rlookup('WalkingTime' + ColSuffix, field/name)) ? 'float64(domain/WalkingTime' + ColSuffix + ')' : 'const(null_d, domain, float64)';
+			attribute<float64> CyclingTime        (domain) := =IsDefined(rlookup('CyclingTime' + ColSuffix, field/name)) ? 'float64(domain/CyclingTime' + ColSuffix + ')' : 'const(null_d, domain, float64)';
+			attribute<float64> CarTime            (domain) := =IsDefined(rlookup('CarTime' + ColSuffix, field/name)) ? 'float64(domain/CarTime' + ColSuffix + ')' : 'const(null_d, domain, float64)';
+			attribute<float64> WalkingPrice       (domain) := =IsDefined(rlookup('WalkingPrice' + ColSuffix, field/name)) ? 'float64(domain/WalkingPrice' + ColSuffix + ')' : 'const(null_d, domain, float64)';
+			attribute<float64> CyclingPrice       (domain) := =IsDefined(rlookup('CyclingPrice' + ColSuffix, field/name)) ? 'float64(domain/CyclingPrice' + ColSuffix + ')' : 'const(null_d, domain, float64)';
+			attribute<float64> CarPrice           (domain) := =IsDefined(rlookup('CarPrice' + ColSuffix, field/name)) ? 'float64(domain/CarPrice' + ColSuffix + ')' : 'const(null_d, domain, float64)';
 		}
 	}
 }
