@@ -21,6 +21,10 @@
 #      voorbij de epsilons (beter met meer dan --eps-time of --eps-price);
 #   6. bereikbaarheid: paren die alleen in A of alleen in B voorkomen.
 # Prijschecks vallen weg als een run geen Price-kolom heeft.
+# Noemen A en B allebei autobezit (_A) of fietsbezit (_C), dan gelden checks 1, 2 en 6 ook per groep reizigers: zonder auto
+# (NeedsCar 0), zonder fiets (NeedsBike 0) en zonder beide. Een bool-criterium heeft geen epsilon, dus de snelste optie van zo'n
+# groep in A moet in B terugkomen; "6 alleen in A" is daar een fout. Zonder bezitscriteria in A is de snelste optie per groep
+# niet bekend: A geeft dan alleen de snelste optie overall, meestal de auto.
 import argparse, csv, glob, os, re, sys
 from collections import defaultdict
 
@@ -173,10 +177,22 @@ def main():
 	keys = sorted(set(fa) & set(fb))
 	if not keys:
 		sys.exit(f'geen gekoppelde bestanden: A {len(fa)}, B {len(fb)}')
+	crit_a = mincrit(fa.values())
 	crit_b = mincrit(fb.values())
 	use_car, use_bike = 'A' in crit_b, 'C' in crit_b
 
-	T = {'alle': Tally(), 'ov': Tally()}
+	# Per groep: (sleutel, titel, filter op een rij (tijd, prijs, auto, fiets, ModeUsed)).
+	scopes = [('alle', 'Alle opties', None), ('ov', 'Alleen OV-ketens', lambda x: is_pt(x[4]))]
+	car_groups = use_car and 'A' in crit_a
+	bike_groups = use_bike and 'C' in crit_a
+	if car_groups:
+		scopes.append(('zonder auto', 'Reizigers zonder auto (NeedsCar 0)', lambda x: not x[2]))
+	if bike_groups:
+		scopes.append(('zonder fiets', 'Reizigers zonder fiets (NeedsBike 0)', lambda x: x[3] is False))
+	if car_groups and bike_groups:
+		scopes.append(('zonder auto en fiets', 'Reizigers zonder auto en fiets', lambda x: not x[2] and x[3] is False))
+
+	T = {s[0]: Tally() for s in scopes}
 	has_price_a = has_price_b = True
 	pairs = 0
 	for k in keys:
@@ -186,9 +202,9 @@ def main():
 		has_price_a &= pa; has_price_b &= pb
 		for od in set(ra) | set(rb):
 			pairs += 1
-			for scope, flt in (('alle', None), ('ov', is_pt)):
-				rows_a = [x for x in ra.get(od, []) if flt is None or flt(x[4])]
-				rows_b = [x for x in rb.get(od, []) if flt is None or flt(x[4])]
+			for scope, _, flt in scopes:
+				rows_a = [x for x in ra.get(od, []) if flt is None or flt(x)]
+				rows_b = [x for x in rb.get(od, []) if flt is None or flt(x)]
 				t = T[scope]
 				sa, sb = stats(rows_a), stats(rows_b)
 				if sa is None and sb is None:
@@ -231,12 +247,12 @@ def main():
 	lines = []
 	lines.append(f'# Front-validatie (#53)\n')
 	lines.append(f'- A: `{args.a}` ({len(fa)} bestanden), B: `{args.b}` ({len(fb)} bestanden), gekoppeld: {len(keys)}')
-	lines.append(f'- MinCrit B: {"_".join(crit_b) or "?"}; frontcheck op reistijd' + (', prijs' if has_price_b else '') + (', NeedsCar' if use_car else '') + (', NeedsBike' if use_bike else ''))
+	lines.append(f'- MinCrit A: {"_".join(crit_a) or "?"}, B: {"_".join(crit_b) or "?"}; frontcheck op reistijd' + (', prijs' if has_price_b else '') + (', NeedsCar' if use_car else '') + (', NeedsBike' if use_bike else ''))
 	lines.append(f'- prijs in A: {"ja" if has_price_a else "nee"}, in B: {"ja" if has_price_b else "nee"}; eps-time {args.eps_time} min, eps-price {args.eps_price} euro')
 	lines.append(f'- HB-paren x vertrekmoment: {pairs}\n')
-	for scope in ('alle', 'ov'):
+	for scope, title, _ in scopes:
 		t = T[scope]
-		lines.append(f'## {"Alle opties" if scope == "alle" else "Alleen OV-ketens"}\n')
+		lines.append(f'## {title}\n')
 		lines.append('| check | aantal |')
 		lines.append('|---|---|')
 		for key in sorted(t.n):
