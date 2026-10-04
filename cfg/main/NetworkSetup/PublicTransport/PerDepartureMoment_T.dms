@@ -499,6 +499,48 @@ Template PerDepartureMoment_T
 			container Results_Traveltime
 			{
 				parameter<string>  Generate := ='File';
+
+				// Tellingen voor <OutputDir>/od_tellingen.csv en unieke_od_tellingen.csv (sinds 2026-10-04). Ze staan binnen het hek,
+				// uit het eindresultaat dat voor File toch al gerekend is. De telling per blok (PublicTransport/Generate_Output/
+				// Traveltime_ForEachDepTime/Tellingen) gebruikt alleen deze kleine resultaten, zodat het eindresultaat na de fase vrij kan.
+				container Tellingen
+				{
+					unit<uint64>      R                   := Result_AfterSecondCondensation;
+					attribute<bool>   IsKeten         (R) := NOT(R/IsDirectTravel);
+					attribute<bool>   IsWW            (R) := R/IsDirectTravel && R/V_mode_rel == Modes/v/Walking;
+					attribute<bool>   IsCC            (R) := R/IsDirectTravel && R/V_mode_rel == Modes/v/Cycling;
+					attribute<bool>   IsAA            (R) := R/IsDirectTravel && R/V_mode_rel == Modes/v/Car;
+					attribute<bool>   IsZonderAuto    (R) := NOT(R/NeedsCar);
+					attribute<bool>   IsZonderAutoEnFiets (R) := NOT(R/NeedsCar) && NOT(R/NeedsBike);
+
+					// Rijen per soort (Classifications/OD_Tellingen_Soort): alle, en per rij precies een van de vier soorten.
+					attribute<uint8>  Soort_nr        (R) := switch(case(IsKeten, 1b), case(IsWW, 2b), case(IsCC, 3b), case(IsAA, 4b), 255b);
+					attribute<Classifications/OD_Tellingen_Soort> Soort_rel (R) := value(Soort_nr, Classifications/OD_Tellingen_Soort);
+					attribute<uint64> Rijen (Classifications/OD_Tellingen_Soort) := uint64(pcount(Soort_rel)) + (uint8(id(Classifications/OD_Tellingen_Soort)) == 0b ? uint64(#R) : uint64(0));
+
+					// Unieke HB-paren, met per groep (Classifications/OD_Tellingen_Groep) of het paar een optie van die groep heeft.
+					attribute<uint64> OD_key          (R) := uint64(R/From_Place_rel) * uint64(#Places) + uint64(R/To_Place_rel);
+					unit<uint64> Paren := unique(OD_key)
+					{
+						attribute<bool> OV_keten             := any(../IsKeten, ../Paren_rel);
+						attribute<bool> WW                   := any(../IsWW, ../Paren_rel);
+						attribute<bool> CC                   := any(../IsCC, ../Paren_rel);
+						attribute<bool> AA                   := any(../IsAA, ../Paren_rel);
+						attribute<bool> zonder_auto          := any(../IsZonderAuto, ../Paren_rel);
+						attribute<bool> zonder_auto_en_fiets := any(../IsZonderAutoEnFiets, ../Paren_rel);
+					}
+					attribute<Paren>  Paren_rel       (R) := rlookup(OD_key, Paren/values);
+					attribute<uint8>  Groep_nr (Classifications/OD_Tellingen_Groep) := uint8(id(Classifications/OD_Tellingen_Groep));
+					attribute<uint64> Paren_Telling (Classifications/OD_Tellingen_Groep) := switch(
+						  case(Groep_nr == 0b, uint64(#Paren))
+						, case(Groep_nr == 1b, sum(uint64(Paren/OV_keten)))
+						, case(Groep_nr == 2b, sum(uint64(Paren/WW)))
+						, case(Groep_nr == 3b, sum(uint64(Paren/CC)))
+						, case(Groep_nr == 4b, sum(uint64(Paren/AA)))
+						, case(Groep_nr == 5b, sum(uint64(Paren/zonder_auto)))
+						, case(Groep_nr == 6b, sum(uint64(Paren/zonder_auto_en_fiets)))
+						, uint64(0));
+				}
 			}
 			// container Results_Decay
 			// {

@@ -54,7 +54,41 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 		container Generate_Output
 		{
 			// parameter<string> OUTPUT_Generate_PublicTransport_decay_CSVFiles        := =asList(Advanced/Regio/name+'/PublicTransport/Generate_Output/OUTPUT_Generate_decay_CSVFiles',' + ');
-			parameter<string> OUTPUT_Generate_PublicTransport_fullOD_long_CSVFiles  := =asList(NetworkSetup/Impl/OrgBlockDomain/name+'/PublicTransport/Generate_Output/Traveltime_ForEachDepTime_Fence/Generate',' + ');
+			// Sinds 2026-10-04 ook de tellingen (OD_Tellingen), in dezelfde opvraging: die gebruiken de resultaten achter de hekken van
+			// de blokken, en die zijn er alleen in de fase waarin de blokken gerekend worden.
+			parameter<string> OUTPUT_Generate_PublicTransport_fullOD_long_CSVFiles  := =asList(NetworkSetup/Impl/OrgBlockDomain/name+'/PublicTransport/Generate_Output/Traveltime_ForEachDepTime_Fence/Generate',' + ') + ' + OD_Tellingen/Generate';
+
+			// Tellingen naast de OV-uitvoer (sinds 2026-10-04), in <OutputDir>: od_tellingen.csv met de rijen per soort optie en per
+			// vertrekmoment (en het totaal), en unieke_od_tellingen.csv met de unieke HB-paren per groep en per vertrekmoment (en over de
+			// momenten samen). De blokken hebben elk hun eigen herkomsten, dus de tellingen per blok worden opgeteld.
+			container OD_Tellingen
+			{
+				unit<uint8>  Soort   := Classifications/OD_Tellingen_Soort;
+				unit<uint8>  Groep   := Classifications/OD_Tellingen_Groep;
+				unit<uint32> Moments := /ModelParameters/Advanced/MeasureMoments;
+
+				container PerMoment := for_each_ne(Moments/Name, 'Moment_T(' + quote(Moments/Name) + ')');
+				Template Moment_T
+				{
+					parameter<string> Moment;
+					///
+					attribute<uint64> Rijen (Soort) := ='' + asList(/NetworkSetup/impl/OrgBlockDomain/name + '/PublicTransport/Generate_Output/Traveltime_ForEachDepTime_Fence/Tellingen/Rijen/' + Moment, ' + ');
+					attribute<uint64> Paren (Groep) := ='' + asList(/NetworkSetup/impl/OrgBlockDomain/name + '/PublicTransport/Generate_Output/Traveltime_ForEachDepTime_Fence/Tellingen/Paren/' + Moment, ' + ');
+				}
+				attribute<uint64> Rijen_Totaal (Soort) := ='' + asList('PerMoment/' + Moments/Name + '/Rijen', ' + ');
+				attribute<uint64> Paren_Samen  (Groep) := ='' + asList(/NetworkSetup/impl/OrgBlockDomain/name + '/PublicTransport/Generate_Output/Traveltime_ForEachDepTime_Fence/Tellingen/Paren_Samen', ' + ');
+
+				parameter<string> MomentKop := asList(Moments/TemplatableTextShrt, ';');
+				attribute<string> RijenRegel (Soort) := ='Soort/label + ' + asList(''';'' + string(PerMoment/' + Moments/Name + '/Rijen)', ' + ') + ' + '';'' + string(Rijen_Totaal)';
+				attribute<string> ParenRegel (Groep) := ='Groep/label + ' + asList(''';'' + string(PerMoment/' + Moments/Name + '/Paren)', ' + ') + ' + '';'' + string(Paren_Samen)';
+				parameter<string> File_Rijen := 'soort;' + MomentKop + ';totaal\n' + asList(RijenRegel, '\n') + '\n'
+				,	StorageName = "=/ModelParameters/Advanced/OutputDir + '/od_tellingen.csv'", StorageType = "str"
+				,	Descr = "Rijen van de OV-uitvoer per soort optie (Classifications/OD_Tellingen_Soort), per vertrekmoment en in totaal.";
+				parameter<string> File_Paren := 'groep;' + MomentKop + ';samen\n' + asList(ParenRegel, '\n') + '\n'
+				,	StorageName = "=/ModelParameters/Advanced/OutputDir + '/unieke_od_tellingen.csv'", StorageType = "str"
+				,	Descr = "Unieke HB-paren per groep (Classifications/OD_Tellingen_Groep), per vertrekmoment en over de momenten samen.";
+				parameter<string> Generate := File_Rijen + File_Paren;
+			}
 			// parameter<string> OUTPUT_Generate_PublicTransport_fullOD_long_CSVFiles  := =asList(NetworkSetup/Impl/OrgBlockDomain/name+'/PublicTransport/Generate_Output/Traveltime_ForEachDepTime/Generate',' + ');
 			// parameter<string> OUTPUT_Generate_Car_decay_CSVFiles                    := =asList(Advanced/Regio/name+'/PrivateTransport/Export_Car_Decayed',' + ');
 			// parameter<string> OUTPUT_Generate_Car_traveltimes_CSVFiles              := =asList(NetworkSetup/Impl/OrgBlockDomain/name+'/PrivateTransport/Export_Car_Traveltimes',' + ');

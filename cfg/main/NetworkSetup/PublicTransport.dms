@@ -3,7 +3,56 @@ container Generate_Output
 	container Traveltime_ForEachDepTime
 	{ 
 		// parameter<string>   Generate  := ='add('+asList('PerVertrekmoment/'+Advanced/MeasureMoments/Name+'/CreateExports/LongFormat/File_fullOD',',')+')';
-		parameter<string>   Generate  := ='add('+asList('PerVertrekmoment/'+Advanced/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Generate',',')+')'; 
+		parameter<string>   Generate  := ='add('+asList('PerVertrekmoment/'+Advanced/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Generate',',')+')';
+
+		// Tellingen van dit blok voor <OutputDir>/od_tellingen.csv en unieke_od_tellingen.csv (sinds 2026-10-04), uit de kleine
+		// resultaten achter het hek van elk vertrekmoment (PerDepartureMoment_T, LongFormat/Results_Traveltime/Tellingen). De blokken
+		// hebben elk hun eigen herkomsten, dus NetworkSetup/ConfigurationPerBlock/Generate_Output/OD_Tellingen telt ze op.
+		container Tellingen
+		{
+			container Rijen := for_each_nedv(Advanced/MeasureMoments/Name
+				, 'PerVertrekmoment/'+Advanced/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Tellingen/Rijen'
+				, Classifications/OD_Tellingen_Soort, uint64)
+			, Descr = "Per vertrekmoment de rijen per soort optie.";
+			container Paren := for_each_nedv(Advanced/MeasureMoments/Name
+				, 'PerVertrekmoment/'+Advanced/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Tellingen/Paren_Telling'
+				, Classifications/OD_Tellingen_Groep, uint64)
+			, Descr = "Per vertrekmoment de unieke HB-paren per groep.";
+
+			// De unieke paren over alle vertrekmomenten samen: de paren van de momenten onder elkaar, dan per paar of een van de
+			// momenten het paar in de groep heeft.
+			unit<uint64> AlleParen := ='union_unit_uint64('+asList('PerVertrekmoment/'+Advanced/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Tellingen/Paren', ',')+')'
+			{
+				attribute<uint64> OD_key               := ='union_data(., '+asList('PerVertrekmoment/'+Advanced/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Tellingen/Paren/values', ',')+')';
+				attribute<bool>   OV_keten             := ='union_data(., '+asList('PerVertrekmoment/'+Advanced/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Tellingen/Paren/OV_keten', ',')+')';
+				attribute<bool>   WW                   := ='union_data(., '+asList('PerVertrekmoment/'+Advanced/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Tellingen/Paren/WW', ',')+')';
+				attribute<bool>   CC                   := ='union_data(., '+asList('PerVertrekmoment/'+Advanced/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Tellingen/Paren/CC', ',')+')';
+				attribute<bool>   AA                   := ='union_data(., '+asList('PerVertrekmoment/'+Advanced/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Tellingen/Paren/AA', ',')+')';
+				attribute<bool>   zonder_auto          := ='union_data(., '+asList('PerVertrekmoment/'+Advanced/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Tellingen/Paren/zonder_auto', ',')+')';
+				attribute<bool>   zonder_auto_en_fiets := ='union_data(., '+asList('PerVertrekmoment/'+Advanced/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Tellingen/Paren/zonder_auto_en_fiets', ',')+')';
+				attribute<UniekeParen> Uniek_rel       := rlookup(OD_key, UniekeParen/values);
+			}
+			unit<uint64> UniekeParen := unique(AlleParen/OD_key)
+			{
+				attribute<bool> OV_keten             := any(AlleParen/OV_keten, AlleParen/Uniek_rel);
+				attribute<bool> WW                   := any(AlleParen/WW, AlleParen/Uniek_rel);
+				attribute<bool> CC                   := any(AlleParen/CC, AlleParen/Uniek_rel);
+				attribute<bool> AA                   := any(AlleParen/AA, AlleParen/Uniek_rel);
+				attribute<bool> zonder_auto          := any(AlleParen/zonder_auto, AlleParen/Uniek_rel);
+				attribute<bool> zonder_auto_en_fiets := any(AlleParen/zonder_auto_en_fiets, AlleParen/Uniek_rel);
+			}
+			attribute<uint8>  Groep_nr (Classifications/OD_Tellingen_Groep) := uint8(id(Classifications/OD_Tellingen_Groep));
+			attribute<uint64> Paren_Samen (Classifications/OD_Tellingen_Groep) := switch(
+				  case(Groep_nr == 0b, uint64(#UniekeParen))
+				, case(Groep_nr == 1b, sum(uint64(UniekeParen/OV_keten)))
+				, case(Groep_nr == 2b, sum(uint64(UniekeParen/WW)))
+				, case(Groep_nr == 3b, sum(uint64(UniekeParen/CC)))
+				, case(Groep_nr == 4b, sum(uint64(UniekeParen/AA)))
+				, case(Groep_nr == 5b, sum(uint64(UniekeParen/zonder_auto)))
+				, case(Groep_nr == 6b, sum(uint64(UniekeParen/zonder_auto_en_fiets)))
+				, uint64(0))
+			, Descr = "De unieke HB-paren per groep over alle vertrekmomenten samen.";
+		}
 		// parameter<string>   Generate  := ='add('+asList('PerVertrekmoment/'+Advanced/MeasureMoments/Name+'/CreateExports/Generate_FSS',',')+')'; 
 	}
 	container Traveltime_ForEachDepTime_Fence := PhaseContainer(Traveltime_ForEachDepTime, 'Results for all departure times in '+NetworkSetup/Impl/OrgBlockDomain/name[BlockDomain_id]+' are finished calculating'); //

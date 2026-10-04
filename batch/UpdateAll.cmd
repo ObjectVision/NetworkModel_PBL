@@ -21,7 +21,9 @@ REM   UpdateAll.cmd output          de OV-uitvoer: een csv per herkomstblok en v
 REM                                 %LocalDataProjDir%\Output\<Analysis_date>_<OutputLabel>\PerBlock
 REM                                 (ConfigurationPerBlock/Generate_Output), met de ketenstore van de vertrekmomenten in
 REM                                 PT_DepartureHours/Minutes. Maakt die map eerst leeg (sinds 2026-10-03, #118): alleen de
-REM                                 bestanden van het model (tt_*.csv, tt_*.xml, signature.txt/.xml), ook de samengevoegde.
+REM                                 bestanden van het model (tt_*.csv, tt_*.xml, signature.txt/.xml), ook de samengevoegde,
+REM                                 en sinds 2026-10-04 de tellingen od_tellingen.csv en unieke_od_tellingen.csv (met .xml),
+REM                                 die de uitvoerstap in dezelfde opvraging maakt.
 REM
 REM De oude RunAll.cmd, RunKetens*.cmd, RunPrepare.cmd, RunDayGroups.cmd en RunCongestionSpeeds.cmd
 REM wezen naar itempaden van voor 2025 en zijn op 2026-09-23 verwijderd.
@@ -162,7 +164,7 @@ if "!OUTDIR:\Output\=!"=="!OUTDIR!" (
 )
 if exist "!OUTDIR!\" (
   echo %DATE% %TIME% uitvoermap leegmaken: !OUTDIR!
-  del /q "!OUTDIR!\PerBlock\tt_*.csv" "!OUTDIR!\PerBlock\tt_*.xml" "!OUTDIR!\tt_*.csv" "!OUTDIR!\tt_*.xml" "!OUTDIR!\signature.txt" "!OUTDIR!\signature.xml" 2>nul
+  del /q "!OUTDIR!\PerBlock\tt_*.csv" "!OUTDIR!\PerBlock\tt_*.xml" "!OUTDIR!\tt_*.csv" "!OUTDIR!\tt_*.xml" "!OUTDIR!\signature.txt" "!OUTDIR!\signature.xml" "!OUTDIR!\od_tellingen.*" "!OUTDIR!\unieke_od_tellingen.*" 2>nul
 )
 echo === uitvoer: csv per herkomstblok en vertrekmoment (uren) ===
 call :run output /NetworkSetup/ConfigurationPerBlock/Generate_Output/OUTPUT_Generate_PublicTransport_fullOD_long_CSVFiles
