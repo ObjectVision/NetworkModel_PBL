@@ -1,6 +1,6 @@
 ---
 name: geodms-dms-style
-description: Regels voor het schrijven en reviewen van GeoDMS-configuratiecode (.dms) in NetworkModel_PBL - typeconversies alleen waar de typen verschillen (#U, sum_uint64, geen automatische verbreding), union_data per element in plaats van switch op id, tellen per klasse, unieke combinaties op een integer-sleutel, samenvattingen van werk achter een hek in dezelfde opvraging, en een herschrijving bewijzen op een probe. Gebruik bij elke wijziging of review van .dms-code.
+description: Regels voor het schrijven en reviewen van GeoDMS-configuratiecode (.dms) in NetworkModel_PBL - typeconversies alleen waar de typen verschillen (#U, sum_uint64, geen automatische verbreding), union_data per element in plaats van switch op id, tellen per klasse, een sleutel uit twee relaties met combine_unit en combine_data in plaats van indexrekenwerk, unieke combinaties, samenvattingen van werk achter een hek in dezelfde opvraging, en een herschrijving bewijzen op een probe. Gebruik bij elke wijziging of review van .dms-code.
 ---
 
 # .dms-code schrijven
@@ -17,4 +17,4 @@ Voorbeelden in dit model: de tellingen naast de OV-uitvoer.
 - Per blok: `Tellingen` in `cfg/main/NetworkSetup/PublicTransport.dms`.
 - Over alle blokken: `OD_Tellingen` in `cfg/main/NetworkSetup.dms`.
 
-De herschrijving staat in commits ec53e1d en bee7f55.
+De herschrijving staat in commits ec53e1d, bee7f55 en 6de63ec.
