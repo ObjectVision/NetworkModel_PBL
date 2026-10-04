@@ -26,3 +26,7 @@ When creating markdown documents with numbered lists, subsection headings must u
 ```
 
 This has been applied to `doc/Audit_NetworkModel_PBL_2026-09-23.md` in sections 2, 3, 4, and 5.
+
+## GeoDMS configuration code
+
+Before writing or reviewing `.dms` code, follow the skill `geodms-dms-style` (`.claude/skills/geodms-dms-style/SKILL.md`). It points to the rules in the GeoDMS repository (`C:\dev\GeoDMS_2026\.claude\skills\geodms-dms-style\SKILL.md`).
