@@ -49,5 +49,9 @@ Als het browservenster verborgen is, mislukken klikken en typen ("tab is not on 
 | Merwekade - Erasmusbrug (Waterbus 20), 07:00 - 07:58 | 58 min, 5,78 (OV-chip) | 58 min; DOVA 6,38 (0,243 x 21,5 km; per mijl zou 4,41 zijn); FareTable vast 2,25. Juiste bron: de afstandstabel van de Waterbus |
 | Harlingen - Terschelling, Holwerd - Ameland, Vlissingen - Breskens | geen OV-chip, geen prijs | DOVA km-tarief (fout, zie #55) |
 | Maastricht - Genk (De Lijn 45) | prijs onbekend | vast 3,00 (Detailed) |
+| Utrecht C - Utrecht Maliebaan (pendel-Sprinter, 19 min), 2026-10-04 | 3,00 (minimum, hoogstens 8 TE) | tot #120 geen tarief; nu 8 TE |
+| Hilversum Sportpark - Utrecht Maliebaan (overstap Overvecht), 2026-10-04 | 6,90 = 25 TE | 26 TE (7,10), door het verschil hieronder |
+| Hilversum Sportpark - Utrecht Overvecht, 2026-10-04 | 4,40 = 14 TE | 15 TE (4,60): ons tariefnet heeft rond Sportpark 1 TE te veel |
+| Gouda - Utrecht Maliebaan (via Utrecht C), 2026-10-04 | 10,20 = 40 TE | 40 TE |
 
 Leg nieuwe controles vast in deze tabel en meld ze bij #53.
