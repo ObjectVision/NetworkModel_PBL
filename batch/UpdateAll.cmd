@@ -25,7 +25,8 @@ REM                                 bestanden van het model (tt_*.csv, tt_*.xml,
 REM                                 en sinds 2026-10-04 de tellingen od_tellingen.csv en unieke_od_tellingen.csv (met .xml),
 REM                                 die de uitvoerstap in dezelfde opvraging maakt.
 REM Sinds 2026-10-05 (#117) rekent een run een component (ModelParameters/Component): cars slaat de autostores over als
-REM de component geen directe autorit heeft (Lopen, Fiets), chains de ketenstore als het OV niet meedoet (Auto).
+REM de component geen directe autorit heeft (Lopen, Fiets), chains de ketenstore als het OV niet meedoet (Auto, Samen),
+REM en output voegt bij Component 'Samen' de uitvoer van de componenten in MergeComponents samen.
 REM
 REM De oude RunAll.cmd, RunKetens*.cmd, RunPrepare.cmd, RunDayGroups.cmd en RunCongestionSpeeds.cmd
 REM wezen naar itempaden van voor 2025 en zijn op 2026-09-23 verwijderd.
@@ -185,7 +186,8 @@ if exist "!OUTDIR!\" (
   del /q "!OUTDIR!\PerBlock\tt_*.csv" "!OUTDIR!\PerBlock\tt_*.xml" "!OUTDIR!\tt_*.csv" "!OUTDIR!\tt_*.xml" "!OUTDIR!\signature.txt" "!OUTDIR!\signature.xml" "!OUTDIR!\od_tellingen.*" "!OUTDIR!\unieke_od_tellingen.*" 2>nul
 )
 echo === uitvoer: csv per herkomstblok en vertrekmoment (uren) ===
-call :run output /NetworkSetup/ConfigurationPerBlock/Generate_Output/OUTPUT_Generate_PublicTransport_fullOD_long_CSVFiles
+REM Sinds 2026-10-05 (#117) via NetworkSetup/Generate_Output: bij Component 'Samen' het samenvoegen van de componenten.
+call :run output /NetworkSetup/Generate_Output
 if not "!RC!"=="0" goto failed
 goto done
 

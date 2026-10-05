@@ -1,0 +1,109 @@
+container ComponentMerge_Def
+: Descr = "De componenten en de handtekening van het samenvoegen (Component 'Samen', #117); apart van ComponentMerge, want de schrijvers daar vragen via NetworkSetup/Output_Sig deze handtekening op."
+{
+	unit<uint8> Comps := select_with_attr_by_cond(/ModelParameters/Advanced/Componenten, /ModelParameters/Advanced/Componenten/InMerge)
+	,	Descr = "De componenten die samengevoegd worden, in de volgorde van Advanced/Componenten.";
+	parameter<bool>   MergeComponents_OK := sum_uint32(/ModelParameters/Advanced/Componenten/InMerge) == strcount(/ModelParameters/MergeComponents, ',') + 1
+	,	Descr = "Noemt MergeComponents alleen Lopen, Fiets en Auto, elk een keer? Gecontroleerd bij het schrijven (de IntegrityCheck van ComponentMerge/PerBlock/../File); de handtekening heeft anders _samen?-.";
+	parameter<string> BaseDir := '%LocalDataProjDir%/Output/' + /ModelParameters/Analysis_date + '_' + /ModelParameters/OutputLabel
+	,	Descr = "De uitvoermap van de variant zonder het achtervoegsel van de component.";
+
+	// De handtekening van elke component, zoals zijn uitvoer hem heeft geschreven.
+	container PerComp := for_each_ne(Comps/name, 'CompSignature_T(' + quote(Comps/UitvoerAchtervoegsel) + ')');
+	Template CompSignature_T
+	{
+		parameter<string> Suffix;
+		///
+		parameter<string> Stored : StorageName = "=BaseDir + Suffix + '/signature.txt'", StorageType = "str", StorageReadOnly = "true"
+		,	Descr = "De handtekening van de uitvoer van deze component; ontbreekt hij, dan is de component (nog) niet gerekend.";
+	}
+
+	parameter<string> CompSignatures := =asList('''['' + PerComp/' + Comps/name + '/Stored + '']''', ' + ')
+	,	Descr = "De handtekeningen van de componenten achter elkaar, elk tussen [ en ].";
+	parameter<string> Signature :=
+		  'tt_' + /ModelParameters/Analysis_date + '_ORG-' + /ModelParameters/Advanced/OrgSet_string
+		+ (MergeComponents_OK ? '_samen-' : '_samen?-') + asList(Comps/name, ',')
+		+ '_MinCrit-' + asList(/Classifications/OutputParetoAttr/FileNameElement, '_') + /ModelParameters/Advanced/ChainPareto_FileTag
+		+ '_' + CompSignatures
+	,	Descr = "De handtekening van de samengevoegde uitvoer: datum, herkomstenset, de componenten, de criteria en epsilons, en de handtekeningen van de componenten zelf. Is een component opnieuw gerekend met andere parameters, dan klopt de samengevoegde uitvoer niet meer.";
+
+}
+
+container ComponentMerge
+: Descr = "Het samenvoegen van de componenten tot een Pareto-front (Component 'Samen', overleg PBL 5-10-2026, NetworkModel_PBL#117). Per herkomstblok en vertrekmoment de uitvoer van de componenten in ModelParameters/MergeComponents (Output/<Analysis_date>_<OutputLabel>_<component>/PerBlock), met per HB-paar de rijen die niet gedomineerd worden op de criteria van de eindafweging plus autobezit en fietsbezit (Classifications/OutputParetoAttr), met dezelfde epsilons en dezelfde operator (pareto_optimal_eps) als in een run. De regels gaan ongewijzigd door; de kolommen moeten in alle componenten gelijk zijn. Schrijft naar Output/<Analysis_date>_<OutputLabel>_samen (ModelParameters/Advanced/OutputDir), met de handtekeningen van de componenten in signature.txt. Bereken Generate, of batch/UpdateAll.cmd output met Component 'Samen'."
+{
+	container PerBlock := for_each_ne(/NetworkSetup/impl/OrgBlockDomain/name, 'MergeBlock_T(' + string(id(/NetworkSetup/impl/OrgBlockDomain)) + ')');
+	parameter<string> Generate := =asList('PerBlock/' + /NetworkSetup/impl/OrgBlockDomain/name + '/Fence/Generate', ' + ')
+	,	Descr = "Voegt alle blokken en vertrekmomenten samen; een blok per fase, zodat zijn tussenresultaten daarna vrijkomen.";
+
+	Template MergeBlock_T
+	{
+		parameter</NetworkSetup/impl/OrgBlockDomain> BlockDomain_id;
+		///
+		container Work
+		{
+			container PerMoment := for_each_ne(/ModelParameters/Advanced/MeasureMoments/Name, 'MergeMoment_T(' + quote(/ModelParameters/Advanced/MeasureMoments/Name) + ')');
+			parameter<string> Generate := ='add(' + asList('PerMoment/' + /ModelParameters/Advanced/MeasureMoments/Name + '/File', ',') + ')';
+		}
+		container Fence := PhaseContainer(Work, 'Samengevoegd: ' + /NetworkSetup/impl/OrgBlockDomain/name[BlockDomain_id]);
+
+		Template MergeMoment_T
+		{
+			parameter<string> Moment;
+			///
+			parameter<string> MomentShort := rjoin(Moment, /ModelParameters/Advanced/MeasureMoments/Name, /ModelParameters/Advanced/MeasureMoments/TemplatableTextShrt);
+			parameter<string> FileTail    := '_' + /ModelParameters/Analysis_date + '_' + MomentShort + '_' + /NetworkSetup/impl/OrgBlockDomain/FileName[BlockDomain_id] + '.csv'
+			,	Descr = "De naam van het bestand na tt, zoals de uitvoer per blok hem heeft: tt_<datum>_<moment>_<n>of<N>.csv.";
+
+			container PerComp := for_each_ne(ComponentMerge_Def/Comps/name, 'ReadComp_T(' + quote(ComponentMerge_Def/Comps/UitvoerAchtervoegsel) + ')');
+			Template ReadComp_T
+			{
+				parameter<string> Suffix;
+				///
+				unit<uint32> domain
+				:	StorageName     = "=ComponentMerge_Def/BaseDir + Suffix + '/PerBlock/tt' + FileTail"
+				,	StorageType     = "gdal.vect"
+				,	StorageReadOnly = "true";
+				unit<uint32> field := SubItem_PropValues(domain, 'name');
+				parameter<string>  Header             := asList(field/name, ';');
+				// De regel zoals hij in het bestand staat: GDAL leest elke kolom van de csv als tekst.
+				attribute<string>  Line       (domain) := ='domain/' + asList(field/name, ' + '';'' + domain/');
+				attribute<string>  OrgDest    (domain) := domain/OrgName + ';' + domain/DestName;
+				// De criteria terug in de eenheden van de eindafweging (Ct en s), zodat de epsilons dezelfde bakken geven als in de run:
+				// de uitvoer schrijft de prijs in euro en de reistijd in minuten.
+				attribute<Ct>      Price      (domain) := ='rounded_convert(float32(domain/Price_' + MomentShort + ')[Euro], Ct)';
+				attribute<Ct>      Price_augm (domain) := ='rounded_convert(float32(domain/Price_Augm_' + MomentShort + ')[Euro], Ct)';
+				attribute<s>       TravelTime (domain) := ='rounded_convert(float32(domain/Traveltime_' + MomentShort + ')[min_f], s)';
+				attribute<bool>    NeedsCar   (domain) := ='domain/NeedsCar_' + MomentShort + ' == ''1''';
+				attribute<bool>    NeedsBike  (domain) := ='domain/NeedsBike_' + MomentShort + ' == ''1''';
+			}
+
+			unit<uint32> Rows := ='union_unit(' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/domain', ',') + ')'
+			,	Descr = "De rijen van alle componenten, in de volgorde van Comps; bij een gelijke stand op alle criteria wint de eerste (pareto_optimal_eps)."
+			{
+				attribute<string> Line       := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/Line', ',') + ')';
+				attribute<string> OrgDest    := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/OrgDest', ',') + ')';
+				attribute<Ct>     Price      := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/Price', ',') + ')';
+				attribute<Ct>     Price_augm := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/Price_augm', ',') + ')';
+				attribute<s>      TravelTime := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/TravelTime', ',') + ')';
+				attribute<bool>   NeedsCar   := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/NeedsCar', ',') + ')';
+				attribute<bool>   NeedsBike  := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/NeedsBike', ',') + ')';
+
+				unit<uint32>      OD         := unique(OrgDest);
+				attribute<OD>     OD_rel     := rlookup(OrgDest, OD/values);
+				attribute<bool>   keep       := ='pareto_optimal_eps(OD_rel, ' + asList(/Classifications/OutputParetoAttr/ParetoArgs, ', ') + ')';
+			}
+			unit<uint32> Kept := select_with_org_rel(Rows/keep)
+			{
+				attribute<string> Line := Rows/Line[org_rel];
+			}
+			parameter<bool>   HeadersEqual := =asList('PerComp/' + ComponentMerge_Def/Comps/name + '/Header == PerComp/' + first(ComponentMerge_Def/Comps/name) + '/Header', ' && ')
+			,	Descr = "Hebben alle componenten dezelfde kolommen in dezelfde volgorde? Zo niet, dan passen hun regels niet onder een kop.";
+			parameter<string> File := =first('PerComp/' + ComponentMerge_Def/Comps/name) + '/Header + ''\n'' + asList(Kept/Line, ''\n'')'
+			,	StorageName       = "=/ModelParameters/Advanced/OutputDir + '/PerBlock/tt' + FileTail", StorageType = "str"
+			,	ExplicitSuppliers = "/NetworkSetup/Output_Sig/ForWriting" // schrijft de handtekening van de uitvoermap, of faalt bij een andere (#118)
+			,	IntegrityCheck    = "HeadersEqual && ComponentMerge_Def/MergeComponents_OK"
+			,	Descr             = "De samengevoegde uitvoer van dit blok en vertrekmoment, met de kop van de eerste component.";
+		}
+	}
+}
