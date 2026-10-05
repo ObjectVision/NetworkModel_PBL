@@ -139,7 +139,7 @@ container PublicTransport_Prep
 	//
 	// Prijs per modaliteit: lopen en fietsen krijgen een tijdwaardering (Direct_*_Time_Costs), die alleen in
 	// Price meetelt als Include*CostsInPrice aan staat; de auto krijgt een kostprijs: Car_FixedCosts_PerTrip plus
-	// de som van de linkkosten (kilometerprijs per wegklasse, vast deel, optrekkosten; zie KOSTEN PER LINK). Price_Augm is voor
+	// afstand x Car_CostPerKm (sinds 2026-10-05, #88; tot dan de som van linkkosten). Price_Augm is voor
 	// lopen en fietsen de tijdwaardering zelf en voor de auto gelijk aan Price: een tijdwaardering voor
 	// autorijden is er niet. De autoreistijd is die van Car_CongestionMoment_ForDirect.
 	unit<uint8> DirectModes_Selected := select_with_attr_by_cond(/ModelParameters/Advanced/DirectModes, /ModelParameters/Advanced/DirectModes/Allowed)
@@ -165,11 +165,11 @@ container PublicTransport_Prep
 			attribute<impl/Modes> Mode_rel         := const(impl/Modes/V/Cycling, .);
 		}
 		
-		// De auto-HB-tabel met kosten (de _w_Cost-variant van PrivateTransport_Car_T: alt_imp is de som van de
-		// linkkosten, zie ModelParameters KOSTEN PER LINK), TomTom of OSM. Met ParetoLegs_Car de _pareto-variant:
-		// per HB-paar het (reistijd, kosten)-front, dus meerdere rijen per paar; de ketenrijger houdt daarvan per
-		// paar het niet-gedomineerde deel over. De afstand van de rit is niet bekend: het tweede criterium is de
-		// kostprijs, en de operator draagt een alternatieve impedantie.
+		// De auto-HB-tabel met afstand (de _w_AltImp-variant van PrivateTransport_Car_T: alt_imp is de afstand in km),
+		// TomTom of OSM. Met ParetoLegs_Car de _pareto-variant: per HB-paar het (reistijd, afstand)-front, dus meerdere
+		// rijen per paar; de eindafweging houdt daarvan per paar het niet-gedomineerde deel over. De prijs volgt bij het
+		// lezen: afstand x Car_CostPerKm + Car_FixedCosts_PerTrip (sinds 2026-10-05, #88). Tot dan droeg de store de
+		// linkkosten (kilometerprijs per wegklasse en optrekkosten) als tweede criterium, en was de afstand onbekend.
 		//
 		// Per congestiemoment een store volgens de MMD-regels van 20.19.0 (#1245), zoals de ketens: Car_src is de
 		// rekenkant, Write_Car de holder die alleen de vier kolommen bewaart, Car_store de kale lezer (declareert
@@ -189,8 +189,8 @@ container PublicTransport_Prep
 		{
 			parameter<string> Moment;
 			///
-			unit<uint64> Car_src := ='/NetworkSetup/PrivateTransport/Car/Traveltimes/'+Moment+(/ModelParameters/UseTomTomNetworkForCars ? '_TomTom' : '_OSM')+'_w_Cost'+(/ModelParameters/Advanced/ParetoLegs_Car ? '_pareto' : '')+'/impedanceMatrix'
-			,	Descr = "Rekenkant: de (pareto-)kostenmatrix van PrivateTransport_Car_T op dit moment. Niet zelf gebruiken; Write_Car schrijft hem weg en Car leest hem terug.";
+			unit<uint64> Car_src := ='/NetworkSetup/PrivateTransport/Car/Traveltimes/'+Moment+(/ModelParameters/UseTomTomNetworkForCars ? '_TomTom' : '_OSM')+'_w_AltImp'+(/ModelParameters/Advanced/ParetoLegs_Car ? '_pareto' : '')+'/impedanceMatrix'
+			,	Descr = "Rekenkant: de (pareto-)afstandsmatrix van PrivateTransport_Car_T op dit moment. Niet zelf gebruiken; Write_Car schrijft hem weg en Car leest hem terug.";
 			parameter<km_hr>  MaxSpeed        := MakeDefined(rjoin(Moment, /ModelParameters/Advanced/CongestionTimes/name, /ModelParameters/Advanced/CongestionTimes/MaxSpeed), 0[km_hr]), Descr = "Het snelheidsplafond van dit moment (0 = geen), voor de storenaam.";
 			parameter<string> Signature := 'DirectCar_' + Moment
 				+ (/ModelParameters/UseTomTomNetworkForCars
@@ -199,8 +199,8 @@ container PublicTransport_Prep
 				+ '_MaxTime-' + string(/ModelParameters/MaxCarTime) + 'min'
 				+ '_ORG-' + /ModelParameters/Advanced/OrgSet_string + '_DEST-' + /ModelParameters/Advanced/DestSet_string
 				+ (MaxSpeed > 0[km_hr] ? '_vmax' + string(round(MaxSpeed)) : '')
-				+ /ModelParameters/Advanced/ParetoLegs_Car_FileTag + /ModelParameters/Advanced/Car_CostTag + /ModelParameters/Advanced/CarNetwork_Revision
-			,	Descr = "Handtekening van de store: congestiemoment, net en editie, MaxCarTime, herkomst- en bestemmingenset, snelheidsplafond, pareto-tag, kostentag en revisie. Tot 2026-10-03 (NetworkModel_PBL#118) was dit de naam; nu staat hij in <store>.signature.txt en als hash in de naam.";
+				+ /ModelParameters/Advanced/ParetoLegs_Car_FileTag + /ModelParameters/Advanced/CarNetwork_Revision
+			,	Descr = "Handtekening van de store: congestiemoment, net en editie, MaxCarTime, herkomst- en bestemmingenset, snelheidsplafond, pareto-tag en revisie. De kosten staan er sinds 2026-10-05 niet meer in (#88): de store bevat reistijd en afstand, de prijs volgt bij het lezen. Tot 2026-10-03 (NetworkModel_PBL#118) was dit de naam; nu staat hij in <store>.signature.txt en als hash in de naam.";
 			container Hash := /Templates/StringHash_T(Signature);
 			parameter<string> StorageBase_Str := '%LocalDataProjDir%/IntermediateResults/DirectCar_' + Moment + '_' + /ModelParameters/Advanced/OrgSet_string + '_' + /ModelParameters/Advanced/DestSet_string + '_' + Hash/Hex
 			,	Descr = "Naam van de store zonder extensie: congestiemoment, herkomst- en bestemmingenset leesbaar, de rest als hash van Signature.";
@@ -208,32 +208,32 @@ container PublicTransport_Prep
 			container Sig := /Templates/StoreSignature_T(StorageName_Str, StorageBase_Str + '.signature.txt', Signature, strlen('/0Dictionary.dms'))
 			,	Descr = "De handtekening naast de store: Write_Car schrijft hem, Car_store controleert hem.";
 			unit<uint64> Write_Car := Car_src, StorageName = "=StorageName_Str", ExplicitSuppliers = "Sig/ForWriting"
-			,	Descr = "Schrijft de kostenmatrix van de directe autorit op dit moment naar StorageName_Str, en de handtekening ernaast (Sig); bereken dit item om de store (opnieuw) te maken."
+			,	Descr = "Schrijft de afstandsmatrix van de directe autorit op dit moment naar StorageName_Str, en de handtekening ernaast (Sig); bereken dit item om de store (opnieuw) te maken."
 			{
 				attribute<s_f>        impedance   := Car_src/impedance;
-				attribute<Euro>       alt_imp     := Car_src/alt_imp;
+				attribute<km>         alt_imp     := Car_src/alt_imp, Descr = "De afstand van de route (sinds 2026-10-05, #88; tot dan de linkkosten in euro).";
 				attribute<impl/org>   OrgZone_rel := Car_src/OrgZone_rel;
 				attribute<impl/dest>  DstZone_rel := Car_src/DstZone_rel;
 			}
 			unit<uint64> Car_store : StorageName = "=Sig/ForReading", StorageReadOnly = "true"
 			,	Descr = "Kale lezer van de store; declareert niets. Faalt als de handtekening ontbreekt of afwijkt (Sig/CheckGate); bestaat de store niet, bereken dan eerst Write_Car.";
 			unit<uint64> Car := Car_store
-			,	Descr = "De directe autorit uit de store: per HB-paar de snelste route (scalair) of het (reistijd, kosten)-front (ParetoLegs_Car), met prijs en de samenvatting per HB-paar in Summary."
+			,	Descr = "De directe autorit uit de store: per HB-paar de snelste route (scalair) of het (reistijd, afstand)-front (ParetoLegs_Car), met prijs en de samenvatting per HB-paar in Summary."
 			{
 				attribute<s_f>        impedance        := Car_store/impedance;
-				attribute<Euro>       alt_imp          := Car_store/alt_imp;
+				attribute<km>         alt_imp          := Car_store/alt_imp;
 				attribute<impl/org>   OrgZone_rel      := Car_store/OrgZone_rel;
 				attribute<impl/dest>  DstZone_rel      := Car_store/DstZone_rel;
 				attribute<string>     Org_Dest         := string(OrgZone_rel) + '_' + string(DstZone_rel);
 				attribute<s>          Duration_seconds := convert(impedance[min_f] + /ModelParameters/Car_StartTime + /ModelParameters/Car_ParkingTime, s);
-				attribute<dam>        Distance         := const(null_w, ., dam), Descr = "Onbekend voor de directe autorit: de matrix draagt de kosten als alternatieve impedantie, niet de afstand.";
-				attribute<Euro>       Cost_Euro        := /ModelParameters/Car_FixedCosts_PerTrip + alt_imp[Euro];
+				attribute<dam>        Distance         := convert(alt_imp, dam), Descr = "De afstand van de route; tot 2026-10-05 onbekend (leeg), toen de matrix de kosten droeg.";
+				attribute<Euro>       Cost_Euro        := /ModelParameters/Car_FixedCosts_PerTrip + alt_imp * /ModelParameters/Car_CostPerKm, Descr = "Afstand x Car_CostPerKm plus het bedrag per rit (#88).";
 				attribute<Ct>         Price            := =/ModelParameters/Advanced/IncludeCarCostsInPrice ? 'rounded_convert(Cost_Euro, Ct)' : 'const(0, ., Ct)';
 				attribute<Ct>         Price_Augm       := Price;
 				attribute<impl/Modes> Mode_rel         := const(impl/Modes/V/Car, .);
 
-				// Samenvatting per HB-paar (Org_Dest): aantal routes in het front, kortste en langste reistijd, laagste en
-				// hoogste kosten. Scalair is nr_routes overal 1 en zijn min en max gelijk.
+				// Samenvatting per HB-paar (Org_Dest): aantal routes in het front, kortste en langste reistijd, kortste en
+				// langste afstand. Scalair is nr_routes overal 1 en zijn min en max gelijk.
 				attribute<uint64>     od_key           := uint64(OrgZone_rel) * uint64(#impl/dest) + uint64(DstZone_rel);
 				unit<uint64>          Summary          := unique(od_key)
 				,	Descr = "Per HB-paar: nr_routes, min_impedance, max_impedance, min_alt_imp, max_alt_imp."
@@ -244,8 +244,8 @@ container PublicTransport_Prep
 					attribute<uint32>     nr_routes     := uint32(pcount(../Summary_rel)), Descr = "pcount over een uint64-domein levert uint64, vandaar de conversie.";
 					attribute<s_f>        min_impedance := min(../impedance, ../Summary_rel);
 					attribute<s_f>        max_impedance := max(../impedance, ../Summary_rel);
-					attribute<Euro>       min_alt_imp   := min(../alt_imp, ../Summary_rel);
-					attribute<Euro>       max_alt_imp   := max(../alt_imp, ../Summary_rel);
+					attribute<km>         min_alt_imp   := min(../alt_imp, ../Summary_rel);
+					attribute<km>         max_alt_imp   := max(../alt_imp, ../Summary_rel);
 				}
 				attribute<Summary>    Summary_rel      := rlookup(od_key, Summary/values);
 				parameter<uint32>     stat_rows        := sum(Summary/nr_routes);
@@ -254,20 +254,20 @@ container PublicTransport_Prep
 				parameter<float32>    stat_front_mean  := float32(stat_rows) / float32(stat_od_pairs);
 
 				// Uitdunning bij het lezen (GeoDMS >= 20.21.0, pareto_optimal_eps): per HB-paar hoogstens een route per tijdbak
-				// (CarFrontTimeEpsilon) en kostenbak (CarFrontCostEpsilon); de snelste route van het paar blijft altijd.
-				attribute<bool>       keep             := = /ModelParameters/Advanced/EngineHasParetoEpsilon && (/ModelParameters/Advanced/CarFrontTimeEpsilon > 0[s_f] || /ModelParameters/Advanced/CarFrontCostEpsilon > 0[Euro])
-				                                            ? 'pareto_optimal_eps(Summary_rel, impedance, /ModelParameters/Advanced/CarFrontTimeEpsilon, alt_imp, /ModelParameters/Advanced/CarFrontCostEpsilon)'
+				// (CarFrontTimeEpsilon) en afstandsbak (CarFrontDistanceEpsilon); in de tijdbak van de snelste route kan een kortere route haar vervangen (zie CarFrontTimeEpsilon).
+				attribute<bool>       keep             := = /ModelParameters/Advanced/EngineHasParetoEpsilon && (/ModelParameters/Advanced/CarFrontTimeEpsilon > 0[s_f] || /ModelParameters/Advanced/CarFrontDistanceEpsilon > 0[km])
+				                                            ? 'pareto_optimal_eps(Summary_rel, impedance, /ModelParameters/Advanced/CarFrontTimeEpsilon, alt_imp, /ModelParameters/Advanced/CarFrontDistanceEpsilon)'
 				                                            : 'const(TRUE, ., bool)';
 			}
 			unit<uint64> Car_Front := select_with_org_rel(Car/keep)
 			,	Descr = "Het uitgedunde front (Car/keep), wat meedoet in Direct_OD. Zonder epsilon, of op een engine voor 20.21.0, gelijk aan Car."
 			{
 				attribute<s_f>        impedance        := Car/impedance[org_rel];
-				attribute<Euro>       alt_imp          := Car/alt_imp[org_rel];
+				attribute<km>         alt_imp          := Car/alt_imp[org_rel];
 				attribute<impl/org>   OrgZone_rel      := Car/OrgZone_rel[org_rel];
 				attribute<impl/dest>  DstZone_rel      := Car/DstZone_rel[org_rel];
 				attribute<s>          Duration_seconds := Car/Duration_seconds[org_rel];
-				attribute<dam>        Distance         := const(null_w, ., dam);
+				attribute<dam>        Distance         := Car/Distance[org_rel];
 				attribute<Ct>         Price            := Car/Price[org_rel];
 				attribute<Ct>         Price_Augm       := Car/Price_Augm[org_rel];
 				attribute<impl/Modes> Mode_rel         := Car/Mode_rel[org_rel];

@@ -398,9 +398,9 @@ Template PerDepartureMoment_T
 
 		// Sinds 2026-10-03 (bespreking PBL 21-09-2026, punt 2) afstand, reistijd en prijs ook per modaliteit. Het OV is de OV-keten
 		// (TravelDist_PT, PT_time, Price_PT), met het lopen en wachten bij overstappen; lopen, fiets en auto zijn het voor- en
-		// natransport en de directe rit met die modaliteit. De wachttijd thuis (W_time) valt onder geen van de vier. Voor de auto
-		// alleen reistijd en prijs, geen afstand (besluit 2026-10-03): het autofront draagt de kosten als alternatieve impedantie,
-		// niet de afstand, zie Direct/Car en de wiki, Public transport, Direct walking, cycling and car.
+		// natransport en de directe rit met die modaliteit. De wachttijd thuis (W_time) valt onder geen van de vier. De auto had van
+		// 2026-10-03 tot 2026-10-05 geen afstand, toen het autofront de kosten droeg in plaats van de afstand (0eb61ea); sinds het
+		// front op reistijd en afstand staat (#88) is TravelDist_Car er weer.
 		attribute<dam>                                      TravelDist_PT               := TravelDist_Bus + Traveldist_Metro + Traveldist_Tram + Traveldist_Rail + Traveldist_Ferry;
 		attribute<bool>                                     V_IsWalking                 := V_mode_rel == Modes/v/Walking;
 		attribute<bool>                                     V_IsCycling                 := V_mode_rel == Modes/v/Cycling;
@@ -409,6 +409,7 @@ Template PerDepartureMoment_T
 		attribute<bool>                                     N_IsCycling                 := N_mode_rel == Modes/v/Cycling;
 		attribute<dam>                                      TravelDist_Walking          := (V_IsWalking ? TravelDist_V : 0[dam]) + (N_IsWalking ? Traveldist_N : 0[dam]);
 		attribute<dam>                                      TravelDist_Cycling          := (V_IsCycling ? TravelDist_V : 0[dam]) + (N_IsCycling ? Traveldist_N : 0[dam]);
+		attribute<dam>                                      TravelDist_Car              := V_IsCar ? TravelDist_V : 0[dam], Descr = "De afstand van de directe autorit (PublicTransport_Prep/Direct/Car, sinds 2026-10-05 de afstand van de route in het front op reistijd en afstand, #88), 0 bij elke andere optie.";
 		attribute<s>                                        Walking_time                := (V_IsWalking ? V_time : 0[s]) + (N_IsWalking ? N_time : 0[s]);
 		attribute<s>                                        Cycling_time                := (V_IsCycling ? V_time : 0[s]) + (N_IsCycling ? N_time : 0[s]);
 		attribute<s>                                        Car_time                    := V_IsCar ? V_time : 0[s];
@@ -428,7 +429,7 @@ Template PerDepartureMoment_T
 		attribute<string>  DestName                             (domain) := domain/DestName;
 		attribute<string>  OrgDestName                          (domain) := OrgName + '_' + DestName;
 		// attribute<float32> nr_items_of_interest_bereikbaar_decayed (org) := domain/nr_items_of_interest_bereikbaar_decayed;
-		// Een onbekende waarde wordt een leeg veld: de directe autorit heeft geen afstand (TravelDist_V null), en een null
+		// Een onbekende waarde wordt een leeg veld: de directe autorit had tot 2026-10-05 geen afstand (TravelDist_V null), en een null
 		// in de samengestelde regel maakte de hele regel null, zodat alle autoritten uit de csv verdwenen (2026-09-24).
 		// Sinds 2026-10-03 heet elk item hieronder naar zijn kolom (zonder het vertrekmoment), en bepaalt Columns welke kolommen in
 		// welke volgorde in het bestand komen; tot dan waren er vier met de hand bijgehouden varianten van kop en regel (audit 3.6).
@@ -456,10 +457,12 @@ Template PerDepartureMoment_T
 		attribute<string>  PTPrice                              (domain) := MakeDefined(string(convert(domain/Price_PT, euro)), '');
 		attribute<string>  PosttransPrice                       (domain) := MakeDefined(string(convert(domain/Price_N, euro)), '');
 		// Sinds 2026-10-03 de OV-afstand in een kolom, en afstand, reistijd en prijs per modaliteit (zie Result_AfterSecondCondensation).
-		// Het OV per modaliteit is het OV-deel hierboven: TravelDist_PT, PTTime en PTPrice. De auto heeft geen afstandskolom.
+		// Het OV per modaliteit is het OV-deel hierboven: TravelDist_PT, PTTime en PTPrice. TravelDist_Car (sinds 2026-10-05 weer,
+		// #88) staat als laatste kolom, zodat de kolommen van 2026-10-03 hun plaats houden.
 		attribute<string>  TravelDist_PT                        (domain) := MakeDefined(string(convert(domain/TravelDist_PT, m)), '');
 		attribute<string>  TravelDist_Walking                   (domain) := MakeDefined(string(convert(domain/TravelDist_Walking, m)), '');
 		attribute<string>  TravelDist_Cycling                   (domain) := MakeDefined(string(convert(domain/TravelDist_Cycling, m)), '');
+		attribute<string>  TravelDist_Car                       (domain) := MakeDefined(string(convert(domain/TravelDist_Car, m)), '');
 		attribute<string>  WalkingTime                          (domain) := MakeDefined(string(convert(domain/Walking_time, min_f)), '');
 		attribute<string>  CyclingTime                          (domain) := MakeDefined(string(convert(domain/Cycling_time, min_f)), '');
 		attribute<string>  CarTime                              (domain) := MakeDefined(string(convert(domain/Car_time, min_f)), '');
@@ -467,19 +470,21 @@ Template PerDepartureMoment_T
 		attribute<string>  CyclingPrice                         (domain) := MakeDefined(string(convert(domain/Price_Cycling, euro)), '');
 		attribute<string>  CarPrice                             (domain) := MakeDefined(string(convert(domain/Price_Car, euro)), '');
 
-		unit<uint8> Columns : nrofrows = 29
+		unit<uint8> Columns : nrofrows = 30
 		, Descr = "De kolommen van de OV-uitvoer na OrgName en DestName, in deze volgorde en elk met het vertrekmoment achter de naam; name is ook het item hierboven. kind 'dist' komt alleen in het bestand met Export_TravelledDistance, 'price' alleen met Export_PriceInformation. Nieuwe kolommen achteraan, zodat een lezer op positie de bestaande houdt."
 		{
 			attribute<string> name : [
 				'Traveltime', 'Price', 'Price_Augm', 'ModeUsed', 'NeedsCar', 'NeedsBike',
 				'TravelDist_V', 'TravelDist_Bus', 'TravelDist_Metro', 'TravelDist_Tram', 'TravelDist_Rail', 'TravelDist_Ferry', 'TravelDist_N',
 				'WaitingTime', 'PretransTime', 'PTTime', 'PosttransTime', 'PretransPrice', 'PTPrice', 'PosttransPrice',
-				'TravelDist_PT', 'TravelDist_Walking', 'TravelDist_Cycling', 'WalkingTime', 'CyclingTime', 'CarTime', 'WalkingPrice', 'CyclingPrice', 'CarPrice'];
+				'TravelDist_PT', 'TravelDist_Walking', 'TravelDist_Cycling', 'WalkingTime', 'CyclingTime', 'CarTime', 'WalkingPrice', 'CyclingPrice', 'CarPrice',
+				'TravelDist_Car'];
 			attribute<string> kind : [
 				'', 'price', 'price', '', '', '',
 				'dist', 'dist', 'dist', 'dist', 'dist', 'dist', 'dist',
 				'', '', '', '', 'price', 'price', 'price',
-				'dist', 'dist', 'dist', '', '', '', 'price', 'price', 'price'];
+				'dist', 'dist', 'dist', '', '', '', 'price', 'price', 'price',
+				'dist'];
 			attribute<bool>   IsExported := (kind != 'dist' || ModelParameters/Export_TravelledDistance) && (kind != 'price' || ModelParameters/Export_PriceInformation);
 		}
 		unit<uint8> ExportColumns := select_with_attr_by_cond(Columns, Columns/IsExported);
