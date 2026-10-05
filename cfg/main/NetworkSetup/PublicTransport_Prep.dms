@@ -210,8 +210,8 @@ container PublicTransport_Prep
 			unit<uint64> Write_Car := Car_src, StorageName = "=StorageName_Str", ExplicitSuppliers = "Sig/ForWriting"
 			,	Descr = "Schrijft de afstandsmatrix van de directe autorit op dit moment naar StorageName_Str, en de handtekening ernaast (Sig); bereken dit item om de store (opnieuw) te maken."
 			{
-				attribute<s_f>        impedance   := Car_src/impedance;
-				attribute<km>         alt_imp     := Car_src/alt_imp, Descr = "De afstand van de route (sinds 2026-10-05, #88; tot dan de linkkosten in euro).";
+				attribute<s_f>        impedance   := Car_src/Car_Time, Descr = "De reistijd van de route; met de relatieve epsilon (sinds 2026-10-05) het tweede zoekcriterium, de afstand het eerste.";
+				attribute<km>         alt_imp     := Car_src/Car_Distance, Descr = "De afstand van de route (sinds 2026-10-05, #88; tot dan de linkkosten in euro).";
 				attribute<impl/org>   OrgZone_rel := Car_src/OrgZone_rel;
 				attribute<impl/dest>  DstZone_rel := Car_src/DstZone_rel;
 			}
@@ -253,10 +253,12 @@ container PublicTransport_Prep
 				parameter<uint32>     stat_front_max   := max(Summary/nr_routes);
 				parameter<float32>    stat_front_mean  := float32(stat_rows) / float32(stat_od_pairs);
 
-				// Uitdunning bij het lezen (GeoDMS >= 20.21.0, pareto_optimal_eps): per HB-paar hoogstens een route per tijdbak
-				// (CarFrontTimeEpsilon) en afstandsbak (CarFrontDistanceEpsilon); in de tijdbak van de snelste route kan een kortere route haar vervangen (zie CarFrontTimeEpsilon).
-				attribute<bool>       keep             := = /ModelParameters/Advanced/EngineHasParetoEpsilon && (/ModelParameters/Advanced/CarFrontTimeEpsilon > 0[s_f] || /ModelParameters/Advanced/CarFrontDistanceEpsilon > 0[km])
-				                                            ? 'pareto_optimal_eps(Summary_rel, impedance, /ModelParameters/Advanced/CarFrontTimeEpsilon, alt_imp, /ModelParameters/Advanced/CarFrontDistanceEpsilon)'
+				// Uitdunning bij het lezen (GeoDMS >= 20.21.0, pareto_optimal_eps), sinds 2026-10-05 met de relatieve CarFrontEpsilon (GeoDMS #1282):
+				// in volgorde van afstand (de prijs) blijft een langere route alleen als ze meer dan die fractie sneller is dan de kortere routes die
+				// blijven, de regel van de zoektocht zelf; met dezelfde epsilon als de store dunt dit niets meer uit. De kortste route blijft altijd.
+				// Eerder op 2026-10-05 reistijd eerst, met tijdbakken van 60 s en afstandsbakken van 400 m, waarin een kortere route de snelste kon vervangen.
+				attribute<bool>       keep             := = /ModelParameters/Advanced/EngineHasParetoEpsilon && /ModelParameters/Advanced/CarFrontEpsilon > 0f
+				                                            ? 'pareto_optimal_eps(Summary_rel, alt_imp, 0.0, impedance, /ModelParameters/Advanced/CarFrontEpsilon)'
 				                                            : 'const(TRUE, ., bool)';
 			}
 			unit<uint64> Car_Front := select_with_org_rel(Car/keep)
@@ -623,7 +625,7 @@ container PublicTransport_Prep
 		// dus moeten ze in de handtekening staan: anders overschrijft een pareto-run stilzwijgend het
 		// scalaire resultaat waarmee hij vergeleken moet worden.
 		(ModelParameters/Advanced/ParetoLegs_R ? '_paretoR' : '')+
-		ModelParameters/Advanced/ChainPareto_FileTag+ // '_chaineps10ct60s': epsilon-dominantie in de ketenrijging (GeoDMS >= 20.21.0), leeg als die uit staat
+		ModelParameters/Advanced/ChainPareto_FileTag+ // '_chainrel1pct': de relatieve epsilon op de reistijd in de ketenrijging (GeoDMS #1282; tot 2026-10-05 '_chaineps10ct60s'), leeg als die uit staan
 		(ModelParameters/Advanced/ParetoLegs_L ? '_paretoL' : '')+
 		((ModelParameters/Advanced/ParetoLegs_R || ModelParameters/Advanced/ParetoLegs_L || ModelParameters/Advanced/UseQuantisedLegDistanceInScalarRun) && ModelParameters/Advanced/LegDistanceQuantum > 0[km]
 			? '_q'+string(ModelParameters/Advanced/LegDistanceQuantum * 1000f)+'m'

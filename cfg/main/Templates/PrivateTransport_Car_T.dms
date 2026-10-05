@@ -147,6 +147,8 @@ Template PrivateTransport_Car_T
 							, Distance
 						)'
 			{
+				attribute<s_f>    Car_Time     := impedance, Descr = "De reistijd van de route, onder dezelfde naam als in ImpedanceMatrix_with_AltImp_pareto_T.";
+				attribute<km>     Car_Distance := alt_imp, Descr = "De afstand van de route, onder dezelfde naam als in ImpedanceMatrix_with_AltImp_pareto_T.";
 				attribute<string> Org_Dest := string(OrgZone_rel)+'_'+string(DstZone_rel);
 			}
 		}
@@ -158,46 +160,55 @@ Template PrivateTransport_Car_T
 			attribute<s_f>    Impedance (LinkSet_dom);
 			attribute<km>     Distance  (LinkSet_dom);
 			//
-			// Een bi-criteria label-setting zoektocht op (Impedance, AltImp_q) met per HB-paar een rij per Pareto-optimale route;
-			// de eerste rij per paar draagt de scalaire minimum-reistijd (GeoDMS#856, doc/bicriteria-impedance.md).
-			// Per link kwantiseren volstaat voor de zoektocht (een som van veelvouden van q is een veelvoud van q), maar
-			// afronden naar het dichtstbijzijnde veelvoud laat elke link onder een half kwantum wegvallen, en de meeste
-			// TomTom-links zijn korter dan het kwantum. Daarom dithering: per link een vaste pseudo-toevallige drempel
-			// u in [0,1) uit het link-id, en AltImp_q = rounddown(Distance/q + u) * q. De verwachting over u is Distance, dus de
-			// som over een route is onvertekend; dezelfde link krijgt vanuit elke herkomst dezelfde AltImp_q.
+			// Een bi-criteria label-setting zoektocht met per HB-paar een rij per Pareto-optimale route (GeoDMS#856,
+			// doc/bicriteria-impedance.md). Car_Time en Car_Distance geven reistijd en afstand, in welke volgorde ook gezocht is.
+			//
+			// Sinds 2026-10-05 (EngineHasParetoEpsilon en CarFrontEpsilon > 0, GeoDMS #1282): AFSTAND EERST, want de prijs is afstand x
+			// Car_CostPerKm en het rapportagethema is bereikbaarheidsarmoede. De engine neemt per bestemmingszone de routes aan in
+			// volgorde van afstand, de kortste (goedkoopste) eerst, en een langere route alleen als haar reistijd meer dan de fractie
+			// CarFrontEpsilon onder de snelste al aangenomen reistijd ligt (pareto(imp2_epsilon), relatief). De grens van MaxCarTime is
+			// die op het tweede criterium (pareto(OrgZone_max_imp2)), en met zo'n grens zoekt de engine exact en dunt hij alleen per zone
+			// uit (GeoDMS c1d0aacbb): per knoop kon een deelroute die minder dan 1% sneller is, de enige zijn die binnen de grens blijft.
+			// De eerste rij per paar is de kortste route, exact; de snelste blijft als ze meer dan CarFrontEpsilon sneller is dan elke
+			// kortere route die blijft. De verplichte grens op het eerste criterium is CarFrontMaxDistance, ruim genoeg om niets af te snijden.
+			//
+			// Op een engine voor 20.21.0, of met CarFrontEpsilon 0: reistijd eerst, met de afstand per link gekwantiseerd (AltImp_q).
+			// Afronden naar het dichtstbijzijnde veelvoud laat elke link onder een half kwantum wegvallen, en de meeste TomTom-links zijn
+			// korter dan het kwantum. Daarom dithering: per link een vaste pseudo-toevallige drempel u in [0,1) uit het link-id, en
+			// AltImp_q = rounddown(Distance/q + u) * q. De verwachting over u is Distance, dus de som over een route is onvertekend.
 			// (in uint64, want GeoDMS meldt een overflow bij uint32-vermenigvuldiging in plaats van te wikkelen)
+			// Tot 2026-10-05 ook met de epsilon reistijd eerst, met afstandsbakken van 400 m (CarFrontDistanceEpsilon).
 			attribute<float32> dither (LinkSet_dom) := float32(mod(uint64(id(LinkSet_dom)) * uint64(7919), uint64(1000))) / 1000f;
-			// Sinds GeoDMS 20.21.0 (EngineHasParetoEpsilon) doet de engine dit zelf met pareto(imp2_epsilon): per knoop en
-			// bestemmingszone alleen labels in een strikt lagere afstandsbak van CarFrontDistanceEpsilon, op de som van de ruwe
-			// lengtes, dus zonder ditherruis; de linklengtes gaan dan ongekwantiseerd mee.
-			parameter<bool>   UseEngineEpsilon := ModelParameters/Advanced/EngineHasParetoEpsilon && ModelParameters/Advanced/CarFrontDistanceEpsilon > 0[km];
+			parameter<bool>   UseEngineEpsilon := ModelParameters/Advanced/EngineHasParetoEpsilon && ModelParameters/Advanced/CarFrontEpsilon > 0f;
 			attribute<km>     AltImp_q (LinkSet_dom) := not(UseEngineEpsilon) && ModelParameters/Advanced/CarLegDistanceQuantum > 0[km]
 			                                          ? float32(rounddown(Distance / ModelParameters/Advanced/CarLegDistanceQuantum + dither)) * ModelParameters/Advanced/CarLegDistanceQuantum
 			                                          : Distance;
-			parameter<string> ParetoStr := UseEngineEpsilon ? ';pareto(imp2_epsilon)' : ';pareto';
-			parameter<string> EpsArgStr := UseEngineEpsilon ? ', ModelParameters/Advanced/CarFrontDistanceEpsilon' : '', Descr = "Het epsilon-argument van pareto(imp2_epsilon), na het link_imp-argument.";
-			unit<uint64> impedanceMatrix := =
-				ModelParameters/Advanced/InterpretAllRoadsAsBidirectional 
-					? 	'impedance_matrix_od64(''bidirectional;startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp'+ParetoStr+';od:impedance,OrgZone_rel,DstZone_rel''
-							, Impedance
-							, LinkSet_dom/F1
-							, LinkSet_dom/F2
-							, NodeSet_dom/OrgNode_rel
-							, NodeSet_dom/DestNode_rel
-							, convert(settings/max_traveldistance_min, s_f)
-							, AltImp_q' + EpsArgStr + '
-						)'
-					: 	'impedance_matrix_od64(''bidirectional(link_flag);startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp'+ParetoStr+';od:impedance,OrgZone_rel,DstZone_rel''
-							, Impedance
-							, LinkSet_dom/F1
-							, LinkSet_dom/F2
-							, not(LinkSet_dom/IsOneDirection)
-							, NodeSet_dom/OrgNode_rel
-							, NodeSet_dom/DestNode_rel
-							, convert(settings/max_traveldistance_min, s_f)
-							, AltImp_q' + EpsArgStr + '
-						)'
+			parameter<string> BidirSpec := ModelParameters/Advanced/InterpretAllRoadsAsBidirectional ? 'bidirectional' : 'bidirectional(link_flag)';
+			parameter<string> BidirArg  := ModelParameters/Advanced/InterpretAllRoadsAsBidirectional ? '' : ', not(LinkSet_dom/IsOneDirection)';
+			unit<uint64> impedanceMatrix := = UseEngineEpsilon
+				? 'impedance_matrix_od64(''' + BidirSpec + ';startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;pareto(OrgZone_max_imp2,imp2_epsilon);od:impedance,OrgZone_rel,DstZone_rel''
+						, Distance
+						, LinkSet_dom/F1
+						, LinkSet_dom/F2' + BidirArg + '
+						, NodeSet_dom/OrgNode_rel
+						, NodeSet_dom/DestNode_rel
+						, ModelParameters/Advanced/CarFrontMaxDistance
+						, Impedance
+						, convert(settings/max_traveldistance_min, s_f)
+						, ModelParameters/Advanced/CarFrontEpsilon
+					)'
+				: 'impedance_matrix_od64(''' + BidirSpec + ';startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;pareto;od:impedance,OrgZone_rel,DstZone_rel''
+						, Impedance
+						, LinkSet_dom/F1
+						, LinkSet_dom/F2' + BidirArg + '
+						, NodeSet_dom/OrgNode_rel
+						, NodeSet_dom/DestNode_rel
+						, convert(settings/max_traveldistance_min, s_f)
+						, AltImp_q
+					)'
 			{
+				attribute<s_f>    Car_Time     := = UseEngineEpsilon ? 'alt_imp' : 'impedance', Descr = "De reistijd van de route: het tweede criterium als op afstand eerst gezocht is, anders het eerste.";
+				attribute<km>     Car_Distance := = UseEngineEpsilon ? 'impedance' : 'alt_imp', Descr = "De afstand van de route: het eerste criterium als op afstand eerst gezocht is, anders het tweede.";
 				attribute<string> Org_Dest := string(OrgZone_rel)+'_'+string(DstZone_rel);
 			}
 		}
