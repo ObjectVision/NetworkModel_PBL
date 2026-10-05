@@ -18,6 +18,8 @@ Template ChainJoiner_T
 	parameter<bool>   NS_transfer_possible := HasLeft_NS && HasRight_NS;
 	parameter<bool>   NS_through_fare_certain    := right(LeftStr, 1)=='L' && left(RightStr, 1)=='L';
 	parameter<bool>   RO_transfer_possible := HasLeft_RO && HasRight_RO;
+	parameter<uint32> ModeCodeShift := strlen(RightStr) == 1 ? 16u : strlen(RightStr) == 2 ? 256u : strlen(RightStr) == 3 ? 4096u : 65536u
+	, Descr = "16 tot de macht het aantal benen van het rechterdeel (een letter per been in RightStr): links x ModeCodeShift + rechts plakt de ModeCode van twee delen aan elkaar (Classifications/GTFS_Modes/CodeDigits).";
 
 	parameter<Time>   MaxTransferTimeWithinFareJourney  := convert(/ModelParameters/Advanced/MaxTransferTimeForBoardingSurcharge,s_f)[Time]; // MOVE to ModelParameters/Advanced
 
@@ -58,7 +60,7 @@ Template ChainJoiner_T
 		attribute<Modes>              from_Mode_rel                   := Left_rel -> Mode_rel;
 		attribute<Modes>              to_Mode_rel                     := Right_rel -> Mode_rel;
 		attribute<Modes>              Mode_rel                        := to_Mode_rel, Descr = "Last mode_rel";
-		attribute<string>             ModeUsed                        := Left_rel -> ModeUsed + Right_rel -> ModeUsed;
+		attribute<uint32>             ModeCode                        := Left_rel -> ModeCode * ModeCodeShift + Right_rel -> ModeCode;
 		
 		attribute<bool>               NeedsTranferTimePenalty         := Modes/IsGelijkvloers[from_Mode_rel] == 1b && Modes/IsGelijkvloers[to_Mode_rel] == 1b //van: bus, tram, walk    to bus, tram, walk  --> niks
 																			? False
@@ -193,7 +195,7 @@ Template ChainJoiner_T
 			attribute<Right>                   Right_rel                       := collect_by_cond(., Join_LeftT_Right/Right_rel);
 			attribute<Join_LeftT_Right/Valid1> Valid1_rel                      := collect_by_cond(., Join_LeftT_Right/Valid1_rel);
 			
-			attribute<string>                  ModeUsed                        := Left_rel -> ModeUsed + Right_rel -> ModeUsed, Descr = "Sinds 2026-09-29 alleen voor de overgebleven ketens samengesteld; tot dan voor elke combinatie van Join_LeftT_Right (bij RRRR van haltenblok 1: 268 miljoen voor 1 miljoen ketens), ruim een derde van de rekentijd van de ketenstap.";
+			attribute<uint32>                  ModeCode                        := Left_rel -> ModeCode * ModeCodeShift + Right_rel -> ModeCode, Descr = "De modes van de benen (Classifications/GTFS_Modes/CodeDigits), sinds 2026-10-06 een uint32 in plaats van de string ModeUsed. Sinds 2026-09-29 alleen voor de overgebleven ketens samengesteld; tot dan voor elke combinatie van Join_LeftT_Right (bij RRRR van haltenblok 1: 268 miljoen voor 1 miljoen ketens), ruim een derde van de rekentijd van de ketenstap.";
 			attribute<Modes>                   Mode_rel                        := Right_rel -> Mode_rel;
 			attribute<bool>                    NS_through_fare_cheaper           := Valid1_rel->NS_through_fare_cheaper;
 
