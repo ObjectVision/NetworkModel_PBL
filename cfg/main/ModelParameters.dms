@@ -297,13 +297,32 @@
 		parameter<bool>     EngineHasParetoEpsilon                    := GeoDmsMajorVersionNumber() > 20 || (GeoDmsMajorVersionNumber() == 20 && GeoDmsMinorVersionNumber() >= 21), Descr = "Sinds GeoDMS 20.21.0 kent impedance_matrix_od64 de optie pareto(imp2_epsilon) en bestaat pareto_optimal_eps (GeoDMS #1281, #1282). Op een oudere engine valt de directe autorit terug op de kwantisatie per link met dithering (CarLegDistanceQuantum) en blijft het front bij het lezen ongefilterd.";
 		parameter<float32>  CarFrontEpsilon                           := 0.01f                  , Descr = "Relatieve epsilon van het autofront (sinds 2026-10-05, #88; GeoDMS #1282): het front loopt in volgorde van afstand (de prijs: afstand x Car_CostPerKm, bereikbaarheidsarmoede), de kortste route eerst, en een langere route blijft alleen als haar reistijd meer dan deze fractie onder die van de snelste kortere route ligt die blijft: reistijd < (1 - CarFrontEpsilon) x die reistijd. 0.01: een route die minder dan 1% sneller is maar langer, is geen echt alternatief. Omdat de zoektocht de reistijd begrenst (MaxCarTime, pareto(OrgZone_max_imp2)), past de engine de epsilon alleen per bestemmingszone toe en zoekt hij exact (GeoDMS c1d0aacbb): per knoop kon een deelroute die minder dan 1% sneller is, de enige zijn die binnen de grens blijft (gemeten: met de epsilon per knoop was de goedkoopste route bij 13,6% van de paren langer dan exact, tot 40%). Zo is het front per HB-paar het exacte front, uitgedund met deze regel, zonder opstapeling: de kortste route exact, de snelste route die blijft hoogstens 1% trager dan de snelste. Car_Front past dezelfde regel toe met pareto_optimal_eps en dunt daarmee niets meer uit. 0 = reistijd eerst met de gekwantiseerde afstand (CarLegDistanceQuantum). Eerder op 2026-10-05 reistijd eerst met CarFrontDistanceEpsilon, bakken van 400 m in de zoektocht en bij het lezen, en CarFrontTimeEpsilon, tijdbakken van 60 s bij het lezen, waarin een kortere route de snelste kon vervangen.", IntegrityCheck = "this >= 0f && this <= 1f && (!EngineHasParetoEpsilon || EngineHasRelativeParetoEpsilon)";
 		parameter<km>       CarFrontMaxDistance                       := value(MaxCarTime / 1[min_f] * 2.5f, km), Descr = "De grens op het eerste criterium van de zoektocht op afstand eerst (CarFrontEpsilon), die de engine verplicht stelt: de afstand die in MaxCarTime met 150 km/u te halen is, zodat hij niets afsnijdt; de echte grens is MaxCarTime op de reistijd, het tweede criterium.";
-		parameter<bool>     EngineHasRelativeParetoEpsilon            := = EngineHasParetoEpsilon ? 'sum(uint32(pareto_optimal_eps(ParetoEpsilonProbe/g, ParetoEpsilonProbe/c1, 0.0, ParetoEpsilonProbe/c2, 0.01))) == 1' : 'FALSE'
-		, Descr = "Rekent de engine de epsilon van pareto(imp2_epsilon) en pareto_optimal_eps relatief (GeoDMS #1282, builds na 2026-10-05)? De builds van 20.21.0 tot die dag namen hem als bakbreedte in de eenheid van het criterium en lazen 0.01 dus als bakken van 0,01 km of 0,01 ct, zonder fout: deze proef op ParetoEpsilonProbe onderscheidt ze (relatief: 9,95 is niet 1% onder 10 en valt af; bakken van 0,01: 995 onder 1000 en blijft).";
-		unit<uint32> ParetoEpsilonProbe : nrofrows = 2, Descr = "Twee rijen voor EngineHasRelativeParetoEpsilon."
+		parameter<bool>     EngineHasRelativeParetoEpsilon            := = EngineHasParetoEpsilon ? '#ParetoEpsilonProbe/od == 1' : 'FALSE'
+		, Descr = "Rekent de engine de epsilon van pareto(imp2_epsilon) en pareto_optimal_eps relatief (GeoDMS #1282, builds na 2026-10-05)? De builds van 20.21.0 tot die dag namen hem als bakbreedte in de eenheid van het criterium en lazen 0.01 dus als bakken van 0,01 km of 0,01 ct, zonder fout. De proef ParetoEpsilonProbe onderscheidt ze met impedance_matrix, waarvan de schrijfwijze gelijk bleef: twee routes naar een bestemming, (1, 10) en (2, 9,95); relatief is 9,95 niet 1% onder 10 en blijft een rij over, met bakken van 0,01 (995 onder 1000) blijven er twee. pareto_optimal_eps zelf weigert op zo'n build de schrijfwijze van dcba9d9e0, met een melding.";
+		container ParetoEpsilonProbe: Descr = "Een netwerkje van drie knopen voor EngineHasRelativeParetoEpsilon."
 		{
-			attribute<uint32>  g  : [0, 0];
-			attribute<float64> c1 : [1, 2];
-			attribute<float64> c2 : [10.0, 9.95];
+			unit<uint32> PNode : nrofrows = 3;
+			unit<uint32> PLink : nrofrows = 3
+			{
+				attribute<PNode>   F1 : [0, 0, 2];
+				attribute<PNode>   F2 : [1, 2, 1];
+				attribute<float64> t  : [1.0, 1.0, 1.0];
+				attribute<float64> c  : [10.0, 5.0, 4.95];
+			}
+			unit<uint32> PZone : nrofrows = 1;
+			unit<uint32> PStart : nrofrows = 1
+			{
+				attribute<PNode> node_rel : [0];
+				attribute<PZone> zone_rel : [0];
+			}
+			unit<uint32> PEnd : nrofrows = 1
+			{
+				attribute<PNode> node_rel : [1];
+				attribute<PZone> zone_rel : [0];
+			}
+			unit<uint32> od := impedance_matrix(
+				  'directed;startPoint(Node_rel,OrgZone_rel);endPoint(Node_rel,DstZone_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;pareto(imp2_epsilon);od:impedance'
+				, PLink/t, PLink/F1, PLink/F2, PStart/node_rel, PStart/zone_rel, PEnd/node_rel, PEnd/zone_rel, const(100.0, PZone), PLink/c, 0.01);
 		}
 		parameter<string>   Car_PriceTag                              := AllowDirectCar ? '_car' + (IncludeCarCostsInPrice ? string(round(Car_CostPerKm * 100f)) + 'ctkm' + (Car_FixedCosts_PerTrip > 0[Euro] ? '-p' + string(round(Car_FixedCosts_PerTrip * 100f)) + 'ct' : '') : '0') : '', Descr = "Deel van de handtekening van de OV-uitvoer (PT_Output_ParamTag), sinds 2026-10-05 (#88): de prijs van de directe autorit, in ct per km en, als dat niet 0 is, per rit; _car0 als IncludeCarCostsInPrice uit staat. De autostore bevat alleen reistijd en afstand, dus de prijs staat niet meer in zijn handtekening (Car_CostTag tot 2026-10-05).";
 		parameter<float32>  ChainParetoTimeEpsilon                    := 0.01f                  , Descr = "Relatieve epsilon op de reistijd in de eindafweging per vertrekmoment, bij het samenvoegen van de componenten en, met een tijdpenalty, in de ketenrijger (GeoDMS #1282, relatief sinds 2026-10-05): de prijs staat voorop (bereikbaarheidsarmoede, besluit 2026-10-05), en een duurdere optie blijft alleen als ze meer dan deze fractie sneller is dan de snelste goedkopere optie die blijft. 0.01: 1%. 0 = exact. Op het eerste criterium, de prijs, werkt een epsilon niet; ChainParetoPriceEpsilon (sinds 2026-10-05 even 0.01, tot dan 10 ct, een bakbreedte) is daarom vervallen. Tot 2026-10-05 60 s, een bakbreedte, ook op de resttijden van de ketenrijger; die zijn een afstand tot het einde van het analysevenster en geen reisduur, dus daar is de vergelijking sindsdien exact (Classifications/ChainJoinerParetoAttr_Candidates).", IntegrityCheck = "this >= 0f && this <= 1f && (!EngineHasParetoEpsilon || EngineHasRelativeParetoEpsilon)";
