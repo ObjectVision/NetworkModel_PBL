@@ -18,12 +18,14 @@ REM   UpdateAll.cmd chains          de OV-ketenstore per haltenblok (WriteChainB
 REM                                 CHAINSTORE_SINGLE de ene store van PublicTransport_Prep/x/Write_Result), na de
 REM                                 voorcheck op haltenblokken en prijsdekking; uren, veel geheugen
 REM   UpdateAll.cmd output          de OV-uitvoer: een csv per herkomstblok en vertrekmoment in
-REM                                 %LocalDataProjDir%\Output\<Analysis_date>_<OutputLabel>\PerBlock
+REM                                 %LocalDataProjDir%\Output\<Analysis_date>_<OutputLabel><_component>\PerBlock
 REM                                 (ConfigurationPerBlock/Generate_Output), met de ketenstore van de vertrekmomenten in
 REM                                 PT_DepartureHours/Minutes. Maakt die map eerst leeg (sinds 2026-10-03, #118): alleen de
 REM                                 bestanden van het model (tt_*.csv, tt_*.xml, signature.txt/.xml), ook de samengevoegde,
 REM                                 en sinds 2026-10-04 de tellingen od_tellingen.csv en unieke_od_tellingen.csv (met .xml),
 REM                                 die de uitvoerstap in dezelfde opvraging maakt.
+REM Sinds 2026-10-05 (#117) rekent een run een component (ModelParameters/Component): cars slaat de autostores over als
+REM de component geen directe autorit heeft (Lopen, Fiets), chains de ketenstore als het OV niet meedoet (Auto).
 REM
 REM De oude RunAll.cmd, RunKetens*.cmd, RunPrepare.cmd, RunDayGroups.cmd en RunCongestionSpeeds.cmd
 REM wezen naar itempaden van voor 2025 en zijn op 2026-09-23 verwijderd.
@@ -97,6 +99,14 @@ if /I not "%SECTION%"=="all" goto done
 
 :cars
 if "%SKIP_CARS%"=="1" goto cars_done
+REM Zonder directe autorit (AllowDirectCar FALSE, bijvoorbeeld Component Lopen of Fiets, #117) geen autostores.
+call :run cars_check /ModelParameters/AllowDirectCar
+if not "!RC!"=="0" goto failed
+findstr /R "^Minimum.0" "%LOGDIR%\UpdateAll_cars_check.txt" >nul
+if not errorlevel 1 (
+  echo === directe autorit: AllowDirectCar is FALSE voor deze component, geen autostores ===
+  goto cars_done
+)
 if "%MOMENTS%"=="" set MOMENTS=MorningRush NoonRush LateEveningRush Freeflow
 for %%M in (%MOMENTS%) do (
   echo === directe autorit: store voor %%M ===
@@ -108,6 +118,14 @@ if /I not "%SECTION%"=="all" goto done
 
 :chains
 if "%SKIP_CHAINS%"=="1" goto chains_done
+REM Zonder OV (Advanced/MetOV FALSE, Component Auto, #117) geen ketenstore.
+call :run chains_check /ModelParameters/Advanced/MetOV
+if not "!RC!"=="0" goto failed
+findstr /R "^Minimum.0" "%LOGDIR%\UpdateAll_chains_check.txt" >nul
+if not errorlevel 1 (
+  echo === ketens: het OV doet niet mee in deze component, geen ketenstore ===
+  goto chains_done
+)
 echo === ketens: voorcheck haltenblokken en prijsdekking ===
 call :run chains_precheck /ChecksBeforeRunning/PT_CheckBlocks /SourceData/Infrastructure/OVprijzen/PrijsDekking/Tabel_OK_DOVA
 if not "!RC!"=="0" goto failed

@@ -3,6 +3,7 @@
 	//Generieke instellingen
 	parameter<string>   AnalysisMoment                    := 'Y2026'                , Descr = "De peildatum: een jaar uit Advanced/AnalysisMomentPresets, met de bijbehorende dag (Analysis_date, sinds 2026-10-05 de tweede dinsdag van oktober, #125), GTFS-feed, OSM, TomTom, CBS-gebiedsindeling en BAG-snapshot. Peildata: Y2015, Y2023, Y2024, Y2025 en Y2026.";
 	parameter<string>   Dagdeel                           := 'Ochtendspits'         , Descr = "Het dagdeel van de vertrekmomenten, uit Advanced/Dagdelen (overleg PBL 5-10-2026, #125): 'Ochtendspits' 07:00-07:45, 'Middag' 12:00-12:45 (ter controle) of 'Avond' 19:00-19:45, elk vier momenten per kwartier (PT_DepartureMinutes). Bepaalt ook het congestiemoment van de directe autorit (Car_CongestionMoment_ForDirect). De ochtendspits heeft voorrang.", IntegrityCheck = "IsDefined(rlookup(this, Advanced/Dagdelen/name))";
+	parameter<string>   Component                         := 'Lopen'                , Descr = "De component van deze run, uit Advanced/Componenten (overleg PBL 5-10-2026, #117): 'Lopen' (lopen + OV + lopen, en direct lopen), 'Fiets' (fiets + OV + lopen of OV-fiets, en direct fietsen; geen lopen als voortransport), 'Auto' (alleen de directe autorit, met starten en parkeren) of 'Alles' (lopen + OV + lopen naast direct lopen, fietsen en autorijden in een run, zoals tot 2026-10-05). Bepaalt het voor- en natransport (Advanced/OV_PreTransport_Typen, OV_PostTransport_Typen), de directe ritten (AllowDirectWalking, -Cycling, -Car), of het OV meedoet (Advanced/MetOV) en de uitvoermap (Advanced/OutputDir, met _lopen, _fiets of _auto achter het label). Voor- en natransport hoogstens 15 min en directe en totale rit hoogstens 90 min, zonder wachten thuis, gelden voor elke component.", IntegrityCheck = "IsDefined(rlookup(this, Advanced/Componenten/name))";
 	parameter<string>   Orgset                            := 'BAG_woonpanden_Clustered'                , Descr = "Select the origin set, defined in Advanced/org_domain_list.";              
 	parameter<string>   Destset                           := 'OV_Knooppunten'                , Descr = "Select the destination set, defined in Advanced/dest_domain_list.";       
 	parameter<string>   CentroidWeightType                := 'Addresses'            , Descr = "If you want to use weighted centroids for origins, how would you like to weigh the values comprsing the coentroid? Via addresses or population?";
@@ -47,7 +48,7 @@
 	parameter<min_f>    MaxPTTime                         := 90[min_f]              , Descr = "Maximum travel time using public transport, including transfers and waiting. Note that limiting this value might result in not being able to reach all destinations.";
 	parameter<min_f>    MaxTravelTime                     := 90[min_f]              , Descr = "Maximum travel time of the complete journey. Only relevant for public transport analysis. Note that limiting this value might result in not being able to reach all destinations.";
 	
-	parameter<string>   MinimiseCriteria                  := 'Price,Time,Car,Bike'        , Descr = "Would you like to find the fastest or cheapest public transport journey? Choices: 'Price', 'Price_Augm' or 'Time' or both, i.e. 'Price,Time'. Sinds 2026-10-01 ook 'Car' en 'Bike' (NetworkModel_PBL#117): autobezit en fietsbezit als criteria in de eindafweging per vertrekmoment (Classifications/OwnershipParetoAttr), niet in de ketenrijger. Zonder 'Car' valt een OV-keten af die duurder en langzamer is dan de directe autorit.";
+	parameter<string>   MinimiseCriteria                  := 'Price,Time'             , Descr = "Would you like to find the fastest or cheapest public transport journey? Choices: 'Price', 'Price_Augm' or 'Time' or both, i.e. 'Price,Time'. Sinds 2026-10-01 ook 'Car' en 'Bike' (NetworkModel_PBL#117): autobezit en fietsbezit als criteria in de eindafweging per vertrekmoment (Classifications/OwnershipParetoAttr), niet in de ketenrijger. Zonder 'Car' valt een OV-keten af die duurder en langzamer is dan de directe autorit. Sinds 2026-10-05 weer 'Price,Time' (was 'Price,Time,Car,Bike'): elke component (Component) rekent op prijs en tijd, de bezitscriteria horen bij het samenvoegen van de componenten (overleg PBL 5-10-2026, #117). Met Component 'Alles' geeft 'Price,Time,Car,Bike' de eindafweging van 2026-10-01 tot 2026-10-05.";
 	
 	parameter<euro_min> Transfer_Walking_Time_Costs       := 0.19[euro_min]         , Descr = "To attach a value to walking, the cost thereof (or the time it takes) is incorporated. This is a mechanism to ensure when looking for the cheapest journey the model won't let you walk as much as possible.";
 	parameter<euro_min> Transfer_Waiting_Time_Costs       := 0.05[euro_min]         , Descr = "To attach a value to waiting, the cost thereof (or the time it takes) is incorporated.";
@@ -64,10 +65,10 @@
 	
 	//Directe ritten naast het OV. De ketenrijger voegt per HB-paar de directe rit(ten) bij de OV-ketens en houdt
 	//het Pareto-front op MinimiseCriteria (prijs, tijd) over; zie NetworkSetup/PublicTransport_Prep/Direct_OD.
-	//Tot 2026-09-23 deed of lopen of fietsen mee (AllowDirectCyclingOverWalking) en de auto helemaal niet.
-	parameter<bool>     AllowDirectWalking                := TRUE                   , Descr = "Doet de directe looproute (OSM-loopnetwerk, tot MaxWalkingTime_Org2Dest) mee in het front per HB-paar?";
-	parameter<bool>     AllowDirectCycling                := TRUE                   , Descr = "Doet de directe fietsroute (OSM-fietsnetwerk, tot MaxCyclingTime_Org2Dest) mee in het front per HB-paar?";
-	parameter<bool>     AllowDirectCar                    := TRUE                   , Descr = "Doet de directe autorit (TomTom of OSM, zie UseTomTomNetworkForCars, tot MaxCarTime) mee in het front per HB-paar? De autoprijs is afstand x Car_CostPerKm (hieronder).";
+	//Tot 2026-09-23 deed of lopen of fietsen mee (AllowDirectCyclingOverWalking) en de auto helemaal niet. Sinds 2026-10-05 volgen de drie schakelaars uit Component (#117).
+	parameter<bool>     AllowDirectWalking                := rjoin(Component, Advanced/Componenten/name, Advanced/Componenten/DirectWalking), Descr = "Doet de directe looproute (OSM-loopnetwerk, tot MaxWalkingTime_Org2Dest) mee in het front per HB-paar? Sinds 2026-10-05 uit Component (Advanced/Componenten/DirectWalking, #117); tot dan TRUE.";
+	parameter<bool>     AllowDirectCycling                := rjoin(Component, Advanced/Componenten/name, Advanced/Componenten/DirectCycling), Descr = "Doet de directe fietsroute (OSM-fietsnetwerk, tot MaxCyclingTime_Org2Dest) mee in het front per HB-paar? Sinds 2026-10-05 uit Component (Advanced/Componenten/DirectCycling, #117); tot dan TRUE.";
+	parameter<bool>     AllowDirectCar                    := rjoin(Component, Advanced/Componenten/name, Advanced/Componenten/DirectCar), Descr = "Doet de directe autorit (TomTom of OSM, zie UseTomTomNetworkForCars, tot MaxCarTime) mee in het front per HB-paar? Sinds 2026-10-05 uit Component (Advanced/Componenten/DirectCar, #117); tot dan TRUE. De autoprijs is afstand x Car_CostPerKm (hieronder).";
 	parameter<string>   Car_CongestionMoment_ForDirect    := UseTomTomNetworkForCars ? rjoin(Dagdeel, Advanced/Dagdelen/name, Advanced/Dagdelen/CongestionMoment) : 'MaxSpeed'
 	, Descr = "Welke reistijd van de auto de directe rit gebruikt: 'MorningRush' (07:30), 'NoonRush' (12:30), 'LateEveningRush' (19:30) of 'Freeflow' (alleen TomTom; bij OSM heet dat 'MaxSpeed'). Sinds 2026-10-05 (#125) volgt het moment uit Dagdeel (Advanced/Dagdelen/CongestionMoment): het midden van het uur van de vier vertrekmomenten. Tot dan stond het vast op MorningRush en zette een runkopie voor de middag hier NoonRush."
 	, IntegrityCheck = "UseTomTomNetworkForCars ? Car_CongestionMoment_ForDirect != 'MaxSpeed' : Car_CongestionMoment_ForDirect == 'MaxSpeed'"; // TomTom kent Freeflow/MorningRush/NoonRush/LateEveningRush; OSM alleen MaxSpeed, want de OSM-spitsen zijn null-placeholders
@@ -118,8 +119,8 @@
 		parameter<string>   items_of_interest                         := rjoin(lowercase(DestSet), lowercase(Advanced/dest_domain_list/label), Advanced/dest_domain_list/items_of_interest), Descr = "What is the item of interest in the analysis? Such as number of jobs. Decided via the dest_set.";
 		parameter<bool>     ExcludeOrgBuurtCentroidsWithoutAddressPop := FALSE                  , Descr = "Would yo like to exclude buurt centroid that do not contain addresses or population (depending on CentroidWeightType).";
 		parameter<uint32>   MaxPathLength                             := 259                    , Descr = "Het langste bestandspad dat Windows zonder longPathAware toestaat; GeoDMS vraagt geen lange paden aan. Elke storefamilie controleert er vooraf op (Templates/StoreSignature_T/PathGate), zodat een te lang pad faalt voordat er gerekend wordt (NetworkModel_PBL#118).";
-		parameter<string>   OutputDir                                 := '%LocalDataProjDir%/Output/' + Analysis_date + '_' + /ModelParameters/OutputLabel
-		,	Descr = "De map met de OV-uitvoer van deze variant (sinds 2026-10-03, NetworkModel_PBL#118): PerBlock/tt_<datum>_<moment>_<n>of<N>.csv per herkomstblok en vertrekmoment, tt_<datum>_<moment>.csv per vertrekmoment, tt_<datum>.csv over de vertrekmomenten en signature.txt met de parameters (NetworkSetup/Output_Signature). Tot dan Output/PerBlock en Output, met alle parameters in de bestandsnaam.";
+		parameter<string>   OutputDir                                 := '%LocalDataProjDir%/Output/' + Analysis_date + '_' + /ModelParameters/OutputLabel + rjoin(/ModelParameters/Component, Componenten/name, Componenten/UitvoerAchtervoegsel)
+		,	Descr = "De map met de OV-uitvoer van deze variant (sinds 2026-10-03, NetworkModel_PBL#118; sinds 2026-10-05 met _lopen, _fiets of _auto erachter, de component, #117): PerBlock/tt_<datum>_<moment>_<n>of<N>.csv per herkomstblok en vertrekmoment, tt_<datum>_<moment>.csv per vertrekmoment, tt_<datum>.csv over de vertrekmomenten en signature.txt met de parameters (NetworkSetup/Output_Signature). Tot dan Output/PerBlock en Output, met alle parameters in de bestandsnaam.";
 		parameter<string>   fileNamePrefix                            := OutputDir + '/PerBlock/', Descr = "De map van de OV-uitvoer per herkomstblok (en van de exports van lopen, fiets en auto).";
 		parameter<uint8>    NumberOfItersForNetworkCleanUp            := 10b                    , Descr = "In the network clean up method, how many iternations should be used?";
 
@@ -233,6 +234,25 @@
 		parameter<bool>     IncludeCyclingCostsInPrice                := TRUE                   , Descr = "Wil je reistijdkosten van fietsen meenemen in de uiteindelijke 'te bepalen' prijs.";
 		parameter<bool>     IncludeCarCostsInPrice                    := TRUE                   , Descr = "Telt de kostprijs van de directe autorit (Car_FixedCosts_PerTrip + afstand x Car_CostPerKm) mee in Price? Zo niet, dan is de auto in het front gratis en wint hij op prijs altijd.";
 		
+		// COMPONENTEN (overleg PBL 5-10-2026, #117): lopen, fiets en auto als aparte runs, elk met een eigen uitvoermap. Elke
+		// component kiest op MinimiseCriteria (prijs en tijd); autobezit en fietsbezit horen bij het samenvoegen. De OV-fiets vraagt
+		// geen eigen fiets (Classifications/TimeInvariantTypes/NeedsOwnBike); een e-bike is in te stellen met de fietsparameters.
+		unit<uint8> Componenten : nrofrows = 4
+		, Descr = "De componenten, te kiezen met /ModelParameters/Component. Voortransport en Natransport zijn namen uit Classifications/TimeInvariantTypes, gescheiden door een ;. Bij Auto doet het OV niet mee (MetOV), en tellen voor- en natransport niet; de lijst mag toch niet leeg zijn. Alles is de run van 2026-09-23 tot 2026-10-05: lopen + OV + lopen naast alle directe ritten."
+		{
+			attribute<string> name                 : ['Lopen', 'Fiets', 'Auto', 'Alles'];
+			attribute<string> Voortransport        : ['Org2Stops_Walking', 'Org2Stops_Cycling', 'Org2Stops_Walking', 'Org2Stops_Walking'];
+			attribute<string> Natransport          : ['Stops2Dest_Walking', 'Stops2Dest_Walking;OVF_Stops2Dest_Cycling', 'Stops2Dest_Walking', 'Stops2Dest_Walking'];
+			attribute<bool>   DirectWalking        : [TRUE, FALSE, FALSE, TRUE];
+			attribute<bool>   DirectCycling        : [FALSE, TRUE, FALSE, TRUE];
+			attribute<bool>   DirectCar            : [FALSE, FALSE, TRUE, TRUE];
+			attribute<bool>   MetOV                : [TRUE, TRUE, FALSE, TRUE], Descr = "Doen de OV-ketens mee? Zonder OV leest de eindafweging per vertrekmoment alleen de directe ritten, en hoeft er geen ketenstore te zijn.";
+			attribute<string> UitvoerAchtervoegsel : ['_lopen', '_fiets', '_auto', ''], Descr = "Achter OutputLabel in de naam van de uitvoermap (OutputDir); leeg bij Alles, zodat die de map van voor 2026-10-05 houdt.";
+		}
+		parameter<bool>     MetOV                                     := rjoin(/ModelParameters/Component, Componenten/name, Componenten/MetOV), Descr = "Doen de OV-ketens mee in deze run (Componenten/MetOV)? Niet bij de component Auto.";
+		parameter<string>   Component_Voortransport                   := rjoin(/ModelParameters/Component, Componenten/name, Componenten/Voortransport);
+		parameter<string>   Component_Natransport                     := rjoin(/ModelParameters/Component, Componenten/name, Componenten/Natransport);
+
 		unit<uint8> DirectModes : nrofrows = 3
 		, Descr = "De directe modaliteiten die naast het OV in het front per HB-paar kunnen meedoen, met hun schakelaar. De naam is de naam van de bron onder NetworkSetup/PublicTransport_Prep/Direct."
 		{
@@ -325,10 +345,10 @@
 		, Descr = "Datum van de bestemmingsset in de bestandsnamen, als die uit de dienstregeling volgt: de OV-knooppunten hangen af van de feed en van de vertrekken op Analysis_date. Sinds 2026-09-25; daarvoor las een autostore of loop- en fietsuitvoer voor een andere datum stil die van de vorige.";
 		parameter<string>   DestSet_string_nodate                     := (Dests_geclusterd ? lowercase(Destset) + '_' + lowercase(Dest_location_scale) : lowercase(Destset)) + DestSet_SelectionTag
 		, Descr = "De bestemmingsset zonder DestSet_DateTag, in de handtekening van de OV-uitvoer (PT_Output_ParamTag), die Analysis_date al noemt. Tot 2026-10-03 stond hij zo in de bestandsnamen van de uitvoer, zonder datum om onder de 260 tekens van Windows te blijven.";
-		parameter<string>   PT_CombinationType                        := 'V-' + (Direct_str != '' ? Direct_str + ',' : '') + asList(OV_PreTransport_Typen/ExportName, ',') + '_N-' + asList(OV_PostTransport_Typen/ExportName, ',')
-		, Descr = "De directe modaliteiten en de voor- en natransporttypen zoals ze in de handtekening van de OV-uitvoer staan (tot 2026-10-03 in de bestandsnamen).";
-		parameter<string>   PT_Output_ParamTag                        := '_DEST-' + DestSet_string_nodate + '_' + PT_CombinationType + '_Trsf-' + string(Max_transfers) + '_MinCrit-' + asList(/Classifications/OutputParetoAttr/FileNameElement, '_') + '_MaxPT-' + string(/ModelParameters/MaxPTTime) + 'min' + Flex_FileTag + RitOpslag_FileTag + ParetoLegs_Car_FileTag + CarFront_FileTag + Car_PriceTag + ChainPareto_FileTag
-		, Descr = "De parameters van de OV-uitvoer na datum en herkomstset, voor de handtekening van de uitvoer (NetworkSetup/Output_Signature): bestemmingenset, modaliteiten, overstappen, criteria, MaxPT en de tags. Tot 2026-10-03 (NetworkModel_PBL#118) heette hij PT_OutputFileTail en was hij de staart van de naam van elk uitvoerbestand; zo werd het langste uitvoerpad 252 tot 261 tekens.";
+		parameter<string>   PT_CombinationType                        := 'V-' + Direct_str + (MetOV ? ',' + asList(OV_PreTransport_Typen/ExportName, ',') + '_N-' + asList(OV_PostTransport_Typen/ExportName, ',') : '')
+		, Descr = "De directe modaliteiten en de voor- en natransporttypen zoals ze in de handtekening van de OV-uitvoer staan (tot 2026-10-03 in de bestandsnamen); zonder OV (component Auto) alleen de directe modaliteiten.";
+		parameter<string>   PT_Output_ParamTag                        := '_DEST-' + DestSet_string_nodate + '_' + PT_CombinationType + (MetOV ? '_Trsf-' + string(Max_transfers) : '') + '_MinCrit-' + asList(/Classifications/OutputParetoAttr/FileNameElement, '_') + (MetOV ? '_MaxPT-' + string(/ModelParameters/MaxPTTime) + 'min' + Flex_FileTag + RitOpslag_FileTag : '') + (AllowDirectCar ? ParetoLegs_Car_FileTag + CarFront_FileTag : '') + Car_PriceTag + ChainPareto_FileTag
+		, Descr = "De parameters van de OV-uitvoer na datum en herkomstset, voor de handtekening van de uitvoer (NetworkSetup/Output_Signature): bestemmingenset, modaliteiten, overstappen, criteria, MaxPT en de tags. Tot 2026-10-03 (NetworkModel_PBL#118) heette hij PT_OutputFileTail en was hij de staart van de naam van elk uitvoerbestand; zo werd het langste uitvoerpad 252 tot 261 tekens. Sinds 2026-10-05 (#117) alleen de OV-tags (overstappen, MaxPT, flex, rit-opslag) als het OV meedoet en de autotags als de directe autorit meedoet.";
 		parameter<string>   DestSet_string                            := (Dests_geclusterd 
 																			? lowercase(Destset) + '_' + lowercase(Dest_location_scale)
 																			: lowercase(Destset)) + DestSet_SelectionTag + DestSet_DateTag, Descr = "De bestemmingsset zoals hij in de bestandsnamen staat, met DestSet_SelectionTag en DestSet_DateTag."; 
@@ -337,18 +357,10 @@
 													: lowercase(Orgset)) + OrgSet_SelectionTag
 		,	Descr = "De herkomstenset zoals hij in de bestandsnamen staat, met OrgSet_SelectionTag bij een enkel gebied. Bij een geclusterde set hoort de celmaat erbij, anders overschrijft een 500m-run de uitvoer van een 100m-run, net zoals DestSet_string dat voor de bestemmingen doet.";
 		
-		unit<uint8> OV_PreTransport_Typen : nrofrows = 1
-		, Descr = "Select here the to be considered pre-transport options. 
-					RMT=Rail+Metro+Tram, OVF=OV-fiets, Ric=InterCity station"
+		unit<uint8> OV_PreTransport_Typen := select_with_org_rel(IsDefined(strpos(';' + Component_Voortransport + ';', ';' + TimeInvariantTypes/name + ';')))
+		, Descr = "De voortransporttypen van deze run: die van Component (Componenten/Voortransport, sinds 2026-10-05, #117), in de volgorde van Classifications/TimeInvariantTypes. Tot dan een vaste lijst hier, Org2Stops_Walking. RMT=Rail+Metro+Tram, OVF=OV-fiets, Ric=InterCity station."
 		{
-			attribute<TimeInvariantTypes> TimeInvariantTypes_rel := 
-				union_data(.,
-					TimeInvariantTypes/V/Org2Stops_Walking
-					// TimeInvariantTypes/V/Org2Stops_Cycling
-					// ,TimeInvariantTypes/V/Org2RMT_Stops_Cycling
-					// ,TimeInvariantTypes/V/Org2RM_Stops_Cycling
-					// ,TimeInvariantTypes/V/Org2Ric_Stops_Cycling
-				);
+			attribute<TimeInvariantTypes> TimeInvariantTypes_rel := org_rel;
 			attribute<string> name        := TimeInvariantTypes/name[TimeInvariantTypes_rel];
 			attribute<string> Mode_abbrev := TimeInvariantTypes/Mode_abbrev[TimeInvariantTypes_rel];
 			attribute<min_f>  MaxTime     := TimeInvariantTypes/MaxTime[TimeInvariantTypes_rel];
@@ -357,17 +369,10 @@
 			attribute<string> StopClass_  := StopClass != '' ? '_'+StopClass : '';
 			attribute<string> ExportName  := Mode_abbrev + StopClass_;
 		}
-		unit<uint8> OV_PostTransport_Typen : nrofrows = 1
-		, Descr = "Select here the to be considered post-transport options. 
-					RMT=Rail+Metro+Tram, OVF=OV-fiets, Ric=InterCity station"
+		unit<uint8> OV_PostTransport_Typen := select_with_org_rel(IsDefined(strpos(';' + Component_Natransport + ';', ';' + TimeInvariantTypes/name + ';')))
+		, Descr = "De natransporttypen van deze run: die van Component (Componenten/Natransport, sinds 2026-10-05, #117), in de volgorde van Classifications/TimeInvariantTypes. Tot dan een vaste lijst hier, Stops2Dest_Walking. RMT=Rail+Metro+Tram, OVF=OV-fiets, Ric=InterCity station."
 		{
-			attribute<TimeInvariantTypes> TimeInvariantTypes_rel :=
-				union_data(.,
-					TimeInvariantTypes/V/Stops2Dest_Walking
-					// ,TimeInvariantTypes/V/Stops2Dest_Cycling
-					// TimeInvariantTypes/V/RMT_Stops2Dest_Cycling
-					// ,TimeInvariantTypes/V/OVF_Stops2Dest_Cycling
-				);
+			attribute<TimeInvariantTypes> TimeInvariantTypes_rel := org_rel;
 			attribute<string> name        := TimeInvariantTypes/name[TimeInvariantTypes_rel];
 			attribute<string> Mode_abbrev := TimeInvariantTypes/Mode_abbrev[TimeInvariantTypes_rel];
 			attribute<min_f>  MaxTime     := TimeInvariantTypes/MaxTime[TimeInvariantTypes_rel];
