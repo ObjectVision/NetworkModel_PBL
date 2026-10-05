@@ -2,11 +2,13 @@
 #
 #   powershell -ExecutionPolicy Bypass -File batch\RunFrontValidation.ps1 -Label <label> [-CritA Time,Car,Bike]
 #        [-BaseRun <runkopie>\NetworkModel_PBL]                          B = een bestaande run met uitvoer, alleen A rekenen
-#        [-CritB 'Price,Time,Car,Bike'] [-GtfsDate 20260925] [-AnalysisDate 20261006]   zonder -BaseRun: A en B rekenen
+#        [-CritB 'Price,Time,Car,Bike'] [-AnalysisMoment Y2026] [-Dagdeel Ochtendspits]   zonder -BaseRun: A en B rekenen
 #        [-Blocks (1..10)] [-NrOrgBlocks 450] [-WaitFor others|base|none] [-MinFreeRamGB 24] [-Exe <GeoDmsRun.exe>]
 #        [-RunsDir C:\LocalData\NM_PBL_runs] [-OutRoot C:\LocalData\NetworkModel_PBL\Output] [-DryRun]
 #
-# Run A krijgt MinimiseCriteria CritA, run B CritB; verder zijn ze gelijk. Elke run die gerekend wordt, is een runkopie in
+# Run A krijgt MinimiseCriteria CritA, run B CritB; verder zijn ze gelijk. De peildatum (AnalysisMoment, met de dag en de feed
+# uit de presettabel) en het dagdeel (Dagdeel) zijn sinds 2026-10-05 parameters van het model (#125); tot dan zette dit script
+# GTFS_file_date en Analysis_date (-GtfsDate, -AnalysisDate). Elke run die gerekend wordt, is een runkopie in
 # <RunsDir>\<Label>\{A,B}\NetworkModel_PBL met OutputLabel <Label>_A of <Label>_B, zodat de uitvoer in
 # <OutRoot>\<Analysis_date>_<Label>_{A,B} komt (sinds #118 een map per variant). Daarna: de ketenstap (batch\UpdateAll.cmd chains
 # in de kopie), de uitvoer voor de herkomstblokken -Blocks en batch\ValidateFronts.py. Voortgang in <RunsDir>\<Label>\status.txt,
@@ -14,7 +16,7 @@
 #
 # Met -BaseRun is B een bestaande runkopie waarvan de uitvoer er al is, bijvoorbeeld de basisrun C:\LocalData\NM_PBL_runs\20261006\
 # NetworkModel_PBL. A is dan een kopie van diens cfg, data en batch (dus dezelfde commit, feed, dag en ConfigSettings.dms), met
-# alleen MinimiseCriteria en OutputLabel anders; CritB, GtfsDate en AnalysisDate tellen dan niet. De uitvoer van B voor -Blocks
+# alleen MinimiseCriteria en OutputLabel anders; CritB, AnalysisMoment en Dagdeel tellen dan niet. De uitvoer van B voor -Blocks
 # en zijn signature.txt worden aan het begin gekopieerd naar <RunsDir>\<Label>\B_uitvoer, zodat een latere run onder hetzelfde
 # label de vergelijking niet verstoort. Na de uitvoer van A vergelijkt het de handtekeningen van A en B zonder de criteria: een
 # ander verschil wordt gemeld.
@@ -30,8 +32,8 @@ param(
 	[string]$CritA        = 'Time,Car,Bike',
 	[string]$BaseRun      = '',
 	[string]$CritB        = 'Price,Time,Car,Bike',
-	[string]$GtfsDate     = '20260925',
-	[string]$AnalysisDate = '20261006',
+	[string]$AnalysisMoment = 'Y2026',
+	[string]$Dagdeel      = 'Ochtendspits',
 	[int[]] $Blocks       = (1..10),
 	[int]   $NrOrgBlocks  = 450,
 	[ValidateSet('others', 'base', 'none')][string]$WaitFor = '',
@@ -92,6 +94,15 @@ function SetParam($file, $name, $value) {
 	$t = [regex]::Replace($t, $re, { param($m) $m.Groups[1].Value + $value })
 	[IO.File]::WriteAllText($file, $t)
 }
+# De dag en de feed bij AnalysisMoment $moment in de presettabel van ModelParameters.dms (de tekst $t), sinds 2026-10-05 (#125).
+function PresetDates($t, $moment) {
+	$row = [regex]::Match($t, "(?m)^\s*'$moment'\s*,(.*)$")
+	if (-not $row.Success) { Say "STOP: AnalysisMoment $moment staat niet in de presettabel"; exit 3 }
+	# name, OSM date, Regios, OSM_perProv, TomTom, BAG_snapshot, Analysis_date, GTFS_file_date
+	$f = @(("'$moment'," + $row.Groups[1].Value) -split ',' | ForEach-Object { $_.Trim().Trim("'") })
+	if ($f[6] -notmatch '^\d{8}$' -or $f[7] -notmatch '^\d{8}$') { Say "STOP: AnalysisMoment $moment heeft geen peildatum of feed ('$($f[6])', '$($f[7])')"; exit 3 }
+	return @($f[6], $f[7])
+}
 function BlockFiles($dir, $date, $i) { @(Get-ChildItem -Path $dir -Filter "tt_$($date)_*_$($i)of$NrOrgBlocks.csv" -ErrorAction SilentlyContinue) }
 # De handtekening zonder de criteria: MinCrit-..._MaxPT van de uitvoer en _min-..._maxtransf van de ketenstore.
 function SigWithoutCrit($file) { ((Get-Content $file -Raw) -replace 'MinCrit-.*?_MaxPT', 'MinCrit-*_MaxPT' -replace '_min-.*?_maxtransf', '_min-*_maxtransf').Trim() }
@@ -101,8 +112,14 @@ $runs = @()
 if ($BaseRun) {
 	$BaseRun = (Resolve-Path $BaseRun).Path.TrimEnd('\')
 	$bmp = Join-Path $BaseRun 'cfg\main\ModelParameters.dms'
-	$AnalysisDate = GetParam $bmp 'Analysis_date'
-	$GtfsDate = GetParam $bmp 'GTFS_file_date'
+	$bmpText = [IO.File]::ReadAllText($bmp)
+	if ($bmpText -match "parameter<\w+>\s+Analysis_date\s+:=\s+'\d{8}'") {
+		# een runkopie van voor 2026-10-05: de dag en de feed staan er letterlijk
+		$AnalysisDate = GetParam $bmp 'Analysis_date'
+		$GtfsDate = GetParam $bmp 'GTFS_file_date'
+	} else {
+		$AnalysisDate, $GtfsDate = PresetDates $bmpText (GetParam $bmp 'AnalysisMoment')
+	}
 	$CritB = GetParam $bmp 'MinimiseCriteria'
 	$bLabel = GetParam $bmp 'OutputLabel'
 	$bOut = Join-Path $OutRoot "$($AnalysisDate)_$bLabel"
@@ -110,7 +127,8 @@ if ($BaseRun) {
 	Say "start: B = basisrun $BaseRun (commit $commit, '$CritB', uitvoer $bOut), A '$CritA', feed $GtfsDate, dag $AnalysisDate, blokken $($Blocks -join ','), wacht op $WaitFor"
 	$runs += @{ Name = 'A'; Crit = $CritA; From = $BaseRun }
 } else {
-	Say "start: commit $head, A '$CritA', B '$CritB', feed $GtfsDate, dag $AnalysisDate, blokken $($Blocks -join ','), wacht op $WaitFor, engine $Exe"
+	$AnalysisDate, $GtfsDate = PresetDates ((& git -C $repo show HEAD:cfg/main/ModelParameters.dms) -join "`n") $AnalysisMoment
+	Say "start: commit $head, A '$CritA', B '$CritB', peildatum $AnalysisMoment (feed $GtfsDate, dag $AnalysisDate), dagdeel $Dagdeel, blokken $($Blocks -join ','), wacht op $WaitFor, engine $Exe"
 	$runs += @{ Name = 'A'; Crit = $CritA }, @{ Name = 'B'; Crit = $CritB }
 }
 
@@ -132,8 +150,8 @@ foreach ($r in $runs) {
 			Remove-Item $zip
 			Copy-Item (Join-Path $repo 'cfg\main\ConfigSettings.dms') (Join-Path $dst 'cfg\main\ConfigSettings.dms')
 			Set-Content -Path (Join-Path $dst 'COMMIT.txt') -Value "$(& git -C $repo rev-parse HEAD) (git archive, plus cfg/main/ConfigSettings.dms uit de working copy)"
-			SetParam $mp 'GTFS_file_date' "'$GtfsDate'"
-			SetParam $mp 'Analysis_date'  "'$AnalysisDate'"
+			SetParam $mp 'AnalysisMoment' "'$AnalysisMoment'"
+			SetParam $mp 'Dagdeel'        "'$Dagdeel'"
 		}
 		SetParam $mp 'MinimiseCriteria'        "'$($r.Crit)'"
 		SetParam $mp 'OutputLabel'             "'$($Label)_$($r.Name)'"
@@ -143,7 +161,7 @@ foreach ($r in $runs) {
 	$r.Dst = $dst
 	$r.Out = Join-Path $OutRoot "$($AnalysisDate)_$($Label)_$($r.Name)"
 	if ($DryRun) {
-		Select-String -Path (Join-Path $dst 'cfg\main\ModelParameters.dms') -Pattern 'parameter<\w+>\s+(GTFS_file_date|Analysis_date|MinimiseCriteria|OutputLabel|Export_PriceInformation)\s+:=\s+\S+' |
+		Select-String -Path (Join-Path $dst 'cfg\main\ModelParameters.dms') -Pattern 'parameter<\w+>\s+(AnalysisMoment|Dagdeel|MinimiseCriteria|OutputLabel|Export_PriceInformation)\s+:=\s+\S+' |
 			ForEach-Object { '  {0}: {1}' -f $r.Name, $_.Matches[0].Value }
 	}
 }

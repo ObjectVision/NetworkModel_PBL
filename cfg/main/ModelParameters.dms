@@ -1,7 +1,8 @@
 ﻿container ModelParameters : using = "units"
 {   
 	//Generieke instellingen
-	parameter<string>   AnalysisMoment                    := 'Y2026'                , Descr = "Select a year in order to automatically select the accompanying date values for other datasets, defined in Advanced/AnalysisMomentPresets";
+	parameter<string>   AnalysisMoment                    := 'Y2026'                , Descr = "De peildatum: een jaar uit Advanced/AnalysisMomentPresets, met de bijbehorende dag (Analysis_date, sinds 2026-10-05 de tweede dinsdag van oktober, #125), GTFS-feed, OSM, TomTom, CBS-gebiedsindeling en BAG-snapshot. Peildata: Y2015, Y2023, Y2024, Y2025 en Y2026.";
+	parameter<string>   Dagdeel                           := 'Ochtendspits'         , Descr = "Het dagdeel van de vertrekmomenten, uit Advanced/Dagdelen (overleg PBL 5-10-2026, #125): 'Ochtendspits' 07:00-07:45, 'Middag' 12:00-12:45 (ter controle) of 'Avond' 19:00-19:45, elk vier momenten per kwartier (PT_DepartureMinutes). Bepaalt ook het congestiemoment van de directe autorit (Car_CongestionMoment_ForDirect). De ochtendspits heeft voorrang.", IntegrityCheck = "IsDefined(rlookup(this, Advanced/Dagdelen/name))";
 	parameter<string>   Orgset                            := 'BAG_woonpanden_Clustered'                , Descr = "Select the origin set, defined in Advanced/org_domain_list.";              
 	parameter<string>   Destset                           := 'OV_Knooppunten'                , Descr = "Select the destination set, defined in Advanced/dest_domain_list.";       
 	parameter<string>   CentroidWeightType                := 'Addresses'            , Descr = "If you want to use weighted centroids for origins, how would you like to weigh the values comprsing the coentroid? Via addresses or population?";
@@ -18,8 +19,12 @@
 	parameter<bool>     Export_PriceInformation           := TRUE                   , Descr ="Would you like to export the price information along with the other attributes in the case of public transport? Since 2026-10-02 this includes Price split into pre-transport, public transport and post-transport (PretransPrice, PTPrice, PosttransPrice), like the travel time, and since 2026-10-03 per mode (WalkingPrice, CyclingPrice, CarPrice). TRUE since 2026-10-03 (was FALSE).";
 	
 	//OV-berekening instellingen
-	parameter<string>   GTFS_file_date                    := '20241001'             , Descr = "Which file date for the GTFS file would you like to use? Only relevant for public transport analysis. Feeds with an MMD store under %NetworkModel_Dir%/Infrastructuur/GTFS (2026-09-25): 20241001 (analysis date 20241001, Tuesday), 20250930 (20250930, Tuesday), 20260316, and 20260925 (provisional for 20261006, Tuesday; replace by the feed of 20261006 once it is in the OVapi archive). See the wiki, How to run the model, step 2.";
-	parameter<string>   Analysis_date                     := '20241001'             , Descr = "What is the date of interest for the public transport analysis? Since 2026-09-25 the network is built from the service days D-1, D and D+1 of this date on one time axis, and SourceData/Infrastructure/GTFS/LoadFeeds/ServiceDays checks that the feed has a complete timetable on each day the analysis window needs (see Advanced/MinServiceDayTripShare). Until then the date had to lie within GTFS_file_date + 100, computed on the digits (audit 3.5).", IntegrityCheck = "strlen(this) == 8"; 
+	parameter<string>   GTFS_file_date                    := rjoin(AnalysisMoment, Advanced/AnalysisMomentPresets/name, Advanced/AnalysisMomentPresets/GTFS_file_date)
+	, Descr = "De GTFS-feed (map en mmd-store onder %NetworkModel_Dir%/Infrastructuur/GTFS) van de peildatum, sinds 2026-10-05 uit Advanced/AnalysisMomentPresets (#125); tot dan een eigen waarde, die een runkopie naast Analysis_date zette. De feed moet de dienstdagen D-1, D en D+1 van Analysis_date dekken (LoadFeeds/ServiceDays). Zie de wiki, How to run the model, step 2."
+	, IntegrityCheck = "strlen(this) == 8";
+	parameter<string>   Analysis_date                     := rjoin(AnalysisMoment, Advanced/AnalysisMomentPresets/name, Advanced/AnalysisMomentPresets/Analysis_date)
+	, Descr = "De dag van de OV-analyse, sinds 2026-10-05 uit Advanced/AnalysisMomentPresets: de peildatum van AnalysisMoment (#125). Since 2026-09-25 the network is built from the service days D-1, D and D+1 of this date on one time axis, and SourceData/Infrastructure/GTFS/LoadFeeds/ServiceDays checks that the feed has a complete timetable on each day the analysis window needs (see Advanced/MinServiceDayTripShare). Until then the date had to lie within GTFS_file_date + 100, computed on the digits (audit 3.5)."
+	, IntegrityCheck = "strlen(this) == 8";
 
 	parameter<min_f>    MaxWalkingTime_Org2Dest           := 90[min_f]              , Descr = "Maximum walking time from origin towards destination";
 	parameter<min_f>    MaxWalkingTime_Org2Stops          := 15[min_f]              , Descr = "Maximum walking time from origin towards first stop";
@@ -63,7 +68,9 @@
 	parameter<bool>     AllowDirectWalking                := TRUE                   , Descr = "Doet de directe looproute (OSM-loopnetwerk, tot MaxWalkingTime_Org2Dest) mee in het front per HB-paar?";
 	parameter<bool>     AllowDirectCycling                := TRUE                   , Descr = "Doet de directe fietsroute (OSM-fietsnetwerk, tot MaxCyclingTime_Org2Dest) mee in het front per HB-paar?";
 	parameter<bool>     AllowDirectCar                    := TRUE                   , Descr = "Doet de directe autorit (TomTom of OSM, zie UseTomTomNetworkForCars, tot MaxCarTime) mee in het front per HB-paar? De autoprijs volgt uit de TCO-parameters hieronder.";
-	parameter<string>   Car_CongestionMoment_ForDirect    := 'MorningRush'          , Descr = "Welke reistijd van de auto de directe rit gebruikt: 'MorningRush' (07:30), 'NoonRush' (12:30), 'LateEveningRush' (19:30) of 'Freeflow' (alleen TomTom; bij OSM heet dat 'MaxSpeed'). Een koppeling per vertrekmoment is er nog niet; met de huidige vertrekmomenten (07:00 t/m 07:45) is MorningRush de juiste.", IntegrityCheck = "UseTomTomNetworkForCars ? Car_CongestionMoment_ForDirect != 'MaxSpeed' : Car_CongestionMoment_ForDirect == 'MaxSpeed'"; // TomTom kent Freeflow/MorningRush/NoonRush/LateEveningRush; OSM alleen MaxSpeed, want de OSM-spitsen zijn null-placeholders
+	parameter<string>   Car_CongestionMoment_ForDirect    := UseTomTomNetworkForCars ? rjoin(Dagdeel, Advanced/Dagdelen/name, Advanced/Dagdelen/CongestionMoment) : 'MaxSpeed'
+	, Descr = "Welke reistijd van de auto de directe rit gebruikt: 'MorningRush' (07:30), 'NoonRush' (12:30), 'LateEveningRush' (19:30) of 'Freeflow' (alleen TomTom; bij OSM heet dat 'MaxSpeed'). Sinds 2026-10-05 (#125) volgt het moment uit Dagdeel (Advanced/Dagdelen/CongestionMoment): het midden van het uur van de vier vertrekmomenten. Tot dan stond het vast op MorningRush en zette een runkopie voor de middag hier NoonRush."
+	, IntegrityCheck = "UseTomTomNetworkForCars ? Car_CongestionMoment_ForDirect != 'MaxSpeed' : Car_CongestionMoment_ForDirect == 'MaxSpeed'"; // TomTom kent Freeflow/MorningRush/NoonRush/LateEveningRush; OSM alleen MaxSpeed, want de OSM-spitsen zijn null-placeholders
 	parameter<Euro_km>  Car_VariableCosts_PerKm           := 0.20[Euro_km]          , Descr = "Variabele autokosten per km (brandstof, banden, onderhoud). Samen met Car_FixedCosts_PerKm de TCO van 41 ct/km uit de planning van week 38; de verdeling 20/21 is een eerste aanname en is nog door PBL te zetten.";
 	parameter<Euro_km>  Car_FixedCosts_PerKm              := 0.21[Euro_km]          , Descr = "Vaste autokosten (afschrijving, verzekering, belasting) omgeslagen per km. Telt alleen mee als Advanced/IncludeCarFixedCostsInPrice aan staat.";
 	parameter<Euro_km>  Car_TCO_PerKm                     := Car_VariableCosts_PerKm + Car_FixedCosts_PerKm, Descr = "Total cost of ownership per km, de som van variabel en vast: 41 ct/km.";
@@ -399,12 +406,10 @@
 		}
 				
 		
-		unit<uint8> PT_DepartureHours : nrofrows = 1 
-		, Descr = ""
+		unit<uint8> PT_DepartureHours : nrofrows = 1
+		, Descr = "Het uur van de vertrekmomenten: dat van Dagdeel (sinds 2026-10-05, #125; tot dan vast 7, en zette een runkopie hier 12 voor de middag). Meer uren in een run: nrofrows ophogen en de uren als lijst geven, bijvoorbeeld [7, 12, 19]; Car_CongestionMoment_ForDirect volgt dan nog steeds Dagdeel."
 		{
-			attribute<uint32> values : [7];
-			// attribute<uint32> values : [19];
-			// attribute<uint32> values : [7,8,12,13,21,22]; // 6 stuks
+			attribute<uint32> values := const(rjoin(/ModelParameters/Dagdeel, Dagdelen/name, Dagdelen/DepartureHour), .);
 		}
 		unit<uint8> PT_DepartureMinutes : nrofrows = 4
 		, Descr = ""
@@ -417,25 +422,41 @@
 			// attribute<uint32> values : [0,5,10,55];  //4 stuks
 		}
 		
-		unit<uint8>  AnalysisMomentPresets : nrofrows = 10
-		, Descr = ""
+		unit<uint8>  AnalysisMomentPresets : nrofrows = 11
+		, Descr = "Per peildatum (AnalysisMoment) de bronnen: OSM, CBS-gebiedsindeling, TomTom, BAG-snapshot, en sinds 2026-10-05 (#125) de dag van de OV-analyse en de GTFS-feed. Een jaar zonder Analysis_date of GTFS_file_date is geen peildatum en draait niet (de IntegrityCheck van Analysis_date en GTFS_file_date)."
 		{
 			unit<uint32> Elements  := Range(uint32, 0, nrAttr*#.)
 			{
 				attribute<String> Text:
-				// name, OSM date , Regios, OSM_perProv, CarCongestionSpeed_date_TomTom, BAG_snapshot
+				// name, OSM date , Regios, OSM_perProv, CarCongestionSpeed_date_TomTom, BAG_snapshot, Analysis_date, GTFS_file_date
 				[
-				'Y2012','20221201', '2012', 'TRUE',  'yr2021_12', '20120101',      //20140101
-				'Y2013','20140101', '2022', 'FALSE', 'yr2021_12', '20130101',
-				'Y2018','20190101', '2020', 'FALSE', 'yxx2021_12','20180101',
-				'Y2020','20200117', '2020', 'FALSE', 'yr2021_12', '20200101',
-				'Y2021','20211221', '2021', 'TRUE',  'yr2021_12', '20210101',
-				'Y2022','20221201', '2022', 'TRUE',  'yr2022_12', '20220101',
-				'Y2023','20240101', '2023', 'TRUE',  'yr2023_12', '20230101',
-				'Y2024','20240524', '2024', 'TRUE',  'yr2024_12', '20240101_RS',
-				'Y2025','20240524', '2025', 'TRUE',  'yr2025_12', '20250101',
-				'Y2026','20260601', '2025', 'TRUE',  'yr2025_12', '20260101.new'
+				'Y2012','20221201', '2012', 'TRUE',  'yr2021_12', '20120101',     '',         '',      //20140101
+				'Y2013','20140101', '2022', 'FALSE', 'yr2021_12', '20130101',     '',         '',
+				'Y2015','20240524', '2023', 'TRUE',  'yr2021_12', '20230101',     '20151013', '',
+				'Y2018','20190101', '2020', 'FALSE', 'yxx2021_12','20180101',     '',         '',
+				'Y2020','20200117', '2020', 'FALSE', 'yr2021_12', '20200101',     '',         '',
+				'Y2021','20211221', '2021', 'TRUE',  'yr2021_12', '20210101',     '',         '',
+				'Y2022','20221201', '2022', 'TRUE',  'yr2022_12', '20220101',     '',         '',
+				'Y2023','20240524', '2023', 'TRUE',  'yr2023_12', '20230101',     '20231010', '20231003',
+				'Y2024','20240524', '2024', 'TRUE',  'yr2025_12', '20240101_RS',  '20241008', '20241001',
+				'Y2025','20240524', '2025', 'TRUE',  'yr2025_12', '20250101',     '20251014', '20250930',
+				'Y2026','20260601', '2025', 'TRUE',  'yr2025_12', '20260101.new', '20261013', '20260925'
 				];
+				// PEILDATA (overleg PBL 5-10-2026, #125): de tweede dinsdag van oktober, 13-10-2015, 10-10-2023, 8-10-2024,
+				// 14-10-2025 en 13-10-2026. Ze vervangen 1-10-2024, 30-9-2025, 16-6-2026 en 6-10-2026 (op 6-10-2026 waren er
+				// werkzaamheden rond Amsterdam C). De feed per peildatum dekt de dienstdagen D-1 tot D+1 met minstens
+				// MinServiceDayTripShare van de ritten van de drukste dag van dezelfde weekdag (LoadFeeds/ServiceDays/Days/TripShare,
+				// 2026-10-05): 20231003 100%, 20241001 100%, 20250930 97%, 20260925 98%. De feed 20231003 is die dag gekopieerd uit
+				// F:/SourceData/NetworkModel/Infrastructuur/GTFS, met zijn mmd-store erbij (LoadFeeds/Write). Voor 2015 is er
+				// lokaal geen feed (20131002 loopt tot 13-12-2014, 20170929 begint op 29-9-2017); Y2015 draait pas als er een
+				// feed van oktober 2015 in %NetworkModel_Dir%/Infrastructuur/GTFS staat en hier zijn datum.
+				// OSM: de oudste lokale uitsnede is 20240524; Y2015 en Y2023 rekenen daarmee (Y2023 noemde 20240101, die
+				// er niet is).
+				// TomTom: 2023 rekent met yr2023_12 (besloten), maar die editie is er alleen als oude fss (zie hieronder) en
+				// moet eerst opnieuw worden ingericht. Voor 2015 en 2024 is nog niets afgesproken: voorlopig de dichtstbijzijnde
+				// bruikbare editie, yr2021_12 voor 2015 (er is geen oudere) en yr2025_12 voor 2024 (er is geen 2024, en 2023
+				// is niet bruikbaar).
+				// Regios en BAG_snapshot van Y2015: voorlopig die van Y2023.
 				// BAG_snapshot = de mapnaam onder %BAG_DataDir%/BAG/snapshots.ext, want die namen zijn
 				// onregelmatig. Aanwezig op F: (2026-09-22): 20120101 t/m 20200101 en 20180401/20170701/
 				// 20170908 (oude Ruimtescanner-snapshots, de drieslag vbo/pand/adres.fss), 20240101_RS
@@ -464,8 +485,18 @@
 			attribute<bool>          OSM_NL_prov             := Elements/Text[value(UInt32(ID(.))* nrAttr + 3, Elements)][bool];
 			attribute<string>        CarCongestionSpeed_date := Elements/Text[value(UInt32(ID(.))* nrAttr + 4, Elements)];
 			attribute<string>        BAG_snapshot            := Elements/Text[value(UInt32(ID(.))* nrAttr + 5, Elements)];
-			
-			parameter<uint32> nrAttr := 6;
+			attribute<string>        Analysis_date           := Elements/Text[value(UInt32(ID(.))* nrAttr + 6, Elements)], Descr = "De peildatum (yyyymmdd), sinds 2026-10-05 (#125); leeg = geen peildatum.";
+			attribute<string>        GTFS_file_date          := Elements/Text[value(UInt32(ID(.))* nrAttr + 7, Elements)], Descr = "De GTFS-feed van de peildatum (yyyymmdd), sinds 2026-10-05 (#125); leeg = (nog) geen feed.";
+
+			parameter<uint32> nrAttr := 8;
+		}
+
+		unit<uint8> Dagdelen : nrofrows = 3
+		, Descr = "De dagdelen van een peildatum (overleg PBL 5-10-2026, #125), te kiezen met /ModelParameters/Dagdeel: vier vertrekmomenten per kwartier vanaf DepartureHour (PT_DepartureMinutes), en het congestiemoment van de directe autorit (CongestionTimes), in het midden van dat uur. Ochtendspits heeft voorrang; middag en avond zijn ter controle. De avond was tot dan 21:00."
+		{
+			attribute<string> name             : ['Ochtendspits', 'Middag', 'Avond'];
+			attribute<uint32> DepartureHour    : [7, 12, 19];
+			attribute<string> CongestionMoment : ['MorningRush', 'NoonRush', 'LateEveningRush'];
 		}
 	
 		unit<uint32> org_domain_list : nrofrows = 21 // Hier worden de paden voor elke org set opgegeven. En wanneer er nieuwe bij komen dat hier ook toegevoegd worden.
