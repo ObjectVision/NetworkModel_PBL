@@ -125,11 +125,29 @@
 	container Advanced : using = "classifications"
 	{
 		/// GENERAL
-		parameter<string>   BAG_snapshot                              := rjoin(lowercase(AnalysisMoment), lowercase(Advanced/AnalysisMomentPresets/name), Advanced/AnalysisMomentPresets/BAG_snapshot)
-		,	Descr = "Naam van de BAG-snapshotmap onder %BAG_DataDir%/BAG/snapshots.ext, per AnalysisMoment in de presettabel. Stond tot 2026-09-22 vast aan RegioIndelingen_year, maar de BAG-standdatum en de CBS-gebiedsindeling lopen niet gelijk: voor Y2026 is er een BAG-snapshot per 1-1-2026 terwijl de gebiedsindeling 2026 nog geen buurt- en wijkkaart heeft.";
+		// BUURT NAAR BUURT (overleg PBL 5-10-2026, #126): twee buurtvarianten, elk met de CBS-buurtgrenzen en de BAG van
+		// hetzelfde jaar, en met hetzelfde punt als herkomst en als bestemming: het zwaartepunt van de woonadressen van de
+		// buurt (SourceData/RegioIndelingen/Buurt/address_weighted_centroid; een buurt zonder woningen krijgt het midden van
+		// zijn vlak). Buurt2023 hoort bij de peildata 2015, 2023 en 2024, Buurt2025 bij 2025 en 2026; de presets van die
+		// peildata hebben dezelfde Regios en BAG_snapshot, zodat ook 'Buurt' en de BAG-herkomsten die variant volgen.
+		unit<uint8> Buurtsets : nrofrows = 2
+		, Descr = "De buurtvarianten (#126). Kies er een als Orgset en Destset (org_domain_list, dest_domain_list): dan gelden zijn RegioIndelingen_year en BAG_snapshot, welke peildatum ook gekozen is."
+		{
+			attribute<string> name                 : ['Buurt2023', 'Buurt2025'];
+			attribute<string> RegioIndelingen_year : ['2023', '2025'];
+			attribute<string> BAG_snapshot         : ['20230101.new', '20250101.new'];
+		}
+		parameter<Buurtsets> Buurtset_Org                             := rlookup(lowercase(/ModelParameters/Orgset), lowercase(Buurtsets/name)), Descr = "De buurtvariant van de herkomsten, of null.";
+		parameter<Buurtsets> Buurtset_Dest                            := rlookup(lowercase(/ModelParameters/Destset), lowercase(Buurtsets/name)), Descr = "De buurtvariant van de bestemmingen, of null.";
+		parameter<Buurtsets> Buurtset                                 := MakeDefined(Buurtset_Org, Buurtset_Dest)
+		,	Descr = "De buurtvariant van de run: die van de herkomsten, anders die van de bestemmingen, anders null (dan gelden de presets van AnalysisMoment). Er is een BAG en een gebiedsindeling per run, dus herkomsten en bestemmingen kunnen geen verschillende buurtvarianten zijn."
+		,	IntegrityCheck = "!IsDefined(Buurtset_Org) || !IsDefined(Buurtset_Dest) || Buurtset_Org == Buurtset_Dest";
+		parameter<string>   BAG_snapshot                              := IsDefined(Buurtset) ? Buurtsets/BAG_snapshot[Buurtset] : rjoin(lowercase(AnalysisMoment), lowercase(Advanced/AnalysisMomentPresets/name), Advanced/AnalysisMomentPresets/BAG_snapshot)
+		,	Descr = "Naam van de BAG-snapshotmap onder %BAG_DataDir%/BAG/snapshots.ext: die van de buurtvariant (Buurtset) als Orgset of Destset er een is, anders per AnalysisMoment in de presettabel. Stond tot 2026-09-22 vast aan RegioIndelingen_year, maar de BAG-standdatum en de CBS-gebiedsindeling lopen niet gelijk: voor Y2026 is er een BAG-snapshot per 1-1-2026 terwijl de gebiedsindeling 2026 nog geen buurt- en wijkkaart heeft.";
 		parameter<string>   BAG_year                                  := substr(BAG_snapshot, 0, 4)
 		,	Descr = "Het jaar van de BAG-snapshot, uit BAG_snapshot. Wordt gebruikt om bouwjaren na de standdatum af te kappen en in de exportnamen.";
-		parameter<string>   RegioIndelingen_year                      := rjoin(lowercase(AnalysisMoment), lowercase(Advanced/AnalysisMomentPresets/name), Advanced/AnalysisMomentPresets/RegioIndelingen_year), Descr = "Which year for the adminstrative boundaries would you like to use? This is now decided via AnalysisMoment.";
+		parameter<string>   RegioIndelingen_year                      := IsDefined(Buurtset) ? Buurtsets/RegioIndelingen_year[Buurtset] : rjoin(lowercase(AnalysisMoment), lowercase(Advanced/AnalysisMomentPresets/name), Advanced/AnalysisMomentPresets/RegioIndelingen_year)
+		,	Descr = "Het jaar van de CBS-gebiedsindeling: dat van de buurtvariant (Buurtset) als Orgset of Destset er een is, anders per AnalysisMoment in de presettabel.";
 		parameter<string>   LISA_year                                 := '2018'                 , Descr = "Which year of the LISA-dataset would you like to use?";
 		parameter<bool>     Dests_geclusterd                          := FALSE                  , Descr = "Would you like to cluster destinations? For example useful for firm destinations, with many firms at the same location. To determine the area of clustering look at Dest_location_scale";
 		parameter<string>   Dest_location_scale                       := '100m'                 , Descr = "If clustering the destination, at which scale would you like to cluster? Options: '100m', '500m', '1000m', '5000m', '10000m', '50000m'";
@@ -272,7 +290,7 @@
 		parameter<uint32>   NumberOfStopBlocks                        := 500                    , Descr = "In the generation of the unlinked PT-network, how many stop blocks should be used in the Ketenrijger? Less means more memory usage per unit of time.";
 		parameter<uint32>   MaxStopBlockSize                          := 104                     , Descr = "In the generation of the unlinked PT-network, what is maximum stop block size? Make sure that the product of this value and the NumberOfStopBlocks is sufficient to include all stops";
 		parameter<uint32>   NumberOfOrgBlocks                         := 450                    , Descr = "In the generation of PT-output files, how many origin blocks should be used? Less means more memory use, but less overhead. Het product met MaxOrgBlockSize moet minstens het aantal herkomsten zijn, zie ChecksBeforeRunning/Check_OriginBlocks: 450 x 200 = 90.000 dekt de 88.126 herkomsten van de 500m-clustering (441 gevulde blokken). Bij een nieuwe BAG-snapshot met meer herkomsten meldt die check precies welk getal nodig is.";
-		parameter<uint32>   MaxOrgBlockSize                           := 200                    , Descr = "In the generation of PT-output files, what is maximum origin block size? Make sure that this number times the number of blocks is larger than the number of origins. 200 herkomsten per blok houdt een blok behapbaar; bij de oude buurt-herkomsten stond dit op 30.";
+		parameter<uint32>   MaxOrgBlockSize                           := IsDefined(Buurtset_Org) ? 33 : 200, Descr = "In the generation of PT-output files, what is maximum origin block size? Make sure that this number times the number of blocks is larger than the number of origins. 200 herkomsten per blok houdt een blok behapbaar; bij de oude buurt-herkomsten stond dit op 30. Sinds 2026-10-05 (#126) 33 bij een buurtvariant als Orgset: 450 x 33 = 14.850 dekt de 14.421 buurten van 2023 en 14.729 van 2025, zodat alle blokken gevuld zijn; met buurten als bestemming (14.729 in plaats van 460 knooppunten) heeft een blok van 33 herkomsten zo'n 5 keer zoveel HB-paren als een blok van 200 cellen naar de knooppunten. Voorlopig: geheugen en rekentijd per blok moeten nog gemeten worden.";
 		parameter<uint16>   Max_transfers                             := 3w                     , Descr = "How many transfers are allowed?", IntegrityCheck = "this >= 1w && this <= 4w";
 		parameter<bool>     PriceExportsAndIntegrityChecksNeeded      := IsDefined(strpos(lowercase(MinimiseCriteria), 'price')) || Export_PriceInformation;
 		// PARETO-BENEN (ObjectVision/NetworkModel_PBL#115, ObjectVision/GeoDMS#856)
@@ -432,15 +450,15 @@
 				[
 				'Y2012','20221201', '2012', 'TRUE',  'yr2021_12', '20120101',     '',         '',      //20140101
 				'Y2013','20140101', '2022', 'FALSE', 'yr2021_12', '20130101',     '',         '',
-				'Y2015','20240524', '2023', 'TRUE',  'yr2021_12', '20230101',     '20151013', '',
+				'Y2015','20240524', '2023', 'TRUE',  'yr2021_12', '20230101.new', '20151013', '',
 				'Y2018','20190101', '2020', 'FALSE', 'yxx2021_12','20180101',     '',         '',
 				'Y2020','20200117', '2020', 'FALSE', 'yr2021_12', '20200101',     '',         '',
 				'Y2021','20211221', '2021', 'TRUE',  'yr2021_12', '20210101',     '',         '',
 				'Y2022','20221201', '2022', 'TRUE',  'yr2022_12', '20220101',     '',         '',
-				'Y2023','20240524', '2023', 'TRUE',  'yr2023_12', '20230101',     '20231010', '20231003',
-				'Y2024','20240524', '2024', 'TRUE',  'yr2025_12', '20240101_RS',  '20241008', '20241001',
-				'Y2025','20240524', '2025', 'TRUE',  'yr2025_12', '20250101',     '20251014', '20250930',
-				'Y2026','20260601', '2025', 'TRUE',  'yr2025_12', '20260101.new', '20261013', '20260925'
+				'Y2023','20240524', '2023', 'TRUE',  'yr2023_12', '20230101.new', '20231010', '20231003',
+				'Y2024','20240524', '2023', 'TRUE',  'yr2025_12', '20230101.new', '20241008', '20241001',
+				'Y2025','20240524', '2025', 'TRUE',  'yr2025_12', '20250101.new', '20251014', '20250930',
+				'Y2026','20260601', '2025', 'TRUE',  'yr2025_12', '20250101.new', '20261013', '20260925'
 				];
 				// PEILDATA (overleg PBL 5-10-2026, #125): de tweede dinsdag van oktober, 13-10-2015, 10-10-2023, 8-10-2024,
 				// 14-10-2025 en 13-10-2026. Ze vervangen 1-10-2024, 30-9-2025, 16-6-2026 en 6-10-2026 (op 6-10-2026 waren er
@@ -456,13 +474,19 @@
 				// moet eerst opnieuw worden ingericht. Voor 2015 en 2024 is nog niets afgesproken: voorlopig de dichtstbijzijnde
 				// bruikbare editie, yr2021_12 voor 2015 (er is geen oudere) en yr2025_12 voor 2024 (er is geen 2024, en 2023
 				// is niet bruikbaar).
-				// Regios en BAG_snapshot van Y2015: voorlopig die van Y2023.
+				// Regios en BAG_snapshot (sinds 2026-10-05, #126): die van de buurtvariant van de peildatum (Advanced/Buurtsets),
+				// CBS 2023 en BAG 1-1-2023 voor 2015, 2023 en 2024, CBS 2025 en BAG 1-1-2025 voor 2025 en 2026. Tot dan had
+				// Y2024 Regios 2024 en BAG 20240101_RS, Y2025 BAG 20250101 (die er niet was) en Y2026 BAG 20260101.new. Ook de
+				// BAG-herkomsten (BAG_woonpanden_Clustered) van een peildatum rekenen zo met de BAG van zijn buurtvariant.
 				// BAG_snapshot = de mapnaam onder %BAG_DataDir%/BAG/snapshots.ext, want die namen zijn
 				// onregelmatig. Aanwezig op F: (2026-09-22): 20120101 t/m 20200101 en 20180401/20170701/
 				// 20170908 (oude Ruimtescanner-snapshots, de drieslag vbo/pand/adres.fss), 20240101_RS
 				// (idem, met de mmd-kopieen die deze config ernaast zet) en 20260101.new (een volledige
 				// bag.mmd van BAG-Tools, uit het historiebestand van 2026-08-08). Voor 2021, 2022, 2023 en
 				// 2025 staat er geen snapshot; die jaren kunnen dus geen BAG-herkomsten leveren.
+				// Sinds 2026-10-05 (#126) ook 20230101.new en 20250101.new, met BAG-Tools (BAG20_MakeSnaphot,
+				// nl_status_sel_with_strangevalues_no_height_mmd) uit dezelfde historie 20260808/mmd_ge als 20260101.new;
+				// 2023: 14.421 buurten, 13.990 met woningen, 8.125.113 woningen; 2025: 14.729, 14.281, 8.274.308.
 				//
 				// Regios blijft voor Y2026 op 2025: cbsgebiedsindelingen2026.gpkg is een voorlopige uitgave
 				// van 2,9 MB met alleen landsdeel, provincie, COROP(plus/sub) en gemeente, en labelpoints die
@@ -499,7 +523,7 @@
 			attribute<string> CongestionMoment : ['MorningRush', 'NoonRush', 'LateEveningRush'];
 		}
 	
-		unit<uint32> org_domain_list : nrofrows = 21 // Hier worden de paden voor elke org set opgegeven. En wanneer er nieuwe bij komen dat hier ook toegevoegd worden.
+		unit<uint32> org_domain_list : nrofrows = 23 // Hier worden de paden voor elke org set opgegeven. En wanneer er nieuwe bij komen dat hier ook toegevoegd worden.
 		, Descr = ""
 		{
 			unit<uint32> Elements  := Range(uint32, 0, nrAttr*#.)
@@ -508,6 +532,8 @@
 				// Label, Path
 				[
 				'Buurt'                               ,'SourceData/RegioIndelingen/Buurt/Centroiden',
+				'Buurt2023'                           ,'SourceData/RegioIndelingen/Buurt/Centroiden', // #126: CBS 2023 en BAG 1-1-2023 (Buurtsets)
+				'Buurt2025'                           ,'SourceData/RegioIndelingen/Buurt/Centroiden', // #126: CBS 2025 en BAG 1-1-2025
 				'Buurt_perProvincie'                  ,'SourceData/RegioIndelingen/Buurt/Per_Prov/@REGIO@/sub',
 				'Buurt_perCOROP'                      ,'SourceData/RegioIndelingen/Buurt/Per_COROP/@REGIO@/sub',
 				'Buurt_perCOROPp'                      ,'SourceData/RegioIndelingen/Buurt/Per_COROPp/@REGIO@/sub',
@@ -543,7 +569,7 @@
 			parameter<uint32> nrAttr := 2;
 		}
 		
-		unit<uint32> dest_domain_list : nrofrows = 7 // Hier worden de paden voor elke dest set opgegeven. En wanneer er nieuwe bij komen dat hier ook toegevoegd worden.
+		unit<uint32> dest_domain_list : nrofrows = 9 // Hier worden de paden voor elke dest set opgegeven. En wanneer er nieuwe bij komen dat hier ook toegevoegd worden.
 		, Descr = ""
 		{ 
 			unit<uint32> Elements  := Range(uint32, 0, nrAttr*#.)
@@ -553,6 +579,8 @@
 				[
 				 'LISA'                                                           ,'SourceData/locaties/LISA/ReadFSS/y@LISAJAAR@/PerYear/HeeftBanen'                                                  , 'nr_banen'
 				,'Buurt'                                                          ,'SourceData/RegioIndelingen/Buurt/Centroiden'                                                                      , 'nr_banen'
+				,'Buurt2023'                                                      ,'SourceData/RegioIndelingen/Buurt/Centroiden'                                                                      , 'nr_banen'
+				,'Buurt2025'                                                      ,'SourceData/RegioIndelingen/Buurt/Centroiden'                                                                      , 'nr_banen'
 				,'Buurt_enkele_Buurt'                                             ,'SourceData/RegioIndelingen/Buurt/Enkele_buurt_Dest'                                                               , 'nr_banen'
 				,'Buurt_enkele_Prov'                                              ,'SourceData/RegioIndelingen/Buurt/Enkele_Prov_dest'                                                                   , 'nr_banen'
 				,'Buurt_enkele_Corop'                                             ,'SourceData/RegioIndelingen/Buurt/Enkele_Corop_dest'                                                                  , 'nr_banen'
