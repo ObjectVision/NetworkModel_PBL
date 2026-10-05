@@ -47,7 +47,8 @@ def parse(step):
     r["errors"] = len(errs); r["first_error"] = errs[0][:200] if errs else None
     m = re.search(r"GeoDmsRun failed with code (\d+)", s); r["failed"] = m.group(1) if m else None
     # Sinds 2026-10-03 (#118) PT_Chains_<datum>_<venster>_<hash> (een map met een store per blok) en
-    # DirectCar_<moment>_<herkomst>_<bestemming>_<hash>.mmd, met de handtekening in <naam>.signature.txt ernaast.
+    # DirectCar_<moment>_<herkomst>_<bestemming>_<hash>.mmd, met de handtekening in signature.txt in de map (tot 2026-10-06
+    # <naam>.signature.txt ernaast).
     pat = "PT_Chains_*" if step == "chains" else ("DirectCar_%s_*.mmd" % step.split("_", 1)[1] if step.startswith("car_") else None)
     stores = sorted([d for d in glob.glob(os.path.join(STORES, pat)) if os.path.isdir(d)], key=os.path.getmtime) if pat else []
     if stores:
