@@ -27,6 +27,11 @@ REM                                 die de uitvoerstap in dezelfde opvraging maa
 REM Sinds 2026-10-05 (#117) rekent een run een component (ModelParameters/Component): cars slaat de autostores over als
 REM de component geen directe autorit heeft (Lopen, Fiets), chains de ketenstore als het OV niet meedoet (Auto, Samen),
 REM en output voegt bij Component 'Samen' de uitvoer van de componenten in MergeComponents samen.
+REM Draai de uitvoerstappen (output) van de componenten na elkaar, niet tegelijk: op 2026-10-06/07 (Y2023, Buurt2023 naar
+REM Buurt2023, 128 GB RAM) groeide het vastgelegde geheugen van de uitvoer van Auto met ongeveer 0,7 GB per herkomstblok tot
+REM 386 GB na blok 450 (779 miljoen autoroutes; elk blok filtert de hele autotabel, PublicTransport/Direct_OD_all). Naast de
+REM uitvoer van Fiets (ongeveer 110 GB) swapte de machine (109 GB gewijzigde pagina's) en vorderde Fiets nauwelijks; het
+REM afsluiten van Auto na het laatste bestand duurde zo meer dan een uur. Lopen en Fiets blijven alleen rond 100 GB.
 REM
 REM De oude RunAll.cmd, RunKetens*.cmd, RunPrepare.cmd, RunDayGroups.cmd en RunCongestionSpeeds.cmd
 REM wezen naar itempaden van voor 2025 en zijn op 2026-09-23 verwijderd.
