@@ -7,7 +7,8 @@
 # Auto voor Buurt2023 naar Buurt2023 (450 blokken, 779 miljoen autoroutes) met ongeveer 0,7 GB per blok tot 386 GB (2026-10-06/07).
 # Daarna maakt batch\OdTellingen.py de tellingen (od_tellingen.csv, unieke_od_tellingen.csv) uit de csv's; in de ene opvraging deed
 # het model dat zelf (OD_Tellingen), met dezelfde regels, maar dat vraagt de resultaten van alle blokken in hetzelfde proces.
-# Is de lijst leeg (Component 'Samen'), dan een opvraging van NetworkSetup/Generate_Output: het samenvoegen van de componenten.
+# Bij Component 'Samen' noemt de lijst het samenvoegen per blok (ComponentMerge/PerBlock; sinds 2026-10-07, in een opvraging groeide
+# dat met ongeveer 7 GB per blok). Is de lijst leeg, dan een opvraging van NetworkSetup/Generate_Output.
 #
 # Aanroep (door UpdateAll.cmd output): WriteOutputBlocks.ps1 -Exe <GeoDmsRun.exe> -Cfg <cfg\main.dms> -LogDir <batch\log> -OutDir <uitvoermap>
 #   -BatchSize  blokken per GeoDmsRun; zonder deze parameter die van de component, ModelParameters/Advanced/Componenten/

@@ -199,7 +199,7 @@ REM (WriteOutputBlocks.ps1). Blokken per portie: ModelParameters/Advanced/Compon
 REM (standaard 50), of de omgevingsvariabele OUTPUT_BATCHSIZE; OUTPUT_MAXBLOCKS rekent hooguit zoveel blokken (om te
 REM testen). Met de omgevingsvariabele OUTPUT_SINGLE een
 REM opvraging voor alle blokken, met de tellingen erin (NetworkSetup/Generate_Output), zoals tot dan. Bij Component 'Samen'
-REM (sinds 2026-10-05, #117) altijd een opvraging: het samenvoegen van de componenten.
+REM (sinds 2026-10-05, #117) het samenvoegen van de componenten, sinds 2026-10-07 ook per blok in porties (ComponentMerge/PerBlock).
 if defined OUTPUT_SINGLE goto output_single
 echo === uitvoer: csv per herkomstblok en vertrekmoment, in porties (WriteOutputBlocks.ps1; uren) ===
 set STEP=output
