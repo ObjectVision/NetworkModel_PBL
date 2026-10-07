@@ -10,8 +10,10 @@
 # Is de lijst leeg (Component 'Samen'), dan een opvraging van NetworkSetup/Generate_Output: het samenvoegen van de componenten.
 #
 # Aanroep (door UpdateAll.cmd output): WriteOutputBlocks.ps1 -Exe <GeoDmsRun.exe> -Cfg <cfg\main.dms> -LogDir <batch\log> -OutDir <uitvoermap>
-#   -BatchSize  blokken per GeoDmsRun (standaard 50). Elke portie betaalt de opstart opnieuw; tot het eerste blokbestand duurde die
-#               voor Y2023, Buurt2023 naar Buurt2023, 2,5 min bij Auto, 5 bij Fiets en 6 bij Lopen.
+#   -BatchSize  blokken per GeoDmsRun; zonder deze parameter die van de component, ModelParameters/Advanced/Componenten/
+#               BlokkenPerPortie (standaard 50; het model schrijft hem naar batch\log\output_blocks_per_portion.txt); 0 = alle
+#               blokken in een portie. Elke portie betaalt de opstart opnieuw; tot het eerste blokbestand duurde die voor Y2023,
+#               Buurt2023 naar Buurt2023, 2,5 min bij Auto, 5 bij Fiets en 6 bij Lopen.
 #   -MaxBlocks  hooguit zoveel blokken (0 = alle; om te testen)
 # Exitcode 0 als alle porties en de tellingen gelukt zijn, anders 1.
 param(
@@ -19,18 +21,22 @@ param(
 	[Parameter(Mandatory=$true)][string]$Cfg,
 	[Parameter(Mandatory=$true)][string]$LogDir,
 	[Parameter(Mandatory=$true)][string]$OutDir,
-	[int]$BatchSize = 50,
+	[int]$BatchSize = -1,
 	[int]$MaxBlocks = 0
 )
 $ErrorActionPreference = 'Stop'
 $listFile = Join-Path $LogDir 'output_blocks.txt'
+$sizeFile = Join-Path $LogDir 'output_blocks_per_portion.txt'
 $listItem = '/NetworkSetup/ConfigurationPerBlock/Generate_Output/OutputBlocks_List'
+$sizeItem = '/NetworkSetup/ConfigurationPerBlock/Generate_Output/OutputBlocks_PerPortion'
 function Say($m) { "{0} {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $m }
 
-if (Test-Path $listFile) { Remove-Item $listFile }
-$p = Start-Process -FilePath $Exe -ArgumentList @("/L$LogDir\UpdateAll_output_blocks.log", $Cfg, '@statistics', $listItem) -PassThru -Wait -WindowStyle Hidden -RedirectStandardOutput "$LogDir\UpdateAll_output_blocks.txt"
-if ($p.ExitCode -ne 0 -or -not (Test-Path $listFile)) { Say "MISLUKT: de lijst van de blokken is niet gemaakt (exit $($p.ExitCode)), zie $LogDir\UpdateAll_output_blocks.log"; exit 1 }
+foreach ($f in $listFile, $sizeFile) { if (Test-Path $f) { Remove-Item $f } }
+$p = Start-Process -FilePath $Exe -ArgumentList @("/L$LogDir\UpdateAll_output_blocks.log", $Cfg, '@statistics', $listItem, '@statistics', $sizeItem) -PassThru -Wait -WindowStyle Hidden -RedirectStandardOutput "$LogDir\UpdateAll_output_blocks.txt"
+if ($p.ExitCode -ne 0 -or -not (Test-Path $listFile) -or -not (Test-Path $sizeFile)) { Say "MISLUKT: de lijst van de blokken is niet gemaakt (exit $($p.ExitCode)), zie $LogDir\UpdateAll_output_blocks.log"; exit 1 }
 $blocks = @(Get-Content $listFile | Where-Object { $_.Trim() -ne '' })
+if ($BatchSize -lt 0) { $BatchSize = [int](Get-Content $sizeFile -Raw).Trim() }
+if ($BatchSize -eq 0) { $BatchSize = [Math]::Max($blocks.Count, 1) }
 
 if ($blocks.Count -eq 0) {
 	Say 'uitvoer: geen blokken (Samen), een opvraging van /NetworkSetup/Generate_Output'

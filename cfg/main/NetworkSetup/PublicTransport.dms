@@ -58,52 +58,23 @@ container Generate_Output
 
 unit<uint8>         Modes             := GTFS_Modes/Selection;
 
-unit<uint32>        Places            := PublicTransport_Prep/Impl/Places
-{
-	//in het geval van getiled berekenen moet er een relatie zijn van de orgs naar de subset-orgs.
-	// attribute<org> origin_rel := =/ModelParameters/Advanced/Getiled_berekenen ? 'rlookup(PublicTransport_Prep/Impl/Places/origin_rel, org/org_rel)' : 'PublicTransport_Prep/Impl/Places/origin_rel';
-	
-	attribute<org>                                   origin_sub_rel := rlookup(PublicTransport_Prep/Impl/Places/origin_rel, org/org_rel);
-	attribute</NetworkSetup/Impl/OrgBlockSelections> origin_rel     := PublicTransport_Prep/Impl/Places/origin_rel;
-}
+unit<uint32>        Places            := PublicTransport_Prep/Impl/Places, Descr = "Alle plaatsen (haltes, herkomsten, bestemmingen). Tot 2026-10-07 met origin_sub_rel, de herkomst in het blok, waarop V en Direct_OD hun rijen kozen; nu kiezen die op het herkomstblok (NetworkSetup/impl/OrgBlockSelections/OrgBlock_rel).";
 unit<uint64>        OD_code           := combine_unit_uint64(Places, Places), Descr = "Een element per paar (herkomst, bestemming) van Places; voor de unieke HB-paren van de tellingen.";
 
 
 unit<uint16>        Allowed_ChainsK := /Classifications/Chains/Allowed;
 
-unit<uint64> V_org := ='union_unit_uint64('+asList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_PreTransport_Typen/name+'/Create_Routes/ODMatrix', ',')+')'
+// Het voor- en natransport van dit blok (sinds 2026-10-07): de voortransportbenen van NetworkSetup/impl/V_org met dit herkomstblok,
+// met de tekst OrgName alleen voor die benen, en alle natransportbenen (NetworkSetup/impl/N). Tot dan verenigde elk blok alle benen
+// opnieuw en koos het de voortransportbenen waarvan de herkomst in het blok lag (IsRelevantForOrgSubset): dezelfde benen, in
+// dezelfde volgorde.
+unit<uint64> V := select_with_attr_by_cond(/NetworkSetup/impl/V_org, /NetworkSetup/impl/V_org/OrgBlock_rel == BlockDomain_id)
 , Descr = "PreTransport"
 {
-	attribute<Places>            From_Place_rel            := ='union_data(., '+asList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_PreTransport_Typen/name+'/Create_Routes/ODMatrix/From_Place_rel', ',')+')';
-	attribute<Places>            To_Place_rel              := ='union_data(., '+asList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_PreTransport_Typen/name+'/Create_Routes/ODMatrix/To_Place_rel', ',')+')';
-	attribute<Modes>             Mode_rel                  := ='union_data(., '+asList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_PreTransport_Typen/name+'/Create_Routes/ODMatrix/Mode_rel', ',')+')';
-	attribute<VN_ModeClasses/Uq> ModeClass_rel             := ='union_data(., '+asList('const('+string(rlookup(ModelParameters/Advanced/OV_PreTransport_Typen/ExportName, /classifications/VN_ModeClasses/Uq/name))+'[VN_ModeClasses/Uq], PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_PreTransport_Typen/name+'/Create_Routes/ODMatrix)', ',')+')';
-	attribute<s>                 impedance                 := ='union_data(., '+asList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_PreTransport_Typen/name+'/Create_Routes/ODMatrix/Duration_seconds_ext[s]', ',')+')';
-	attribute<s>                 impedance_net             := ='union_data(., '+asList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_PreTransport_Typen/name+'/Create_Routes/ODMatrix/impedance[s]', ',')+')', Descr = "Netwerkreistijd van het been, zonder start- en parkeertijd; hierop toetsen de Max*Time-grenzen, net als de cut van de Dijkstra.";
-	attribute<dam>               Distance                  := ='union_data(., '+asList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_PreTransport_Typen/name+'/Create_Routes/ODMatrix/Distance', ',')+')';
-	attribute<ct>                Price                     := ='union_data(., '+asList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_PreTransport_Typen/name+'/Create_Routes/ODMatrix/Price', ',')+')';
-	
-	attribute<string>         OrgName                   := Places/label[From_Place_rel]; //debug
-	
-	attribute<bool>           IsRelevantForOrgSubset    := IsDefined(Places/origin_sub_rel)[From_Place_rel];
+	attribute<string>            OrgName                   := Places/label[From_Place_rel]; //debug
 }
 
-unit<uint64> V := select_with_attr_by_cond(V_org, V_org/IsRelevantForOrgSubset);
-
-unit<uint64> N := ='union_unit_uint64('+asList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_PostTransport_Typen/name+'/Create_Routes/ODMatrix', ',')+')'
-, Descr = "PostTransport"
-{
-	attribute<Places>            From_Place_rel            := ='union_data(., '+asList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_PostTransport_Typen/name+'/Create_Routes/ODMatrix/From_Place_rel', ',')+')';
-	attribute<Places>            To_Place_rel              := ='union_data(., '+asList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_PostTransport_Typen/name+'/Create_Routes/ODMatrix/To_Place_rel', ',')+')';
-	attribute<Modes>             Mode_rel                  := ='union_data(., '+asList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_PostTransport_Typen/name+'/Create_Routes/ODMatrix/Mode_rel', ',')+')';
-	attribute<VN_ModeClasses/Uq> ModeClass_rel             := ='union_data(., '+asList('const('+string(rlookup(ModelParameters/Advanced/OV_PostTransport_Typen/ExportName, /classifications/VN_ModeClasses/Uq/name))+'[VN_ModeClasses/Uq], PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_PostTransport_Typen/name+'/Create_Routes/ODMatrix)', ',')+')';
-	attribute<s>                 impedance                 := ='union_data(., '+asList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_PostTransport_Typen/name+'/Create_Routes/ODMatrix/Duration_seconds_ext[s]', ',')+')';
-	attribute<s>                 impedance_net             := ='union_data(., '+asList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_PostTransport_Typen/name+'/Create_Routes/ODMatrix/impedance[s]', ',')+')', Descr = "Netwerkreistijd van het been, zonder start- en parkeertijd; hierop toetsen de Max*Time-grenzen, net als de cut van de Dijkstra.";
-	attribute<dam>               Distance                  := ='union_data(., '+asList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_PostTransport_Typen/name+'/Create_Routes/ODMatrix/Distance', ',')+')';
-	attribute<ct>                Price                     := ='union_data(., '+asList('PublicTransport_Prep/TimeInvariantConnections/'+ModelParameters/Advanced/OV_PostTransport_Typen/name+'/Create_Routes/ODMatrix/Price', ',')+')';
-	
-	attribute<string>            DestName                  := Places/label[To_Place_rel]; //debug
-}
+unit<uint64> N := /NetworkSetup/impl/N, Descr = "PostTransport";
 
 // De directe ritten van de herkomsten van dit blok: de rijen van NetworkSetup/impl/Direct_OD met dit herkomstblok, met de tekst
 // ModeUsed alleen voor die rijen. Tot 2026-10-07 rekende elk blok de plaatsen, het bezit en de tekst over de hele tabel

@@ -24,7 +24,9 @@ REM                                 PT_DepartureHours/Minutes. Maakt die map eer
 REM                                 bestanden van het model (tt_*.csv, tt_*.xml, signature.txt/.xml), ook de samengevoegde,
 REM                                 en sinds 2026-10-04 de tellingen od_tellingen.csv en unieke_od_tellingen.csv (met .xml).
 REM                                 Sinds 2026-10-07 in porties van blokken (WriteOutputBlocks.ps1, een GeoDmsRun per
-REM                                 portie, daarna de tellingen met OdTellingen.py); met OUTPUT_SINGLE een opvraging.
+REM                                 portie, daarna de tellingen met OdTellingen.py); blokken per portie per component in
+REM                                 ModelParameters/Advanced/Componenten/BlokkenPerPortie of met OUTPUT_BATCHSIZE; met
+REM                                 OUTPUT_SINGLE een opvraging.
 REM Sinds 2026-10-05 (#117) rekent een run een component (ModelParameters/Component): cars slaat de autostores over als
 REM de component geen directe autorit heeft (Lopen, Fiets), chains de ketenstore als het OV niet meedoet (Auto, Samen),
 REM en output voegt bij Component 'Samen' de uitvoer van de componenten in MergeComponents samen.
@@ -193,7 +195,9 @@ if exist "!OUTDIR!\" (
   del /q "!OUTDIR!\PerBlock\tt_*.csv" "!OUTDIR!\PerBlock\tt_*.xml" "!OUTDIR!\tt_*.csv" "!OUTDIR!\tt_*.xml" "!OUTDIR!\signature.txt" "!OUTDIR!\signature.xml" "!OUTDIR!\od_tellingen.*" "!OUTDIR!\unieke_od_tellingen.*" 2>nul
 )
 REM Sinds 2026-10-07 in porties van herkomstblokken, elk een eigen GeoDmsRun, en daarna de tellingen met OdTellingen.py
-REM (WriteOutputBlocks.ps1; OUTPUT_BATCHSIZE = blokken per portie, standaard 50). Met de omgevingsvariabele OUTPUT_SINGLE een
+REM (WriteOutputBlocks.ps1). Blokken per portie: ModelParameters/Advanced/Componenten/BlokkenPerPortie van de component
+REM (standaard 50), of de omgevingsvariabele OUTPUT_BATCHSIZE; OUTPUT_MAXBLOCKS rekent hooguit zoveel blokken (om te
+REM testen). Met de omgevingsvariabele OUTPUT_SINGLE een
 REM opvraging voor alle blokken, met de tellingen erin (NetworkSetup/Generate_Output), zoals tot dan. Bij Component 'Samen'
 REM (sinds 2026-10-05, #117) altijd een opvraging: het samenvoegen van de componenten.
 if defined OUTPUT_SINGLE goto output_single
@@ -201,6 +205,7 @@ echo === uitvoer: csv per herkomstblok en vertrekmoment, in porties (WriteOutput
 set STEP=output
 set "OUTBS="
 if defined OUTPUT_BATCHSIZE set "OUTBS=-BatchSize %OUTPUT_BATCHSIZE%"
+if defined OUTPUT_MAXBLOCKS set "OUTBS=!OUTBS! -MaxBlocks %OUTPUT_MAXBLOCKS%"
 powershell -NoProfile -ExecutionPolicy Bypass -File "%BATCHDIR%WriteOutputBlocks.ps1" -Exe "%EXE%" -Cfg "%CFG%" -LogDir "%LOGDIR%" -OutDir "!OUTDIR!" !OUTBS!
 set RC=!ERRORLEVEL!
 if not "!RC!"=="0" goto failed
