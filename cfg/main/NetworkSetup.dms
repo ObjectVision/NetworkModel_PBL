@@ -10,8 +10,29 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 
 		unit<uint32> OrgBlockSelections := =Org_str
 		{
-			attribute<.>      rnd_rel       := rnd_permutation(0, .);
-		}	
+			attribute<.>              rnd_rel       := rnd_permutation(0, .);
+			attribute<OrgBlockDomain> OrgBlock_rel  := value(rnd_rel / ModelParameters/Advanced/MaxOrgBlockSize, OrgBlockDomain), Descr = "Het herkomstblok van deze herkomst: ConfigurationPerOrgBlock_T/org en de directe ritten per blok (PublicTransport/Direct_OD) kiezen hierop.";
+		}
+
+		// De directe ritten van alle herkomsten (PublicTransport_Prep/Direct_OD) met wat niet van het blok afhangt, een keer gerekend:
+		// de plaatsen van herkomst en bestemming, het bezit dat de rit vraagt en het herkomstblok; elk blok kiest daaruit zijn rijen
+		// (PublicTransport/Direct_OD). Tot 2026-10-07 rekende elk blok dat over de hele tabel (PublicTransport/Direct_OD_all), met
+		// twee rlookups en een tekst per rij: voor Auto met Buurt2023 naar Buurt2023 779 miljoen rijen, 450 keer.
+		unit<uint64> Direct_OD := PublicTransport_Prep/Direct_OD
+		{
+			attribute<s>                                    Duration_seconds := PublicTransport_Prep/Direct_OD/Duration_seconds;
+			attribute<dam>                                  Distance         := PublicTransport_Prep/Direct_OD/Distance;
+			attribute<ct>                                   Price            := PublicTransport_Prep/Direct_OD/Price;
+			attribute<ct>                                   Price_Augm       := PublicTransport_Prep/Direct_OD/Price_Augm;
+			attribute<OrgBlockSelections>                   OrgZone_rel      := PublicTransport_Prep/Direct_OD/OrgZone_rel, Descr = "De herkomst in de volledige herkomstenset, zoals PublicTransport_Prep/Impl/Places/Origin_rel.";
+			attribute<PublicTransport_Prep/impl/dest>       DstZone_rel      := PublicTransport_Prep/Direct_OD/DstZone_rel;
+			attribute<PublicTransport_Prep/impl/Modes>      Mode_rel         := PublicTransport_Prep/Direct_OD/Mode_rel;
+			attribute<bool>                                 NeedsCar         := Mode_rel == PublicTransport_Prep/impl/Modes/V/Car, Descr = "Criterium van de eindafweging (Classifications/OwnershipParetoAttr, NetworkModel_PBL#117).";
+			attribute<bool>                                 NeedsBike        := Mode_rel == PublicTransport_Prep/impl/Modes/V/Cycling, Descr = "Idem.";
+			attribute<PublicTransport_Prep/impl/Places>     From_Place_rel   := rlookup(OrgZone_rel, PublicTransport_Prep/impl/Places/Origin_rel);
+			attribute<PublicTransport_Prep/impl/Places>     To_Place_rel     := rlookup(DstZone_rel, PublicTransport_Prep/impl/Places/Dest_rel);
+			attribute<OrgBlockDomain>                       OrgBlock_rel     := OrgBlockSelections/OrgBlock_rel[OrgZone_rel];
+		}
 		unit<uint32> OrgBlockDomain   := range(0, ModelParameters/Advanced/NumberOfOrgBlocks)
 		{
 			attribute<string> name          := 'Block_'+string(id(.)+1)+'of'+string(max(id(.))+1);
@@ -196,7 +217,7 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 		parameter<NetworkSetup/impl/OrgBlockDomain> BlockDomain_id;
 		////
 
-		unit<uint32> org := select_with_org_rel(NetworkSetup/impl/OrgBlockSelections/rnd_rel / ModelParameters/Advanced/MaxOrgBlockSize == BlockDomain_id)
+		unit<uint32> org := select_with_org_rel(NetworkSetup/impl/OrgBlockSelections/OrgBlock_rel == BlockDomain_id)
 		{
 			attribute<rdc>                   geometry       := NetworkSetup/impl/OrgBlockSelections/geometry[org_rel];
 			attribute<string>                name           := NetworkSetup/impl/OrgBlockSelections/name[org_rel];

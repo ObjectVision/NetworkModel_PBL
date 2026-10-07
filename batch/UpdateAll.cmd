@@ -30,7 +30,7 @@ REM de component geen directe autorit heeft (Lopen, Fiets), chains de ketenstore
 REM en output voegt bij Component 'Samen' de uitvoer van de componenten in MergeComponents samen.
 REM Draai de uitvoerstappen (output) van de componenten na elkaar, niet tegelijk: op 2026-10-06/07 (Y2023, Buurt2023 naar
 REM Buurt2023, 128 GB RAM) groeide het vastgelegde geheugen van de uitvoer van Auto met ongeveer 0,7 GB per herkomstblok tot
-REM 386 GB na blok 450 (779 miljoen autoroutes; elk blok filtert de hele autotabel, PublicTransport/Direct_OD_all). Naast de
+REM 386 GB na blok 450 (779 miljoen autoroutes; tot 2026-10-07 filterde elk blok de hele autotabel, PublicTransport/Direct_OD_all). Naast de
 REM uitvoer van Fiets (ongeveer 110 GB) swapte de machine (109 GB gewijzigde pagina's) en vorderde Fiets nauwelijks; het
 REM afsluiten van Auto na het laatste bestand duurde zo meer dan een uur. Lopen en Fiets blijven alleen rond 100 GB.
 REM Sindsdien rekent output in porties (WriteOutputBlocks.ps1), zodat het geheugen tussen de porties vrijkomt.
