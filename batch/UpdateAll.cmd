@@ -90,13 +90,13 @@ echo === bronnen: OSM-netwerkstore ===
 call :run osm_network /SourceData/Infrastructure/OSM/Make_Final_Network
 if not "!RC!"=="0" goto failed
 echo === bronnen: TomTom-stores (wegen, knopen, speedprofile-net, speedprofiles) ===
-call :run tomtom_roads         /SourceData/Infrastructure/TomTom/Impl/Merge_Roads
+call :run tomtom_roads         /SourceData/Infrastructure/TomTom/Impl/Write_Roads
 if not "!RC!"=="0" goto failed
-call :run tomtom_junctions     /SourceData/Infrastructure/TomTom/Impl/Merge_Junctions
+call :run tomtom_junctions     /SourceData/Infrastructure/TomTom/Impl/Write_Junctions
 if not "!RC!"=="0" goto failed
-call :run tomtom_speednetworks /SourceData/Infrastructure/TomTom/Impl/Merge_Speednetworks
+call :run tomtom_speednetworks /SourceData/Infrastructure/TomTom/Impl/Write_Speednetworks
 if not "!RC!"=="0" goto failed
-call :run tomtom_speedprofiles /SourceData/Infrastructure/TomTom/Impl/Merge_Speedprofiles
+call :run tomtom_speedprofiles /SourceData/Infrastructure/TomTom/Impl/Write_Speedprofiles
 if not "!RC!"=="0" goto failed
 echo === bronnen: GTFS-store van de feed GTFS_file_date ===
 call :run gtfs /SourceData/Infrastructure/GTFS/LoadFeeds/Write

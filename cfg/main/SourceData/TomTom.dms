@@ -12,7 +12,15 @@ container TomTom
 		parameter<string> dir       := '%NetworkModel_PrivDir%/TomTom/'+file_date+''; //must have forward slashes!
 		
 		parameter<string> Generate_FileList_CSVs := 'Ready', ExplicitSuppliers = "GetFileNames_Network/WriteFilesCSV;GetFileNames_Speedprofiles/WriteFilesCSV";
-		parameter<string> Generate_Stores        := 'Ready', ExplicitSuppliers = "Merge_Roads;Merge_Junctions;Merge_Speednetworks;Merge_Speedprofiles";
+		parameter<string> Generate_Stores        := 'Ready', ExplicitSuppliers = "Write_Roads;Write_Junctions;Write_Speednetworks;Write_Speedprofiles";
+
+		// De vier stores uit het ruwe materiaal (Merge_*, map multinet/ van de editie) of, voor een editie die alleen als oude fss
+		// bestaat, uit die fss (FromFss; sinds 2026-10-08). UpdateAll.cmd sources roept deze vier aan.
+		parameter<bool>   HasRawMaterial         := ExistingFile('', expand(., dir + '/multinet')) != '', Descr = "Heeft de editie het ruwe materiaal (multinet/)? Zo niet, dan komen de stores uit de fss (FromFss).";
+		parameter<string> Write_Roads            := 'Ready', ExplicitSuppliers = "=HasRawMaterial ? 'Merge_Roads' : 'FromFss/Roads'";
+		parameter<string> Write_Junctions        := 'Ready', ExplicitSuppliers = "=HasRawMaterial ? 'Merge_Junctions' : 'FromFss/Junctions'";
+		parameter<string> Write_Speednetworks    := 'Ready', ExplicitSuppliers = "=HasRawMaterial ? 'Merge_Speednetworks' : 'FromFss/Speednetworks'";
+		parameter<string> Write_Speedprofiles    := 'Ready', ExplicitSuppliers = "=HasRawMaterial ? 'Merge_Speedprofiles' : 'FromFss/Speedprofiles'";
 		
 		unit<uint32> FileNames_Roads         := GetFileNames_Network/Files/Files_polylines;
 		unit<uint32> FileNames_Junctions     := GetFileNames_Network/Files/Files_points;
@@ -110,6 +118,153 @@ container TomTom
 			attribute<string>  region_code                  := ='union_data(., '+asList('const('+quote(FileNames_Speedprofiles_profile/SP_regioncode)+', Read_TomTom_Files_SP_profiles/'+FileNames_Speedprofiles_profile/name+'/Read)', ',')+')', Descr = "file region code";
 			attribute<int32>   time_slot                    := ='union_data(., '+asList('Read_TomTom_Files_SP_profiles/'+FileNames_Speedprofiles_profile/name+'/Read/time_slot', ',')+')', Descr = "";
 			attribute<float32> rel_sp                       := ='union_data(., '+asList('Read_TomTom_Files_SP_profiles/'+FileNames_Speedprofiles_profile/name+'/Read/rel_sp[float32]', ',')+')', Descr = "relative speed";
+		}
+
+		// Omzetter voor de edities die alleen als fss van Jip bestaan, yr2022_12 en yr2023_12 (sinds 2026-10-08). Die fss zijn
+		// geschreven toen rdc fpoint was, dragen geen waardetypen en hebben geen ruw materiaal meer naast zich, dus Merge_* kan ze niet
+		// maken. FromFss leest ze met de waardetypen van toen (de geometrie als geometries/rdc_f32, daarna [rdc]; zie lisa.dms) en
+		// schrijft dezelfde vier mmd-stores als Merge_*, in dezelfde map. De fss blijven staan.
+		// Toets van yr2023_12 tegen yr2025_12 (2026-10-08): dezelfde kolommen, behalve VAL_DIR in Speednetworks; de lengte van de lijnen
+		// is METERS (mediaan 1,0000); de knopen liggen op 0,9 cm (mediaan) van dezelfde JNCTID in 2025; per wegtype 0,6 tot 4,0% minder
+		// wegen en 0,1 tot 1,5% minder km (de selectie van het model: 3.711.669 wegen en 349.938 km, tegen 3.796.881 en 352.642); de
+		// profiel-id's van de weekdagen worden even vaak gevonden (65%).
+		container FromFss
+		{
+			unit<uint32> Roads_fss
+			:	StorageName     = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Roads_FSS.fss'"
+			,	StorageReadOnly = "true"
+			{
+				attribute<geometries/rdc_f32> geometry (arc);
+				attribute<uint64>             NW_ID;
+				attribute<uint8>              FRC;
+				attribute<int32>              FeatureType;
+				attribute<uint8>              FerryType;
+				attribute<uint64>             F_JNCTID;
+				attribute<uint64>             T_JNCTID;
+				attribute<uint8>              F_JNCTTYP;
+				attribute<uint8>              T_JNCTTYP;
+				attribute<m>                  METERS;
+				attribute<min_f>              Minutes;
+				attribute<string>             ONEWAY;
+				attribute<km_hr>              KPH;
+				attribute<int8>               F_ELEV;
+				attribute<int8>               T_ELEV;
+			}
+			unit<uint32> Roads := Roads_fss
+			,	StorageName = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Roads.mmd'"
+			{
+				attribute<rdc>    geometry (arc) := Roads_fss/geometry[rdc];
+				attribute<uint64> NW_ID          := Roads_fss/NW_ID;
+				attribute<uint8>  FRC            := Roads_fss/FRC;
+				attribute<int32>  FeatureType    := Roads_fss/FeatureType;
+				attribute<uint8>  FerryType      := Roads_fss/FerryType;
+				attribute<uint64> F_JNCTID       := Roads_fss/F_JNCTID;
+				attribute<uint64> T_JNCTID       := Roads_fss/T_JNCTID;
+				attribute<uint8>  F_JNCTTYP      := Roads_fss/F_JNCTTYP;
+				attribute<uint8>  T_JNCTTYP      := Roads_fss/T_JNCTTYP;
+				attribute<m>      METERS         := Roads_fss/METERS;
+				attribute<min_f>  MINUTES        := Roads_fss/Minutes;
+				attribute<string> ONEWAY         := Roads_fss/ONEWAY;
+				attribute<km_hr>  KPH            := Roads_fss/KPH;
+				attribute<int8>   F_ELEV         := Roads_fss/F_ELEV;
+				attribute<int8>   T_ELEV         := Roads_fss/T_ELEV;
+			}
+
+			unit<uint32> Junctions_fss
+			:	StorageName     = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Junctions_FSS.fss'"
+			,	StorageReadOnly = "true"
+			{
+				attribute<geometries/rdc_f32> geometry;
+				attribute<int32>              FeatureType;
+				attribute<uint64>             JNCTID;
+				attribute<uint8>              JNCTTYP;
+				attribute<int8>               ELEV;
+			}
+			unit<uint32> Junctions := Junctions_fss
+			,	StorageName = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Junctions.mmd'"
+			{
+				attribute<rdc>    geometry    := Junctions_fss/geometry[rdc];
+				attribute<int32>  FeatureType := Junctions_fss/FeatureType;
+				attribute<uint64> JNCTID      := Junctions_fss/JNCTID;
+				attribute<uint8>  JNCTTYP     := Junctions_fss/JNCTTYP;
+				attribute<int8>   ELEV        := Junctions_fss/ELEV;
+			}
+
+			unit<uint32> Speednetworks_fss
+			:	StorageName     = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Speednetworks_FSS.fss'"
+			,	StorageReadOnly = "true"
+			{
+				attribute<uint64> NW_ID;
+				attribute<string> region_code;
+				attribute<uint16> SP_freeflow;
+				attribute<uint16> SP_weekday;
+				attribute<uint16> SP_weekend;
+				attribute<uint16> SP_week;
+				attribute<uint16> SP_Sunday;
+				attribute<uint16> SP_Monday;
+				attribute<uint16> SP_Tuesday;
+				attribute<uint16> SP_Wednesday;
+				attribute<uint16> SP_Thursday;
+				attribute<uint16> SP_Friday;
+				attribute<uint16> SP_Saturday;
+			}
+
+			// VAL_DIR uit de rijvolgorde. Het ruwe materiaal geeft per wegelement eerst de positieve richting (2), dan de negatieve (3);
+			// de vier rijen van een element dat in het NL- en het BE-bestand staat zijn twee zulke paren. Een element met een rij heeft
+			// alleen de rijrichting: 3 bij ONEWAY 'TF', anders 2. Getoetst op yr2025_12, waar VAL_DIR er is: 6.323.310 van 6.331.226
+			// rijen goed (99,87%). Fout zijn 7.259 rijen van elementen met twee rijen (0,13%), vrijwel alle met de volgorde omgekeerd, zodat
+			// de twee richtingen elkaars profiel krijgen, en 657 enkele rijen van wegen die voor auto's gesloten zijn (ONEWAY 'N'), waar het
+			// om en om is. Met de afstand tot de eerste rij van het element in plaats van de rang waren de elementen met vier rijen (NL en BE)
+			// voor 75% goed in plaats van alle.
+			container ValDir
+			{
+				unit<uint32> Element := unique(Speednetworks_fss/NW_ID)
+				{
+					attribute<uint32> NrRows := pcount(../Element_rel);
+				}
+				attribute<Element> Element_rel (Speednetworks_fss) := rlookup(Speednetworks_fss/NW_ID, Element/values);
+				attribute<uint32>  Rank        (Speednetworks_fss) := cumulate(const(1, Speednetworks_fss, uint32), Element_rel) - 1, Descr = "De hoeveelste rij van zijn wegelement, vanaf 0.";
+				attribute<string>  ONEWAY      (Speednetworks_fss) := Roads_fss/ONEWAY[rlookup(Speednetworks_fss/NW_ID, Roads_fss/NW_ID)];
+				attribute<uint8>   VAL_DIR     (Speednetworks_fss) := Element/NrRows[Element_rel] == 1
+					? (ONEWAY == 'TF' ? 3b : 2b)
+					: (Rank % 2 == 0 ? 2b : 3b);
+			}
+			unit<uint32> Speednetworks := Speednetworks_fss
+			,	StorageName = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Speednetworks.mmd'"
+			{
+				attribute<uint64> NW_ID        := Speednetworks_fss/NW_ID, Descr = "network id";
+				attribute<uint8>  VAL_DIR      := ValDir/VAL_DIR, Descr = "validity direction: 2 = positieve richting (van F_JNCTID naar T_JNCTID van het wegelement), 3 = negatieve richting; afgeleid uit de rijvolgorde (FromFss/ValDir)";
+				attribute<string> region_code  := Speednetworks_fss/region_code, Descr = "file region code";
+				attribute<uint16> SP_freeflow  := Speednetworks_fss/SP_freeflow, Descr = "speedprofile freeflow";
+				attribute<uint16> SP_weekday   := Speednetworks_fss/SP_weekday, Descr = "speedprofile weekday";
+				attribute<uint16> SP_weekend   := Speednetworks_fss/SP_weekend, Descr = "speedprofile weekend";
+				attribute<uint16> SP_week      := Speednetworks_fss/SP_week, Descr = "speedprofile week";
+				attribute<uint16> SP_Sunday    := Speednetworks_fss/SP_Sunday, Descr = "speedprofile sunday";
+				attribute<uint16> SP_Monday    := Speednetworks_fss/SP_Monday, Descr = "speedprofile monday";
+				attribute<uint16> SP_Tuesday   := Speednetworks_fss/SP_Tuesday, Descr = "speedprofile tuesday";
+				attribute<uint16> SP_Wednesday := Speednetworks_fss/SP_Wednesday, Descr = "speedprofile wednesday";
+				attribute<uint16> SP_Thursday  := Speednetworks_fss/SP_Thursday, Descr = "speedprofile thursday";
+				attribute<uint16> SP_Friday    := Speednetworks_fss/SP_Friday, Descr = "speedprofile friday";
+				attribute<uint16> SP_Saturday  := Speednetworks_fss/SP_Saturday, Descr = "speedprofile saturday";
+			}
+
+			unit<uint32> Speedprofiles_fss
+			:	StorageName     = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Speedprofiles_FSS.fss'"
+			,	StorageReadOnly = "true"
+			{
+				attribute<int32>   profile_id;
+				attribute<string>  region_code;
+				attribute<int32>   time_slot;
+				attribute<float32> rel_sp;
+			}
+			unit<uint32> Speedprofiles := Speedprofiles_fss
+			,	StorageName = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Speedprofiles.mmd'"
+			{
+				attribute<int32>   profile_id  := Speedprofiles_fss/profile_id, Descr = "profile id";
+				attribute<string>  region_code := Speedprofiles_fss/region_code, Descr = "file region code";
+				attribute<int32>   time_slot   := Speedprofiles_fss/time_slot;
+				attribute<float32> rel_sp      := Speedprofiles_fss/rel_sp, Descr = "relative speed";
+			}
 		}
 
 		container GetFileNames_Network       := GetFileNames_T(dir, 'multinet', 'shp');
