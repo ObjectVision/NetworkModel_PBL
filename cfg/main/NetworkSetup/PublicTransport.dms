@@ -3,7 +3,7 @@ container Generate_Output
 	container Traveltime_ForEachDepTime
 	{ 
 		// parameter<string>   Generate  := ='add('+asList('PerVertrekmoment/'+Advanced/MeasureMoments/Name+'/CreateExports/LongFormat/File_fullOD',',')+')';
-		parameter<string>   Generate  := ='add('+asList('PerVertrekmoment/'+Advanced/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Generate',',')+')';
+		parameter<string>   Generate  := ='add('+asList('PerVertrekmoment/'+Advanced/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Generate',',')+', Mediaan/Generate)';
 
 		// Tellingen van dit blok voor <OutputDir>/od_tellingen.csv en unieke_od_tellingen.csv (sinds 2026-10-04), uit de kleine
 		// resultaten achter het hek van elk vertrekmoment (PerDepartureMoment_T, LongFormat/Results_Traveltime/Tellingen). De blokken
@@ -30,6 +30,9 @@ container Generate_Output
 				attribute<bool>   AA                   := ='union_data(., '+asList('PerVertrekmoment/'+Advanced/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Tellingen/Paren/AA', ',')+')';
 				attribute<bool>   zonder_auto          := ='union_data(., '+asList('PerVertrekmoment/'+Advanced/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Tellingen/Paren/zonder_auto', ',')+')';
 				attribute<bool>   zonder_auto_en_fiets := ='union_data(., '+asList('PerVertrekmoment/'+Advanced/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Tellingen/Paren/zonder_auto_en_fiets', ',')+')';
+				attribute<min_f>  Traveltime           := ='union_data(., '+asList('PerVertrekmoment/'+Advanced/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Tellingen/Paren/Traveltime', ',')+')', Descr = "De reistijd van de snelste optie van het paar op dit vertrekmoment.";
+				attribute<m>      TravelDist           := ='union_data(., '+asList('PerVertrekmoment/'+Advanced/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Tellingen/Paren/TravelDist', ',')+')';
+				attribute<Euro>   Price                := ='union_data(., '+asList('PerVertrekmoment/'+Advanced/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Tellingen/Paren/Price', ',')+')';
 				attribute<UniekeParen> Uniek_rel       := rlookup(OD_key, UniekeParen/values);
 			}
 			unit<uint64> UniekeParen := unique(AlleParen/OD_key)
@@ -40,6 +43,19 @@ container Generate_Output
 				attribute<bool> AA                   := any(AlleParen/AA, AlleParen/Uniek_rel);
 				attribute<bool> zonder_auto          := any(AlleParen/zonder_auto, AlleParen/Uniek_rel);
 				attribute<bool> zonder_auto_en_fiets := any(AlleParen/zonder_auto_en_fiets, AlleParen/Uniek_rel);
+
+				// De snelste optie over de vertrekmomenten met een optie (sinds 2026-10-08, #53), voor Mediaan/File: de mediaan
+				// (rth_element interpoleert, dus bij een even aantal het gemiddelde van de twee middelste), de snelste en de traagste,
+				// en de afstand en de prijs van de snelste opties, elk apart.
+				attribute<min_f>  Traveltime_median  := rth_element(AlleParen/Traveltime, 0.5f, AlleParen/Uniek_rel);
+				attribute<min_f>  Traveltime_min     := min(AlleParen/Traveltime, AlleParen/Uniek_rel);
+				attribute<min_f>  Traveltime_max     := max(AlleParen/Traveltime, AlleParen/Uniek_rel);
+				attribute<m>      TravelDist_median  := rth_element(AlleParen/TravelDist, 0.5f, AlleParen/Uniek_rel);
+				attribute<Euro>   Price_median       := rth_element(AlleParen/Price, 0.5f, AlleParen/Uniek_rel);
+				attribute<uint32> NrMoments          := uint32(pcount(AlleParen/Uniek_rel)), Descr = "pcount over een uint64-domein levert uint64, vandaar de conversie.";
+				// OD_code is combine_unit_uint64(Places, Places): de eerste factor, de herkomst, varieert het langzaamst.
+				attribute<Places> From_Place_rel     := value(uint64(values) / uint64(#Places), Places);
+				attribute<Places> To_Place_rel       := value(uint64(values) % uint64(#Places), Places);
 			}
 			attribute<uint64> Paren_Samen (Classifications/OD_Tellingen_Groep) := union_data(Classifications/OD_Tellingen_Groep
 				, #UniekeParen
@@ -50,6 +66,23 @@ container Generate_Output
 				, sum_uint64(UniekeParen/zonder_auto)
 				, sum_uint64(UniekeParen/zonder_auto_en_fiets))
 			, Descr = "De unieke HB-paren per groep over alle vertrekmomenten samen.";
+		}
+
+		// De mediane reistijd per HB-paar over de vertrekmomenten (sinds 2026-10-08, #53): per vertrekmoment de snelste optie (de
+		// laagste reistijd, bij gelijke tijd de laagste prijs; Tellingen/Paren achter het hek van het moment), dan per paar de mediaan
+		// over de momenten met een optie (Tellingen/UniekeParen). Een bestand per blok, PerBlock/tt_<datum>_mediaan_<n>of<N>.csv, in
+		// dezelfde opvraging als de uitvoer. Tot dan las een Python-script (75a0884) daarvoor de csv's opnieuw (Auto, Buurt2023: 284 GB).
+		container Mediaan
+		{
+			unit<uint64>      P                 := Tellingen/UniekeParen;
+			attribute<string> Line          (P) := Places/label[P/From_Place_rel] + ';' + Places/label[P/To_Place_rel]
+				+ ';' + string(P/Traveltime_median) + ';' + string(P/Traveltime_min) + ';' + string(P/Traveltime_max)
+				+ ';' + string(P/TravelDist_median) + ';' + string(P/Price_median) + ';' + string(P/NrMoments);
+			parameter<string> File              := 'OrgName;DestName;Traveltime_median;Traveltime_min;Traveltime_max;TravelDist_median;Price_median;NrMoments\n' + asList(Line, '\n')
+			,	StorageName = "=ModelParameters/Advanced/fileNamePrefix + 'tt_' + ModelParameters/Analysis_Date + '_mediaan_' + NetworkSetup/Impl/OrgBlockDomain/FileName[BlockDomain_id] + '.csv'", StorageType = "str"
+			,	ExplicitSuppliers = "/NetworkSetup/Output_Sig/ForWriting"
+			,	Descr = "Per HB-paar: herkomst en bestemming, de mediane, snelste en traagste reistijd (min), de mediane afstand (m) en prijs (euro) van de snelste opties, en het aantal vertrekmomenten met een optie.";
+			parameter<string> Generate          := 'Ready', ExplicitSuppliers = "File";
 		}
 		// parameter<string>   Generate  := ='add('+asList('PerVertrekmoment/'+Advanced/MeasureMoments/Name+'/CreateExports/Generate_FSS',',')+')'; 
 	}
