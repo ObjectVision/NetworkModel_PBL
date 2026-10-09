@@ -56,27 +56,32 @@ container ComponentMerge
 			parameter<string> FileTail    := '_' + /ModelParameters/Analysis_date + '_' + MomentShort + '_' + /NetworkSetup/impl/OrgBlockDomain/FileName[BlockDomain_id] + '.csv'
 			,	Descr = "De naam van het bestand na tt, zoals de uitvoer per blok hem heeft: tt_<datum>_<moment>_<n>of<N>.csv.";
 
-			container PerComp := for_each_ne(ComponentMerge_Def/Comps/name, 'ReadComp_T(' + quote(ComponentMerge_Def/Comps/UitvoerAchtervoegsel) + ')');
+			container PerComp := for_each_ne(ComponentMerge_Def/Comps/name, 'ReadComp_T(' + quote(ComponentMerge_Def/Comps/UitvoerAchtervoegsel) + ', ' + (ComponentMerge_Def/Comps/EenVertrekmoment ? 'TRUE' : 'FALSE') + ')');
 			Template ReadComp_T
 			{
 				parameter<string> Suffix;
+				parameter<bool>   EenVertrekmoment;
 				///
+				// Een component met EenVertrekmoment (Auto, sinds 2026-10-09, #132) heeft per blok een bestand, dat van het congestiemoment;
+				// dat geldt voor elk vertrekmoment. Zijn kolommen heten naar dat moment (Traveltime_07h30m); de kop krijgt hier de naam van
+				// dit vertrekmoment, zodat hij gelijk is aan die van de andere componenten.
+				parameter<string> FileMoment := EenVertrekmoment ? /ModelParameters/Advanced/EenVertrekmoment_Shrt : MomentShort;
 				unit<uint32> domain
-				:	StorageName     = "=ComponentMerge_Def/BaseDir + Suffix + '/PerBlock/tt' + FileTail"
+				:	StorageName     = "=ComponentMerge_Def/BaseDir + Suffix + '/PerBlock/tt_' + /ModelParameters/Analysis_date + '_' + FileMoment + '_' + /NetworkSetup/impl/OrgBlockDomain/FileName[BlockDomain_id] + '.csv'"
 				,	StorageType     = "gdal.vect"
 				,	StorageReadOnly = "true";
 				unit<uint32> field := SubItem_PropValues(domain, 'name');
-				parameter<string>  Header             := asList(field/name, ';');
+				parameter<string>  Header             := replace(asList(field/name, ';'), '_' + FileMoment, '_' + MomentShort);
 				// De regel zoals hij in het bestand staat: GDAL leest elke kolom van de csv als tekst.
 				attribute<string>  Line       (domain) := ='domain/' + asList(field/name, ' + '';'' + domain/');
 				attribute<string>  OrgDest    (domain) := domain/OrgName + ';' + domain/DestName;
 				// De criteria terug in de eenheden van de eindafweging (Ct en s), zodat de epsilons dezelfde bakken geven als in de run:
 				// de uitvoer schrijft de prijs in euro en de reistijd in minuten.
-				attribute<Ct>      Price      (domain) := ='rounded_convert(float32(domain/Price_' + MomentShort + ')[Euro], Ct)';
-				attribute<Ct>      Price_augm (domain) := ='rounded_convert(float32(domain/Price_Augm_' + MomentShort + ')[Euro], Ct)';
-				attribute<s>       TravelTime (domain) := ='rounded_convert(float32(domain/Traveltime_' + MomentShort + ')[min_f], s)';
-				attribute<bool>    NeedsCar   (domain) := ='domain/NeedsCar_' + MomentShort + ' == ''1''';
-				attribute<bool>    NeedsBike  (domain) := ='domain/NeedsBike_' + MomentShort + ' == ''1''';
+				attribute<Ct>      Price      (domain) := ='rounded_convert(float32(domain/Price_' + FileMoment + ')[Euro], Ct)';
+				attribute<Ct>      Price_augm (domain) := ='rounded_convert(float32(domain/Price_Augm_' + FileMoment + ')[Euro], Ct)';
+				attribute<s>       TravelTime (domain) := ='rounded_convert(float32(domain/Traveltime_' + FileMoment + ')[min_f], s)';
+				attribute<bool>    NeedsCar   (domain) := ='domain/NeedsCar_' + FileMoment + ' == ''1''';
+				attribute<bool>    NeedsBike  (domain) := ='domain/NeedsBike_' + FileMoment + ' == ''1''';
 			}
 
 			unit<uint32> Rows := ='union_unit(' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/domain', ',') + ')'

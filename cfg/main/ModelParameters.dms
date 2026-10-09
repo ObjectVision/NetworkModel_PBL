@@ -253,12 +253,16 @@
 			attribute<string> UitvoerAchtervoegsel : ['_lopen', '_fiets', '_auto', '', '_samen'], Descr = "Achter OutputLabel in de naam van de uitvoermap (OutputDir); leeg bij Alles, zodat die de map van voor 2026-10-05 houdt.";
 			attribute<bool>   IsMergeable          : [TRUE, TRUE, TRUE, FALSE, FALSE], Descr = "Kan deze component in MergeComponents staan?";
 			attribute<uint32> BlokkenPerPortie     : [50, 25, 50, 50, 10], Descr = "Herkomstblokken per GeoDmsRun in de uitvoerstap (batch/WriteOutputBlocks.ps1, sinds 2026-10-07); 0 = alle blokken in een portie. Elke portie betaalt de opstart opnieuw (Y2023, Buurt2023 naar Buurt2023: tot het eerste blok 1,5 min bij Auto, 4,5 bij Fiets, 6 bij Lopen, 1,5 bij Samen); een kleinere portie houdt het geheugen lager als dat per blok groeit. Fiets 25 (sinds 2026-10-08): 99 GB bij de start en 109 GB na 20 blokken, dus bij 50 blokken op 128 GB RAM gevaar voor swappen. Samen 10: in een opvraging ongeveer 7 GB per blok. De omgevingsvariabele OUTPUT_BATCHSIZE gaat hier boven.";
+			attribute<bool>   EenVertrekmoment     : [FALSE, FALSE, TRUE, FALSE, FALSE], Descr = "Rekent en schrijft deze component een vertrekmoment, dat van het congestiemoment van het dagdeel (CongestionMinute; bij de ochtendspits 07:30), in plaats van vier per kwartier (PT_DepartureMinutes_All)? Bij Auto (sinds 2026-10-09, #132): de autostore heeft een congestiemoment, dus de vier momenten gaven per HB-paar dezelfde route, reistijd en prijs, in vier bestanden met dezelfde regels (Y2023, Buurt2023 naar Buurt2023: 284 GB, waarvan 213 dubbel). Samen leest het ene bestand van zo'n component voor elk vertrekmoment (NetworkSetup/ComponentMerge).";
 			attribute<bool>   InMerge              := IsMergeable && IsDefined(strpos(',' + lowercase(/ModelParameters/MergeComponents) + ',', ',' + lowercase(name) + ',')), Descr = "Staat deze component in MergeComponents?";
 		}
 		parameter<bool>     IsSamen                                   := /ModelParameters/Component == 'Samen', Descr = "Voegt deze run de componenten samen (Component 'Samen')?";
 		parameter<bool>     MetOV                                     := rjoin(/ModelParameters/Component, Componenten/name, Componenten/MetOV), Descr = "Doen de OV-ketens mee in deze run (Componenten/MetOV)? Niet bij de component Auto.";
 		parameter<string>   Component_Voortransport                   := rjoin(/ModelParameters/Component, Componenten/name, Componenten/Voortransport);
 		parameter<string>   Component_Natransport                     := rjoin(/ModelParameters/Component, Componenten/name, Componenten/Natransport);
+		parameter<bool>     EenVertrekmoment                          := rjoin(/ModelParameters/Component, Componenten/name, Componenten/EenVertrekmoment), Descr = "Rekent deze run een vertrekmoment, dat van het congestiemoment (Componenten/EenVertrekmoment; Auto, sinds 2026-10-09)?";
+		parameter<uint32>   CongestionMinute                          := MakeDefined(uint32(substr(rjoin(rjoin(/ModelParameters/Dagdeel, Dagdelen/name, Dagdelen/CongestionMoment), CongestionTimes/name, CongestionTimes/Time), 2, 2)), 30), Descr = "De minuut van het congestiemoment van het dagdeel (CongestionTimes/Time, bij de ochtendspits 0730): het vertrekmoment van een component met EenVertrekmoment.";
+		parameter<string>   EenVertrekmoment_Shrt                     := (rjoin(/ModelParameters/Dagdeel, Dagdelen/name, Dagdelen/DepartureHour) < 10 ? '0' : '') + string(rjoin(/ModelParameters/Dagdeel, Dagdelen/name, Dagdelen/DepartureHour)) + 'h' + (CongestionMinute < 10 ? '0' : '') + string(CongestionMinute) + 'm', Descr = "De korte naam van dat vertrekmoment, als Time/TemplatableTextShrt (07h30m): zo heet het bestand per blok van een component met EenVertrekmoment, dat ComponentMerge voor elk vertrekmoment leest.";
 		parameter<uint32>   BlokkenPerPortie                          := rjoin(/ModelParameters/Component, Componenten/name, Componenten/BlokkenPerPortie), Descr = "Herkomstblokken per GeoDmsRun in de uitvoerstap van deze component (Componenten/BlokkenPerPortie).";
 
 		unit<uint8> DirectModes : nrofrows = 3
@@ -420,8 +424,8 @@
 		{
 			attribute<uint32> values := const(rjoin(/ModelParameters/Dagdeel, Dagdelen/name, Dagdelen/DepartureHour), .);
 		}
-		unit<uint8> PT_DepartureMinutes : nrofrows = 4
-		, Descr = ""
+		unit<uint8> PT_DepartureMinutes_All : nrofrows = 4
+		, Descr = "De minuten van de vertrekmomenten in het uur van het dagdeel, per kwartier."
 		{
 			// attribute<uint32> values : [0]; 
 			// attribute<uint32> values : [0,30]; 
@@ -429,6 +433,11 @@
 			// attribute<uint32> values : [0,5,10,15,20,25,30];  //7 stuks
 			// attribute<uint32> values : [0,5,10,15,20,25,30,35,40,45,50,55];  //12 stuks
 			// attribute<uint32> values : [0,5,10,55];  //4 stuks
+		}
+		unit<uint8> PT_DepartureMinutes := range(uint8, 0b, EenVertrekmoment ? 1b : uint8(#PT_DepartureMinutes_All))
+		, Descr = "De minuten van de vertrekmomenten van deze run: alle van PT_DepartureMinutes_All, of bij EenVertrekmoment (Auto, sinds 2026-10-09, #132) alleen die van het congestiemoment (CongestionMinute)."
+		{
+			attribute<uint32> values := EenVertrekmoment ? const(CongestionMinute, .) : PT_DepartureMinutes_All/values[value(id(.), PT_DepartureMinutes_All)];
 		}
 		
 		unit<uint8>  AnalysisMomentPresets : nrofrows = 11
