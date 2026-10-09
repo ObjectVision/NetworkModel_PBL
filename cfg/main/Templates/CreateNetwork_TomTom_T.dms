@@ -74,6 +74,7 @@ Template CreateNetwork_TomTom_T
 		unit<uint32> Roads_with_unconnected_subnetworks_wo_CarRoads := select(Roads_with_unconnected_subnetworks_w_CarRoads/IsCarRoad)
 		{
 			attribute<rdc>                geometry (arc)       := collect_by_cond(.,Roads_with_unconnected_subnetworks_w_CarRoads/IsCarRoad, Roads_with_unconnected_subnetworks_w_CarRoads/geometry);
+			attribute<RoadDomain>         Road_rel             := collect_by_cond(.,Roads_with_unconnected_subnetworks_w_CarRoads/IsCarRoad, id(RoadDomain)), Descr = "Het wegelement, voor de tijdafhankelijke linktijden (TimeDependent, sinds 2026-10-09).";
 			attribute<bool>               IsOneDirection       := collect_by_cond(.,Roads_with_unconnected_subnetworks_w_CarRoads/IsCarRoad, Roads_with_unconnected_subnetworks_w_CarRoads/IsOneDirection);
 			attribute<m>                  Meters               := collect_by_cond(.,Roads_with_unconnected_subnetworks_w_CarRoads/IsCarRoad, Roads_with_unconnected_subnetworks_w_CarRoads/Meters);
 			attribute<Bool >              Connectable          := collect_by_cond(.,Roads_with_unconnected_subnetworks_w_CarRoads/IsCarRoad, Roads_with_unconnected_subnetworks_w_CarRoads/Connectable);
@@ -113,6 +114,7 @@ Template CreateNetwork_TomTom_T
 		unit<uint32> Road_linestrings := select(Roads_isConnected)
 		{
 			attribute<rdc>                geometry (arc) := collect_by_cond(.,Roads_isConnected, Roads_with_unconnected_subnetworks_wo_CarRoads/geometry);
+			attribute<RoadDomain>         Road_rel       := collect_by_cond(.,Roads_isConnected, Roads_with_unconnected_subnetworks_wo_CarRoads/Road_rel);
 			attribute<bool>               IsOneDirection := collect_by_cond(.,Roads_isConnected, Roads_with_unconnected_subnetworks_wo_CarRoads/IsOneDirection);
 			attribute<Bool>               Connectable    := collect_by_cond(.,Roads_isConnected, Roads_with_unconnected_subnetworks_wo_CarRoads/Connectable);
 			attribute<m>                  Meters         := collect_by_cond(.,Roads_isConnected, Roads_with_unconnected_subnetworks_wo_CarRoads/Meters);
@@ -170,6 +172,7 @@ Template CreateNetwork_TomTom_T
 		unit<uint32> Road_linestrings_bwd := select_with_org_rel(not(Road_linestrings/IsOneDirection) && not(ModelParameters/Advanced/InterpretAllRoadsAsBidirectional))
 		{
 			attribute<rdc>        geometry (arc)   := Road_linestrings/geometry[org_rel];
+			attribute<RoadDomain> Road_rel         := Road_linestrings/Road_rel[org_rel];
 			attribute<m>          Meters           := Road_linestrings/Meters[org_rel];
 			attribute<uint64>     F_JNCTID         := Road_linestrings/T_JNCTID[org_rel];
 			attribute<uint64>     T_JNCTID         := Road_linestrings/F_JNCTID[org_rel];
@@ -191,6 +194,7 @@ Template CreateNetwork_TomTom_T
 			attribute<rdc>        geometry(arc)    := union_data(., Road_linestrings/geometry, Road_linestrings_bwd/geometry, UniqueLocations/OD_line);
 			attribute<bool>       IsOneDirection   := union_data(., Road_linestrings/IsOneDirection || not(ModelParameters/Advanced/InterpretAllRoadsAsBidirectional), const(TRUE, Road_linestrings_bwd), const(FALSE,UniqueLocations)), Descr = "Wegelementen zijn gerichte links (een tweerichtingsweg heeft ook een omgekeerde kopie); de OD-koppellinks zijn in beide richtingen berijdbaar.";
 			attribute<bool>       IsBackward       := union_data(., const(FALSE, Road_linestrings), const(TRUE, Road_linestrings_bwd), const(FALSE,UniqueLocations)), Descr = "De omgekeerde kopie van een tweerichtingsweg.";
+			attribute<RoadDomain> Road_rel         := union_data(., Road_linestrings/Road_rel, Road_linestrings_bwd/Road_rel, const(value(null_u, RoadDomain), UniqueLocations)), Descr = "Het wegelement van de link; null voor de OD-koppellinks.";
 			attribute<m>          Meters           := union_data(., Road_linestrings/Meters, Road_linestrings_bwd/Meters, UniqueLocations/Length);
 			attribute<uint64>     F_JNCTID         := union_data(., Road_linestrings/F_JNCTID, Road_linestrings_bwd/F_JNCTID, UniqueLocations/F_JNCTID);
 			attribute<uint64>     T_JNCTID         := union_data(., Road_linestrings/T_JNCTID, Road_linestrings_bwd/T_JNCTID, UniqueLocations/T_JNCTID);
@@ -311,5 +315,69 @@ Template CreateNetwork_TomTom_T
 					// ,Impedance_gt4Links
 				// );
 		}
+	}
+
+	// Tijdafhankelijke linktijden (ModelParameters/CarTimeDependent, sinds 2026-10-09, NetworkModel_PBL#132, GeoDMS#1304). Elke link is een
+	// wegvak in een richting of een OD-koppellink, zonder samenvoeging, dus een link kan een eigen profiel krijgen: alleen als zijn snelheid in
+	// het venster (CarTD_WindowStart, CarTD_NrSlots tijdvakken van 300 s) verandert. De factor per tijdvak is T_ref / T: T is de linktijd zoals
+	// de momentopname van dat tijdvak hem rekent, met dezelfde bewerkingen als TomTom.dms (Roads_selection/CalcTimes: SP_freeflow x relatieve
+	// snelheid, MINUTES zonder snelheid, het plafond MaxSpeed) en LinkSet/Impedance_per_ImpedanceType hierboven (CarDefaultSpeed_low, de
+	// kruispuntcorrecties); T_ref is de momentopname van het congestiemoment van het dagdeel (07:30). De zoektocht neemt T_ref als vaste linktijd
+	// en deelt hem per tijdvak door de factor, dus binnen een tijdvak is de linktijd precies die van de momentopname van dat tijdvak; een rit
+	// over de grens van een tijdvak rijdt het deel van de link daarna met de snelheid van het volgende (de integraal van GeoDMS#1304).
+	container TimeDependent
+	{
+		unit<uint32>      LinkSet        := CreateInitialWorkingNetwork/LinkSet;
+		unit<uint32>      Speednetworks  := /SourceData/Infrastructure/TomTom/Speednetworks;
+		unit<uint32>      Keys           := /SourceData/Infrastructure/TomTom/SpeedProfileKeys;
+		parameter<string> RefMoment      := /ModelParameters/Car_CongestionMoment_ForDirect;
+		parameter<km_hr>  MaxSpeed       := MakeDefined(rjoin(RefMoment, ModelParameters/Advanced/CongestionTimes/name, ModelParameters/Advanced/CongestionTimes/MaxSpeed), 0[km_hr]), Descr = "Het plafond van het congestiemoment (100 km/u overdag), voor alle tijdvakken van het venster.";
+		parameter<string> RefTime        := rjoin(RefMoment, ModelParameters/Advanced/CongestionTimes/name, ModelParameters/Advanced/CongestionTimes/Time);
+		parameter<uint32> RefSlot        := (uint32(substr(RefTime, 0, 2)) * 3600 + uint32(substr(RefTime, 2, 2)) * 60 - ModelParameters/Advanced/CarTD_WindowStart) / 300, Descr = "Het tijdvak van het congestiemoment in het venster (07:30 bij een venster vanaf 06:00: 18).";
+		parameter<uint32> NrSlots        := ModelParameters/Advanced/CarTD_NrSlots;
+		parameter<uint32> FirstDaySlot   := ModelParameters/Advanced/CarTD_WindowStart / 300;
+
+		attribute<RoadDomain>    Road_rel   (LinkSet) := LinkSet/Road_rel;
+		attribute<Speednetworks> Sn_rel     (LinkSet) := LinkSet/IsBackward ? RoadDomain/Speednetworks_bwd_rel[Road_rel] : RoadDomain/Speednetworks_fwd_rel[Road_rel], Descr = "De rij van de Speednetworks in de richting van de link.";
+		attribute<Keys>          Day_rel    (LinkSet) := Speednetworks/DayProfile_rel[Sn_rel];
+		attribute<bool>          HasProfile (LinkSet) := IsDefined(Day_rel) && Speednetworks/SP_freeflow[Sn_rel] > 0w && not(RoadDomain/IsFerry[Road_rel]) && Keys/VariesInWindow[Day_rel];
+		attribute<s_f>           T_ref      (LinkSet) := ='LinkSet/Impedance_per_ImpedanceType/' + RefMoment, Descr = "De vaste linktijd van de zoektocht: de momentopname van het congestiemoment.";
+
+		unit<uint32> Profile := select_with_org_rel(HasProfile)
+		, Descr = "De links met een eigen profiel, met de grootheden van hun linktijd die niet van het tijdvak afhangen."
+		{
+			attribute<Speednetworks> Sn_rel   := ../Sn_rel[org_rel];
+			attribute<Keys>          Day_rel  := ../Day_rel[org_rel];
+			attribute<km_hr>         SP_ff    := value(float32(Speednetworks/SP_freeflow[Sn_rel]), km_hr);
+			attribute<m>             Meters   := RoadDomain/meters[../Road_rel[org_rel]];
+			attribute<min_f>         Minutes0 := RoadDomain/Minutes[../Road_rel[org_rel]];
+			attribute<min_f>         Min_cap  := convert(convert(Meters, km) / (MaxSpeed > 0[km_hr] ? MaxSpeed : 1000[km_hr]), min_f);
+			attribute<km>            LengthKm := LinkSet/LengthKm[org_rel];
+			attribute<float32>       Corr     := Float32(CreateInitialWorkingNetwork/CorrectImpedanceForCrossroads/impedance_Start[org_rel] + CreateInitialWorkingNetwork/CorrectImpedanceForCrossroads/impedance_End[org_rel]);
+			attribute<s_f>           T_ref    := ../T_ref[org_rel];
+		}
+		attribute<Profile> Profile_rel (LinkSet) := rlookup(id(LinkSet), Profile/org_rel), Descr = "link_profile_rel van de zoektocht; null houdt T_ref.";
+
+		unit<uint32> ProfileSlot := range(uint32, 0, #Profile * NrSlots)
+		, Descr = "Per profiel de tijdvakken van het venster, profiel na profiel (de volgorde van combine(Profile, Slot), die de zoektocht verwacht)."
+		{
+			attribute<Profile> P_rel     := value(uint32(id(.)) / NrSlots, Profile);
+			attribute<uint32>  Slot      := uint32(id(.)) % NrSlots;
+			attribute<float32> rel_speed := /SourceData/Infrastructure/TomTom/ProfileDaySlot/rel_speed[value(uint32(Profile/Day_rel[P_rel]) * 288 + FirstDaySlot + Slot, /SourceData/Infrastructure/TomTom/ProfileDaySlot)];
+			attribute<km_hr>   Speed     := Profile/SP_ff[P_rel] * rel_speed;
+			attribute<min_f>   Min_u     := MakeDefined(convert(convert(Profile/Meters[P_rel], km) / Speed, min_f), Profile/Minutes0[P_rel]);
+			attribute<min_f>   Minutes   := MaxSpeed > 0[km_hr] ? max_elem(Min_u, Profile/Min_cap[P_rel]) : Min_u;
+			attribute<km_hr>   kph       := convert(Profile/Meters[P_rel], km) / convert(Minutes, hr_f);
+			attribute<km_hr>   Speed_net := MakeDefined(kph, ModelParameters/Advanced/CarDefaultSpeed_low);
+			attribute<s_f>     T         := convert(MakeDefined(convert((Profile/LengthKm[P_rel] / Speed_net), min_f), 0.0001[min_f]), s_f) + Profile/Corr[P_rel], Descr = "De linktijd van de momentopname van dit tijdvak.";
+			attribute<float32> factor    := Profile/T_ref[P_rel] / T, Descr = "profile_slot_factor van de zoektocht: T_ref / T; 1 in het tijdvak van het congestiemoment.";
+		}
+
+		// Toetsen: in het tijdvak van het congestiemoment is T gelijk aan T_ref (dezelfde bewerkingen); alle factoren positief en eindig.
+		parameter<uint32>  NrRefMismatch := sum_uint32(ProfileSlot/Slot == RefSlot && ProfileSlot/T != Profile/T_ref[ProfileSlot/P_rel]), Descr = "Moet 0 zijn.";
+		parameter<float32> MinFactor     := min(ProfileSlot/factor);
+		parameter<float32> MaxFactor     := max(ProfileSlot/factor);
+		parameter<uint32>  NrBadFactor   := sum_uint32(not(IsDefined(ProfileSlot/factor)) || not(ProfileSlot/factor > 0f) || ProfileSlot/factor > 1000f), Descr = "Moet 0 zijn.";
+		parameter<string>  Report        := 'links ' + string(#LinkSet) + ', met profiel ' + string(#Profile) + ', tijdvakken ' + string(NrSlots) + ' vanaf ' + string(FirstDaySlot * 300) + ' s (referentie ' + string(RefSlot) + '); factor ' + string(MinFactor) + '..' + string(MaxFactor) + '; afwijkend in het referentievak ' + string(NrRefMismatch) + ', ongeldige factoren ' + string(NrBadFactor);
 	}
 }

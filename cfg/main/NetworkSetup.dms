@@ -34,6 +34,32 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 			attribute<OrgBlockDomain>                       OrgBlock_rel     := OrgBlockSelections/OrgBlock_rel[OrgZone_rel];
 		}
 
+		// De tijdafhankelijke autorit per vertrekmoment (ModelParameters/CarTimeDependent, sinds 2026-10-09, #132): de rijen van de store
+		// PublicTransport_Prep/Direct/CarPerMoment/TD<moment>, met dezelfde afgeleiden als Direct_OD; de eindafweging van elk moment kiest er
+		// de rijen van haar blok uit (PerDepartureMoment_T, DirectCar_M). Leeg zonder CarTimeDependent of zonder directe autorit.
+		unit<uint32> CarTD_Moments := select_with_attr_by_cond(/ModelParameters/Advanced/MeasureMoments, const(/ModelParameters/CarTimeDependent && /ModelParameters/AllowDirectCar, /ModelParameters/Advanced/MeasureMoments));
+		container DirectCarTD := for_each_ne('TD' + CarTD_Moments/TemplatableTextShrt, 'DirectCarTD_T(' + quote('TD' + CarTD_Moments/TemplatableTextShrt) + ')');
+		Template DirectCarTD_T
+		{
+			parameter<string> Moment;
+			///
+			unit<uint64> Car := ='PublicTransport_Prep/Direct/CarPerMoment/' + Moment + '/Car_Front'
+			{
+				attribute<s>                                    Duration_seconds := ='PublicTransport_Prep/Direct/CarPerMoment/' + Moment + '/Car_Front/Duration_seconds';
+				attribute<dam>                                  Distance         := ='PublicTransport_Prep/Direct/CarPerMoment/' + Moment + '/Car_Front/Distance';
+				attribute<ct>                                   Price            := ='PublicTransport_Prep/Direct/CarPerMoment/' + Moment + '/Car_Front/Price';
+				attribute<ct>                                   Price_Augm       := ='PublicTransport_Prep/Direct/CarPerMoment/' + Moment + '/Car_Front/Price_Augm';
+				attribute<OrgBlockSelections>                   OrgZone_rel      := ='PublicTransport_Prep/Direct/CarPerMoment/' + Moment + '/Car_Front/OrgZone_rel';
+				attribute<PublicTransport_Prep/impl/dest>       DstZone_rel      := ='PublicTransport_Prep/Direct/CarPerMoment/' + Moment + '/Car_Front/DstZone_rel';
+				attribute<PublicTransport_Prep/impl/Modes>      Mode_rel         := ='PublicTransport_Prep/Direct/CarPerMoment/' + Moment + '/Car_Front/Mode_rel';
+				attribute<bool>                                 NeedsCar         := const(TRUE, .);
+				attribute<bool>                                 NeedsBike        := const(FALSE, .);
+				attribute<PublicTransport_Prep/impl/Places>     From_Place_rel   := rlookup(OrgZone_rel, PublicTransport_Prep/impl/Places/Origin_rel);
+				attribute<PublicTransport_Prep/impl/Places>     To_Place_rel     := rlookup(DstZone_rel, PublicTransport_Prep/impl/Places/Dest_rel);
+				attribute<OrgBlockDomain>                       OrgBlock_rel     := OrgBlockSelections/OrgBlock_rel[OrgZone_rel];
+			}
+		}
+
 		// Het voor- en natransport van alle herkomsten, een keer verenigd over de typen van de component (OV_PreTransport_Typen,
 		// OV_PostTransport_Typen); elk blok kiest zijn voortransportbenen op het herkomstblok (PublicTransport/V) en gebruikt alle
 		// natransportbenen (PublicTransport/N). Tot 2026-10-07 verenigde elk blok alle benen opnieuw, met voor elk voortransportbeen
@@ -81,8 +107,12 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 	// een map met een andere handtekening; de lezers en samenvoegers (ReadExport_OV_perTime_T, Merge_Regions_OV_T, Merge_Times,
 	// PostAnalysis/FindMedian) weigeren te lezen als hij ontbreekt of afwijkt. De ketenstore en de autostore horen erbij, want de
 	// uitvoer is uit hun inhoud gerekend.
-	parameter<string> Output_CarSignature := = /ModelParameters/AllowDirectCar ? '''_''+/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/' + /ModelParameters/Car_CongestionMoment_ForDirect + '/Signature' : ''''''
-	, Descr = "De handtekening van de autostore van de directe autorit (Car_CongestionMoment_ForDirect) met een _ ervoor, leeg zonder AllowDirectCar.";
+	parameter<string> Output_CarSignature := = /ModelParameters/AllowDirectCar
+		? (/ModelParameters/CarTimeDependent
+			? '''_''+/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/TD' + first(/ModelParameters/Advanced/MeasureMoments/TemplatableTextShrt) + '/Signature'
+			: '''_''+/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/' + /ModelParameters/Car_CongestionMoment_ForDirect + '/Signature')
+		: ''''''
+	, Descr = "De handtekening van de autostore van de directe autorit (Car_CongestionMoment_ForDirect) met een _ ervoor, leeg zonder AllowDirectCar. Met CarTimeDependent die van de store van het eerste vertrekmoment, die de tijdafhankelijke zoektocht in TD_Tag draagt (sinds 2026-10-09).";
 	parameter<string> Output_Signature_Run :=
 		  'tt_' + /ModelParameters/Analysis_date + '_ORG-' + /ModelParameters/Advanced/OrgSet_string + /ModelParameters/Advanced/PT_Output_ParamTag
 		+ '_export' + (/ModelParameters/Export_TravelledDistance ? '-dist' : '') + (/ModelParameters/Export_PriceInformation ? '-price' : '')

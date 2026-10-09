@@ -619,6 +619,8 @@ container TomTom
 		attribute<uint16> SP_Saturday := Speednetworks_store/SP_Saturday;
 		
 		attribute<Roads>  Roads_rel    := rlookup(NW_ID, Roads/NW_ID);
+		attribute<SpeedProfileKeys> DayProfile_rel := ='rlookup(region_code + ''_'' + string(SP_' + ModelParameters/Advanced/CongestionSpeed_DaySelection + '), SpeedProfileKeys/values)'
+		, Descr = "Het profiel van de dag CongestionSpeed_DaySelection (een weekdag; SP_<dag> draagt dan een profiel-id) in SpeedProfileKeys, voor de tijdafhankelijke autorit (ModelParameters/CarTimeDependent, sinds 2026-10-09); null zonder profiel, zoals de momentopname dan MINUTES neemt.";
 		
 		container CalcTimes :=
 			for_each_ne(
@@ -684,5 +686,28 @@ container TomTom
 		attribute<int32>   hour          := time_slot / (60i * 60i);
 		attribute<int32>   minutes       := (time_slot - (hour * 60i * 60i)) / 60i;
 		attribute<upoint>  unipt         := point(uint32(profile_id), uint32(time_slot), upoint);
+		attribute<SpeedProfileKeys> Profile_rel  := rlookup(SP_profile_ID, SpeedProfileKeys/values);
+		attribute<uint32>  ProfileDaySlot_key    := uint32(Profile_rel) * 288 + uint32(time_slot) / 300, Descr = "De plaats in ProfileDaySlot: profiel na profiel, per profiel de tijdvakken van 300 s vanaf 00:00.";
+	}
+
+	// Tijdafhankelijke autorit (ModelParameters/CarTimeDependent, sinds 2026-10-09, NetworkModel_PBL#132): de relatieve snelheid per profiel en
+	// tijdvak als tabel, en welke profielen in het venster van de vertrekmomenten (CarTD_WindowStart, CarTD_NrSlots) veranderen. De linktijden
+	// per tijdvak en de factoren voor de zoektocht staan in Templates/CreateNetwork_TomTom_T, TimeDependent.
+	unit<uint32> SpeedProfileKeys := unique(Speedprofiles/SP_profile_ID)
+	, Descr = "De snelheidsprofielen: regio en profiel-id (Speedprofiles/SP_profile_ID), 1.465 voor NL en BE in de edities 2023.12 en 2025.12."
+	{
+		attribute<bool> VariesInWindow := max(WindowSlot/rel_speed, WindowSlot/Profile_rel) > min(WindowSlot/rel_speed, WindowSlot/Profile_rel) || any(not(IsDefined(WindowSlot/rel_speed)), WindowSlot/Profile_rel)
+		, Descr = "Verandert de relatieve snelheid van dit profiel in het venster (of ontbreekt hij in een tijdvak)? Zo niet, dan is de linktijd daar constant en krijgt de link geen eigen profiel.";
+	}
+	unit<uint32> ProfileDaySlot := range(uint32, 0, #SpeedProfileKeys * 288)
+	, Descr = "Per profiel de 288 tijdvakken van 300 s van een dag, profiel na profiel."
+	{
+		attribute<float32> rel_speed := rjoin(uint32(id(.)), Speedprofiles/ProfileDaySlot_key, Speedprofiles/rel_sp) / 100f, Descr = "De snelheid ten opzichte van SP_freeflow (rel_sp is in procenten).";
+	}
+	unit<uint32> WindowSlot := range(uint32, 0, #SpeedProfileKeys * ModelParameters/Advanced/CarTD_NrSlots)
+	, Descr = "Per profiel de tijdvakken van het venster, profiel na profiel."
+	{
+		attribute<SpeedProfileKeys> Profile_rel := value(uint32(id(.)) / ModelParameters/Advanced/CarTD_NrSlots, SpeedProfileKeys);
+		attribute<float32>          rel_speed   := ProfileDaySlot/rel_speed[value(uint32(Profile_rel) * 288 + ModelParameters/Advanced/CarTD_WindowStart / 300 + uint32(id(.)) % ModelParameters/Advanced/CarTD_NrSlots, ProfileDaySlot)];
 	}
 }

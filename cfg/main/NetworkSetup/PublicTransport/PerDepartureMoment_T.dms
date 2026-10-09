@@ -215,10 +215,35 @@ Template PerDepartureMoment_T
 	// Zonder OV (Component Auto, ModelParameters/Advanced/MetOV FALSE, #117) alleen de directe ritten: dan verwijst niets naar
 	// Add_N_to_VPT, en rekent de eindafweging geen ketens, voor- en natransport.
 	parameter<bool>   MetOV := /ModelParameters/Advanced/MetOV;
-	unit<uint64> Union_with_DirectOD   := ='union_unit_uint64(' + (MetOV ? 'Add_N_to_VPT/Result, ' : '') + 'Direct_OD)'
+
+	// De directe ritten van dit vertrekmoment (sinds 2026-10-09, #132): die van het blok (Direct_OD, niet afhankelijk van het moment) en, met
+	// de tijdafhankelijke autorit (ModelParameters/CarTimeDependent), de autoritten van dit moment uit NetworkSetup/impl/DirectCarTD.
+	parameter<bool>   CarTD  := /ModelParameters/CarTimeDependent && /ModelParameters/AllowDirectCar;
+	parameter<string> TDName := 'TD' + Time/TemplatableTextShrt[inTime[Time]];
+	unit<uint64> DirectCar_M := = CarTD
+		? 'select_with_attr_by_cond(/NetworkSetup/impl/DirectCarTD/' + TDName + '/Car, /NetworkSetup/impl/DirectCarTD/' + TDName + '/Car/OrgBlock_rel == BlockDomain_id)'
+		: 'range(uint64, 0u64, 0u64)'
 	{
-		attribute<c_Time_Places>               c_fromTime_Place_rel             := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/c_FromTime_Place_rel, ' : '') + 'combine_data(c_Time_Places, inTime[Time], Direct_OD/From_Place_rel))'; 
-		attribute<c_Time_Places>               c_toTime_Place_rel               := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/c_toTime_Place_rel, ' : '') + 'combine_data(c_Time_Places, inTime[Time] + Direct_OD/Duration_seconds[Time], Direct_OD/To_Place_rel))'; 
+		attribute<string> ModeUsed := = CarTD ? 'Modes/name_abbr[Mode_rel] + Modes/name_abbr[Mode_rel]' : 'const('''', ., string)';
+	}
+	unit<uint64> Direct_OD_M := = CarTD ? 'union_unit_uint64(Direct_OD, DirectCar_M)' : 'Direct_OD'
+	{
+		attribute<Places> From_Place_rel   := = CarTD ? 'union_data(., Direct_OD/From_Place_rel, DirectCar_M/From_Place_rel)' : 'Direct_OD/From_Place_rel';
+		attribute<Places> To_Place_rel     := = CarTD ? 'union_data(., Direct_OD/To_Place_rel, DirectCar_M/To_Place_rel)' : 'Direct_OD/To_Place_rel';
+		attribute<string> ModeUsed         := = CarTD ? 'union_data(., Direct_OD/ModeUsed, DirectCar_M/ModeUsed)' : 'Direct_OD/ModeUsed';
+		attribute<Modes>  Mode_rel         := = CarTD ? 'union_data(., Direct_OD/Mode_rel, DirectCar_M/Mode_rel)' : 'Direct_OD/Mode_rel';
+		attribute<bool>   NeedsCar         := = CarTD ? 'union_data(., Direct_OD/NeedsCar, DirectCar_M/NeedsCar)' : 'Direct_OD/NeedsCar';
+		attribute<bool>   NeedsBike        := = CarTD ? 'union_data(., Direct_OD/NeedsBike, DirectCar_M/NeedsBike)' : 'Direct_OD/NeedsBike';
+		attribute<ct>     Price            := = CarTD ? 'union_data(., Direct_OD/Price, DirectCar_M/Price)' : 'Direct_OD/Price';
+		attribute<ct>     Price_Augm       := = CarTD ? 'union_data(., Direct_OD/Price_Augm, DirectCar_M/Price_Augm)' : 'Direct_OD/Price_Augm';
+		attribute<dam>    Distance         := = CarTD ? 'union_data(., Direct_OD/Distance, DirectCar_M/Distance)' : 'Direct_OD/Distance';
+		attribute<s>      Duration_seconds := = CarTD ? 'union_data(., Direct_OD/Duration_seconds, DirectCar_M/Duration_seconds)' : 'Direct_OD/Duration_seconds';
+	}
+
+	unit<uint64> Union_with_DirectOD   := ='union_unit_uint64(' + (MetOV ? 'Add_N_to_VPT/Result, ' : '') + 'Direct_OD_M)'
+	{
+		attribute<c_Time_Places>               c_fromTime_Place_rel             := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/c_FromTime_Place_rel, ' : '') + 'combine_data(c_Time_Places, inTime[Time], Direct_OD_M/From_Place_rel))'; 
+		attribute<c_Time_Places>               c_toTime_Place_rel               := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/c_toTime_Place_rel, ' : '') + 'combine_data(c_Time_Places, inTime[Time] + Direct_OD_M/Duration_seconds[Time], Direct_OD_M/To_Place_rel))'; 
 		
 		unit<uint32> uq_c_FromTime_Place := unique_uint32(c_fromTime_Place_rel);
 		unit<uint32> uq_c_ToTime_Place   := unique_uint32(c_toTime_Place_rel);
@@ -231,38 +256,38 @@ Template PerDepartureMoment_T
 		attribute<Time>                        To_Time_rel                      := value(c_ToTime_Place_rel / uint64(#Places), Time);
 		attribute<Places>                      To_Place_rel                     := value(c_ToTime_Place_rel % uint64(#Places), Places);
 
-		attribute<s>                           W_time                           := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/W_time, ' : '') + 'const(0w, Direct_OD, s))';
-		attribute<s>                           V_time                           := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/V_time, ' : '') + 'Direct_OD/duration_seconds)';
-		attribute<s>                           PT_time                          := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/PT_time, ' : '') + 'const(0w, Direct_OD, s))';
-		attribute<s>                           N_time                           := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/N_time, ' : '') + 'const(0w, Direct_OD, s))';
+		attribute<s>                           W_time                           := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/W_time, ' : '') + 'const(0w, Direct_OD_M, s))';
+		attribute<s>                           V_time                           := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/V_time, ' : '') + 'Direct_OD_M/duration_seconds)';
+		attribute<s>                           PT_time                          := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/PT_time, ' : '') + 'const(0w, Direct_OD_M, s))';
+		attribute<s>                           N_time                           := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/N_time, ' : '') + 'const(0w, Direct_OD_M, s))';
 		
-		attribute<ct>                          Price                            := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/Price, ' : '') + 'Direct_OD/Price)';
+		attribute<ct>                          Price                            := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/Price, ' : '') + 'Direct_OD_M/Price)';
 		// De directe rit staat, net als zijn reistijd (V_time) en afstand (TravelDist_V), in de kolom van het voortransport.
-		attribute<ct>                          Price_V                          := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/Price_V, ' : '') + 'Direct_OD/Price)';
-		attribute<ct>                          Price_N                          := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/Price_N, ' : '') + 'const(0w, Direct_OD, ct))';
-		attribute<ct>                          Price_augm                       := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/Price_augm, ' : '') + 'Direct_OD/Price_Augm)';
-		attribute<s>                           Traveltime                       := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/Traveltime, ' : '') + 'Direct_OD/duration_seconds)';
-		attribute<string>                      ModeUsed                         := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/ModeUsed, ' : '') + 'Direct_OD/ModeUsed)';
+		attribute<ct>                          Price_V                          := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/Price_V, ' : '') + 'Direct_OD_M/Price)';
+		attribute<ct>                          Price_N                          := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/Price_N, ' : '') + 'const(0w, Direct_OD_M, ct))';
+		attribute<ct>                          Price_augm                       := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/Price_augm, ' : '') + 'Direct_OD_M/Price_Augm)';
+		attribute<s>                           Traveltime                       := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/Traveltime, ' : '') + 'Direct_OD_M/duration_seconds)';
+		attribute<string>                      ModeUsed                         := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/ModeUsed, ' : '') + 'Direct_OD_M/ModeUsed)';
 		// Criteria van de eindafweging als MinimiseCriteria 'Car' en 'Bike' noemt (Classifications/OwnershipParetoAttr, #117).
 		// Een OV-keten vraagt geen auto (er is geen P+R-voortransport), en alleen een fiets als een voor- of natransporttype dat doet.
-		attribute<bool>                        NeedsCar                         := ='union_data(., ' + (MetOV ? 'const(FALSE, Add_N_to_VPT/Result), ' : '') + 'Direct_OD/NeedsCar)';
+		attribute<bool>                        NeedsCar                         := ='union_data(., ' + (MetOV ? 'const(FALSE, Add_N_to_VPT/Result), ' : '') + 'Direct_OD_M/NeedsCar)';
 		attribute<bool>                        NeedsBike                        := ='union_data(., '
 			+ (MetOV ? (VN_ModeClasses/AnyNeedsBike ? 'Add_N_to_VPT/Result/NeedsBike, ' : 'const(FALSE, Add_N_to_VPT/Result), ') : '')
-			+ 'Direct_OD/NeedsBike)';
+			+ 'Direct_OD_M/NeedsBike)';
 
-		attribute<bool>                        IsDirectTravel                   := ='union_data(., ' + (MetOV ? 'const(FALSE, Add_N_to_VPT/Result), ' : '') + 'const(TRUE, Direct_OD))';
+		attribute<bool>                        IsDirectTravel                   := ='union_data(., ' + (MetOV ? 'const(FALSE, Add_N_to_VPT/Result), ' : '') + 'const(TRUE, Direct_OD_M))';
 		// Modaliteit van het voor- en natransport, voor de uitsplitsing naar lopen, fiets en auto in de uitvoer. Een directe rit
 		// staat in het voortransport (zie Price_V); zijn natransport heeft geen modaliteit.
-		attribute<Modes>                       V_mode_rel                       := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/V_mode_rel, ' : '') + 'Direct_OD/Mode_rel)';
-		attribute<Modes>                       N_mode_rel                       := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/N_mode_rel, ' : '') + 'const(value(null_b, Modes), Direct_OD))';
+		attribute<Modes>                       V_mode_rel                       := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/V_mode_rel, ' : '') + 'Direct_OD_M/Mode_rel)';
+		attribute<Modes>                       N_mode_rel                       := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/N_mode_rel, ' : '') + 'const(value(null_b, Modes), Direct_OD_M))';
 
-		attribute<dam>                         TravelDist_V                     := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/TravelDist_V, ' : '') + 'Direct_OD/distance)';
-		attribute<dam>                         TravelDist_Bus                   := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/TravelDist_Bus, ' : '') + 'const(0w, Direct_OD, dam))';
-		attribute<dam>                         Traveldist_Metro                 := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/Traveldist_Metro, ' : '') + 'const(0w, Direct_OD, dam))';
-		attribute<dam>                         Traveldist_Tram                  := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/Traveldist_Tram, ' : '') + 'const(0w, Direct_OD, dam))';
-		attribute<dam>                         Traveldist_Rail                  := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/Traveldist_Rail, ' : '') + 'const(0w, Direct_OD, dam))';
-		attribute<dam>                         Traveldist_Ferry                 := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/Traveldist_Ferry, ' : '') + 'const(0w, Direct_OD, dam))';
-		attribute<dam>                         Traveldist_N                     := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/Traveldist_N, ' : '') + 'const(0w, Direct_OD, dam))';
+		attribute<dam>                         TravelDist_V                     := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/TravelDist_V, ' : '') + 'Direct_OD_M/distance)';
+		attribute<dam>                         TravelDist_Bus                   := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/TravelDist_Bus, ' : '') + 'const(0w, Direct_OD_M, dam))';
+		attribute<dam>                         Traveldist_Metro                 := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/Traveldist_Metro, ' : '') + 'const(0w, Direct_OD_M, dam))';
+		attribute<dam>                         Traveldist_Tram                  := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/Traveldist_Tram, ' : '') + 'const(0w, Direct_OD_M, dam))';
+		attribute<dam>                         Traveldist_Rail                  := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/Traveldist_Rail, ' : '') + 'const(0w, Direct_OD_M, dam))';
+		attribute<dam>                         Traveldist_Ferry                 := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/Traveldist_Ferry, ' : '') + 'const(0w, Direct_OD_M, dam))';
+		attribute<dam>                         Traveldist_N                     := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/Traveldist_N, ' : '') + 'const(0w, Direct_OD_M, dam))';
 
 		///// ==== Step-wise condensation of result set ==== ////
  		unit<uint64>          OD_key_set                       := combine_unit_uint64(Union_with_DirectOD/uq_c_FromTime_Place, Places), Descr = "Step-wise condensation of result set: second condense the results based on time-place to place.";

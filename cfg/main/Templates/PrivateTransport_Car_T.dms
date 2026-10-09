@@ -153,6 +153,59 @@ Template PrivateTransport_Car_T
 			}
 		}
 		
+		// Tijdafhankelijke autorit (ModelParameters/CarTimeDependent, sinds 2026-10-09, NetworkModel_PBL#132, GeoDMS#1304): per vertrekmoment een
+		// zoektocht op het TomTom-netwerk, met de linktijden van Create_Network_TomTom/TimeDependent: de vaste linktijd T_ref (de momentopname van
+		// het congestiemoment) en per link met een profiel de factor per tijdvak. De vertrektijd telt vanaf het begin van het venster
+		// (CarTD_WindowStart), plus Car_StartTime: de rit op het netwerk begint na het starten.
+		container TD :=
+			for_each_ne(
+				'TD' + ModelParameters/Advanced/MeasureMoments/TemplatableTextShrt
+				, 'TD_ImpedanceMatrix_T(' + string(uint32(ModelParameters/Advanced/MeasureMoments/Moment)) + ')'
+			);
+
+		Template TD_ImpedanceMatrix_T
+		{
+			parameter<uint32> DepartureSecond;
+			//
+			// 'pareto_alt' (ModelParameters/Advanced/CarTD_Search): afstand eerst, zoals ImpedanceMatrix_with_AltImp_pareto_T met de relatieve
+			// CarFrontEpsilon, en het tijdprofiel op het tweede criterium, de reistijd (timedependent_alt). 'scalar': alleen de snelste route,
+			// met het tijdprofiel op het enige criterium (timedependent), voor toetsen op een engine zonder timedependent_alt.
+			unit<uint32>      LinkSet_dom := TomTom_LinkSet;
+			unit<uint32>      NodeSet_dom := TomTom_NodeSet;
+			parameter<s_f>    Departure   := value(float32(DepartureSecond - ModelParameters/Advanced/CarTD_WindowStart), s_f) + convert(ModelParameters/Car_StartTime, s_f)
+			,	Descr = "departure_time van de zoektocht: het vertrekmoment plus Car_StartTime, vanaf het begin van het venster.";
+			parameter<bool>   IsPareto    := ModelParameters/Advanced/CarTD_Search == 'pareto_alt';
+			parameter<string> BidirSpec   := ModelParameters/Advanced/InterpretAllRoadsAsBidirectional ? 'bidirectional' : 'bidirectional(link_flag)';
+			parameter<string> BidirArg    := ModelParameters/Advanced/InterpretAllRoadsAsBidirectional ? '' : ', not(LinkSet_dom/IsOneDirection)';
+			parameter<string> TDArgs      := ', Create_Network_TomTom/TimeDependent/Profile_rel, Create_Network_TomTom/TimeDependent/ProfileSlot/factor, ModelParameters/Advanced/CarTD_SlotDuration, Departure';
+			unit<uint64> impedanceMatrix := = IsPareto
+				? 'impedance_matrix_od64(''' + BidirSpec + ';startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;pareto(OrgZone_max_imp2,imp2_epsilon);timedependent_alt(link_profile_rel,profile_slot_factor,slot_duration,departure_time);od:impedance,OrgZone_rel,DstZone_rel''
+						, LinkSet_dom/LengthKm
+						, LinkSet_dom/F1
+						, LinkSet_dom/F2' + BidirArg + '
+						, NodeSet_dom/OrgNode_rel
+						, NodeSet_dom/DestNode_rel
+						, ModelParameters/Advanced/CarFrontMaxDistance
+						, Create_Network_TomTom/TimeDependent/T_ref
+						, convert(settings/max_traveldistance_min, s_f)
+						, ModelParameters/Advanced/CarFrontEpsilon' + TDArgs + '
+					)'
+				: 'impedance_matrix_od64(''' + BidirSpec + ';startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;timedependent(link_profile_rel,profile_slot_factor,slot_duration,departure_time);od:impedance,OrgZone_rel,DstZone_rel''
+						, Create_Network_TomTom/TimeDependent/T_ref
+						, LinkSet_dom/F1
+						, LinkSet_dom/F2' + BidirArg + '
+						, NodeSet_dom/OrgNode_rel
+						, NodeSet_dom/DestNode_rel
+						, convert(settings/max_traveldistance_min, s_f)
+						, LinkSet_dom/LengthKm' + TDArgs + '
+					)'
+			{
+				attribute<s_f>    Car_Time     := = IsPareto ? 'alt_imp' : 'impedance', Descr = "De reistijd van de route, aankomst min vertrek op het netwerk.";
+				attribute<km>     Car_Distance := = IsPareto ? 'impedance' : 'alt_imp', Descr = "De afstand van de route.";
+				attribute<string> Org_Dest     := string(OrgZone_rel)+'_'+string(DstZone_rel);
+			}
+		}
+
 		Template ImpedanceMatrix_with_AltImp_pareto_T
 		{
 			unit<uint32>      LinkSet_dom;

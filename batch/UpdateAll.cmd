@@ -192,7 +192,7 @@ if "!OUTDIR:\Output\=!"=="!OUTDIR!" (
 )
 if exist "!OUTDIR!\" (
   echo %DATE% %TIME% uitvoermap leegmaken: !OUTDIR!
-  del /q "!OUTDIR!\PerBlock\tt_*.csv" "!OUTDIR!\PerBlock\tt_*.xml" "!OUTDIR!\tt_*.csv" "!OUTDIR!\tt_*.xml" "!OUTDIR!\signature.txt" "!OUTDIR!\signature.xml" "!OUTDIR!\od_tellingen.*" "!OUTDIR!\unieke_od_tellingen.*" 2>nul
+  del /q "!OUTDIR!\PerBlock\tt_*.csv" "!OUTDIR!\PerBlock\tt_*.xml" "!OUTDIR!\Mediaan\tt_*.csv" "!OUTDIR!\Mediaan\tt_*.xml" "!OUTDIR!\tt_*.csv" "!OUTDIR!\tt_*.xml" "!OUTDIR!\signature.txt" "!OUTDIR!\signature.xml" "!OUTDIR!\od_tellingen.*" "!OUTDIR!\unieke_od_tellingen.*" 2>nul
 )
 REM Sinds 2026-10-07 in porties van herkomstblokken, elk een eigen GeoDmsRun, en daarna de tellingen met OdTellingen.py
 REM (WriteOutputBlocks.ps1). Blokken per portie: ModelParameters/Advanced/Componenten/BlokkenPerPortie van de component

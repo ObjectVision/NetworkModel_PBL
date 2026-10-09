@@ -177,10 +177,11 @@ container PublicTransport_Prep
 		// samenvatting per HB-paar houdt. De handtekening (Signature) draagt alles wat de inhoud bepaalt; de naam sinds 2026-10-03
 		// alleen het moment, de herkomst- en bestemmingenset en een hash van de handtekening (NetworkModel_PBL#118). Eerst Write_Car berekenen
 		// (40 min scalair, langer met pareto; batch/UpdateAll.cmd cars doet alle momenten), dan herladen.
-		unit<uint8> CarMoments : nrofrows = 4
-		,	Descr = "De congestiemomenten waarvoor een store van de directe autorit bestaat: de drie spitsen en de vrije stroom (TomTom: Freeflow, OSM: MaxSpeed). Car_CongestionMoment_ForDirect kiest er een."
+		unit<uint8> CarMoments := range(uint8, 0b, uint8(4 + (/ModelParameters/CarTimeDependent ? #/ModelParameters/Advanced/MeasureMoments : 0)))
+		,	Descr = "De congestiemomenten waarvoor een store van de directe autorit bestaat: de drie spitsen en de vrije stroom (TomTom: Freeflow, OSM: MaxSpeed); Car_CongestionMoment_ForDirect kiest er een. Met CarTimeDependent (sinds 2026-10-09, #132) daarnaast per vertrekmoment een tijdafhankelijke store, TD<moment> (TD07h00m), die de eindafweging van dat moment leest (NetworkSetup/impl/DirectCarTD)."
 		{
-			attribute<string> name := ='union_data(., ''MorningRush'', ''NoonRush'', ''LateEveningRush'', '+quote(/ModelParameters/UseTomTomNetworkForCars ? 'Freeflow' : 'MaxSpeed')+')';
+			attribute<string> name := ='union_data(., ''MorningRush'', ''NoonRush'', ''LateEveningRush'', '+quote(/ModelParameters/UseTomTomNetworkForCars ? 'Freeflow' : 'MaxSpeed')
+				+ (/ModelParameters/CarTimeDependent ? ', ' + asList(quote('TD' + /ModelParameters/Advanced/MeasureMoments/TemplatableTextShrt), ', ') : '') + ')';
 		}
 		container CarPerMoment := for_each_ne(CarMoments/name, 'DirectCarStore_T('+quote(CarMoments/name)+')')
 		,	Descr = "Per congestiemoment: Write_Car (schrijft de store), Car_store (leest hem) en Car (met prijs en Summary per HB-paar).";
@@ -189,9 +190,16 @@ container PublicTransport_Prep
 		{
 			parameter<string> Moment;
 			///
-			unit<uint64> Car_src := ='/NetworkSetup/PrivateTransport/Car/Traveltimes/'+Moment+(/ModelParameters/UseTomTomNetworkForCars ? '_TomTom' : '_OSM')+'_w_AltImp'+(/ModelParameters/Advanced/ParetoLegs_Car ? '_pareto' : '')+'/impedanceMatrix'
-			,	Descr = "Rekenkant: de (pareto-)afstandsmatrix van PrivateTransport_Car_T op dit moment. Niet zelf gebruiken; Write_Car schrijft hem weg en Car leest hem terug.";
-			parameter<km_hr>  MaxSpeed        := MakeDefined(rjoin(Moment, /ModelParameters/Advanced/CongestionTimes/name, /ModelParameters/Advanced/CongestionTimes/MaxSpeed), 0[km_hr]), Descr = "Het snelheidsplafond van dit moment (0 = geen), voor de storenaam.";
+			parameter<bool>   IsTD := substr(Moment, 0, 2) == 'TD', Descr = "Een tijdafhankelijke store van een vertrekmoment (CarTimeDependent, sinds 2026-10-09)?";
+			unit<uint64> Car_src := = IsTD
+				? '/NetworkSetup/PrivateTransport/Car/Traveltimes/TD/' + Moment + '/impedanceMatrix'
+				: '/NetworkSetup/PrivateTransport/Car/Traveltimes/'+Moment+(/ModelParameters/UseTomTomNetworkForCars ? '_TomTom' : '_OSM')+'_w_AltImp'+(/ModelParameters/Advanced/ParetoLegs_Car ? '_pareto' : '')+'/impedanceMatrix'
+			,	Descr = "Rekenkant: de (pareto-)afstandsmatrix van PrivateTransport_Car_T op dit moment, of de tijdafhankelijke zoektocht van dit vertrekmoment (Traveltimes/TD). Niet zelf gebruiken; Write_Car schrijft hem weg en Car leest hem terug.";
+			parameter<km_hr>  MaxSpeed        := MakeDefined(rjoin(IsTD ? /ModelParameters/Car_CongestionMoment_ForDirect : Moment, /ModelParameters/Advanced/CongestionTimes/name, /ModelParameters/Advanced/CongestionTimes/MaxSpeed), 0[km_hr]), Descr = "Het snelheidsplafond van dit moment (0 = geen), voor de storenaam; bij een tijdafhankelijke store dat van het congestiemoment.";
+			parameter<string> TD_Tag          := IsTD
+				? '_td-' + /ModelParameters/Car_CongestionMoment_ForDirect + '-' + string(/ModelParameters/Advanced/CarTD_WindowStart / 60) + 'min-' + string(/ModelParameters/Advanced/CarTD_NrSlots) + 'x300s-st' + string(/ModelParameters/Car_StartTime) + (/ModelParameters/Advanced/CarTD_Search == 'scalar' ? '-scalar' : '')
+				: ''
+			,	Descr = "Deel van de handtekening van een tijdafhankelijke store: de referentie, het venster (begin in minuten, aantal tijdvakken), Car_StartTime (die verschuift de vertrektijd op het netwerk) en de zoektocht.";
 			parameter<string> Signature := 'DirectCar_' + Moment
 				+ (/ModelParameters/UseTomTomNetworkForCars
 					? '_TomTom-' + /SourceData/Infrastructure/TomTom/file_date + '_' + /ModelParameters/Advanced/CongestionSpeed_DaySelection
@@ -199,7 +207,7 @@ container PublicTransport_Prep
 				+ '_MaxTime-' + string(/ModelParameters/MaxCarTime) + 'min'
 				+ '_ORG-' + /ModelParameters/Advanced/OrgSet_string + '_DEST-' + /ModelParameters/Advanced/DestSet_string
 				+ (MaxSpeed > 0[km_hr] ? '_vmax' + string(round(MaxSpeed)) : '')
-				+ /ModelParameters/Advanced/ParetoLegs_Car_FileTag + /ModelParameters/Advanced/CarNetwork_Revision
+				+ /ModelParameters/Advanced/ParetoLegs_Car_FileTag + TD_Tag + /ModelParameters/Advanced/CarNetwork_Revision
 			,	Descr = "Handtekening van de store: congestiemoment, net en editie, MaxCarTime, herkomst- en bestemmingenset, snelheidsplafond, pareto-tag en revisie. De kosten staan er sinds 2026-10-05 niet meer in (#88): de store bevat reistijd en afstand, de prijs volgt bij het lezen. Tot 2026-10-03 (NetworkModel_PBL#118) was dit de naam; nu staat hij als hash in de naam en voluit in signature.txt in de map van de store (sinds 2026-10-06; tot dan in <naam>.signature.txt ernaast).";
 			container Hash := /Templates/StringHash_T(Signature);
 			parameter<string> StorageBase_Str := '%LocalDataProjDir%/IntermediateResults/DirectCar_' + Moment + '_' + /ModelParameters/Advanced/OrgSet_string + '_' + /ModelParameters/Advanced/DestSet_string + '_' + Hash/Hex
@@ -292,16 +300,22 @@ container PublicTransport_Prep
 		}
 	}
 	
-	unit<uint64> Direct_OD := ='union_unit_uint64('+asList('Direct/'+DirectModes_Selected/name, ',')+')'
-	,	Descr = "Alle directe ritten van de toegestane modaliteiten, volledige HB-tabel; per blok gefilterd in PublicTransport/Direct_OD."
+	// Met CarTimeDependent (sinds 2026-10-09, #132) hangt de autorit van het vertrekmoment af: hij staat dan niet in Direct_OD, maar per moment in
+	// NetworkSetup/impl/DirectCarTD, en de eindafweging van elk moment voegt hem toe (PerDepartureMoment_T, Direct_OD_M). Zonder andere
+	// directe modaliteit (Component Auto) is Direct_OD dan leeg.
+	unit<uint8> DirectModes_TI := select_with_attr_by_cond(DirectModes_Selected, not(/ModelParameters/CarTimeDependent && DirectModes_Selected/name == 'Car'))
+	,	Descr = "De directe modaliteiten die niet van het vertrekmoment afhangen: alle toegestane, behalve de auto met CarTimeDependent.";
+	parameter<bool> HasDirectTI := #DirectModes_TI > 0;
+	unit<uint64> Direct_OD := = HasDirectTI ? 'union_unit_uint64('+asList('Direct/'+DirectModes_TI/name, ',')+')' : 'range(uint64, 0u64, 0u64)'
+	,	Descr = "Alle directe ritten van de toegestane modaliteiten die niet van het vertrekmoment afhangen, volledige HB-tabel; per blok gefilterd in PublicTransport/Direct_OD."
 	{
-		attribute<impl/org>   OrgZone_rel      := ='union_data(., '+asList('Direct/'+DirectModes_Selected/name+'/OrgZone_rel', ',')+')';
-		attribute<impl/dest>  DstZone_rel      := ='union_data(., '+asList('Direct/'+DirectModes_Selected/name+'/DstZone_rel', ',')+')';
-		attribute<s>          Duration_seconds := ='union_data(., '+asList('Direct/'+DirectModes_Selected/name+'/Duration_seconds', ',')+')';
-		attribute<dam>        Distance         := ='union_data(., '+asList('Direct/'+DirectModes_Selected/name+'/Distance', ',')+')';
-		attribute<Ct>         Price            := ='union_data(., '+asList('Direct/'+DirectModes_Selected/name+'/Price', ',')+')';
-		attribute<Ct>         Price_Augm       := ='union_data(., '+asList('Direct/'+DirectModes_Selected/name+'/Price_Augm', ',')+')';
-		attribute<impl/Modes> Mode_rel         := ='union_data(., '+asList('Direct/'+DirectModes_Selected/name+'/Mode_rel', ',')+')';
+		attribute<impl/org>   OrgZone_rel      := = HasDirectTI ? 'union_data(., '+asList('Direct/'+DirectModes_TI/name+'/OrgZone_rel', ',')+')' : 'const(value(null_u, impl/org), .)';
+		attribute<impl/dest>  DstZone_rel      := = HasDirectTI ? 'union_data(., '+asList('Direct/'+DirectModes_TI/name+'/DstZone_rel', ',')+')' : 'const(value(null_u, impl/dest), .)';
+		attribute<s>          Duration_seconds := = HasDirectTI ? 'union_data(., '+asList('Direct/'+DirectModes_TI/name+'/Duration_seconds', ',')+')' : 'const(0[s], .)';
+		attribute<dam>        Distance         := = HasDirectTI ? 'union_data(., '+asList('Direct/'+DirectModes_TI/name+'/Distance', ',')+')' : 'const(0[dam], .)';
+		attribute<Ct>         Price            := = HasDirectTI ? 'union_data(., '+asList('Direct/'+DirectModes_TI/name+'/Price', ',')+')' : 'const(0[Ct], .)';
+		attribute<Ct>         Price_Augm       := = HasDirectTI ? 'union_data(., '+asList('Direct/'+DirectModes_TI/name+'/Price_Augm', ',')+')' : 'const(0[Ct], .)';
+		attribute<impl/Modes> Mode_rel         := = HasDirectTI ? 'union_data(., '+asList('Direct/'+DirectModes_TI/name+'/Mode_rel', ',')+')' : 'const(impl/Modes/V/Car, .)';
 	}
 	
 	container TimeInvariantConnections := 
