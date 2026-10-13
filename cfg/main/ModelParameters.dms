@@ -143,6 +143,15 @@
 		parameter<string>   NS_tariefnet_year                         := value(NS_prijzen_year, uint32) >= 2016 ? '2016' : '2013', Descr = "Jaargang van het NS-tariefnet (data/Tarieven_NS/NS_tariefnet_<jaar>.csv) bij NS_prijzen_year, sinds 2026-10-04 (NetworkModel_PBL#121). 2013: het NDOV-net (tariefnet.dat) met de gezamenlijke tariefpunten van NS (stations met 0 TE ertussen); 2016: zonder die punten, zoals NS ze per de tarieven van 2016 afschafte (elk stationspaar minstens 1 TE).";
 		parameter<m>        DistanceTrainStationsSelection            := 350[m]                 , Descr = "To find out which GTFS-stops relate to which trainstation a geographic search distance is used.";
 		parameter<m>        DistanceStopClusters                      := 100[m]                 , Descr = "To cluster stops which belong to the same 'stop' a geographic search distance is used. Stops in opposite directions should be considered the same stop cluster. Travelling from stops within a cluster is non-sensical.";
+		unit<uint8> OVFiets_Locaties : nrofrows = 2
+		, Descr = "De bestanden met de OV-fietslocaties in %NetworkModel_dir%/Infrastructuur, per jaar (AnalysisMomentPresets/OVFiets_year). 2023: 283 locaties, gegeocodeerd door Jip. 2025 (sinds 2026-10-13): de lijst van PBL van 13-10-2026 (Jeroen Bastiaanssen, tabblad 2025 van '20261013 - Locaties OVF tbv PBL v2.xlsx'), 293 locaties, gegeocodeerd met batch/OVFiets2025_Geocode.dms: als 2023 bij gelijke naam, postcode en huisnummer, anders het BAG-adres van 1-1-2025, de halte met dezelfde naam als het adres verder dan DistanceOVFietsStops van elke halte ligt, of het zwaartepunt van de postcode (kolom Bron)."
+		{
+			attribute<string> year : ['2023', '2025'];
+			attribute<string> file : ['20260408_Locaties.OVF_2023_Geocoded.csv', '20261013_Locaties.OVF_2025_Geocoded.csv'];
+		}
+		parameter<string>   OVFiets_year                              := rjoin(/ModelParameters/AnalysisMoment, AnalysisMomentPresets/name, AnalysisMomentPresets/OVFiets_year);
+		parameter<string>   OVFiets_File                              := rjoin(OVFiets_year, OVFiets_Locaties/year, OVFiets_Locaties/file), Descr = "Het bestand van de OV-fietslocaties van deze peildatum (SourceData/Infrastructure/OV_Fiets_Stations).";
+		parameter<string>   OVFiets_FileTag                           := OVFiets_year == '2023' ? '' : '_ovf' + OVFiets_year, Descr = "In de handtekening van de OV-uitvoer als het natransport de OV-fiets heeft (PT_Output_ParamTag); leeg bij de locaties van 2023, zodat de handtekeningen van tot 2026-10-13 blijven.";
 		parameter<m>        DistanceOVFietsStops                      := 200[m]                 , Descr = "Maximale zoekafstand om OVfiets stations te koppelen aan GTFS haltes.";
 		parameter<m>        DistanceKnooppuntClusters                 := 150[m]                 , Descr = "Clusterafstand om GTFS-haltes samen te voegen tot een OV-knooppunt (single linkage via connected_parts). Perrons/haltekommen van hetzelfde knooppunt vallen zo samen.";
 		parameter<uint32>   Knooppunt_MinLijnen_BTM                   := 8                      , Descr = "Minimaal aantal unieke bus/tram/metro-lijnen op een haltecluster om als BTM-knooppunt te gelden (kruisende lijnen). Treinstations zijn altijd knooppunt; een solitaire metrohalte niet (die telt via de BTM-lijnen mee). Bij 8 lijnen ca. 270 BTM-knopen excl. metro (GTFS 20260316), schaal TBOV-actieagenda (~700 knooppunten totaal); bij 5 lijnen ca. 780.";
@@ -391,7 +400,7 @@
 		, Descr = "De bestemmingsset zonder DestSet_DateTag, in de handtekening van de OV-uitvoer (PT_Output_ParamTag), die Analysis_date al noemt. Tot 2026-10-03 stond hij zo in de bestandsnamen van de uitvoer, zonder datum om onder de 260 tekens van Windows te blijven.";
 		parameter<string>   PT_CombinationType                        := 'V-' + Direct_str + (MetOV ? ',' + asList(OV_PreTransport_Typen/ExportName, ',') + '_N-' + asList(OV_PostTransport_Typen/ExportName, ',') : '')
 		, Descr = "De directe modaliteiten en de voor- en natransporttypen zoals ze in de handtekening van de OV-uitvoer staan (tot 2026-10-03 in de bestandsnamen); zonder OV (component Auto) alleen de directe modaliteiten.";
-		parameter<string>   PT_Output_ParamTag                        := '_DEST-' + DestSet_string_nodate + '_' + PT_CombinationType + (MetOV ? '_Trsf-' + string(Max_transfers) : '') + '_MinCrit-' + asList(/Classifications/OutputParetoAttr/FileNameElement, '_') + (MetOV ? '_MaxPT-' + string(/ModelParameters/MaxPTTime) + 'min' + Flex_FileTag + RitOpslag_FileTag : '') + (AllowDirectCar ? ParetoLegs_Car_FileTag : '') + Car_PriceTag + ChainPareto_FileTag
+		parameter<string>   PT_Output_ParamTag                        := '_DEST-' + DestSet_string_nodate + '_' + PT_CombinationType + (MetOV ? '_Trsf-' + string(Max_transfers) : '') + '_MinCrit-' + asList(/Classifications/OutputParetoAttr/FileNameElement, '_') + (MetOV ? '_MaxPT-' + string(/ModelParameters/MaxPTTime) + 'min' + Flex_FileTag + RitOpslag_FileTag : '') + (AllowDirectCar ? ParetoLegs_Car_FileTag : '') + Car_PriceTag + ChainPareto_FileTag + (MetOV && IsDefined(strpos(Component_Natransport, 'OVF')) ? OVFiets_FileTag : '')
 		, Descr = "De parameters van de OV-uitvoer na datum en herkomstset, voor de handtekening van de uitvoer (NetworkSetup/Output_Signature): bestemmingenset, modaliteiten, overstappen, criteria, MaxPT en de tags. Tot 2026-10-03 (NetworkModel_PBL#118) heette hij PT_OutputFileTail en was hij de staart van de naam van elk uitvoerbestand; zo werd het langste uitvoerpad 252 tot 261 tekens. Sinds 2026-10-05 (#117) alleen de OV-tags (overstappen, MaxPT, flex, rit-opslag) als het OV meedoet en de autotags als de directe autorit meedoet.";
 		parameter<string>   DestSet_string                            := (Dests_geclusterd 
 																			? lowercase(Destset) + '_' + lowercase(Dest_location_scale)
@@ -454,19 +463,19 @@
 			unit<uint32> Elements  := Range(uint32, 0, nrAttr*#.)
 			{
 				attribute<String> Text:
-				// name, OSM date , Regios, OSM_perProv, CarCongestionSpeed_date_TomTom, BAG_snapshot, Analysis_date, GTFS_file_date
+				// name, OSM date , Regios, OSM_perProv, CarCongestionSpeed_date_TomTom, BAG_snapshot, Analysis_date, GTFS_file_date, OVFiets_year
 				[
-				'Y2012','20221201', '2012', 'TRUE',  'yr2021_12', '20120101',     '',         '',      //20140101
-				'Y2013','20140101', '2022', 'FALSE', 'yr2021_12', '20130101',     '',         '',
-				'Y2015','20240524', '2023', 'TRUE',  'yr2021_12', '20230101.new', '20151013', '',
-				'Y2018','20190101', '2020', 'FALSE', 'yxx2021_12','20180101',     '',         '',
-				'Y2020','20200117', '2020', 'FALSE', 'yr2021_12', '20200101',     '',         '',
-				'Y2021','20211221', '2021', 'TRUE',  'yr2021_12', '20210101',     '',         '',
-				'Y2022','20221201', '2022', 'TRUE',  'yr2022_12', '20220101',     '',         '',
-				'Y2023','20240524', '2023', 'TRUE',  'yr2023_12', '20230101.new', '20231010', '20231003',
-				'Y2024','20240524', '2023', 'TRUE',  'yr2024_12', '20230101.new', '20241008', '20241001',
-				'Y2025','20240524', '2025', 'TRUE',  'yr2025_12', '20250101.new', '20251014', '20250930',
-				'Y2026','20260601', '2025', 'TRUE',  'yr2025_12', '20250101.new', '20261013', '20260925'
+				'Y2012','20221201', '2012', 'TRUE',  'yr2021_12', '20120101',     '',         '', '2023',      //20140101
+				'Y2013','20140101', '2022', 'FALSE', 'yr2021_12', '20130101',     '',         '', '2023',
+				'Y2015','20240524', '2023', 'TRUE',  'yr2021_12', '20230101.new', '20151013', '', '2023',
+				'Y2018','20190101', '2020', 'FALSE', 'yxx2021_12','20180101',     '',         '', '2023',
+				'Y2020','20200117', '2020', 'FALSE', 'yr2021_12', '20200101',     '',         '', '2023',
+				'Y2021','20211221', '2021', 'TRUE',  'yr2021_12', '20210101',     '',         '', '2023',
+				'Y2022','20221201', '2022', 'TRUE',  'yr2022_12', '20220101',     '',         '', '2023',
+				'Y2023','20240524', '2023', 'TRUE',  'yr2023_12', '20230101.new', '20231010', '20231003', '2023',
+				'Y2024','20240524', '2023', 'TRUE',  'yr2024_12', '20230101.new', '20241008', '20241001', '2023',
+				'Y2025','20240524', '2025', 'TRUE',  'yr2025_12', '20250101.new', '20251014', '20250930', '2025',
+				'Y2026','20260601', '2025', 'TRUE',  'yr2025_12', '20250101.new', '20261013', '20260925', '2025'
 				];
 				// PEILDATA (overleg PBL 5-10-2026, #125): de tweede dinsdag van oktober, 13-10-2015, 10-10-2023, 8-10-2024,
 				// 14-10-2025 en 13-10-2026. Ze vervangen 1-10-2024, 30-9-2025, 16-6-2026 en 6-10-2026 (op 6-10-2026 waren er
@@ -526,9 +535,10 @@
 			attribute<string>        CarCongestionSpeed_date := Elements/Text[value(UInt32(ID(.))* nrAttr + 4, Elements)];
 			attribute<string>        BAG_snapshot            := Elements/Text[value(UInt32(ID(.))* nrAttr + 5, Elements)];
 			attribute<string>        Analysis_date           := Elements/Text[value(UInt32(ID(.))* nrAttr + 6, Elements)], Descr = "De peildatum (yyyymmdd), sinds 2026-10-05 (#125); leeg = geen peildatum.";
+			attribute<string>        OVFiets_year            := Elements/Text[value(UInt32(ID(.))* nrAttr + 8, Elements)], Descr = "Het jaar van de OV-fietslocaties (Advanced/OVFiets_Locaties): 2025 voor de peildata 2025 en 2026 (sinds 2026-10-13, lijst van PBL van 13-10-2026), anders 2023.";
 			attribute<string>        GTFS_file_date          := Elements/Text[value(UInt32(ID(.))* nrAttr + 7, Elements)], Descr = "De GTFS-feed van de peildatum (yyyymmdd), sinds 2026-10-05 (#125); leeg = (nog) geen feed.";
 
-			parameter<uint32> nrAttr := 8;
+			parameter<uint32> nrAttr := 9;
 		}
 
 		unit<uint8> Dagdelen : nrofrows = 3

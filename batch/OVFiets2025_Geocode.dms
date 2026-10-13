@@ -1,0 +1,90 @@
+// OVFiets2025_Geocode (batch/OVFiets2025_Geocode.dms, losse config; draai met GeoDmsRun <dit bestand> /Generate): de OV-fietslocaties van 2025 (PBL, mail van Jeroen Bastiaanssen van 13-10-2026, '20261013 - Locaties OVF tbv PBL v2.xlsx',
+// tabblad 2025) gegeocodeerd, in de vorm van het bestand van 2023 dat het model leest (Infrastructuur/20260408_Locaties.OVF_2023_Geocoded.csv).
+// Per locatie, in deze volgorde:
+//   1 dezelfde naam, postcode en huisnummer als in 2023: de coordinaten van 2023;
+//   2 anders het adres in de BAG van 1-1-2025 (postcode en huisnummer);
+//   3 anders, bij een naam die in 2023 bestond, de coordinaten van 2023 (een adres dat de BAG niet kent, of een fout in de lijst);
+//   4 anders het zwaartepunt van de adressen met die postcode.
+// Een rij die precies dubbel staat, telt een keer.
+container ovf2025_geocode
+{
+	container eenheden { unit<int32> datum; unit<int16> jaar; }
+	container geometries
+	{
+		unit<dpoint> rdc_base : SpatialReference = "EPSG:28992";
+		unit<dpoint> rdc      := range(rdc_base, point_xy(0d, 300000d), point_xy(280000d, 625000d));
+	}
+	container bag : StorageName = "F:/SourceData/BAG/snapshots.ext/20250101.new/bag.mmd", StorageReadOnly = "true";
+	unit<uint32> NA := bag/nummeraanduiding
+	{
+		attribute<string>  pc  := bag/nummeraanduiding/postcode;
+		attribute<string>  key := pc + '_' + string(bag/nummeraanduiding/huisnummer);
+		attribute<float64> X   := bag/nummeraanduiding/X;
+		attribute<float64> Y   := bag/nummeraanduiding/Y;
+	}
+	unit<uint32> Postcodes := unique(NA/pc)
+	{
+		attribute<.>       rel (NA) := rlookup(NA/pc, values);
+		attribute<float64> X        := mean(NA/X, rel);
+		attribute<float64> Y        := mean(NA/Y, rel);
+	}
+
+	unit<uint32> Stops0 : StorageName = "F:/SourceData/NetworkModel_PBL/Infrastructuur/GTFS/20250930/stops.csv", StorageType = "gdal.vect", StorageReadOnly = "true";
+	unit<uint32> Stops := Stops0
+	{
+		attribute<geometries/rdc> geometry := LatLongWgs842RD(point_yx(float64(Stops0/stop_lat), float64(Stops0/stop_lon), dpoint), dpoint)[geometries/rdc];
+		attribute<bool>           IsStation := Stops0/location_type == '1';
+		attribute<string>         name := Stops0/stop_name;
+	}
+	unit<uint32> UqStops := unique(Stops/geometry)
+	{
+		attribute<.>      rel  (Stops) := rlookup(Stops/geometry, values);
+		attribute<string> name := first(Stops/name, rel);
+	}
+	unit<uint32> L23 : StorageName = "F:/SourceData/NetworkModel_PBL/Infrastructuur/20260408_Locaties.OVF_2023_Geocoded.csv", StorageType = "gdal.vect", StorageReadOnly = "true";
+	unit<uint32> Src : StorageName = "F:/SourceData/NetworkModel_PBL/Infrastructuur/20261013_Locaties_OVF_2025_PBL_v2.tsv", StorageType = "gdal.vect", StorageReadOnly = "true";
+	attribute<string> SrcKey (Src) := Src/Naam + '|' + Src/Adres + '|' + Src/Postcode;
+	unit<uint32> L := select_with_org_rel(rlookup(SrcKey, SrcKey) == id(Src))
+	, Descr = "De locaties van 2025 zonder de rijen die precies dubbel staan."
+	{
+		attribute<string>  Naam    := Src/Naam[org_rel];
+		attribute<string>  Adres   := Src/Adres[org_rel];
+		attribute<string>  pc      := UpperCase(replace(Src/Postcode[org_rel], ' ', ''));
+		attribute<string>  nr      := MakeDefined(replace(regex_search(Adres, ' [0-9]+'), ' ', ''), ''), Descr = "Het huisnummer: het eerste getal na een spatie (dus 190 in '1e Stationsstraat 190'); leeg zonder.";
+		attribute<string>  straat  := MakeDefined(regex_replace(Adres, ' [0-9].*$', ''), Adres);
+		attribute<L23>     o_rel   := rlookup(Naam, L23/Naam);
+		attribute<bool>    same    := IsDefined(o_rel) && pc == UpperCase(replace(L23/Postcode[o_rel], ' ', '')) && nr == L23/Huisnummer[o_rel];
+		attribute<NA>      na_rel  := strlen(nr) > 0 && strlen(pc) == 6 ? rlookup(pc + '_' + nr, NA/key) : value(null_u, NA);
+		attribute<Postcodes> pc_rel := strlen(pc) == 6 ? rlookup(pc, Postcodes/values) : value(null_u, Postcodes);
+		attribute<Stops>   st_rel  := rlookup(Naam, Stops/name), Descr = "Een GTFS-halte met precies deze naam (station of perron).";
+		attribute<geometries/rdc> na_geom := point_xy(NA/X[na_rel], NA/Y[na_rel], geometries/rdc);
+		attribute<float64> na_dstop := IsDefined(na_rel) ? dist(na_geom, UqStops/values[connect(UqStops/values, na_geom)]) : null_d;
+		// Een nieuw of gewijzigd adres verder dan 200 m van elke halte (DistanceOVFietsStops) koppelt het model aan geen station; dan de halte met dezelfde naam.
+		attribute<uint8>   bron    := same ? 1b : IsDefined(na_rel) && (na_dstop <= 200.0 || not(IsDefined(st_rel))) ? 2b : IsDefined(st_rel) && not(IsDefined(o_rel)) ? 5b : IsDefined(o_rel) ? 3b : IsDefined(st_rel) ? 5b : IsDefined(pc_rel) ? 4b : 0b;
+		attribute<float64> X       := bron == 1b ? float64(L23/X[o_rel]) : bron == 2b ? NA/X[na_rel] : bron == 3b ? float64(L23/X[o_rel]) : bron == 5b ? PointCol(Stops/geometry[st_rel]) : bron == 4b ? Postcodes/X[pc_rel] : null_d;
+		attribute<float64> Y       := bron == 1b ? float64(L23/Y[o_rel]) : bron == 2b ? NA/Y[na_rel] : bron == 3b ? float64(L23/Y[o_rel]) : bron == 5b ? PointRow(Stops/geometry[st_rel]) : bron == 4b ? Postcodes/Y[pc_rel] : null_d;
+		attribute<float64> d23     := IsDefined(o_rel) ? sqrt(sqr(X - float64(L23/X[o_rel])) + sqr(Y - float64(L23/Y[o_rel]))) : null_d, Descr = "Afstand tot de locatie met dezelfde naam in 2023, in m.";
+		attribute<string>  BronTxt := bron == 1b ? 'zoals 2023' : bron == 2b ? 'BAG-adres' : bron == 3b ? '2023 (adres niet in de BAG)' : bron == 4b ? 'BAG-postcode' : bron == 5b ? 'GTFS-station' : 'niet gevonden';
+		attribute<string>  Line    := string(id(.)) + ',' + Naam + ',' + straat + ',' + nr + ',,' + pc + ',' + string(X) + ',' + string(Y) + ',' + BronTxt;
+		attribute<geometries/rdc> geometry := point_xy(X, Y, geometries/rdc);
+		attribute<UqStops> near   := connect(UqStops/values, geometry);
+		attribute<float64> dstop   := dist(geometry, UqStops/values[near]), Descr = "Afstand tot de dichtstbijzijnde GTFS-halte (feed 20250930), in m; het model koppelt binnen DistanceOVFietsStops (200 m).";
+		attribute<bool>    melden  := bron == 4b || bron == 5b || bron == 0b || (IsDefined(d23) && d23 > 300.0) || not(IsDefined(o_rel)) || dstop > 200.0;
+		attribute<string>  Melding := Naam + ' | ' + Adres + ' | ' + pc + ' -> ' + BronTxt + (IsDefined(d23) ? ', ' + string(round(float32(d23))) + ' m van 2023' : ', nieuw') + ', halte op ' + string(round(float32(dstop))) + ' m (' + UqStops/name[near] + ')';
+	}
+	attribute<bool> weg23 (L23) := not(IsDefined(rlookup(L23/Naam, L/Naam)));
+	unit<uint32> Ontbreekt := select_with_org_rel(weg23) { attribute<string> Naam := L23/Naam[org_rel]; }
+	unit<uint32> Meld  := select_with_org_rel(L/melden) { attribute<string> Txt := L/Melding[org_rel]; }
+
+	parameter<string> Csv := 'EK,Naam,Straatnaam,Huisnummer,Huisletter,Postcode,X,Y,Bron\n' + asList(L/Line, '\n') + '\n'
+	, StorageName = "C:/LocalData/NM_PBL_runs/ovf2025/20261013_Locaties.OVF_2025_Geocoded.csv", StorageType = "str";
+	parameter<string> Report :=
+		  'bron: ' + string(#Src) + ' rijen, ' + string(#L) + ' na het weglaten van dubbele rijen; 2023: ' + string(#L23) + ' locaties\n'
+		+ 'binnen 200 m van een GTFS-halte: ' + string(sum_uint32(L/dstop <= 200.0)) + ' van ' + string(#L) + '
+'
+		+ 'zoals 2023 ' + string(sum_uint32(L/bron == 1b)) + ', BAG-adres ' + string(sum_uint32(L/bron == 2b)) + ', 2023 (adres niet in de BAG) ' + string(sum_uint32(L/bron == 3b)) + ', GTFS-station ' + string(sum_uint32(L/bron == 5b)) + ', BAG-postcode ' + string(sum_uint32(L/bron == 4b)) + ', niet gevonden ' + string(sum_uint32(L/bron == 0b)) + '\n'
+		+ 'nieuwe namen ' + string(sum_uint32(not(IsDefined(L/o_rel)))) + '; namen van 2023 die in 2025 ontbreken: ' + string(#Ontbreekt) + ' (' + asList(Ontbreekt/Naam, '; ') + ')\n'
+		+ 'te bekijken:\n' + asList(Meld/Txt, '\n') + '\n'
+	, StorageName = "C:/LocalData/NM_PBL_runs/ovf2025/geocode_verslag.txt", StorageType = "str";
+	parameter<string> Generate := 'Ready', ExplicitSuppliers = "Csv;Report";
+}
