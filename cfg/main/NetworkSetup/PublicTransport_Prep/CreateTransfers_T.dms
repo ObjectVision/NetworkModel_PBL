@@ -39,7 +39,14 @@ Template CreateTransfers_T
 		attribute<Time>               Transfer_Time_rel        := sub_or_null(To_Time_rel, from_Time_rel);
 		attribute<s>                  Transfer_time            := Transfer_Time_rel[s];
 		
-		attribute<bool>               IsValidTransfer          := Transfer_Time_rel >= Walking_Time_rel && To_Time_rel > From_Time_rel && Transfer_Time_rel > 0[Time] && Transfer_time <= convert(ModelParameters/MaxPTTime, s);
+		// Sinds 2026-10-13 (#123): tussen twee verschillende treinhaltes (perrons) van hetzelfde NS-station minstens de IFF-overstaptijd van
+		// dat station (Stops/IFF_Overstaptijd_rel, ModelParameters/Advanced/IFF_Overstaptijd), naast de looptijd over de rechte afstand. Op
+		// dezelfde halte en tussen trein en bus, tram of metro blijft het de looptijd. Tot dan alleen de looptijd: in Utrecht Centraal
+		// 0,7 min van perron 1 naar perron 5, waar 9292 tussen 4 en 6 min eist en de IFF 5 min.
+		attribute<bool>               IsTreinOverstapInStation := From_Stop_rel != To_Stop_rel && IsDefined(Stops/IFF_Overstaptijd_rel[From_Stop_rel]) && IsDefined(Stops/IFF_Overstaptijd_rel[To_Stop_rel]) && Stops/NS_Stations_rel[From_Stop_rel] == Stops/NS_Stations_rel[To_Stop_rel];
+		attribute<Time>               MinTransfer_Time_rel     := IsTreinOverstapInStation ? max_elem(Walking_Time_rel, Stops/IFF_Overstaptijd_rel[From_Stop_rel]) : Walking_Time_rel;
+
+		attribute<bool>               IsValidTransfer          := Transfer_Time_rel >= MinTransfer_Time_rel && To_Time_rel > From_Time_rel && Transfer_Time_rel > 0[Time] && Transfer_time <= convert(ModelParameters/MaxPTTime, s);
 
 		unit<uint32> GenLines:= union_unit(., .)
 		{

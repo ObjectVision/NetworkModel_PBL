@@ -63,6 +63,12 @@ container PublicTransport_Prep
 			attribute<rdc>    geometry  := =PT_path_str+'/Stops/geometry';
 			attribute<RegioIndelingen/CoropP> CoropP_rel := point_in_polygon(geometry, RegioIndelingen/CoropP/geometry);
 			attribute<Places> Place_rel := invert(Places/stop_rel);
+			// #123: het NS-station van een halte (ook van een bushalte bij een station) en, voor een treinhalte, de IFF-overstaptijd van dat
+			// station; null voor andere haltes en met IFF_Overstaptijd uit. CreateTransfers_T legt hem op als ondergrens.
+			attribute</SourceData/Infrastructure/OVprijzen/NS/NS_Stations> NS_Stations_rel := =PT_path_str+'/Stops/NS_Stations_rel';
+			attribute<Time>   IFF_Overstaptijd_rel := =ModelParameters/Advanced/IFF_Overstaptijd
+				? PT_path_str + '/Stops/Mode_rel == GTFS_Modes/Selection/V/Rail ? rjoin(/SourceData/Infrastructure/OVprijzen/NS/NS_Stations/code[NS_Stations_rel], /SourceData/Infrastructure/Infrastructure/IFF_Stations/code_l, /SourceData/Infrastructure/Infrastructure/IFF_Stations/Overstaptijd_rel) : value(null_u, Time)'
+				: 'const(value(null_u, Time), .)';
 		}
 		unit<uint32>        RMT_Stops              := select_with_attr_by_cond(Stops, Stops/Mode_rel == GTFS_Modes/Selection/V/Rail || Stops/Mode_rel == GTFS_Modes/Selection/V/Metro || Stops/Mode_rel == GTFS_Modes/Selection/V/Tram);
 		unit<uint32>        RM_Stops               := select_with_attr_by_cond(Stops, Stops/Mode_rel == GTFS_Modes/Selection/V/Rail || Stops/Mode_rel == GTFS_Modes/Selection/V/Metro);
@@ -128,8 +134,8 @@ container PublicTransport_Prep
 	} 
 
 	container Create_Optimised_Network_Walking  := Templates/CreateNetwork_Efficient_T(impl/Org, impl/Dest, SourceData/Infrastructure/OSM/Network_Walking, 'Walking', TRUE), Descr = "Network for pre- and post-transport.";
-	container Create_Optimised_Network_Cycling  := Templates/CreateNetwork_Efficient_T(impl/Org, impl/Dest, SourceData/Infrastructure/OSM/Network_Cycling, 'Cycling', TRUE), Descr = "Network for pre- and post-transport.";
-	container Create_Optimised_Network_EBike    := Templates/CreateNetwork_Efficient_T(impl/Org, impl/Dest, SourceData/Infrastructure/OSM/Network_Cycling, 'E_Biking', TRUE), Descr = "Network for pre- and post-transport.";
+	container Create_Optimised_Network_Cycling  := Templates/CreateNetwork_Efficient_T(impl/Org, impl/Dest, SourceData/Infrastructure/Network_Cycling, 'Cycling', TRUE), Descr = "Network for pre- and post-transport. Sinds 2026-10-13 (#124) het fietsnet van ModelParameters/Advanced/CyclingNetwork (standaard de Fietsersbond), tot dan OSM.";
+	container Create_Optimised_Network_EBike    := Templates/CreateNetwork_Efficient_T(impl/Org, impl/Dest, SourceData/Infrastructure/Network_Cycling, 'E_Biking', TRUE), Descr = "Network for pre- and post-transport.";
 
 	// Directe ritten naast het OV. Per toegestane modaliteit (ModelParameters/AllowDirectWalking, -Cycling,
 	// -Car; de lijst staat in Advanced/DirectModes) de volledige HB-tabel uit /NetworkSetup/PrivateTransport,
@@ -336,7 +342,7 @@ container PublicTransport_Prep
 		parameter<Modes>  Mode_rel       := TimeInvariantTypes/Mode_rel[TimeInvariantTypes_rel];
 		parameter<string> NetworkType    := TimeInvariantTypes/NetworkType[TimeInvariantTypes_rel];
 		parameter<string> VN_Transport   := TimeInvariantTypes/VN_Transport[TimeInvariantTypes_rel];
-		unit<uint32>      Network        := ='SourceData/Infrastructure/OSM/Network_'+NetworkType;
+		unit<uint32>      Network        := =NetworkType == 'Cycling' ? 'SourceData/Infrastructure/Network_Cycling' : 'SourceData/Infrastructure/OSM/Network_'+NetworkType;
 		
 		container Create_Routes      := ='Templates/CreateNetwork_Pedestrian_Bike_T(
 												PublicTransport_Prep/Impl/'+OriginSet+ //inStart
