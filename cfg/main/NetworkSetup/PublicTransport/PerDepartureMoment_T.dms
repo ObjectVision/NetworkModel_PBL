@@ -217,14 +217,43 @@ Template PerDepartureMoment_T
 	parameter<bool>   MetOV := /ModelParameters/Advanced/MetOV;
 
 	// De directe ritten van dit vertrekmoment (sinds 2026-10-09, #132): die van het blok (Direct_OD, niet afhankelijk van het moment) en, met
-	// de tijdafhankelijke autorit (ModelParameters/CarTimeDependent), de autoritten van dit moment uit NetworkSetup/impl/DirectCarTD.
-	parameter<bool>   CarTD  := /ModelParameters/CarTimeDependent && /ModelParameters/AllowDirectCar;
-	parameter<string> TDName := 'TD' + Time/TemplatableTextShrt[inTime[Time]];
-	unit<uint64> DirectCar_M := = CarTD
-		? 'select_with_attr_by_cond(/NetworkSetup/impl/DirectCarTD/' + TDName + '/Car, /NetworkSetup/impl/DirectCarTD/' + TDName + '/Car/OrgBlock_rel == BlockDomain_id)'
-		: 'range(uint64, 0u64, 0u64)'
+	// de tijdafhankelijke autorit (ModelParameters/CarTimeDependent), de autoritten van dit moment uit de store van dit moment.
+	parameter<bool>   CarTD       := /ModelParameters/CarTimeDependent && /ModelParameters/AllowDirectCar;
+	parameter<string> TDName      := 'TD' + Time/TemplatableTextShrt[inTime[Time]];
+	parameter<string> CarTD_Store := '/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/' + TDName + '/Car_store';
+
+	// Sinds 2026-10-12 kiest het blok zijn rijen uit de store zelf en rekent het prijs, front (CarFront_T) en plaatsen alleen voor die rijen.
+	// Tot dan kozen de blokken uit tabellen met alle rijen en hun afgeleiden (NetworkSetup/impl/DirectCarTD), die voor Y2023, Buurt2023 naar
+	// Buurt2023, 4 x 800 miljoen rijen in het geheugen hielden: een piek van 97,9 GB vastgelegd geheugen in de uitvoerstap, 88,3 GB voor de
+	// eerste portie van 50 blokken. Nu is dat 2,5 GB, met dezelfde uitvoer (byte voor byte). De keuze gaat per tegel van de store (64K rijen):
+	// collect_by_cond leest alleen de tegels waarin het blok rijen heeft. Een lookup in de store (<kolom>[rij]) maakt eerst een aaneengesloten
+	// kopie van de hele kolom (3,2 GB), per blok, moment en kolom; een variant die zo per herkomst de rijen las, deed 100 s per blok.
+	attribute<bool> Org_InBlock (/NetworkSetup/impl/OrgBlockSelections) := /NetworkSetup/impl/OrgBlockSelections/OrgBlock_rel == BlockDomain_id, Descr = "Is de herkomst in dit blok? Zoals ConfigurationPerOrgBlock_T/org.";
+	unit<uint64> CarStore := = CarTD ? CarTD_Store : 'range(uint64, 0u64, 0u64)'
 	{
-		attribute<string> ModeUsed := = CarTD ? 'Modes/name_abbr[Mode_rel] + Modes/name_abbr[Mode_rel]' : 'const('''', ., string)';
+		attribute<bool> InBlock := = CarTD ? '../Org_InBlock[' + CarTD_Store + '/OrgZone_rel]' : 'const(FALSE, .)';
+	}
+	unit<uint64> CarRows := select(CarStore/InBlock)
+	,	Descr = "De rijen van de store van dit moment voor de herkomsten van dit blok, in de volgorde van de store: dezelfde rijen als de keuze uit de hele tabel tot 2026-10-12."
+	{
+		attribute<s_f>                                          impedance   := = CarTD ? 'collect_by_cond(., CarStore/InBlock, ' + CarTD_Store + '/impedance)'   : 'const(0[s_f], .)';
+		attribute<km>                                           alt_imp     := = CarTD ? 'collect_by_cond(., CarStore/InBlock, ' + CarTD_Store + '/alt_imp)'     : 'const(0[km], .)';
+		attribute</NetworkSetup/PublicTransport_Prep/impl/org>  OrgZone_rel := = CarTD ? 'collect_by_cond(., CarStore/InBlock, ' + CarTD_Store + '/OrgZone_rel)' : 'const(value(null_u, /NetworkSetup/PublicTransport_Prep/impl/org), .)';
+		attribute</NetworkSetup/PublicTransport_Prep/impl/dest> DstZone_rel := = CarTD ? 'collect_by_cond(., CarStore/InBlock, ' + CarTD_Store + '/DstZone_rel)' : 'const(value(null_u, /NetworkSetup/PublicTransport_Prep/impl/dest), .)';
+	}
+	container DirectCar := /NetworkSetup/PublicTransport_Prep/Direct/CarFront_T(CarRows, CarRows/impedance, CarRows/alt_imp, CarRows/OrgZone_rel, CarRows/DstZone_rel);
+	unit<uint64> DirectCar_M := DirectCar/Front
+	{
+		attribute<s>                                         Duration_seconds := DirectCar/Front/Duration_seconds;
+		attribute<dam>                                       Distance         := DirectCar/Front/Distance;
+		attribute<ct>                                        Price            := DirectCar/Front/Price;
+		attribute<ct>                                        Price_Augm       := DirectCar/Front/Price_Augm;
+		attribute</NetworkSetup/PublicTransport_Prep/impl/Modes> Mode_rel     := DirectCar/Front/Mode_rel;
+		attribute<bool>                                      NeedsCar         := const(TRUE, .);
+		attribute<bool>                                      NeedsBike        := const(FALSE, .);
+		attribute<Places>                                    From_Place_rel   := rlookup(DirectCar/Front/OrgZone_rel, Places/Origin_rel);
+		attribute<Places>                                    To_Place_rel     := rlookup(DirectCar/Front/DstZone_rel, Places/Dest_rel);
+		attribute<string>                                    ModeUsed         := Modes/name_abbr[Mode_rel] + Modes/name_abbr[Mode_rel];
 	}
 	unit<uint64> Direct_OD_M := = CarTD ? 'union_unit_uint64(Direct_OD, DirectCar_M)' : 'Direct_OD'
 	{
