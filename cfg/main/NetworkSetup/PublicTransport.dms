@@ -3,7 +3,7 @@ container Generate_Output
 	container Traveltime_ForEachDepTime
 	{ 
 		// parameter<string>   Generate  := ='add('+asList('PerVertrekmoment/'+Advanced/MeasureMoments/Name+'/CreateExports/LongFormat/File_fullOD',',')+')';
-		parameter<string>   Generate  := ='add('+asList('PerVertrekmoment/'+Advanced/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Generate',',')+', Mediaan/Generate)';
+		parameter<string>   Generate  := ='add('+asList('PerVertrekmoment/'+Advanced/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Generate',',')+', Mediaan/Generate, Tellingen/Generate)';
 
 		// Tellingen van dit blok voor <OutputDir>/od_tellingen.csv en unieke_od_tellingen.csv (sinds 2026-10-04), uit de kleine
 		// resultaten achter het hek van elk vertrekmoment (PerDepartureMoment_T, LongFormat/Results_Traveltime/Tellingen). De blokken
@@ -66,6 +66,18 @@ container Generate_Output
 				, sum_uint64(UniekeParen/zonder_auto)
 				, sum_uint64(UniekeParen/zonder_auto_en_fiets))
 			, Descr = "De unieke HB-paren per groep over alle vertrekmomenten samen.";
+
+			// De tellingen van dit blok in een klein bestand (sinds 2026-10-16), Tellingen/tellingen_<n>of<N>.csv: batch/OdTellingen.py
+			// telt die van de blokken op tot od_tellingen.csv en unieke_od_tellingen.csv, zonder de uitvoer opnieuw te lezen (die kan
+			// parquet zijn, ModelParameters/Advanced/OutputFormat). Per regel de tabel (rijen of paren), de soort of groep, de tellingen per
+			// vertrekmoment en het totaal: bij rijen de som, bij paren de unieke paren over de momenten samen.
+			attribute<uint64> Rijen_Totaal (Classifications/OD_Tellingen_Soort) := =asList('Rijen/' + Advanced/MeasureMoments/Name, ' + ');
+			attribute<string> RijenRegel   (Classifications/OD_Tellingen_Soort) := ='''rijen;'' + Classifications/OD_Tellingen_Soort/label + ' + asList(''';'' + string(Rijen/' + Advanced/MeasureMoments/Name + ')', ' + ') + ' + '';'' + string(Rijen_Totaal)';
+			attribute<string> ParenRegel   (Classifications/OD_Tellingen_Groep) := ='''paren;'' + Classifications/OD_Tellingen_Groep/label + ' + asList(''';'' + string(Paren/' + Advanced/MeasureMoments/Name + ')', ' + ') + ' + '';'' + string(Paren_Samen)';
+			parameter<string> File := 'tabel;naam;' + asList(Advanced/MeasureMoments/TemplatableTextShrt, ';') + ';totaal\n' + asList(RijenRegel, '\n') + '\n' + asList(ParenRegel, '\n') + '\n'
+			,	StorageName = "=ModelParameters/Advanced/OutputDir + '/Tellingen/tellingen_' + NetworkSetup/Impl/OrgBlockDomain/FileName[BlockDomain_id] + '.csv'", StorageType = "str"
+			,	ExplicitSuppliers = "/NetworkSetup/Output_Sig/ForWriting";
+			parameter<string> Generate := 'Ready', ExplicitSuppliers = "File";
 		}
 
 		// De mediane reistijd per HB-paar over de vertrekmomenten (sinds 2026-10-08, #53): per vertrekmoment de snelste optie (de
@@ -83,7 +95,26 @@ container Generate_Output
 			,	StorageName = "=ModelParameters/Advanced/OutputDir + '/Mediaan/tt_' + ModelParameters/Analysis_Date + '_mediaan_' + NetworkSetup/Impl/OrgBlockDomain/FileName[BlockDomain_id] + '.csv'", StorageType = "str"
 			,	ExplicitSuppliers = "/NetworkSetup/Output_Sig/ForWriting"
 			,	Descr = "Per HB-paar: herkomst en bestemming, de mediane, snelste en traagste reistijd (min), de mediane afstand (m) en prijs (euro) van de snelste opties, en het aantal vertrekmomenten met een optie.";
-			parameter<string> Generate          := 'Ready', ExplicitSuppliers = "File";
+
+			// Hetzelfde als parquet (sinds 2026-10-16, ModelParameters/Advanced/OutputFormat 'parquet'), met zstd; zie
+			// PerDepartureMoment_T, CreateExports/LongFormat/Parquet.
+			parameter<string> GDAL_LayerCreationOptions := 'COMPRESSION=ZSTD';
+			container Parquet
+			:	StorageName = "=ModelParameters/Advanced/OutputDir + '/Mediaan/tt_' + ModelParameters/Analysis_Date + '_mediaan_' + NetworkSetup/Impl/OrgBlockDomain/FileName[BlockDomain_id] + '.parquet'", StorageType = "gdalwrite.vect"
+			{
+				unit<uint64> tt := P, ExplicitSuppliers = "/NetworkSetup/Output_Sig/ForWriting"
+				{
+					attribute<string> OrgName           := Places/label[P/From_Place_rel];
+					attribute<string> DestName          := Places/label[P/To_Place_rel];
+					attribute<min_f>  Traveltime_median := P/Traveltime_median;
+					attribute<min_f>  Traveltime_min    := P/Traveltime_min;
+					attribute<min_f>  Traveltime_max    := P/Traveltime_max;
+					attribute<m>      TravelDist_median := P/TravelDist_median;
+					attribute<Euro>   Price_median      := P/Price_median;
+					attribute<uint32> NrMoments         := P/NrMoments;
+				}
+			}
+			parameter<string> Generate          := 'Ready', ExplicitSuppliers = "=ModelParameters/Advanced/OutputFormat == 'parquet' ? 'Parquet/tt' : 'File'";
 		}
 		// parameter<string>   Generate  := ='add('+asList('PerVertrekmoment/'+Advanced/MeasureMoments/Name+'/CreateExports/Generate_FSS',',')+')'; 
 	}

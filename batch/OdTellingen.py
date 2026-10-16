@@ -11,6 +11,12 @@
 #   zonder auto (NeedsCar 0) of zonder auto en fiets (NeedsCar en NeedsBike 0), per vertrekmoment en over de momenten samen.
 # De herkomstblokken hebben elk hun eigen herkomsten, dus de tellingen per blok worden opgeteld; per blok worden de paren over
 # de momenten verenigd. Bestaat een van de twee bestanden al, dan stopt het script, tenzij --force.
+#
+# Sinds 2026-10-16 schrijft het model de tellingen per blok zelf, in dezelfde opvraging als de uitvoer, naar
+# Tellingen\tellingen_<n>of<N>.csv (PublicTransport/Generate_Output/Traveltime_ForEachDepTime/Tellingen/File). Staan die er, dan
+# telt dit script alleen die op en leest het de uitvoer niet: die kan parquet zijn (ModelParameters/Advanced/OutputFormat), en de
+# csv van Auto voor Buurt2023 is 284 GB. Het optellen gebeurt hier en niet in het model, omdat de blokken in aparte GeoDmsRuns
+# gerekend worden (WriteOutputBlocks.ps1) en een opvraging voor de som de configuratie opnieuw zou laden.
 import argparse, csv, glob, os, re, sys
 from collections import Counter, defaultdict
 from multiprocessing import Pool
@@ -48,6 +54,41 @@ def blok(files):
 			samen[g] |= s
 	return rijen, paren, Counter({g: len(s) for g, s in samen.items()})
 
+TELLING_RE = re.compile(r'tellingen_(\d+)of(\d+)\.csv$')
+
+def uit_blokbestanden(uitvoermap, uit_rijen, uit_paren):
+	"""Telt de tellingen per blok van het model op (Tellingen/tellingen_<n>of<N>.csv: tabel;naam;<momenten>;totaal)."""
+	files = sorted(glob.glob(os.path.join(uitvoermap, 'Tellingen', 'tellingen_*.csv')))
+	namen = [TELLING_RE.search(os.path.basename(p)) for p in files]
+	n_blokken = {int(mt.group(2)) for mt in namen if mt}
+	blokken = {int(mt.group(1)) for mt in namen if mt}
+	if len(n_blokken) != 1 or blokken != set(range(1, next(iter(n_blokken)) + 1)):
+		sys.exit(f'onvolledige tellingen: {len(blokken)} blokken in {uitvoermap}\\Tellingen, verwacht {sorted(n_blokken)}')
+	som, kop = Counter(), None
+	for p in files:
+		with open(p, newline='', encoding='utf-8') as fh:
+			r = csv.reader(fh, delimiter=';')
+			h = next(r)
+			if kop is None:
+				kop = h
+			elif h != kop:
+				sys.exit(f'{p}: kop {h} wijkt af van {kop}')
+			for row in r:
+				if row:
+					for i, v in enumerate(row[2:]):
+						som[(row[0], row[1], i)] += int(v)
+	momenten = kop[2:-1]
+	with open(uit_rijen, 'w', newline='\n', encoding='utf-8') as f:
+		f.write('soort;' + ';'.join(momenten) + ';totaal\n')
+		for k in SOORTEN:
+			f.write(k + ''.join(f";{som[('rijen', k, i)]}" for i in range(len(momenten) + 1)) + '\n')
+	with open(uit_paren, 'w', newline='\n', encoding='utf-8') as f:
+		f.write('groep;' + ';'.join(momenten) + ';samen\n')
+		for k in GROEPEN:
+			f.write(k + ''.join(f";{som[('paren', k, i)]}" for i in range(len(momenten) + 1)) + '\n')
+	print(f'{len(files)} tellingbestanden van het model (Tellingen), momenten {", ".join(momenten)}')
+	print(open(uit_rijen, encoding='utf-8').read() + open(uit_paren, encoding='utf-8').read(), end='')
+
 def main():
 	ap = argparse.ArgumentParser()
 	ap.add_argument('uitvoermap', help=r'Output\<Analysis_date>_<OutputLabel>')
@@ -57,6 +98,8 @@ def main():
 	uit_paren = os.path.join(args.uitvoermap, 'unieke_od_tellingen.csv')
 	if not args.force and (os.path.exists(uit_rijen) or os.path.exists(uit_paren)):
 		sys.exit(f'{args.uitvoermap} heeft al tellingbestanden; gebruik --force om ze te overschrijven')
+	if glob.glob(os.path.join(args.uitvoermap, 'Tellingen', 'tellingen_*.csv')):
+		return uit_blokbestanden(args.uitvoermap, uit_rijen, uit_paren)
 	files = sorted(glob.glob(os.path.join(args.uitvoermap, 'PerBlock', 'tt_*.csv')))
 	per_blok, momenten, n_blokken = defaultdict(list), set(), set()
 	for p in files:
