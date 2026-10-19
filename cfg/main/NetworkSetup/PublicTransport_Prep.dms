@@ -364,6 +364,100 @@ container PublicTransport_Prep
 											')';
 	}
 
+	// DE BENEN VAN HET VOOR- EN NATRANSPORT IN STORES (sinds 2026-10-19): een keer per peildatum, herkomstenset en bestemmingenset
+	// de vier basissets, W_ (lopen naar elke halte), C_ (fietsen naar elke halte), _W (lopen van elke halte naar de bestemmingen) en
+	// _C (fietsen van elke halte), in een store (LegStores/<type>/Write_Legs; batch/UpdateAll.cmd legs). Ze hangen niet af van het
+	// dagdeel of de component. De andere typen zijn een selectie daaruit (Legs/<type>/ODMatrix): de route naar een halte is dezelfde,
+	// welke haltes er ook doelen zijn, dus C_RM, C_RMT en C_Ric zijn C_ naar die haltes, RM_C, RMT_C en OVf_C zijn _C van die haltes,
+	// met hun eigen maximale tijd (die niet langer mag zijn dan die van de basisset). De store bewaart alleen het netwerk: herkomst,
+	// halte of bestemming, de netwerkreistijd en de afstand; start- en parkeertijd en de prijs volgen bij het lezen, zoals in
+	// Templates/CreateNetwork_Pedestrian_Bike_T. Tot dan rekende elke run (elke portie blokken) de benen van zijn component opnieuw.
+	unit<uint8> BaseLegTypes : nrofrows = 4
+	,	Descr = "De basissets van de benen, elk een Dijkstra over het hele netwerk met de maximale tijd van het type: lopen en fietsen, naar en van elke halte."
+	{
+		attribute<string> name : ['Org2Stops_Walking', 'Org2Stops_Cycling', 'Stops2Dest_Walking', 'Stops2Dest_Cycling'];
+	}
+	container LegStores := for_each_ne(BaseLegTypes/name, 'LegStore_T(' + quote(BaseLegTypes/name) + ')')
+	,	Descr = "Per basisset: Write_Legs (schrijft de store), Legs_store (leest hem).";
+
+	Template LegStore_T
+	{
+		parameter<string> TypeName;
+		///
+		parameter<TimeInvariantTypes> TimeInvariantTypes_rel := rlookup(TypeName, TimeInvariantTypes/name);
+		parameter<string> NetworkTag := TimeInvariantTypes/NetworkType[TimeInvariantTypes_rel] == 'Cycling'
+			? 'cycling' + string(/ModelParameters/Advanced/CyclingSpeed_kmhr) + 'kmh' + (/ModelParameters/Advanced/CyclingNetwork_FileTag != '' ? /ModelParameters/Advanced/CyclingNetwork_FileTag : '_osm' + /SourceData/Infrastructure/OSM/file_date + /SourceData/Infrastructure/OSM/StoreRevision)
+			: 'walking' + string(/ModelParameters/Advanced/WalkingSpeed_kmhr) + 'kmh_osm' + /SourceData/Infrastructure/OSM/file_date + /SourceData/Infrastructure/OSM/StoreRevision
+		,	Descr = "Het netwerk en de snelheid, voor de handtekening: het Fietsersbond-fietsnet (CyclingNetwork_FileTag) of de OSM-netwerkstore.";
+		parameter<string> Signature := 'Legs_' + TypeName + '_' + NetworkTag
+			+ '_MaxTime-' + string(TimeInvariantTypes/MaxTime[TimeInvariantTypes_rel]) + 'min'
+			+ '_ORG-' + /ModelParameters/Advanced/OrgSet_string + '_DEST-' + /ModelParameters/Advanced/DestSet_string
+			+ '_' + /ModelParameters/Analysis_date + (/ModelParameters/GTFS_file_date == /ModelParameters/Analysis_date ? '' : '_gtfs' + /ModelParameters/GTFS_file_date)
+			+ '_places' + string(#impl/Places) + '-stops' + string(#impl/Stops)
+			+ '_r1'
+		,	Descr = "Handtekening van de store: het type, netwerk en snelheid, de maximale tijd, de herkomsten, de bestemmingen en de haltes (feed en peildatum; het aantal plaatsen en haltes ter controle, want de store verwijst naar impl/Places) en de revisie.";
+		container Hash := /Templates/StringHash_T(Signature);
+		parameter<string> StorageBase_Str := '%LocalDataProjDir%/IntermediateResults/Legs_' + TypeName + '_' + /ModelParameters/Advanced/OrgSet_string + '_' + /ModelParameters/Advanced/DestSet_string + '_' + Hash/Hex
+		,	Descr = "Naam van de store zonder extensie: het type, de herkomsten- en bestemmingenset leesbaar, de rest als hash van Signature.";
+		parameter<string> StorageName_Str := StorageBase_Str + '.mmd';
+		container Sig := /Templates/StoreSignature_T(StorageName_Str, StorageName_Str + '/signature.txt', Signature, strlen('/0Dictionary.dms'))
+		,	Descr = "De handtekening in de map van de store: Write_Legs schrijft hem, Legs_store controleert hem.";
+		unit<uint64> Src := ='TimeInvariantConnections/' + TypeName + '/Create_Routes/ODMatrix';
+		unit<uint64> Write_Legs := Src, StorageName = "=StorageName_Str", ExplicitSuppliers = "Sig/ForWriting"
+		,	Descr = "Schrijft de benen van deze basisset naar StorageName_Str, en de handtekening ernaast (Sig); bereken dit item om de store (opnieuw) te maken."
+		{
+			attribute<impl/Places> From_Place_rel := Src/From_Place_rel;
+			attribute<impl/Places> To_Place_rel   := Src/To_Place_rel;
+			attribute<s_f>         impedance      := Src/impedance, Descr = "De netwerkreistijd van het been, zonder start- en parkeertijd.";
+			attribute<km>          alt_imp        := Src/alt_imp, Descr = "De afstand van het been.";
+		}
+		unit<uint64> Legs_store : StorageName = "=Sig/ForReading", StorageReadOnly = "true"
+		,	Descr = "Kale lezer van de store; declareert niets. Faalt als de handtekening ontbreekt of afwijkt (Sig/CheckGate); bestaat de store niet, bereken dan eerst Write_Legs (batch/UpdateAll.cmd legs).";
+	}
+
+	container Legs :=
+		for_each_ne(
+			TimeInvariantTypes/name
+			, 'Legs_T(' + string(id(TimeInvariantTypes)) + '[TimeInvariantTypes])'
+		), Descr = "Per type van voor- of natransport de benen uit de store van zijn basisset (sinds 2026-10-19), met dezelfde kolommen als TimeInvariantConnections/<type>/Create_Routes/ODMatrix.";
+
+	Template Legs_T
+	{
+		parameter<TimeInvariantTypes> TimeInvariantTypes_rel;
+		///
+		parameter<string>  Mode           := TimeInvariantTypes/Mode[TimeInvariantTypes_rel];
+		parameter<bool>    IsPreTransport := TimeInvariantTypes/VN_Transport[TimeInvariantTypes_rel] == 'V';
+		parameter<bool>    IsCycling      := Mode == 'Cycling';
+		parameter<string>  BaseType       := (IsPreTransport ? 'Org2Stops_' : 'Stops2Dest_') + Mode;
+		parameter<string>  StopSet        := IsPreTransport ? TimeInvariantTypes/DestinationSet[TimeInvariantTypes_rel] : TimeInvariantTypes/OriginSet[TimeInvariantTypes_rel]
+		,	Descr = "De haltes van dit type: Stops (alle), RM_Stops, RMT_Stops, Ric_Stops of OVF_Stops.";
+		parameter<min_f>   MaxTime        := TimeInvariantTypes/MaxTime[TimeInvariantTypes_rel]
+		,	IntegrityCheck = "MaxTime <= TimeInvariantTypes/MaxTime[rlookup(BaseType, TimeInvariantTypes/name)]";
+		unit<uint64> Src := ='LegStores/' + BaseType + '/Legs_store';
+		attribute<impl/Places> Stop_Place_rel (Src) := = IsPreTransport ? 'Src/To_Place_rel' : 'Src/From_Place_rel';
+		attribute<bool>        InStopSet      (Src) := = StopSet == 'Stops' ? 'const(TRUE, Src)' : 'IsDefined(impl/Places/' + StopSet + '_rel[Stop_Place_rel])';
+		attribute<bool>        Keep           (Src) := InStopSet && Src/impedance <= convert(MaxTime, s_f);
+		unit<uint64> ODMatrix := select_with_org_rel(Keep)
+		{
+			attribute<impl/Places> From_Place_rel       := Src/From_Place_rel[org_rel];
+			attribute<impl/Places> To_Place_rel         := Src/To_Place_rel[org_rel];
+			attribute<s_f>         impedance            := Src/impedance[org_rel];
+			attribute<dam>         Distance             := Src/alt_imp[org_rel][dam];
+			// start- en parkeertijd en prijs zoals in Templates/CreateNetwork_Pedestrian_Bike_T
+			attribute<bool>        EndsAtICStation      := IsPreTransport && IsDefined(impl/Places/Ric_Stop_rel[To_Place_rel]);
+			parameter<min_f>       ExtraTime_min        := (IsCycling ? ModelParameters/Advanced/Cycling_StartTime : 0[min_f])
+			                                             + (IsCycling && IsPreTransport ? ModelParameters/Advanced/Cycling_PreTransport_Penalty : 0[min_f]);
+			attribute<s_f>         ExtraTime_seconds    := = IsCycling && IsPreTransport
+			                                             ? 'convert(ExtraTime_min, s_f) + (EndsAtICStation ? convert(ModelParameters/Advanced/Cycling_ParkingTime_IC_Station, s_f) : 0[s_f])'
+			                                             : 'const(convert(ExtraTime_min, s_f), .)';
+			attribute<s_f>         Duration_seconds_ext := impedance + ExtraTime_seconds;
+			attribute<ct>          Price                := = TimeInvariantTypes/IsOVfiets[TimeInvariantTypes_rel]
+			                                             ? 'const(rounded_convert(ModelParameters/Advanced/OVFiets_RentalPrice, ct), .)'
+			                                             : 'rounded_convert(Duration_seconds_ext[min_f] * ModelParameters/' + (IsPreTransport ? 'PreTransport' : 'PostTransport') + '_' + Mode + '_Time_Costs, ct)';
+			attribute<impl/Modes>  Mode_rel             := const(TimeInvariantTypes/Mode_rel[TimeInvariantTypes_rel], .);
+		}
+	}
+
 
 	unit<uint64> uq_c_FromTime_Stop := unique_uint64(impl/All_Time_Stops/c_FromTime_Stop_rel), using = "impl"
 	{

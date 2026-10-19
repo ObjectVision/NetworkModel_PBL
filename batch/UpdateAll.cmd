@@ -6,7 +6,7 @@ REM ze elkaar nodig hebben. Elke stap is een eigen GeoDmsRun-aanroep, zodat het 
 REM de stappen vrijkomt, en stopt bij een fout. Logs in batch\log\UpdateAll_<stap>.log.
 REM
 REM   UpdateAll.cmd                 alle secties (bronnen, autoritten, ketens, uitvoer); reken op meer dan een nacht
-REM   UpdateAll.cmd all -nosources  alles behalve de genoemde secties: -nosources, -nocars, -nochains, -nooutput
+REM   UpdateAll.cmd all -nosources  alles behalve de genoemde secties: -nosources, -nocars, -nochains, -nolegs, -nooutput
 REM   UpdateAll.cmd sources         OSM-netwerk, TomTom-stores, GTFS-store, LISA (alleen bij een
 REM                                 nieuwe editie nodig; ca. 15 min)
 REM   UpdateAll.cmd cars [moment..] de stores van de directe autorit per congestiemoment
@@ -17,7 +17,8 @@ REM                                 moment, langer met ParetoLegs_Car
 REM   UpdateAll.cmd chains          de OV-ketenstore per haltenblok (WriteChainBlocks.ps1; met de omgevingsvariabele
 REM                                 CHAINSTORE_SINGLE de ene store van PublicTransport_Prep/x/Write_Result), na de
 REM                                 voorcheck op haltenblokken en prijsdekking; uren, veel geheugen
-REM   UpdateAll.cmd output          de OV-uitvoer: een csv per herkomstblok en vertrekmoment in
+REM   UpdateAll.cmd legs            de stores van de benen van het voor- en natransport (sinds 2026-10-19): de vier
+ een csv per herkomstblok en vertrekmoment in
 REM                                 %LocalDataProjDir%\Output\<Analysis_date>_<OutputLabel><_component>\PerBlock
 REM                                 (ConfigurationPerBlock/Generate_Output), met de ketenstore van de vertrekmomenten in
 REM                                 PT_DepartureHours/Minutes. Maakt die map eerst leeg (sinds 2026-10-03, #118): alleen de
@@ -68,11 +69,12 @@ set MOMENTS=
 set SKIP_SOURCES=0
 set SKIP_CARS=0
 set SKIP_CHAINS=0
+set SKIP_LEGS=0
 set SKIP_OUTPUT=0
 :args
 shift
 if "%~1"=="" goto argsdone
-if /I "%~1"=="-nosources" (set SKIP_SOURCES=1) else if /I "%~1"=="-nocars" (set SKIP_CARS=1) else if /I "%~1"=="-nochains" (set SKIP_CHAINS=1) else if /I "%~1"=="-nooutput" (set SKIP_OUTPUT=1) else set MOMENTS=!MOMENTS! %~1
+if /I "%~1"=="-nosources" (set SKIP_SOURCES=1) else if /I "%~1"=="-nocars" (set SKIP_CARS=1) else if /I "%~1"=="-nochains" (set SKIP_CHAINS=1) else if /I "%~1"=="-nolegs" (set SKIP_LEGS=1) else if /I "%~1"=="-nooutput" (set SKIP_OUTPUT=1) else set MOMENTS=!MOMENTS! %~1
 goto args
 :argsdone
 
@@ -82,8 +84,9 @@ if /I "%SECTION%"=="all"     goto sources
 if /I "%SECTION%"=="sources" goto sources
 if /I "%SECTION%"=="cars"    goto cars
 if /I "%SECTION%"=="chains"  goto chains
+if /I "%SECTION%"=="legs"    goto legs
 if /I "%SECTION%"=="output"  goto output
-echo Onbekende sectie "%SECTION%": kies all, sources, cars, chains of output.
+echo Onbekende sectie "%SECTION%": kies all, sources, cars, chains, legs of output.
 exit /b 1
 
 :sources
@@ -158,6 +161,24 @@ echo === ketens: Write_Result, de ene store van voor 2026-09-29 (CHAINSTORE_SING
 call :run chains %PREP%/x/Write_Result
 if not "!RC!"=="0" goto failed
 :chains_done
+if /I not "%SECTION%"=="all" goto done
+
+:legs
+if "%SKIP_LEGS%"=="1" goto legs_done
+REM Zonder OV (Advanced/MetOV FALSE) geen benen nodig.
+call :run legs_check /ModelParameters/Advanced/MetOV
+if not "!RC!"=="0" goto failed
+findstr /R "^Minimum.0" "%LOGDIR%\UpdateAll_legs_check.txt" >nul
+if not errorlevel 1 (
+  echo === benen: het OV doet niet mee in deze component, geen stores van de benen ===
+  goto legs_done
+)
+for %%T in (Org2Stops_Walking Org2Stops_Cycling Stops2Dest_Walking Stops2Dest_Cycling) do (
+  echo === benen: store voor %%T ===
+  call :run legs_%%T %PREP%/LegStores/%%T/Write_Legs
+  if not "!RC!"=="0" goto failed
+)
+:legs_done
 if /I not "%SECTION%"=="all" goto done
 
 :output
