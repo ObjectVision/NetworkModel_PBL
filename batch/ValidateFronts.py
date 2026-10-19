@@ -28,7 +28,7 @@
 import argparse, csv, glob, os, re, sys
 from collections import defaultdict
 
-NAME_RE = re.compile(r'tt_(\d{8})_(?:[A-Za-z][A-Za-z0-9_]*?_)?(\d\dh\d\dm)_(\d+)of(\d+)\.csv$', re.I)  # sinds 2026-10-19 met de component na de datum
+NAME_RE = re.compile(r'tt_(\d{8})_(?:[A-Za-z][A-Za-z0-9_]*?_)?(\d\dh\d\dm)_(\d+)of(\d+)\.csv$', re.I)  # ook met de component na de datum, zoals het model op 2026-10-19 even schreef
 OLD_NAME_RE = re.compile(r'tt_(\d{8})_(\d\dh\d\dm)_ORG-.*?Block_(\d+)of(\d+)(_.*)\.csv$', re.I)
 MINCRIT_RE = re.compile(r'MinCrit-([A-Za-z_]+?)_MaxPT', re.I)
 

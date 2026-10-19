@@ -23,7 +23,7 @@ from multiprocessing import Pool
 
 SOORTEN = ['alle', 'OV-keten', 'WW', 'CC', 'AA']
 GROEPEN = ['alle', 'OV-keten', 'WW', 'CC', 'AA', 'zonder auto', 'zonder auto en fiets']
-# sinds 2026-10-19 met de component na de datum (tt_<datum>_<component>_<moment>_<n>of<N>.csv), tot dan zonder
+# leest ook de namen met de component na de datum (tt_<datum>_<component>_<moment>_<n>of<N>.csv), die het model op 2026-10-19 even schreef
 NAME_RE = re.compile(r'tt_\d{8}_(?:[A-Za-z][A-Za-z0-9_]*?_)?(\d\dh\d\dm)_(\d+)of(\d+)\.csv$')
 
 def blok(files):
