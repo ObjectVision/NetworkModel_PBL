@@ -560,16 +560,46 @@ Template PerDepartureMoment_T
 			,	StorageName = "=fileNamePrefix+'tt'+fileNameSuffix +'.csv'", StorageType = "str"
 			,	ExplicitSuppliers = "/NetworkSetup/Output_Sig/ForWriting"; // schrijft de handtekening van de uitvoermap, of faalt bij een andere of een te lang pad (#118)
 
-			// Sinds 2026-10-16 dezelfde uitvoer als parquet (ModelParameters/Advanced/OutputFormat 'parquet'), met zstd: dezelfde kolommen
-			// in dezelfde volgorde, getypt (tijden in min en prijzen in euro als float32, afstanden in m als uint32, NeedsCar en NeedsBike 0
-			// of 1), een onbekende waarde null (in de csv een leeg veld). Zonder het vertrekmoment in de kolomnamen: dat staat in de
-			// bestandsnaam, en zo hebben alle bestanden van een run hetzelfde schema. Altijd alle kolommen; Columns/IsExported
-			// (Export_TravelledDistance, Export_PriceInformation) geldt alleen voor de csv.
-			// GDAL_LayerCreationOptions staat naast de container met de storage: erin zag de schrijver hem als kolom van een laag zonder
+			// Sinds 2026-10-16 de uitvoer ook als parquet (ModelParameters/Advanced/OutputFormat 'parquet', sinds 2026-10-19 de standaard), met
+			// zstd, getypt (tijden in min en prijzen in euro als float32, afstanden in m als uint32), een onbekende waarde null, zonder het
+			// vertrekmoment in de kolomnamen (dat staat in de bestandsnaam). Export_TravelledDistance en Export_PriceInformation gelden
+			// alleen voor de csv.
+			// GDAL_LayerCreationOptions staat naast de containers met de storage: erin zag de schrijver hem als kolom van een laag zonder
 			// domein (Domain mismatch ... layerDomain void, 2026-10-16); hij zoekt hem ook in de containers erboven.
 			parameter<string> GDAL_LayerCreationOptions := 'COMPRESSION=ZSTD';
-			container Parquet
+			// Sinds 2026-10-19 per soort component alleen de kolommen die binnen de component varieren en niet lineair uit andere volgen
+			// (zoals de afstand van een loop- of fietsrit uit de reistijd, of de autoprijs uit de afstand); ModelParameters/Advanced/
+			// ExportKlasse kiest de schrijver, en alleen die wordt opgevraagd (Generate). De andere kolommen zijn constant in de component
+			// (ModeUsed van een directe rit, NeedsCar, NeedsBike, WaitingTime 0) of een lineaire combinatie: TravelDist_V en _N uit de
+			// tijden van voor- en natransport, TravelDist_PT als som van de OV-afstanden, PTTime = Traveltime - PretransTime -
+			// PosttransTime, de prijsdelen uit Price en die tijden (het voor- en natransport kost per minuut, de OV-fiets een vast bedrag),
+			// en de kolommen per modaliteit uit die van voor- en natransport.
+			container Parquet_Direct
 			:	StorageName = "=fileNamePrefix+'tt'+fileNameSuffix+'.parquet'", StorageType = "gdalwrite.vect"
+			,	Descr = "WW en CC: alleen de reistijd (een route per HB-paar; afstand en prijs volgen uit de reistijd)."
+			{
+				unit<uint64> tt := domain, ExplicitSuppliers = "/NetworkSetup/Output_Sig/ForWriting"
+				{
+					attribute<string> OrgName            := domain/OrgName;
+					attribute<string> DestName           := domain/DestName;
+					attribute<min_f>  Traveltime         := convert(domain/Traveltime, min_f);
+				}
+			}
+			container Parquet_Car
+			:	StorageName = "=fileNamePrefix+'tt'+fileNameSuffix+'.parquet'", StorageType = "gdalwrite.vect"
+			,	Descr = "Car: reistijd en afstand van elke route in het front (de prijs is Car_FixedCosts_PerTrip plus de afstand maal Car_CostPerKm)."
+			{
+				unit<uint64> tt := domain, ExplicitSuppliers = "/NetworkSetup/Output_Sig/ForWriting"
+				{
+					attribute<string> OrgName            := domain/OrgName;
+					attribute<string> DestName           := domain/DestName;
+					attribute<min_f>  Traveltime         := convert(domain/Traveltime, min_f);
+					attribute<uint32> TravelDist_Car     := uint32(convert(domain/TravelDist_Car, m));
+				}
+			}
+			container Parquet_PT
+			:	StorageName = "=fileNamePrefix+'tt'+fileNameSuffix+'.parquet'", StorageType = "gdalwrite.vect"
+			,	Descr = "Een OV-component: reistijd, prijs, de gewaardeerde prijs, de vervoerwijzen, het wachten thuis, de tijd van voor- en natransport en de afstand per OV-vervoerwijze."
 			{
 				unit<uint64> tt := domain, ExplicitSuppliers = "/NetworkSetup/Output_Sig/ForWriting"
 				{
@@ -579,32 +609,14 @@ Template PerDepartureMoment_T
 					attribute<Euro>   Price              := convert(domain/Price, Euro);
 					attribute<Euro>   Price_Augm         := convert(domain/Price_augm, Euro);
 					attribute<string> ModeUsed           := domain/ModeUsed;
-					attribute<uint8>  NeedsCar           := uint8(domain/NeedsCar);
-					attribute<uint8>  NeedsBike          := uint8(domain/NeedsBike);
-					attribute<uint32> TravelDist_V       := uint32(convert(domain/TravelDist_V, m));
+					attribute<min_f>  WaitingTime        := convert(domain/W_time, min_f);
+					attribute<min_f>  PretransTime       := convert(domain/V_time, min_f);
+					attribute<min_f>  PosttransTime      := convert(domain/N_time, min_f);
 					attribute<uint32> TravelDist_Bus     := uint32(convert(domain/TravelDist_Bus, m));
 					attribute<uint32> TravelDist_Metro   := uint32(convert(domain/Traveldist_Metro, m));
 					attribute<uint32> TravelDist_Tram    := uint32(convert(domain/Traveldist_Tram, m));
 					attribute<uint32> TravelDist_Rail    := uint32(convert(domain/Traveldist_Rail, m));
 					attribute<uint32> TravelDist_Ferry   := uint32(convert(domain/Traveldist_Ferry, m));
-					attribute<uint32> TravelDist_N       := uint32(convert(domain/Traveldist_N, m));
-					attribute<min_f>  WaitingTime        := convert(domain/W_time, min_f);
-					attribute<min_f>  PretransTime       := convert(domain/V_time, min_f);
-					attribute<min_f>  PTTime             := convert(domain/PT_time, min_f);
-					attribute<min_f>  PosttransTime      := convert(domain/N_time, min_f);
-					attribute<Euro>   PretransPrice      := convert(domain/Price_V, Euro);
-					attribute<Euro>   PTPrice            := convert(domain/Price_PT, Euro);
-					attribute<Euro>   PosttransPrice     := convert(domain/Price_N, Euro);
-					attribute<uint32> TravelDist_PT      := uint32(convert(domain/TravelDist_PT, m));
-					attribute<uint32> TravelDist_Walking := uint32(convert(domain/TravelDist_Walking, m));
-					attribute<uint32> TravelDist_Cycling := uint32(convert(domain/TravelDist_Cycling, m));
-					attribute<min_f>  WalkingTime        := convert(domain/Walking_time, min_f);
-					attribute<min_f>  CyclingTime        := convert(domain/Cycling_time, min_f);
-					attribute<min_f>  CarTime            := convert(domain/Car_time, min_f);
-					attribute<Euro>   WalkingPrice       := convert(domain/Price_Walking, Euro);
-					attribute<Euro>   CyclingPrice       := convert(domain/Price_Cycling, Euro);
-					attribute<Euro>   CarPrice           := convert(domain/Price_Car, Euro);
-					attribute<uint32> TravelDist_Car     := uint32(convert(domain/TravelDist_Car, m));
 				}
 			}
 		
@@ -615,8 +627,8 @@ Template PerDepartureMoment_T
 			
 			container Results_Traveltime
 			{
-				parameter<string>  Generate := 'Ready', ExplicitSuppliers = "=ModelParameters/Advanced/OutputFormat == 'parquet' ? 'Parquet/tt' : 'File'"
-				,	Descr = "Schrijft File, de csv van dit blok en vertrekmoment, of bij OutputFormat 'parquet' (sinds 2026-10-16) Parquet, en geeft alleen 'Ready' terug. Tot 2026-10-07 ='File': dan ging de hele tekst door de opvraging, en plakte de opvraging over alle blokken alle teksten aan elkaar (Auto, Buurt2023 naar Buurt2023: 284 GB), die tot het eind per blok in het geheugen bleven.";
+				parameter<string>  Generate := 'Ready', ExplicitSuppliers = "=ModelParameters/Advanced/OutputFormat == 'parquet' ? 'Parquet_' + ModelParameters/Advanced/ExportKlasse + '/tt' : 'File'"
+				,	Descr = "Schrijft File, de csv van dit blok en vertrekmoment, of bij OutputFormat 'parquet' (sinds 2026-10-16) de parquet-schrijver van de soort component (Parquet_<ExportKlasse>, sinds 2026-10-19), en geeft alleen 'Ready' terug. Tot 2026-10-07 ='File': dan ging de hele tekst door de opvraging, en plakte de opvraging over alle blokken alle teksten aan elkaar (Auto, Buurt2023 naar Buurt2023: 284 GB), die tot het eind per blok in het geheugen bleven.";
 
 				// Tellingen voor <OutputDir>/od_tellingen.csv en unieke_od_tellingen.csv (sinds 2026-10-04). Ze staan binnen het hek,
 				// uit het eindresultaat dat voor File toch al gerekend is. De telling per blok (PublicTransport/Generate_Output/
