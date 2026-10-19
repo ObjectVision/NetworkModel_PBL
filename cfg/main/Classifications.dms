@@ -82,7 +82,7 @@ container Classifications: Using = "Units"
 		attribute<string> Name_short     := ConnectionType + '_' + Mode_abbrev;
 		attribute<GTFS_Modes/Selection>  Mode_rel       := rlookup(Mode_Abbrev, GTFS_Modes/Selection/name_abbr);
 		attribute<bool>   IsOVfiets      := lowercase(StopClass) == lowercase('OVf');
-		attribute<bool>   IsOVFietsPriced := IsOVfiets || (id(.) == V/RMT_Stops2Dest_Cycling && ModelParameters/Advanced/UseOVFietsPriceForAllCyclingPostTransport), Descr = "Krijgt dit been de huurprijs van de OV-fiets, zoals Templates/CreateNetwork_Pedestrian_Bike_T/Price die zet?";
+		attribute<bool>   IsOVFietsPriced := IsOVfiets || (VN_Transport == 'N' && Mode_abbrev == 'C' && ModelParameters/Advanced/UseOVFietsPriceForAllCyclingPostTransport), Descr = "Krijgt dit been de huurprijs van de OV-fiets (Templates/CreateNetwork_Pedestrian_Bike_T/Price)? De OV-fiets altijd, en met UseOVFietsPriceForAllCyclingPostTransport elk fietsnatransport (sinds 2026-10-19; tot dan alleen RMT_Stops2Dest_Cycling).";
 		attribute<bool>   NeedsOwnBike   := Mode_abbrev == 'C' && NOT(IsOVFietsPriced), Descr = "Vraagt dit been een eigen fiets (NetworkModel_PBL#117)? Fietsen wel, behalve met een gehuurde OV-fiets.";
 		attribute<min_f>  MaxTime        := ='union_data(.,'+asList('ModelParameters/Max'+Mode+'Time_'+ConnectionType, ',')+')';
 		
@@ -90,7 +90,7 @@ container Classifications: Using = "Units"
 		container V := for_each_nedv(Name, String(ID(.))+'[..]', void, .);
 	}
 	
-	unit<uint32> TimeInvariant_ConnectionTypes : NrOfRows = 7
+	unit<uint32> TimeInvariant_ConnectionTypes : NrOfRows = 8
 	, Descr = "RMT=Rail+Metro+Tram, OVF=OV-fiets, Ric=InterCity station"
 	{
 		unit<uint32> Matrix := Range(uint32, 0, nrAttr*#.)
@@ -104,7 +104,8 @@ container Classifications: Using = "Units"
 			'Org'       , 'RM_Stops'    ,'V', 'RM',  //RM_Stops=Rail+Metro
 			'OVF_Stops' , 'Dest'        ,'N', 'OVf', //OVF_Stops=OV-fiets stops
 			'RMT_Stops' , 'Dest'        ,'N', 'RMT', //OVF_Stops=OV-fiets stops
-			'Org'       , 'Ric_Stops'   ,'V', 'Ric'  //IC_Stops=IC_station_stops
+			'Org'       , 'Ric_Stops'   ,'V', 'Ric', //IC_Stops=IC_station_stops
+			'RM_Stops'  , 'Dest'        ,'N', 'RM'   //RM_Stops=Rail+Metro, natransport RM_C (sinds 2026-10-19); achteraan, zodat de bestaande typen hun nummer houden
 			];
 		}
 		
@@ -335,7 +336,7 @@ container Classifications: Using = "Units"
 		attribute<string> CriteriaName      : [ 'Car', 'Bike' ], Descr = "Het element in MinimiseCriteria.";
 		attribute<string> FileNameElement   : [ 'A', 'C' ], Descr = "Het element in de handtekening van de uitvoer (PT_Output_ParamTag, tot 2026-10-03 in de uitvoernamen): de letter van auto en fiets in ModeUsed. Kort, want het langste uitvoerpad was toen al 252 van de 259 tekens (NetworkModel_PBL#118).";
 		attribute<string> EpsilonExpr       : [ '', '' ], Descr = "Leeg: een bool-criterium heeft geen epsilon in pareto_optimal_eps.";
-		attribute<bool>   IsCriteriaInLijst := ModelParameters/Advanced/IsSamen || IsDefined(strpos(lowercase(ModelParameters/MinimiseCriteria), lowercase(CriteriaName))), Descr = "Noemt MinimiseCriteria het criterium? Bij het samenvoegen van de componenten (Component 'Samen', #117) altijd: daar horen autobezit en fietsbezit bij.";
+		attribute<bool>   IsCriteriaInLijst := ModelParameters/Advanced/IsSamen || IsDefined(strpos(lowercase(ModelParameters/MinimiseCriteria), lowercase(CriteriaName))), Descr = "Noemt MinimiseCriteria het criterium? Bij het samenvoegen van de componenten (MergeOutput, #117) altijd: daar horen autobezit en fietsbezit bij.";
 		attribute<bool>   IsRelevant        := union_data(., ModelParameters/AllowDirectCar, ModelParameters/AllowDirectCycling || VN_ModeClasses/AnyNeedsBike)
 		,	Descr = "Kan een optie een auto of fiets vragen? Een auto alleen de directe autorit (er is geen P+R-voortransport), een fiets de directe fietsroute en voor- of natransport met een eigen fiets. Een criterium dat voor alle opties gelijk is, verandert het front niet en blijft weg, ook uit de uitvoernamen.";
 		attribute<bool>   IsSelected        := IsCriteriaInLijst && IsRelevant;

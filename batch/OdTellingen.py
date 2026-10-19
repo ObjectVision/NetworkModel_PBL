@@ -23,7 +23,8 @@ from multiprocessing import Pool
 
 SOORTEN = ['alle', 'OV-keten', 'WW', 'CC', 'AA']
 GROEPEN = ['alle', 'OV-keten', 'WW', 'CC', 'AA', 'zonder auto', 'zonder auto en fiets']
-NAME_RE = re.compile(r'tt_\d{8}_(\d\dh\d\dm)_(\d+)of(\d+)\.csv$')
+# sinds 2026-10-19 met de component na de datum (tt_<datum>_<component>_<moment>_<n>of<N>.csv), tot dan zonder
+NAME_RE = re.compile(r'tt_\d{8}_(?:[A-Za-z][A-Za-z0-9_]*?_)?(\d\dh\d\dm)_(\d+)of(\d+)\.csv$')
 
 def blok(files):
 	"""Tellingen van een herkomstblok: rijen per (moment, soort), paren per (moment, groep) en per groep over de momenten."""

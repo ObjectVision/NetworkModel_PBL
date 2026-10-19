@@ -30,8 +30,8 @@ REM                                 portie, daarna de tellingen met OdTellingen.
 REM                                 ModelParameters/Advanced/Componenten/BlokkenPerPortie of met OUTPUT_BATCHSIZE; met
 REM                                 OUTPUT_SINGLE een opvraging.
 REM Sinds 2026-10-05 (#117) rekent een run een component (ModelParameters/Component): cars slaat de autostores over als
-REM de component geen directe autorit heeft (Lopen, Fiets), chains de ketenstore als het OV niet meedoet (Auto, Samen),
-REM en output voegt bij Component 'Samen' de uitvoer van de componenten in MergeComponents samen.
+REM de component geen directe autorit heeft (alles behalve Car), chains de ketenstore als het OV niet meedoet (WW, CC, Car, MergeOutput),
+REM en output voegt bij MergeOutput de uitvoer van de componenten in MergeComponents samen.
 REM Draai de uitvoerstappen (output) van de componenten na elkaar, niet tegelijk: op 2026-10-06/07 (Y2023, Buurt2023 naar
 REM Buurt2023, 128 GB RAM) groeide het vastgelegde geheugen van de uitvoer van Auto met ongeveer 0,7 GB per herkomstblok tot
 REM 386 GB na blok 450 (779 miljoen autoroutes; tot 2026-10-07 filterde elk blok de hele autotabel, PublicTransport/Direct_OD_all). Naast de
@@ -111,7 +111,7 @@ if /I not "%SECTION%"=="all" goto done
 
 :cars
 if "%SKIP_CARS%"=="1" goto cars_done
-REM Zonder directe autorit (AllowDirectCar FALSE, bijvoorbeeld Component Lopen of Fiets, #117) geen autostores.
+REM Zonder directe autorit (AllowDirectCar FALSE: elke component behalve Car, #117) geen autostores.
 call :run cars_check /ModelParameters/AllowDirectCar
 if not "!RC!"=="0" goto failed
 findstr /R "^Minimum.0" "%LOGDIR%\UpdateAll_cars_check.txt" >nul
@@ -130,7 +130,7 @@ if /I not "%SECTION%"=="all" goto done
 
 :chains
 if "%SKIP_CHAINS%"=="1" goto chains_done
-REM Zonder OV (Advanced/MetOV FALSE, Component Auto, #117) geen ketenstore.
+REM Zonder OV (Advanced/MetOV FALSE: de directe ritten WW, CC en Car en MergeOutput, #117) geen ketenstore.
 call :run chains_check /ModelParameters/Advanced/MetOV
 if not "!RC!"=="0" goto failed
 findstr /R "^Minimum.0" "%LOGDIR%\UpdateAll_chains_check.txt" >nul
@@ -200,7 +200,7 @@ REM Sinds 2026-10-07 in porties van herkomstblokken, elk een eigen GeoDmsRun, en
 REM (WriteOutputBlocks.ps1). Blokken per portie: ModelParameters/Advanced/Componenten/BlokkenPerPortie van de component
 REM (standaard 50), of de omgevingsvariabele OUTPUT_BATCHSIZE; OUTPUT_MAXBLOCKS rekent hooguit zoveel blokken (om te
 REM testen). Met de omgevingsvariabele OUTPUT_SINGLE een
-REM opvraging voor alle blokken, met de tellingen erin (NetworkSetup/Generate_Output), zoals tot dan. Bij Component 'Samen'
+REM opvraging voor alle blokken, met de tellingen erin (NetworkSetup/Generate_Output), zoals tot dan. Bij MergeOutput
 REM (sinds 2026-10-05, #117) het samenvoegen van de componenten, sinds 2026-10-07 ook per blok in porties (ComponentMerge/PerBlock).
 if defined OUTPUT_SINGLE goto output_single
 echo === uitvoer: csv per herkomstblok en vertrekmoment, in porties (WriteOutputBlocks.ps1; uren) ===
