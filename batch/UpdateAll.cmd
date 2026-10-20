@@ -173,16 +173,9 @@ if not errorlevel 1 (
   echo === benen: het OV doet niet mee in deze component, geen stores van de benen ===
   goto legs_done
 )
-for %%T in (Org2Stops_Walking Org2Stops_Cycling Stops2Dest_Walking Stops2Dest_Cycling) do (
-  echo === benen: store voor %%T ===
-  call :run legs_%%T %PREP%/LegStores/%%T/Write_Legs
-  if not "!RC!"=="0" goto failed
-)
-REM en de benen als parquet (sinds 2026-10-20), na het schrijven, in een eigen GeoDmsRun: Output\Benen_<datum>_<sets>\<V of N>_<W of C>.parquet
-for %%T in (Org2Stops_Walking Org2Stops_Cycling Stops2Dest_Walking Stops2Dest_Cycling) do (
-  call :run legsx_%%T %PREP%/LegStores/%%T/Export/legs
-  if not "!RC!"=="0" goto failed
-)
+echo === benen: de stores (parquet in IntermediateResults) ===
+call :run legs %PREP%/LegStores_Write
+if not "!RC!"=="0" goto failed
 :legs_done
 if /I not "%SECTION%"=="all" goto done
 
