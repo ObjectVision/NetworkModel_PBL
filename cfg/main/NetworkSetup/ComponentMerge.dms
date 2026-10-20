@@ -4,7 +4,7 @@ container ComponentMerge_Def
 	unit<uint8> Comps := select_with_attr_by_cond(/ModelParameters/Advanced/Componenten, /ModelParameters/Advanced/Componenten/InMerge)
 	,	Descr = "De componenten die samengevoegd worden, in de volgorde van Advanced/Componenten.";
 	parameter<bool>   MergeComponents_OK := sum_uint32(/ModelParameters/Advanced/Componenten/InMerge) == strcount(/ModelParameters/MergeComponents, ',') + 1
-	,	Descr = "Noemt MergeComponents alleen namen uit Advanced/Componenten, elk een keer? Gecontroleerd bij het schrijven (de IntegrityCheck van ComponentMerge/PerBlock/../File); de handtekening heeft anders _samen?-.";
+	,	Descr = "Noemt MergeComponents alleen namen uit Advanced/Componenten, elk een keer? Gecontroleerd bij het schrijven (de IntegrityCheck van ComponentMerge/PerBlock/../Write); de handtekening heeft anders _samen?-.";
 	parameter<string> BaseDir := '%LocalDataProjDir%/Output/' + /ModelParameters/Analysis_date + '_' + /ModelParameters/OutputLabel
 	,	Descr = "De uitvoermap van de variant zonder het achtervoegsel van de component.";
 
@@ -24,27 +24,75 @@ container ComponentMerge_Def
 		  'tt_' + /ModelParameters/Analysis_date + '_ORG-' + /ModelParameters/Advanced/OrgSet_string
 		+ (MergeComponents_OK ? '_samen-' : '_samen?-') + asList(Comps/name, ',')
 		+ '_MinCrit-' + asList(/Classifications/OutputParetoAttr/FileNameElement, '_') + /ModelParameters/Advanced/ChainPareto_FileTag
+		+ '_' + /ModelParameters/Advanced/OutputFormat + '-m2'
 		+ '_' + CompSignatures
-	,	Descr = "De handtekening van de samengevoegde uitvoer: datum, herkomstenset, de componenten, de criteria en epsilons, en de handtekeningen van de componenten zelf. Is een component opnieuw gerekend met andere parameters, dan klopt de samengevoegde uitvoer niet meer.";
-
+	,	Descr = "De handtekening van de samengevoegde uitvoer: datum, herkomstenset, de componenten, de criteria (MergeCriteria) en epsilons, het formaat (sinds 2026-10-20, -m2: uit de parquet van de componenten), en de handtekeningen van de componenten zelf. Is een component opnieuw gerekend met andere parameters, dan klopt de samengevoegde uitvoer niet meer.";
 }
 
+// HET SAMENVOEGEN VAN DE COMPONENTEN (MergeOutput; overleg PBL 5-10-2026, #117; sinds 2026-10-20 uit parquet). Per herkomstblok en
+// vertrekmoment leest het de parquet van de componenten in MergeComponents (Output/<Analysis_date>_<OutputLabel>_<component>/PerBlock),
+// elk met de kolommen van zijn soort (Advanced/Componenten/ExportKlasse), en vult het aan wat daar constant is of uit de kolommen volgt:
+// - WW en CC: de prijs uit de reistijd (Direct_Walking_Time_Costs, Direct_Cycling_Time_Costs, zoals PublicTransport_Prep/Direct),
+//   ModeUsed WW of CC, PretransTime = Traveltime; ze gelden voor elk vertrekmoment (EenVertrekmoment);
+// - Car: de prijs uit de afstand (Car_FixedCosts_PerTrip + Car_CostPerKm), ModeUsed AA, PretransTime = Traveltime;
+// - een OV-component: alles staat in het bestand.
+// Dan per HB-paar de rijen die niet gedomineerd worden op de criteria van het samenvoegen (Classifications/OutputParetoAttr, uit
+// ModelParameters/MergeCriteria), met dezelfde epsilons en operator (pareto_optimal_eps) als in een run, met prijs en tijd in Ct en s;
+// NeedsCar en NeedsBike volgen uit de component (Advanced/Componenten). Het resultaat in ModelParameters/Advanced/OutputFormat, csv of
+// parquet, in Output/<Analysis_date>_<OutputLabel>_Merged<MergeRunNr>/PerBlock, met de kolom Component (waar de regel vandaan komt),
+// en de tellingen per blok in Tellingen (batch/OdTellingen.py telt ze op). Tot 2026-10-20 las het de csv van de componenten en schreef
+// het de regels ongewijzigd door; dat vroeg dezelfde kolommen in alle componenten.
 container ComponentMerge
-: Descr = "Het samenvoegen van de componenten tot een Pareto-front (MergeOutput, overleg PBL 5-10-2026, NetworkModel_PBL#117). Per herkomstblok en vertrekmoment de uitvoer van de componenten in ModelParameters/MergeComponents (Output/<Analysis_date>_<OutputLabel>_<component>/PerBlock), met per HB-paar de rijen die niet gedomineerd worden op de criteria van de eindafweging plus autobezit en fietsbezit (Classifications/OutputParetoAttr), met dezelfde epsilons en dezelfde operator (pareto_optimal_eps) als in een run. De regels gaan ongewijzigd door; de kolommen moeten in alle componenten gelijk zijn. Schrijft naar Output/<Analysis_date>_<OutputLabel>_Merged (ModelParameters/Advanced/OutputDir), met de handtekeningen van de componenten in signature.txt. Bereken Generate, of batch/UpdateAll.cmd output met MergeOutput."
+: Descr = "Het samenvoegen van de componenten tot een Pareto-front (MergeOutput), uit de parquet van de componenten; zie het commentaar hierboven. Bereken Generate, of batch/UpdateAll.cmd output met MergeOutput."
 {
 	container PerBlock := for_each_ne(/NetworkSetup/impl/OrgBlockDomain/name, 'MergeBlock_T(' + string(id(/NetworkSetup/impl/OrgBlockDomain)) + ')');
 	parameter<string> Generate := =asList('PerBlock/' + /NetworkSetup/impl/OrgBlockDomain/name + '/Fence/Generate', ' + ')
 	,	Descr = "Voegt alle blokken en vertrekmomenten samen; een blok per fase, zodat zijn tussenresultaten daarna vrijkomen.";
+	parameter<string> GDAL_LayerCreationOptions := 'COMPRESSION=ZSTD';
 
 	Template MergeBlock_T
 	{
 		parameter</NetworkSetup/impl/OrgBlockDomain> BlockDomain_id;
 		///
+		parameter<string> BlockFile := /NetworkSetup/impl/OrgBlockDomain/FileName[BlockDomain_id];
 		container Work
 		{
 			container PerMoment := for_each_ne(/ModelParameters/Advanced/MeasureMoments/Name, 'MergeMoment_T(' + quote(/ModelParameters/Advanced/MeasureMoments/Name) + ')');
-			parameter<string> Generate := 'Ready', ExplicitSuppliers = "=asList('PerMoment/' + /ModelParameters/Advanced/MeasureMoments/Name + '/File', ';')"
-			,	Descr = "Schrijft de samengevoegde csv per vertrekmoment en geeft alleen 'Ready' terug. Tot 2026-10-07 de teksten zelf aan elkaar (add), die zo door de opvraging gingen.";
+
+			// De tellingen van dit blok, Tellingen/tellingen_<n>of<N>.csv, zoals een componentrun ze schrijft (PublicTransport/
+			// Generate_Output/Traveltime_ForEachDepTime/Tellingen): rijen per soort en unieke HB-paren per groep, per vertrekmoment,
+			// en de paren over de momenten samen.
+			container Tellingen
+			{
+				unit<uint32> AlleParen := ='union_unit(' + asList('PerMoment/' + /ModelParameters/Advanced/MeasureMoments/Name + '/Paren', ',') + ')'
+				{
+					attribute<string> OrgDest              := ='union_data(., ' + asList('PerMoment/' + /ModelParameters/Advanced/MeasureMoments/Name + '/Paren/values', ',') + ')';
+					attribute<bool>   OV_keten             := ='union_data(., ' + asList('PerMoment/' + /ModelParameters/Advanced/MeasureMoments/Name + '/Paren/OV_keten', ',') + ')';
+					attribute<bool>   WW                   := ='union_data(., ' + asList('PerMoment/' + /ModelParameters/Advanced/MeasureMoments/Name + '/Paren/WW', ',') + ')';
+					attribute<bool>   CC                   := ='union_data(., ' + asList('PerMoment/' + /ModelParameters/Advanced/MeasureMoments/Name + '/Paren/CC', ',') + ')';
+					attribute<bool>   AA                   := ='union_data(., ' + asList('PerMoment/' + /ModelParameters/Advanced/MeasureMoments/Name + '/Paren/AA', ',') + ')';
+					attribute<bool>   zonder_auto          := ='union_data(., ' + asList('PerMoment/' + /ModelParameters/Advanced/MeasureMoments/Name + '/Paren/zonder_auto', ',') + ')';
+					attribute<bool>   zonder_auto_en_fiets := ='union_data(., ' + asList('PerMoment/' + /ModelParameters/Advanced/MeasureMoments/Name + '/Paren/zonder_auto_en_fiets', ',') + ')';
+				}
+				unit<uint32> UniekeParen := unique(AlleParen/OrgDest);
+				attribute<UniekeParen> Uniek_rel (AlleParen) := rlookup(AlleParen/OrgDest, UniekeParen/values);
+				attribute<uint64> Paren_Samen (/Classifications/OD_Tellingen_Groep) := union_data(/Classifications/OD_Tellingen_Groep
+					, uint64(#UniekeParen)
+					, sum_uint64(any(AlleParen/OV_keten, Uniek_rel))
+					, sum_uint64(any(AlleParen/WW, Uniek_rel))
+					, sum_uint64(any(AlleParen/CC, Uniek_rel))
+					, sum_uint64(any(AlleParen/AA, Uniek_rel))
+					, sum_uint64(any(AlleParen/zonder_auto, Uniek_rel))
+					, sum_uint64(any(AlleParen/zonder_auto_en_fiets, Uniek_rel)));
+				attribute<uint64> Rijen_Totaal (/Classifications/OD_Tellingen_Soort) := =asList('PerMoment/' + /ModelParameters/Advanced/MeasureMoments/Name + '/Rijen', ' + ');
+				attribute<string> RijenRegel   (/Classifications/OD_Tellingen_Soort) := ='''rijen;'' + /Classifications/OD_Tellingen_Soort/label + ' + asList(''';'' + string(PerMoment/' + /ModelParameters/Advanced/MeasureMoments/Name + '/Rijen)', ' + ') + ' + '';'' + string(Rijen_Totaal)';
+				attribute<string> ParenRegel   (/Classifications/OD_Tellingen_Groep) := ='''paren;'' + /Classifications/OD_Tellingen_Groep/label + ' + asList(''';'' + string(PerMoment/' + /ModelParameters/Advanced/MeasureMoments/Name + '/Paren_Telling)', ' + ') + ' + '';'' + string(Paren_Samen)';
+				parameter<string> File := 'tabel;naam;' + asList(/ModelParameters/Advanced/MeasureMoments/TemplatableTextShrt, ';') + ';totaal\n' + asList(RijenRegel, '\n') + '\n' + asList(ParenRegel, '\n') + '\n'
+				,	StorageName = "=/ModelParameters/Advanced/OutputDir + '/Tellingen/tellingen_' + BlockFile + '.csv'", StorageType = "str"
+				,	ExplicitSuppliers = "/NetworkSetup/Output_Sig/ForWriting";
+			}
+			parameter<string> Generate := 'Ready', ExplicitSuppliers = "=asList('PerMoment/' + /ModelParameters/Advanced/MeasureMoments/Name + '/Write', ';') + ';Tellingen/File'"
+			,	Descr = "Schrijft de samengevoegde uitvoer per vertrekmoment en de tellingen van het blok, en geeft alleen 'Ready' terug.";
 		}
 		container Fence := PhaseContainer(Work, 'Samengevoegd: ' + /NetworkSetup/impl/OrgBlockDomain/name[BlockDomain_id]);
 
@@ -53,63 +101,253 @@ container ComponentMerge
 			parameter<string> Moment;
 			///
 			parameter<string> MomentShort := rjoin(Moment, /ModelParameters/Advanced/MeasureMoments/Name, /ModelParameters/Advanced/MeasureMoments/TemplatableTextShrt);
-			parameter<string> FileTail    := '_' + /ModelParameters/Analysis_date + '_' + MomentShort + '_' + /NetworkSetup/impl/OrgBlockDomain/FileName[BlockDomain_id] + '.csv'
-			,	Descr = "De naam van het bestand na tt, zoals de uitvoer per blok hem heeft: tt_<datum>_<moment>_<n>of<N>.csv; de component staat in de naam van de map.";
+			parameter<string> FileTail    := '_' + /ModelParameters/Analysis_date + '_' + MomentShort + '_' + BlockFile
+			,	Descr = "De naam van het bestand na tt, zonder extensie: tt_<datum>_<moment>_<n>of<N>; de component of samenvoeging staat in de naam van de map.";
 
-			container PerComp := for_each_ne(ComponentMerge_Def/Comps/name, 'ReadComp_T(' + quote(ComponentMerge_Def/Comps/UitvoerAchtervoegsel) + ', ' + (ComponentMerge_Def/Comps/EenVertrekmoment_Eff ? 'TRUE' : 'FALSE') + ')');
-			Template ReadComp_T
+			// Het bestand van elke component in dit blok en vertrekmoment; een component met EenVertrekmoment (WW, CC, en Car zonder
+			// CarTimeDependent) heeft er een per blok, dat van het congestiemoment, dat voor elk vertrekmoment geldt.
+			attribute<string> CompFile (ComponentMerge_Def/Comps) := ComponentMerge_Def/BaseDir + ComponentMerge_Def/Comps/UitvoerAchtervoegsel + '/PerBlock/tt_' + /ModelParameters/Analysis_date
+				+ '_' + (ComponentMerge_Def/Comps/EenVertrekmoment_Eff ? /ModelParameters/Advanced/EenVertrekmoment_Shrt : MomentShort) + '_' + BlockFile + '.parquet';
+			container PerComp := for_each_ne(ComponentMerge_Def/Comps/name
+				, 'Read' + ComponentMerge_Def/Comps/ExportKlasse + '_T(' + quote(ComponentMerge_Def/Comps/name) + ', ' + string(id(ComponentMerge_Def/Comps)) + 'b)'); // b: Comps is uint8
+
+			// Per soort component (Advanced/Componenten/ExportKlasse) een lezer, die de kolommen van zijn schrijver leest (PerDepartureMoment_T,
+			// CreateExports/LongFormat/Parquet_<ExportKlasse>) en de andere aanvult tot het gezamenlijke schema.
+			// WW en CC: OrgName, DestName, Traveltime.
+			Template ReadDirect_T
 			{
-				parameter<string> Suffix;
-				parameter<bool>   EenVertrekmoment;
+				parameter<string> CompName;
+				parameter<ComponentMerge_Def/Comps> Comp_id;
 				///
-				// Een component met EenVertrekmoment (Auto, sinds 2026-10-09, #132) heeft per blok een bestand, dat van het congestiemoment;
-				// dat geldt voor elk vertrekmoment. Zijn kolommen heten naar dat moment (Traveltime_07h30m); de kop krijgt hier de naam van
-				// dit vertrekmoment, zodat hij gelijk is aan die van de andere componenten.
-				parameter<string> FileMoment := EenVertrekmoment ? /ModelParameters/Advanced/EenVertrekmoment_Shrt : MomentShort;
-				unit<uint32> domain
-				:	StorageName     = "=ComponentMerge_Def/BaseDir + Suffix + '/PerBlock/tt_' + /ModelParameters/Analysis_date + '_' + FileMoment + '_' + /NetworkSetup/impl/OrgBlockDomain/FileName[BlockDomain_id] + '.csv'"
-				,	StorageType     = "gdal.vect"
-				,	StorageReadOnly = "true";
-				unit<uint32> field := SubItem_PropValues(domain, 'name');
-				parameter<string>  Header             := replace(asList(field/name, ';'), '_' + FileMoment, '_' + MomentShort);
-				// De regel zoals hij in het bestand staat: GDAL leest elke kolom van de csv als tekst.
-				attribute<string>  Line       (domain) := ='domain/' + asList(field/name, ' + '';'' + domain/');
-				attribute<string>  OrgDest    (domain) := domain/OrgName + ';' + domain/DestName;
-				// De criteria terug in de eenheden van de eindafweging (Ct en s), zodat de epsilons dezelfde bakken geven als in de run:
-				// de uitvoer schrijft de prijs in euro en de reistijd in minuten.
-				attribute<Ct>      Price      (domain) := ='rounded_convert(float32(domain/Price_' + FileMoment + ')[Euro], Ct)';
-				attribute<Ct>      Price_augm (domain) := ='rounded_convert(float32(domain/Price_Augm_' + FileMoment + ')[Euro], Ct)';
-				attribute<s>       TravelTime (domain) := ='rounded_convert(float32(domain/Traveltime_' + FileMoment + ')[min_f], s)';
-				attribute<bool>    NeedsCar   (domain) := ='domain/NeedsCar_' + FileMoment + ' == ''1''';
-				attribute<bool>    NeedsBike  (domain) := ='domain/NeedsBike_' + FileMoment + ' == ''1''';
+				parameter<string>  FileName      := CompFile[Comp_id];
+				unit<uint32> domain : StorageName = "=FileName", StorageType = "gdal.vect", StorageReadOnly = "true"
+				{
+					attribute<string>  OrgName;
+					attribute<string>  DestName;
+					attribute<float32> Traveltime;
+				}
+				parameter<bool>    IsWalking     := CompName == 'WW';
+				attribute<string>  OrgName          (domain) := domain/OrgName;
+				attribute<string>  DestName         (domain) := domain/DestName;
+				attribute<min_f>   Traveltime       (domain) := value(domain/Traveltime, min_f);
+				// zoals PublicTransport_Prep/Direct: de tijdwaardering, die alleen in Price telt met Include*CostsInPrice
+				attribute<Euro>    Price_Augm       (domain) := convert(rounded_convert(Traveltime * (IsWalking ? /ModelParameters/Direct_Walking_Time_Costs : /ModelParameters/Direct_Cycling_Time_Costs), Ct), Euro);
+				attribute<Euro>    Price            (domain) := (IsWalking ? /ModelParameters/Advanced/IncludeWalkingCostsInPrice : /ModelParameters/Advanced/IncludeCyclingCostsInPrice) ? Price_Augm : const(0[Euro], domain);
+				attribute<string>  ModeUsed         (domain) := const(CompName, domain);
+				attribute<uint8>   NeedsCar         (domain) := const(0b, domain);
+				attribute<uint8>   NeedsBike        (domain) := const(ComponentMerge_Def/Comps/NeedsBike[Comp_id] ? 1b : 0b, domain);
+				attribute<min_f>   WaitingTime      (domain) := const(0[min_f], domain);
+				attribute<min_f>   PretransTime     (domain) := Traveltime;
+				attribute<min_f>   PosttransTime    (domain) := const(0[min_f], domain);
+				attribute<uint32>  TravelDist_Bus   (domain) := const(0, domain, uint32);
+				attribute<uint32>  TravelDist_Metro (domain) := const(0, domain, uint32);
+				attribute<uint32>  TravelDist_Tram  (domain) := const(0, domain, uint32);
+				attribute<uint32>  TravelDist_Rail  (domain) := const(0, domain, uint32);
+				attribute<uint32>  TravelDist_Ferry (domain) := const(0, domain, uint32);
+				attribute<uint32>  TravelDist_Car   (domain) := const(0, domain, uint32);
+			}
+			// Car: OrgName, DestName, Traveltime, TravelDist_Car.
+			Template ReadCar_T
+			{
+				parameter<string> CompName;
+				parameter<ComponentMerge_Def/Comps> Comp_id;
+				///
+				parameter<string>  FileName      := CompFile[Comp_id];
+				unit<uint32> domain : StorageName = "=FileName", StorageType = "gdal.vect", StorageReadOnly = "true"
+				{
+					attribute<string>  OrgName;
+					attribute<string>  DestName;
+					attribute<float32> Traveltime;
+					attribute<uint32>  TravelDist_Car;
+				}
+				attribute<string>  OrgName          (domain) := domain/OrgName;
+				attribute<string>  DestName         (domain) := domain/DestName;
+				attribute<min_f>   Traveltime       (domain) := value(domain/Traveltime, min_f);
+				// zoals PublicTransport_Prep/Direct/Car: Car_FixedCosts_PerTrip + afstand x Car_CostPerKm; de afstand staat in hele meters in het bestand
+				attribute<Euro>    Price            (domain) := /ModelParameters/Advanced/IncludeCarCostsInPrice ? convert(rounded_convert(/ModelParameters/Car_FixedCosts_PerTrip + value(float32(domain/TravelDist_Car) / 1000f, km) * /ModelParameters/Car_CostPerKm, Ct), Euro) : const(0[Euro], domain);
+				attribute<Euro>    Price_Augm       (domain) := Price;
+				attribute<string>  ModeUsed         (domain) := const('AA', domain);
+				attribute<uint8>   NeedsCar         (domain) := const(1b, domain);
+				attribute<uint8>   NeedsBike        (domain) := const(0b, domain);
+				attribute<min_f>   WaitingTime      (domain) := const(0[min_f], domain);
+				attribute<min_f>   PretransTime     (domain) := Traveltime;
+				attribute<min_f>   PosttransTime    (domain) := const(0[min_f], domain);
+				attribute<uint32>  TravelDist_Bus   (domain) := const(0, domain, uint32);
+				attribute<uint32>  TravelDist_Metro (domain) := const(0, domain, uint32);
+				attribute<uint32>  TravelDist_Tram  (domain) := const(0, domain, uint32);
+				attribute<uint32>  TravelDist_Rail  (domain) := const(0, domain, uint32);
+				attribute<uint32>  TravelDist_Ferry (domain) := const(0, domain, uint32);
+				attribute<uint32>  TravelDist_Car   (domain) := domain/TravelDist_Car;
+			}
+			// Een OV-component: de kolommen van Parquet_PT; NeedsBike volgt uit voor- en natransport (Advanced/Componenten/NeedsBike).
+			Template ReadPT_T
+			{
+				parameter<string> CompName;
+				parameter<ComponentMerge_Def/Comps> Comp_id;
+				///
+				parameter<string>  FileName      := CompFile[Comp_id];
+				unit<uint32> domain : StorageName = "=FileName", StorageType = "gdal.vect", StorageReadOnly = "true"
+				{
+					attribute<string>  OrgName;
+					attribute<string>  DestName;
+					attribute<float32> Traveltime;
+					attribute<float32> Price;
+					attribute<float32> Price_Augm;
+					attribute<string>  ModeUsed;
+					attribute<float32> WaitingTime;
+					attribute<float32> PretransTime;
+					attribute<float32> PosttransTime;
+					attribute<uint32>  TravelDist_Bus;
+					attribute<uint32>  TravelDist_Metro;
+					attribute<uint32>  TravelDist_Tram;
+					attribute<uint32>  TravelDist_Rail;
+					attribute<uint32>  TravelDist_Ferry;
+				}
+				attribute<string>  OrgName          (domain) := domain/OrgName;
+				attribute<string>  DestName         (domain) := domain/DestName;
+				attribute<min_f>   Traveltime       (domain) := value(domain/Traveltime, min_f);
+				attribute<Euro>    Price            (domain) := value(domain/Price, Euro);
+				attribute<Euro>    Price_Augm       (domain) := value(domain/Price_Augm, Euro);
+				attribute<string>  ModeUsed         (domain) := domain/ModeUsed;
+				attribute<uint8>   NeedsCar         (domain) := const(0b, domain);
+				attribute<uint8>   NeedsBike        (domain) := const(ComponentMerge_Def/Comps/NeedsBike[Comp_id] ? 1b : 0b, domain);
+				attribute<min_f>   WaitingTime      (domain) := value(domain/WaitingTime, min_f);
+				attribute<min_f>   PretransTime     (domain) := value(domain/PretransTime, min_f);
+				attribute<min_f>   PosttransTime    (domain) := value(domain/PosttransTime, min_f);
+				attribute<uint32>  TravelDist_Bus   (domain) := domain/TravelDist_Bus;
+				attribute<uint32>  TravelDist_Metro (domain) := domain/TravelDist_Metro;
+				attribute<uint32>  TravelDist_Tram  (domain) := domain/TravelDist_Tram;
+				attribute<uint32>  TravelDist_Rail  (domain) := domain/TravelDist_Rail;
+				attribute<uint32>  TravelDist_Ferry (domain) := domain/TravelDist_Ferry;
+				attribute<uint32>  TravelDist_Car   (domain) := const(0, domain, uint32);
 			}
 
 			unit<uint32> Rows := ='union_unit(' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/domain', ',') + ')'
 			,	Descr = "De rijen van alle componenten, in de volgorde van Comps; bij een gelijke stand op alle criteria wint de eerste (pareto_optimal_eps)."
 			{
-				attribute<string> Line       := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/Line', ',') + ')';
-				attribute<string> OrgDest    := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/OrgDest', ',') + ')';
-				attribute<Ct>     Price      := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/Price', ',') + ')';
-				attribute<Ct>     Price_augm := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/Price_augm', ',') + ')';
-				attribute<s>      TravelTime := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/TravelTime', ',') + ')';
-				attribute<bool>   NeedsCar   := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/NeedsCar', ',') + ')';
-				attribute<bool>   NeedsBike  := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/NeedsBike', ',') + ')';
+				attribute<string> OrgName          := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/OrgName', ',') + ')';
+				attribute<string> DestName         := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/DestName', ',') + ')';
+				attribute<min_f>  Traveltime_min   := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/Traveltime', ',') + ')';
+				attribute<Euro>   Price_euro       := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/Price', ',') + ')';
+				attribute<Euro>   Price_Augm_euro  := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/Price_Augm', ',') + ')';
+				attribute<string> ModeUsed         := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/ModeUsed', ',') + ')';
+				attribute<uint8>  NeedsCar_u8      := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/NeedsCar', ',') + ')';
+				attribute<uint8>  NeedsBike_u8     := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/NeedsBike', ',') + ')';
+				attribute<min_f>  WaitingTime      := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/WaitingTime', ',') + ')';
+				attribute<min_f>  PretransTime     := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/PretransTime', ',') + ')';
+				attribute<min_f>  PosttransTime    := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/PosttransTime', ',') + ')';
+				attribute<uint32> TravelDist_Bus   := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/TravelDist_Bus', ',') + ')';
+				attribute<uint32> TravelDist_Metro := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/TravelDist_Metro', ',') + ')';
+				attribute<uint32> TravelDist_Tram  := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/TravelDist_Tram', ',') + ')';
+				attribute<uint32> TravelDist_Rail  := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/TravelDist_Rail', ',') + ')';
+				attribute<uint32> TravelDist_Ferry := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/TravelDist_Ferry', ',') + ')';
+				attribute<uint32> TravelDist_Car   := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/TravelDist_Car', ',') + ')';
+				attribute<string> Component        := ='union_data(., ' + asList('const(' + quote(ComponentMerge_Def/Comps/name) + ', PerComp/' + ComponentMerge_Def/Comps/name + '/domain)', ',') + ')';
 
-				unit<uint32>      OD         := unique(OrgDest);
-				attribute<OD>     OD_rel     := rlookup(OrgDest, OD/values);
-				attribute<bool>   keep       := ='pareto_optimal_eps(OD_rel, ' + asList(/Classifications/OutputParetoAttr/ParetoArgs, ', ') + ')';
+				// de criteria (Classifications/OutputParetoAttr) in de eenheden van de eindafweging, Ct en s, zodat de epsilons dezelfde bakken
+				// geven als in een run; GeoDMS-namen zijn ongevoelig voor hoofdletters, dus TravelTime naast Traveltime_min
+				attribute<Ct>     Price            := rounded_convert(Price_euro, Ct);
+				attribute<Ct>     Price_augm       := rounded_convert(Price_Augm_euro, Ct);
+				attribute<s>      TravelTime       := rounded_convert(Traveltime_min, s);
+				attribute<bool>   NeedsCar         := NeedsCar_u8 == 1b;
+				attribute<bool>   NeedsBike        := NeedsBike_u8 == 1b;
+
+				attribute<string> OrgDest          := OrgName + ';' + DestName;
+				unit<uint32>      OD               := unique(OrgDest);
+				attribute<OD>     OD_rel           := rlookup(OrgDest, OD/values);
+				attribute<bool>   keep             := ='pareto_optimal_eps(OD_rel, ' + asList(/Classifications/OutputParetoAttr/ParetoArgs, ', ') + ')'
+				,	Descr = "Met een criterium (MergeCriteria 'Time' of 'Price') per paar de ene snelste of goedkoopste rij: het eerste criterium heeft geen epsilon.";
 			}
 			unit<uint32> Kept := select_with_org_rel(Rows/keep)
 			{
-				attribute<string> Line := Rows/Line[org_rel];
+				attribute<string> OrgName          := Rows/OrgName[org_rel];
+				attribute<string> DestName         := Rows/DestName[org_rel];
+				attribute<min_f>  Traveltime       := Rows/Traveltime_min[org_rel];
+				attribute<Euro>   Price            := Rows/Price_euro[org_rel];
+				attribute<Euro>   Price_Augm       := Rows/Price_Augm_euro[org_rel];
+				attribute<string> ModeUsed         := Rows/ModeUsed[org_rel];
+				attribute<uint8>  NeedsCar         := Rows/NeedsCar_u8[org_rel];
+				attribute<uint8>  NeedsBike        := Rows/NeedsBike_u8[org_rel];
+				attribute<min_f>  WaitingTime      := Rows/WaitingTime[org_rel];
+				attribute<min_f>  PretransTime     := Rows/PretransTime[org_rel];
+				attribute<min_f>  PosttransTime    := Rows/PosttransTime[org_rel];
+				attribute<uint32> TravelDist_Bus   := Rows/TravelDist_Bus[org_rel];
+				attribute<uint32> TravelDist_Metro := Rows/TravelDist_Metro[org_rel];
+				attribute<uint32> TravelDist_Tram  := Rows/TravelDist_Tram[org_rel];
+				attribute<uint32> TravelDist_Rail  := Rows/TravelDist_Rail[org_rel];
+				attribute<uint32> TravelDist_Ferry := Rows/TravelDist_Ferry[org_rel];
+				attribute<uint32> TravelDist_Car   := Rows/TravelDist_Car[org_rel];
+				attribute<string> Component        := Rows/Component[org_rel];
 			}
-			parameter<bool>   HeadersEqual := =asList('PerComp/' + ComponentMerge_Def/Comps/name + '/Header == PerComp/' + first(ComponentMerge_Def/Comps/name) + '/Header', ' && ')
-			,	Descr = "Hebben alle componenten dezelfde kolommen in dezelfde volgorde? Zo niet, dan passen hun regels niet onder een kop.";
-			parameter<string> File := =first('PerComp/' + ComponentMerge_Def/Comps/name) + '/Header + ''\n'' + asList(Kept/Line, ''\n'')'
-			,	StorageName       = "=/ModelParameters/Advanced/OutputDir + '/PerBlock/tt' + FileTail", StorageType = "str"
-			,	ExplicitSuppliers = "/NetworkSetup/Output_Sig/ForWriting" // schrijft de handtekening van de uitvoermap, of faalt bij een andere (#118)
-			,	IntegrityCheck    = "HeadersEqual && ComponentMerge_Def/MergeComponents_OK"
-			,	Descr             = "De samengevoegde uitvoer van dit blok en vertrekmoment, met de kop van de eerste component.";
+
+			// de tellingen van dit vertrekmoment, voor Tellingen in het blok; een OV-keten heeft een _ in ModeUsed (W_BBR_W)
+			attribute<bool>   IsKeten (Kept) := IsDefined(strpos(Kept/ModeUsed, '_'));
+			attribute<uint64> Rijen (/Classifications/OD_Tellingen_Soort) := union_data(/Classifications/OD_Tellingen_Soort
+				, uint64(#Kept)
+				, sum_uint64(IsKeten)
+				, sum_uint64(Kept/ModeUsed == 'WW')
+				, sum_uint64(Kept/ModeUsed == 'CC')
+				, sum_uint64(Kept/ModeUsed == 'AA'));
+			unit<uint32> Paren := unique(Kept/OrgName + ';' + Kept/DestName)
+			{
+				attribute<bool> OV_keten             := any(../IsKeten, ../Paren_rel);
+				attribute<bool> WW                   := any(Kept/ModeUsed == 'WW', ../Paren_rel);
+				attribute<bool> CC                   := any(Kept/ModeUsed == 'CC', ../Paren_rel);
+				attribute<bool> AA                   := any(Kept/ModeUsed == 'AA', ../Paren_rel);
+				attribute<bool> zonder_auto          := any(Kept/NeedsCar == 0b, ../Paren_rel);
+				attribute<bool> zonder_auto_en_fiets := any(Kept/NeedsCar == 0b && Kept/NeedsBike == 0b, ../Paren_rel);
+			}
+			attribute<Paren>  Paren_rel (Kept) := rlookup(Kept/OrgName + ';' + Kept/DestName, Paren/values);
+			attribute<uint64> Paren_Telling (/Classifications/OD_Tellingen_Groep) := union_data(/Classifications/OD_Tellingen_Groep
+				, uint64(#Paren)
+				, sum_uint64(Paren/OV_keten)
+				, sum_uint64(Paren/WW)
+				, sum_uint64(Paren/CC)
+				, sum_uint64(Paren/AA)
+				, sum_uint64(Paren/zonder_auto)
+				, sum_uint64(Paren/zonder_auto_en_fiets));
+
+			// De uitvoer volgens ModelParameters/Advanced/OutputFormat: parquet, getypt en zonder het vertrekmoment in de kolomnamen (dat staat in
+			// de bestandsnaam), of csv, met het vertrekmoment achter de kolomnamen, zoals de csv van een component, en een onbekende waarde leeg.
+			container Parquet : StorageName = "=/ModelParameters/Advanced/OutputDir + '/PerBlock/tt' + FileTail + '.parquet'", StorageType = "gdalwrite.vect"
+			{
+				unit<uint32> tt := Kept, ExplicitSuppliers = "/NetworkSetup/Output_Sig/ForWriting"
+				{
+					attribute<string> OrgName          := Kept/OrgName;
+					attribute<string> DestName         := Kept/DestName;
+					attribute<min_f>  Traveltime       := Kept/Traveltime;
+					attribute<Euro>   Price            := Kept/Price;
+					attribute<Euro>   Price_Augm       := Kept/Price_Augm;
+					attribute<string> ModeUsed         := Kept/ModeUsed;
+					attribute<uint8>  NeedsCar         := Kept/NeedsCar;
+					attribute<uint8>  NeedsBike        := Kept/NeedsBike;
+					attribute<min_f>  WaitingTime      := Kept/WaitingTime;
+					attribute<min_f>  PretransTime     := Kept/PretransTime;
+					attribute<min_f>  PosttransTime    := Kept/PosttransTime;
+					attribute<uint32> TravelDist_Bus   := Kept/TravelDist_Bus;
+					attribute<uint32> TravelDist_Metro := Kept/TravelDist_Metro;
+					attribute<uint32> TravelDist_Tram  := Kept/TravelDist_Tram;
+					attribute<uint32> TravelDist_Rail  := Kept/TravelDist_Rail;
+					attribute<uint32> TravelDist_Ferry := Kept/TravelDist_Ferry;
+					attribute<uint32> TravelDist_Car   := Kept/TravelDist_Car;
+					attribute<string> Component        := Kept/Component;
+				}
+			}
+			unit<uint8> CsvColumns : nrofrows = 16, Descr = "De kolommen van de csv na OrgName en DestName, in de volgorde van Parquet/tt."
+			{
+				attribute<string> name : ['Traveltime', 'Price', 'Price_Augm', 'ModeUsed', 'NeedsCar', 'NeedsBike', 'WaitingTime', 'PretransTime', 'PosttransTime', 'TravelDist_Bus', 'TravelDist_Metro', 'TravelDist_Tram', 'TravelDist_Rail', 'TravelDist_Ferry', 'TravelDist_Car', 'Component'];
+			}
+			attribute<string> Line (Kept) := Kept/OrgName + ';' + Kept/DestName
+				+ ';' + MakeDefined(string(Kept/Traveltime), '') + ';' + MakeDefined(string(Kept/Price), '') + ';' + MakeDefined(string(Kept/Price_Augm), '') + ';' + Kept/ModeUsed
+				+ ';' + MakeDefined(string(Kept/NeedsCar), '') + ';' + MakeDefined(string(Kept/NeedsBike), '') + ';' + MakeDefined(string(Kept/WaitingTime), '') + ';' + MakeDefined(string(Kept/PretransTime), '')
+				+ ';' + MakeDefined(string(Kept/PosttransTime), '') + ';' + MakeDefined(string(Kept/TravelDist_Bus), '') + ';' + MakeDefined(string(Kept/TravelDist_Metro), '') + ';' + MakeDefined(string(Kept/TravelDist_Tram), '')
+				+ ';' + MakeDefined(string(Kept/TravelDist_Rail), '') + ';' + MakeDefined(string(Kept/TravelDist_Ferry), '') + ';' + MakeDefined(string(Kept/TravelDist_Car), '') + ';' + Kept/Component;
+			parameter<string> File := 'OrgName;DestName;' + asList(CsvColumns/name + '_' + MomentShort, ';') + '\n' + asList(Line, '\n')
+			,	StorageName = "=/ModelParameters/Advanced/OutputDir + '/PerBlock/tt' + FileTail + '.csv'", StorageType = "str"
+			,	ExplicitSuppliers = "/NetworkSetup/Output_Sig/ForWriting";
+			parameter<string> Write := 'Ready', ExplicitSuppliers = "=/ModelParameters/Advanced/OutputFormat == 'parquet' ? 'Parquet/tt' : 'File'"
+			,	IntegrityCheck = "ComponentMerge_Def/MergeComponents_OK"
+			,	Descr = "Schrijft de samengevoegde uitvoer van dit blok en vertrekmoment, als parquet of csv (OutputFormat).";
 		}
 	}
 }
