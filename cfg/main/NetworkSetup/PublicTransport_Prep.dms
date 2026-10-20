@@ -413,6 +413,27 @@ container PublicTransport_Prep
 		}
 		unit<uint64> Legs_store : StorageName = "=Sig/ForReading", StorageReadOnly = "true"
 		,	Descr = "Kale lezer van de store; declareert niets. Faalt als de handtekening ontbreekt of afwijkt (Sig/CheckGate); bestaat de store niet, bereken dan eerst Write_Legs (batch/UpdateAll.cmd legs).";
+
+		// De benen als parquet (sinds 2026-10-20), om ze buiten het model te gebruiken: per been de buurt (CBS-code), de halte (GTFS stop_id
+		// en stop_name) en de netwerkreistijd in minuten, zonder start- en parkeertijd (die komen er bij het lezen bij, zie Legs_T). De
+		// afstand volgt uit de reistijd. Bestand Output/Benen_<datum>_<herkomsten>_<bestemmingen>/<V of N>_<W of C>.parquet; bereken
+		// Export/legs (batch/UpdateAll.cmd legs doet het na het schrijven van de store).
+		parameter<bool>        IsPre                       := TimeInvariantTypes/VN_Transport[TimeInvariantTypes_rel] == 'V';
+		parameter<string>      ExportCode                  := (IsPre ? 'V_' : 'N_') + TimeInvariantTypes/Mode_abbrev[TimeInvariantTypes_rel], Descr = "V_W, V_C, N_W of N_C: voor- of natransport, lopen of fietsen.";
+		attribute<impl/Places> Buurt_Place_rel (Legs_store) := = IsPre ? 'Legs_store/From_Place_rel' : 'Legs_store/To_Place_rel';
+		attribute<impl/Places> Stop_Place_rel  (Legs_store) := = IsPre ? 'Legs_store/To_Place_rel' : 'Legs_store/From_Place_rel';
+		parameter<string>      GDAL_LayerCreationOptions   := 'COMPRESSION=ZSTD';
+		container Export
+		:	StorageName = "='%LocalDataProjDir%/Output/Benen_' + /ModelParameters/Analysis_date + '_' + /ModelParameters/Advanced/OrgSet_PathTag + '_' + /ModelParameters/Advanced/DestSet_PathTag + '/' + ExportCode + '.parquet'", StorageType = "gdalwrite.vect"
+		{
+			unit<uint64> legs := Legs_store
+			{
+				attribute<string> BuurtCode  := impl/Places/label[Buurt_Place_rel];
+				attribute<string> stop_id    := /SourceData/Infrastructure/GTFS/PublicTransportNet/Stops/stop_id[impl/Places/Stop_rel[Stop_Place_rel]];
+				attribute<string> stop_name  := impl/Stops/name[impl/Places/Stop_rel[Stop_Place_rel]];
+				attribute<min_f>  Traveltime := convert(Legs_store/impedance, min_f), Descr = "De netwerkreistijd van het been in minuten.";
+			}
+		}
 	}
 
 	container Legs :=

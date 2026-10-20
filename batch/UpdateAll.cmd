@@ -178,6 +178,11 @@ for %%T in (Org2Stops_Walking Org2Stops_Cycling Stops2Dest_Walking Stops2Dest_Cy
   call :run legs_%%T %PREP%/LegStores/%%T/Write_Legs
   if not "!RC!"=="0" goto failed
 )
+REM en de benen als parquet (sinds 2026-10-20), na het schrijven, in een eigen GeoDmsRun: Output\Benen_<datum>_<sets>\<V of N>_<W of C>.parquet
+for %%T in (Org2Stops_Walking Org2Stops_Cycling Stops2Dest_Walking Stops2Dest_Cycling) do (
+  call :run legsx_%%T %PREP%/LegStores/%%T/Export/legs
+  if not "!RC!"=="0" goto failed
+)
 :legs_done
 if /I not "%SECTION%"=="all" goto done
 
