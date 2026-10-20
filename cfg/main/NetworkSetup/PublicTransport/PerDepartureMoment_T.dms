@@ -8,16 +8,18 @@ Template PerDepartureMoment_T
 	unit<uint8>         ParetoAttr := Classifications/OutputParetoAttr; // sinds 2026-10-01 met NeedsCar en NeedsBike (#117); tot dan FinalParetoAttr
 	// De OV-ketens die binnen voortransport plus wachten thuis vertrekken. Sinds 2026-09-27 (audit 6.7) met de ondergrens inTime:
 	// een keten die eerder vertrekt haalt IsWaitingTimeValid toch nooit, maar werd wel aan alle voortransportbenen gekoppeld;
-	// bij vertrek 07:45 met de ketenstore 07:00-09:29 was dat 59% van de rijen (307 van 523 miljoen op herkomstblok 1).
-	attribute<bool>     Within_VW_Window_SelectionCriterium (PublicTransport_Prep/PT) := PublicTransport_Prep/PT/From_Time_rel >= inTime[Time] && PublicTransport_Prep/PT/From_Time_rel <= inTime + convert(Max_V_Time, s_f)[Time] + ModelParameters/Advanced/MaxWaitingTimeAtOrigin;
+	// bij vertrek 07:45 met de ketenstore 07:00-09:29 was dat 59% van de rijen (307 van 523 miljoen op herkomstblok 1). Sinds 2026-10-20
+	// uit de ketens van het blok (PublicTransport/PT_InBlock), tot dan uit alle ketens (PublicTransport_Prep/PT): dezelfde rijen voor het
+	// front, in dezelfde volgorde, zonder de ketens die bij geen voortransportbeen van het blok instappen.
+	attribute<bool>     Within_VW_Window_SelectionCriterium (PT_InBlock) :=PT_InBlock/From_Time_rel >= inTime[Time] && PT_InBlock/From_Time_rel <= inTime + convert(Max_V_Time, s_f)[Time] + ModelParameters/Advanced/MaxWaitingTimeAtOrigin;
 	
 	unit<uint64> Within_VW_Window := select(Within_VW_Window_SelectionCriterium)
 	, Descr = "Opties binnen PreTransport + wachten thuis window"
 	{
-		attribute<ct>                Price                       := collect_by_cond(., Within_VW_Window_SelectionCriterium, PublicTransport_Prep/PT/Price);
-		attribute<ct>                Price_augm                  := collect_by_cond(., Within_VW_Window_SelectionCriterium, PublicTransport_Prep/PT/Price_augm);
-		attribute<s>                 Traveltime                  := collect_by_cond(., Within_VW_Window_SelectionCriterium, PublicTransport_Prep/PT/Traveltime);
-		attribute<uint32>            ModeCode                    := collect_by_cond(., Within_VW_Window_SelectionCriterium, PublicTransport_Prep/PT/ModeCode);
+		attribute<ct>                Price                       := collect_by_cond(., Within_VW_Window_SelectionCriterium, PT_InBlock/Price);
+		attribute<ct>                Price_augm                  := collect_by_cond(., Within_VW_Window_SelectionCriterium, PT_InBlock/Price_augm);
+		attribute<s>                 Traveltime                  := collect_by_cond(., Within_VW_Window_SelectionCriterium, PT_InBlock/Traveltime);
+		attribute<uint32>            ModeCode                    := collect_by_cond(., Within_VW_Window_SelectionCriterium, PT_InBlock/ModeCode);
 		// de letters per been (sinds 2026-10-06 uit de uint32 ModeCode van de ketenstore), een keer per verschillende code
 		unit<uint32>                 UqModeCode                  := unique_uint32(ModeCode)
 		{
@@ -26,16 +28,16 @@ Template PerDepartureMoment_T
 		}
 		attribute<string>            ModeUsed                    := UqModeCode/ModeUsed[rlookup(ModeCode, UqModeCode/values)];
 		
-		attribute<c_Time_Places>     c_FromTime_Place_rel        := collect_by_cond(., Within_VW_Window_SelectionCriterium, PublicTransport_Prep/PT/c_FromTime_Place_rel);
-		attribute<c_Time_Places>     c_ToTime_Place_rel          := collect_by_cond(., Within_VW_Window_SelectionCriterium, PublicTransport_Prep/PT/c_ToTime_Place_rel);
+		attribute<c_Time_Places>     c_FromTime_Place_rel        := collect_by_cond(., Within_VW_Window_SelectionCriterium, PT_InBlock/c_FromTime_Place_rel);
+		attribute<c_Time_Places>     c_ToTime_Place_rel          := collect_by_cond(., Within_VW_Window_SelectionCriterium, PT_InBlock/c_ToTime_Place_rel);
 		attribute<Places>            From_Place_rel              := value(c_FromTime_Place_rel % uint64(#Places), Places);
 		attribute<Time>              From_Time_rel               := value(c_FromTime_Place_rel / uint64(#Places), Time);
 
-		attribute<dam>               TravelDist_Bus              := collect_by_cond(., Within_VW_Window_SelectionCriterium, PublicTransport_Prep/PT/TravelDist_Bus);
-		attribute<dam>               Traveldist_Metro            := collect_by_cond(., Within_VW_Window_SelectionCriterium, PublicTransport_Prep/PT/Traveldist_Metro);
-		attribute<dam>               Traveldist_Tram             := collect_by_cond(., Within_VW_Window_SelectionCriterium, PublicTransport_Prep/PT/Traveldist_Tram);
-		attribute<dam>               Traveldist_Rail             := collect_by_cond(., Within_VW_Window_SelectionCriterium, PublicTransport_Prep/PT/Traveldist_Rail);
-		attribute<dam>               Traveldist_Ferry            := collect_by_cond(., Within_VW_Window_SelectionCriterium, PublicTransport_Prep/PT/Traveldist_Ferry);
+		attribute<dam>               TravelDist_Bus              := collect_by_cond(., Within_VW_Window_SelectionCriterium, PT_InBlock/TravelDist_Bus);
+		attribute<dam>               Traveldist_Metro            := collect_by_cond(., Within_VW_Window_SelectionCriterium, PT_InBlock/Traveldist_Metro);
+		attribute<dam>               Traveldist_Tram             := collect_by_cond(., Within_VW_Window_SelectionCriterium, PT_InBlock/Traveldist_Tram);
+		attribute<dam>               Traveldist_Rail             := collect_by_cond(., Within_VW_Window_SelectionCriterium, PT_InBlock/Traveldist_Rail);
+		attribute<dam>               Traveldist_Ferry            := collect_by_cond(., Within_VW_Window_SelectionCriterium, PT_InBlock/Traveldist_Ferry);
 	}
 
 	unit<uint64> Add_V_to_PT   := join_equal_values_uint64(V/To_Place_rel, Within_VW_Window/From_Place_rel)

@@ -140,6 +140,32 @@ unit<uint64> V := select_with_attr_by_cond(/NetworkSetup/impl/V_org, /NetworkSet
 	attribute<string>            OrgName                   := Places/label[From_Place_rel]; //debug
 }
 
+// De OV-ketens van dit blok (sinds 2026-10-20): die van PublicTransport_Prep/PT_V die instappen bij een halte waar een voortransportbeen
+// van dit blok eindigt, met de relaties die de vertrekmomenten lezen; elk vertrekmoment kiest hieruit zijn venster
+// (PerDepartureMoment_T/Within_VW_Window). Andere ketens koppelt Add_V_to_PT aan geen enkel been, dus het front verandert niet. Een halte
+// die meer herkomsten van het blok bereiken, telt een keer; de koppeling per herkomst komt pas in Add_V_to_PT.
+attribute<bool> IsBlockVStop    (Places)                                := pcount(V/To_Place_rel) > 0u64;
+attribute<bool> IsBlockBoarding (PublicTransport_Prep/uq_c_FromTime_Stop) := IsBlockVStop[PublicTransport_Prep/uq_c_FromTime_Stop/From_Place_rel];
+attribute<bool> IsInBlock       (PublicTransport_Prep/PT_V)              := IsBlockBoarding[PublicTransport_Prep/PT_V/uq_c_FromTime_Stop_rel];
+unit<uint64> PT_InBlock := select(IsInBlock)
+{
+	attribute<uint32>                                    ModeCode               := collect_by_cond(., IsInBlock, PublicTransport_Prep/PT_V/ModeCode);
+	attribute<ct>                                        Price                  := collect_by_cond(., IsInBlock, PublicTransport_Prep/PT_V/Price);
+	attribute<ct>                                        Price_augm             := collect_by_cond(., IsInBlock, PublicTransport_Prep/PT_V/Price_augm);
+	attribute<s>                                         Traveltime             := collect_by_cond(., IsInBlock, PublicTransport_Prep/PT_V/Traveltime);
+	attribute<dam>                                       TravelDist_Bus         := collect_by_cond(., IsInBlock, PublicTransport_Prep/PT_V/TravelDist_Bus);
+	attribute<dam>                                       Traveldist_Metro       := collect_by_cond(., IsInBlock, PublicTransport_Prep/PT_V/Traveldist_Metro);
+	attribute<dam>                                       Traveldist_Tram        := collect_by_cond(., IsInBlock, PublicTransport_Prep/PT_V/Traveldist_Tram);
+	attribute<dam>                                       Traveldist_Rail        := collect_by_cond(., IsInBlock, PublicTransport_Prep/PT_V/Traveldist_Rail);
+	attribute<dam>                                       Traveldist_Ferry       := collect_by_cond(., IsInBlock, PublicTransport_Prep/PT_V/Traveldist_Ferry);
+	attribute<PublicTransport_Prep/uq_c_FromTime_Stop>   uq_c_FromTime_Stop_rel := collect_by_cond(., IsInBlock, PublicTransport_Prep/PT_V/uq_c_FromTime_Stop_rel);
+	attribute<PublicTransport_Prep/uq_c_ToTime_Stop>     uq_c_ToTime_Stop_rel   := collect_by_cond(., IsInBlock, PublicTransport_Prep/PT_V/uq_c_ToTime_Stop_rel);
+
+	attribute<Time>                                      From_Time_rel          := PublicTransport_Prep/uq_c_FromTime_Stop/From_Time_rel[uq_c_FromTime_Stop_rel];
+	attribute<PublicTransport_Prep/impl/c_Time_Places>   c_FromTime_Place_rel   := PublicTransport_Prep/uq_c_FromTime_Stop/c_FromTime_Place_rel[uq_c_FromTime_Stop_rel];
+	attribute<PublicTransport_Prep/impl/c_Time_Places>   c_ToTime_Place_rel     := PublicTransport_Prep/uq_c_ToTime_Stop/c_ToTime_Place_rel[uq_c_ToTime_Stop_rel];
+}
+
 unit<uint64> N := /NetworkSetup/impl/N, Descr = "PostTransport";
 
 // De directe ritten van de herkomsten van dit blok: de rijen van NetworkSetup/impl/Direct_OD met dit herkomstblok, met de tekst

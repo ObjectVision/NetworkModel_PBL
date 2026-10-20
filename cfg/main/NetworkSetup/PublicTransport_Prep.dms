@@ -489,18 +489,25 @@ container PublicTransport_Prep
 	}
 
 
+	// Sinds 2026-10-20 ook de plaats en de (tijd, plaats) van elke in- en uitstapgebeurtenis, zoals PT ze per keten rekent: de ketens van
+	// een herkomstblok (PublicTransport/PT_InBlock) zoeken ze hier op, in plaats van dat PT ze voor alle ketens uitrekent.
 	unit<uint64> uq_c_FromTime_Stop := unique_uint64(impl/All_Time_Stops/c_FromTime_Stop_rel), using = "impl"
 	{
 		attribute<impl/c_Time_Stops> c_FromTime_Stop_rel      := values;
-		attribute<Time>              From_Time_rel            := value(c_FromTime_Stop_rel / uint64(#Stops), Time); //debug
-		attribute<Stops>             From_Stop_rel            := value(c_FromTime_Stop_rel % uint64(#Stops), Stops);//debug
+		attribute<Time>              From_Time_rel            := value(c_FromTime_Stop_rel / uint64(#Stops), Time);
+		attribute<Stops>             From_Stop_rel            := value(c_FromTime_Stop_rel % uint64(#Stops), Stops);
+		attribute<Places>            From_Place_rel           := Stops/Place_rel[From_Stop_rel];
+		attribute<c_Time_Places>     c_FromTime_Place_rel     := combine_data(c_Time_Places, From_Time_rel, From_Place_rel);
 		attribute<string>            Label                    := Stops/name[From_Stop_rel]+' @ '+Time/TemplatableText[From_Time_rel];
+		attribute<bool>              IsVBoarding              := /NetworkSetup/impl/IsVStop[From_Place_rel], Descr = "Instappen bij een halte waar een voortransportbeen van de component eindigt (NetworkSetup/impl/IsVStop)? Alleen zulke ketens kan de uitvoer gebruiken (PT_V).";
 	}
 	unit<uint64> uq_c_ToTime_Stop   := unique_uint64(impl/All_Time_Stops/c_ToTime_Stop_rel), using = "impl"
 	{
 		attribute<impl/c_Time_Stops> c_ToTime_Stop_rel        := values;
-		attribute<Time>              To_Time_rel              := value(c_ToTime_Stop_rel / uint64(#Stops), Time);//debug
-		attribute<Stops>             To_Stop_rel              := value(c_ToTime_Stop_rel % uint64(#Stops), Stops); //debug
+		attribute<Time>              To_Time_rel              := value(c_ToTime_Stop_rel / uint64(#Stops), Time);
+		attribute<Stops>             To_Stop_rel              := value(c_ToTime_Stop_rel % uint64(#Stops), Stops);
+		attribute<Places>            To_Place_rel             := Stops/Place_rel[To_Stop_rel];
+		attribute<c_Time_Places>     c_ToTime_Place_rel       := combine_data(c_Time_Places, To_Time_rel, To_Place_rel);
 		attribute<string>            Label                    := Stops/name[To_Stop_rel]+' @ '+Time/TemplatableText[To_Time_rel];
 	}
 	
@@ -710,6 +717,24 @@ container PublicTransport_Prep
 			///
 			unit<uint64> Store : StorageName = "=/NetworkSetup/PublicTransport_Prep/ChainStore_Sig/ForReading + '/' + StoreName + '.mmd'", StorageReadOnly = "true";
 			parameter<bool> IsWritten := ExistingFile('', /NetworkSetup/PublicTransport_Prep/StorageBlockDir_Str + '/' + StoreName + '.mmd/0Dictionary.dms') != '';
+
+			// De ketens van dit haltenblok die de uitvoer kan gebruiken (sinds 2026-10-20, voor PT_V): die instappen bij een halte waar een
+			// voortransportbeen van de component eindigt, met de kolommen die de vertrekmomenten lezen. collect_by_cond leest de store per tegel.
+			attribute<bool> IsVBoarding (Store) := /NetworkSetup/PublicTransport_Prep/uq_c_FromTime_Stop/IsVBoarding[Store/uq_c_FromTime_Stop_rel];
+			unit<uint64> VBoarding := select(IsVBoarding)
+			{
+				attribute<uint32>                                                ModeCode               := collect_by_cond(., ../IsVBoarding, ../Store/ModeCode);
+				attribute<ct>                                                    Price                  := collect_by_cond(., ../IsVBoarding, ../Store/Price);
+				attribute<ct>                                                    Price_augm             := collect_by_cond(., ../IsVBoarding, ../Store/Price_augm);
+				attribute<s>                                                     Traveltime             := collect_by_cond(., ../IsVBoarding, ../Store/Traveltime);
+				attribute<dam>                                                   TravelDist_Bus         := collect_by_cond(., ../IsVBoarding, ../Store/TravelDist_Bus);
+				attribute<dam>                                                   Traveldist_Metro       := collect_by_cond(., ../IsVBoarding, ../Store/Traveldist_Metro);
+				attribute<dam>                                                   Traveldist_Tram        := collect_by_cond(., ../IsVBoarding, ../Store/Traveldist_Tram);
+				attribute<dam>                                                   Traveldist_Rail        := collect_by_cond(., ../IsVBoarding, ../Store/Traveldist_Rail);
+				attribute<dam>                                                   Traveldist_Ferry       := collect_by_cond(., ../IsVBoarding, ../Store/Traveldist_Ferry);
+				attribute</NetworkSetup/PublicTransport_Prep/uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel := collect_by_cond(., ../IsVBoarding, ../Store/uq_c_FromTime_Stop_rel);
+				attribute</NetworkSetup/PublicTransport_Prep/uq_c_ToTime_Stop>   uq_c_ToTime_Stop_rel   := collect_by_cond(., ../IsVBoarding, ../Store/uq_c_ToTime_Stop_rel);
+			}
 		}
 		container Read := for_each_ne(impl/BlockDomain/name, 'ReadBlock_T(' + quote(impl/BlockDomain/name) + ', ' + quote(impl/BlockDomain/StoreName) + ')');
 
@@ -767,7 +792,31 @@ container PublicTransport_Prep
 		attribute<c_Time_Places>        c_FromTime_Place_rel     := combine_data(c_Time_Places, From_Time_rel, From_Place_rel);
 		attribute<c_Time_Places>        c_ToTime_Place_rel       := combine_data(c_Time_Places, To_Time_rel, To_Place_rel);
 	}
-	
+
+	// De ketens die de uitvoer kan gebruiken (sinds 2026-10-20): die instappen bij een halte waar een voortransportbeen van de component
+	// eindigt (NetworkSetup/impl/IsVStop), alleen met de kolommen die de vertrekmomenten lezen, uit de store per haltenblok
+	// (ChainStore_Blocks/Read/<blok>/VBoarding). Elk herkomstblok kiest hieruit de ketens van zijn eigen voortransport
+	// (PublicTransport/PT_InBlock), en elk vertrekmoment daaruit zijn venster (PerDepartureMoment_T/Within_VW_Window). Tot dan kozen de
+	// vertrekmomenten uit PT: alle ketens met hun afgeleide relaties in het geheugen, voor Y2025, Buurt2025 naar Buurt2025, 572 miljoen
+	// ketens en een piek van ±99 GB vastgelegd geheugen in elke portie van de uitvoerstap (W_PT_OVf_C, 2026-10-20), ongeacht de grootte van
+	// de portie. Een keten staat in de store van het haltenblok van zijn instaphalte, dus de delen overlappen niet.
+	attribute<bool> IsVBoarding_PT (PT) := uq_c_FromTime_Stop/IsVBoarding[PT/uq_c_FromTime_Stop_rel], Descr = "Alleen met de ene store van voor 2026-09-29 (ChainStore_PerBlock FALSE): de ketens van PT_V.";
+	unit<uint64> PT_V := = ModelParameters/Advanced/ChainStore_PerBlock ? 'union_unit_uint64(' + AsItemList('ChainStore_Blocks/Read/' + impl/BlockDomain/name + '/VBoarding') + ')' : 'select(IsVBoarding_PT)'
+	, using = "impl"
+	{
+		attribute<uint32>                ModeCode                 := =ModelParameters/Advanced/ChainStore_PerBlock ? 'union_data(., ' + AsItemList('ChainStore_Blocks/Read/' + impl/BlockDomain/name + '/VBoarding/ModeCode') + ')' : 'collect_by_cond(., IsVBoarding_PT, PT/ModeCode)';
+		attribute<ct>                    Price                    := =ModelParameters/Advanced/ChainStore_PerBlock ? 'union_data(., ' + AsItemList('ChainStore_Blocks/Read/' + impl/BlockDomain/name + '/VBoarding/Price') + ')' : 'collect_by_cond(., IsVBoarding_PT, PT/Price)';
+		attribute<ct>                    Price_augm               := =ModelParameters/Advanced/ChainStore_PerBlock ? 'union_data(., ' + AsItemList('ChainStore_Blocks/Read/' + impl/BlockDomain/name + '/VBoarding/Price_augm') + ')' : 'collect_by_cond(., IsVBoarding_PT, PT/Price_augm)';
+		attribute<s>                     Traveltime               := =ModelParameters/Advanced/ChainStore_PerBlock ? 'union_data(., ' + AsItemList('ChainStore_Blocks/Read/' + impl/BlockDomain/name + '/VBoarding/Traveltime') + ')' : 'collect_by_cond(., IsVBoarding_PT, PT/Traveltime)';
+		attribute<dam>                   TravelDist_Bus           := =ModelParameters/Advanced/ChainStore_PerBlock ? 'union_data(., ' + AsItemList('ChainStore_Blocks/Read/' + impl/BlockDomain/name + '/VBoarding/TravelDist_Bus') + ')' : 'collect_by_cond(., IsVBoarding_PT, PT/TravelDist_Bus)';
+		attribute<dam>                   Traveldist_Metro         := =ModelParameters/Advanced/ChainStore_PerBlock ? 'union_data(., ' + AsItemList('ChainStore_Blocks/Read/' + impl/BlockDomain/name + '/VBoarding/Traveldist_Metro') + ')' : 'collect_by_cond(., IsVBoarding_PT, PT/Traveldist_Metro)';
+		attribute<dam>                   Traveldist_Tram          := =ModelParameters/Advanced/ChainStore_PerBlock ? 'union_data(., ' + AsItemList('ChainStore_Blocks/Read/' + impl/BlockDomain/name + '/VBoarding/Traveldist_Tram') + ')' : 'collect_by_cond(., IsVBoarding_PT, PT/Traveldist_Tram)';
+		attribute<dam>                   Traveldist_Rail          := =ModelParameters/Advanced/ChainStore_PerBlock ? 'union_data(., ' + AsItemList('ChainStore_Blocks/Read/' + impl/BlockDomain/name + '/VBoarding/Traveldist_Rail') + ')' : 'collect_by_cond(., IsVBoarding_PT, PT/Traveldist_Rail)';
+		attribute<dam>                   Traveldist_Ferry         := =ModelParameters/Advanced/ChainStore_PerBlock ? 'union_data(., ' + AsItemList('ChainStore_Blocks/Read/' + impl/BlockDomain/name + '/VBoarding/Traveldist_Ferry') + ')' : 'collect_by_cond(., IsVBoarding_PT, PT/Traveldist_Ferry)';
+		attribute<uq_c_FromTime_Stop>    uq_c_FromTime_Stop_rel   := =ModelParameters/Advanced/ChainStore_PerBlock ? 'union_data(., ' + AsItemList('ChainStore_Blocks/Read/' + impl/BlockDomain/name + '/VBoarding/uq_c_FromTime_Stop_rel') + ')' : 'collect_by_cond(., IsVBoarding_PT, PT/uq_c_FromTime_Stop_rel)';
+		attribute<uq_c_ToTime_Stop>      uq_c_ToTime_Stop_rel     := =ModelParameters/Advanced/ChainStore_PerBlock ? 'union_data(., ' + AsItemList('ChainStore_Blocks/Read/' + impl/BlockDomain/name + '/VBoarding/uq_c_ToTime_Stop_rel') + ')' : 'collect_by_cond(., IsVBoarding_PT, PT/uq_c_ToTime_Stop_rel)';
+	}
+
 	// De handtekening van de ketenstore: alle parameters waar de ketens van afhangen. Tot 2026-10-03 was dit de naam van de store
 	// (zonder .mmd); sinds NetworkModel_PBL#118 staat hij als hash in de naam (StorageBase_Str) en voluit in signature.txt in de map
 	// van de store (sinds 2026-10-06; tot dan in <naam>.signature.txt ernaast).
