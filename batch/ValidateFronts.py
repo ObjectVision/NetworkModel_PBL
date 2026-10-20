@@ -5,7 +5,7 @@
 #
 # A is de referentie (bijv. MinimiseCriteria 'Time', het oude model), B de nieuwe opzet (bijv. 'Price,Time'). Invoer: de
 # csv's per herkomstblok en vertrekmoment, gekoppeld op (datum, vertrekmoment, blok): sinds 2026-10-03 (#118)
-# Output/<datum>_<label>/PerBlock/tt_<datum>_<hhmm>_<i>of<n>.csv, met de parameters in signature.txt in Output/<datum>_<label>;
+# Output/<datum>_<label>/PerBlock/tt_<hhmm>_<i>of<n>.csv (tot 2026-10-20 tt_<datum>_<hhmm>_<i>of<n>.csv), met de parameters in signature.txt in Output/<datum>_<label>;
 # tot dan Output/PerBlock/tt_<datum>_<hhmm>_ORG-...-Block_<i>of<n>_...csv, met de parameters in de naam. Beide worden gelezen.
 # Kolommen op naam: OrgName, DestName, Traveltime_<t> (min), Price_<t> (euro, alleen met Export_PriceInformation),
 # ModeUsed_<t>, NeedsCar_<t> en NeedsBike_<t> (sinds 70eec9d).
@@ -28,7 +28,7 @@
 import argparse, csv, glob, os, re, sys
 from collections import defaultdict
 
-NAME_RE = re.compile(r'tt_(\d{8})_(?:[A-Za-z][A-Za-z0-9_]*?_)?(\d\dh\d\dm)_(\d+)of(\d+)\.csv$', re.I)  # ook met de component na de datum, zoals het model op 2026-10-19 even schreef
+NAME_RE = re.compile(r'tt_(?:(\d{8})_)?(?:[A-Za-z][A-Za-z0-9_]*?_)?(\d\dh\d\dm)_(\d+)of(\d+)\.csv$', re.I)  # sinds 2026-10-20 zonder de datum; ook met de datum, en met de component na de datum, zoals het model op 2026-10-19 even schreef
 OLD_NAME_RE = re.compile(r'tt_(\d{8})_(\d\dh\d\dm)_ORG-.*?Block_(\d+)of(\d+)(_.*)\.csv$', re.I)
 MINCRIT_RE = re.compile(r'MinCrit-([A-Za-z_]+?)_MaxPT', re.I)
 
@@ -38,12 +38,12 @@ def index_files(pattern, blocks, moments):
 		m = NAME_RE.search(os.path.basename(p)) or OLD_NAME_RE.search(os.path.basename(p))
 		if not m:
 			continue
-		date, moment, blk = m.group(1), m.group(2), int(m.group(3))
+		moment, blk = m.group(2), int(m.group(3))
 		if blocks and blk not in blocks:
 			continue
 		if moments and moment not in moments:
 			continue
-		out[(date, moment, blk)] = p
+		out[(moment, blk)] = p  # zonder de datum: die staat sinds 2026-10-20 alleen in de naam van de uitvoermap
 	return out
 
 def mincrit(paths):
@@ -196,7 +196,7 @@ def main():
 	has_price_a = has_price_b = True
 	pairs = 0
 	for k in keys:
-		date, moment, blk = k
+		moment, blk = k
 		ra, pa = read_rows(fa[k], moment)
 		rb, pb = read_rows(fb[k], moment)
 		has_price_a &= pa; has_price_b &= pb
@@ -209,7 +209,7 @@ def main():
 				sa, sb = stats(rows_a), stats(rows_b)
 				if sa is None and sb is None:
 					continue
-				where = f'{date} {moment} blok {blk} {od[0]} -> {od[1]}'
+				where = f'{moment} blok {blk} {od[0]} -> {od[1]}'
 				if sa is None:
 					t.add('6 alleen in B', where); continue
 				if sb is None:

@@ -2,7 +2,7 @@
 #
 #   python batch\OdTellingen.py <uitvoermap> [--force]
 #
-# <uitvoermap> is Output\<Analysis_date>_<OutputLabel> (met PerBlock\tt_<datum>_<moment>_<n>of<N>.csv, sinds #118). Sinds
+# <uitvoermap> is Output\<Analysis_date>_<OutputLabel> (met PerBlock\tt_<moment>_<n>of<N>.csv, sinds 2026-10-20; van #118 tot dan tt_<datum>_<moment>_<n>of<N>.csv). Sinds
 # 2026-10-04 maakt de uitvoerstap deze twee bestanden zelf (NetworkSetup/ConfigurationPerBlock/Generate_Output/OD_Tellingen,
 # commit f55636e); dit script doet hetzelfde voor uitvoer van daarvoor, met dezelfde regels en hetzelfde formaat:
 # - od_tellingen.csv: de rijen per soort optie (alle, OV-keten = ModeUsed met een '_', en de directe ritten WW, CC en AA), per
@@ -14,7 +14,7 @@
 #
 # Sinds 2026-10-16 schrijft het model de tellingen per blok zelf, in dezelfde opvraging als de uitvoer, naar
 # Tellingen\tellingen_<n>of<N>.csv (PublicTransport/Generate_Output/Traveltime_ForEachDepTime/Tellingen/File). Staan die er, dan
-# telt dit script alleen die op en leest het de uitvoer niet: die kan parquet zijn (ModelParameters/Advanced/OutputFormat), en de
+# telt dit script alleen die op en leest het de uitvoer niet: die kan parquet zijn (ModelParameters/OutputFormat), en de
 # csv van Auto voor Buurt2023 is 284 GB. Het optellen gebeurt hier en niet in het model, omdat de blokken in aparte GeoDmsRuns
 # gerekend worden (WriteOutputBlocks.ps1) en een opvraging voor de som de configuratie opnieuw zou laden.
 import argparse, csv, glob, os, re, sys
@@ -23,8 +23,8 @@ from multiprocessing import Pool
 
 SOORTEN = ['alle', 'OV-keten', 'WW', 'CC', 'AA']
 GROEPEN = ['alle', 'OV-keten', 'WW', 'CC', 'AA', 'zonder auto', 'zonder auto en fiets']
-# leest ook de namen met de component na de datum (tt_<datum>_<component>_<moment>_<n>of<N>.csv), die het model op 2026-10-19 even schreef
-NAME_RE = re.compile(r'tt_\d{8}_(?:[A-Za-z][A-Za-z0-9_]*?_)?(\d\dh\d\dm)_(\d+)of(\d+)\.csv$')
+# sinds 2026-10-20 zonder de datum (tt_<moment>_<n>of<N>.csv); leest ook de oude namen met de datum, en die met de component na de datum (tt_<datum>_<component>_<moment>_<n>of<N>.csv), die het model op 2026-10-19 even schreef
+NAME_RE = re.compile(r'tt_(?:\d{8}_)?(?:[A-Za-z][A-Za-z0-9_]*?_)?(\d\dh\d\dm)_(\d+)of(\d+)\.csv$')
 
 def blok(files):
 	"""Tellingen van een herkomstblok: rijen per (moment, soort), paren per (moment, groep) en per groep over de momenten."""
@@ -111,7 +111,7 @@ def main():
 		momenten.add(mt.group(1))
 		n_blokken.add(mt.group(3))
 	if not per_blok:
-		sys.exit(f'geen bestanden PerBlock/tt_<datum>_<moment>_<n>of<N>.csv in {args.uitvoermap}')
+		sys.exit(f'geen bestanden PerBlock/tt_<moment>_<n>of<N>.csv in {args.uitvoermap}')
 	if len(n_blokken) != 1 or len(per_blok) != int(next(iter(n_blokken))):
 		sys.exit(f'onvolledige uitvoer: {len(per_blok)} blokken gevonden, verwacht {sorted(n_blokken)}')
 	ontbrekend = [(b, m) for b, fs in per_blok.items() for m in momenten if not any(f'_{m}_' in os.path.basename(f) for f in fs)]

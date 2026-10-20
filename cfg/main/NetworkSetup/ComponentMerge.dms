@@ -5,7 +5,7 @@ container ComponentMerge_Def
 	,	Descr = "De componenten die samengevoegd worden, in de volgorde van Advanced/Componenten.";
 	parameter<bool>   MergeComponents_OK := sum_uint32(/ModelParameters/Advanced/Componenten/InMerge) == strcount(/ModelParameters/MergeComponents, ',') + 1
 	,	Descr = "Noemt MergeComponents alleen namen uit Advanced/Componenten, elk een keer? Gecontroleerd bij het schrijven (de IntegrityCheck van ComponentMerge/PerBlock/../Write); de handtekening heeft anders _samen?-.";
-	parameter<string> BaseDir := '%LocalDataProjDir%/Output/' + /ModelParameters/Analysis_date + '_' + /ModelParameters/OutputLabel
+	parameter<string> BaseDir := '%LocalDataProjDir%/Output/' + /ModelParameters/Advanced/Analysis_date + '_' + /ModelParameters/OutputLabel
 	,	Descr = "De uitvoermap van de variant zonder het achtervoegsel van de component.";
 
 	// De handtekening van elke component, zoals zijn uitvoer hem heeft geschreven.
@@ -21,10 +21,10 @@ container ComponentMerge_Def
 	parameter<string> CompSignatures := =asList('''['' + PerComp/' + Comps/name + '/Stored + '']''', ' + ')
 	,	Descr = "De handtekeningen van de componenten achter elkaar, elk tussen [ en ].";
 	parameter<string> Signature :=
-		  'tt_' + /ModelParameters/Analysis_date + '_ORG-' + /ModelParameters/Advanced/OrgSet_string
+		  'tt_' + /ModelParameters/Advanced/Analysis_date + '_ORG-' + /ModelParameters/Advanced/OrgSet_string
 		+ (MergeComponents_OK ? '_samen-' : '_samen?-') + asList(Comps/name, ',')
 		+ '_MinCrit-' + asList(/Classifications/OutputParetoAttr/FileNameElement, '_') + /ModelParameters/Advanced/ChainPareto_FileTag
-		+ '_' + /ModelParameters/Advanced/OutputFormat + '-m2'
+		+ '_' + /ModelParameters/OutputFormat + '-m2'
 		+ '_' + CompSignatures
 	,	Descr = "De handtekening van de samengevoegde uitvoer: datum, herkomstenset, de componenten, de criteria (MergeCriteria) en epsilons, het formaat (sinds 2026-10-20, -m2: uit de parquet van de componenten), en de handtekeningen van de componenten zelf. Is een component opnieuw gerekend met andere parameters, dan klopt de samengevoegde uitvoer niet meer.";
 }
@@ -38,7 +38,7 @@ container ComponentMerge_Def
 // - een OV-component: alles staat in het bestand.
 // Dan per HB-paar de rijen die niet gedomineerd worden op de criteria van het samenvoegen (Classifications/OutputParetoAttr, uit
 // ModelParameters/MergeCriteria), met dezelfde epsilons en operator (pareto_optimal_eps) als in een run, met prijs en tijd in Ct en s;
-// NeedsCar en NeedsBike volgen uit de component (Advanced/Componenten). Het resultaat in ModelParameters/Advanced/OutputFormat, csv of
+// NeedsCar en NeedsBike volgen uit de component (Advanced/Componenten). Het resultaat in ModelParameters/OutputFormat, csv of
 // parquet, in Output/<Analysis_date>_<OutputLabel>_Merged<MergeRunNr>/PerBlock, met de kolom Component (waar de regel vandaan komt),
 // en de tellingen per blok in Tellingen (batch/OdTellingen.py telt ze op). Tot 2026-10-20 las het de csv van de componenten en schreef
 // het de regels ongewijzigd door; dat vroeg dezelfde kolommen in alle componenten.
@@ -101,13 +101,13 @@ container ComponentMerge
 			parameter<string> Moment;
 			///
 			parameter<string> MomentShort := rjoin(Moment, /ModelParameters/Advanced/MeasureMoments/Name, /ModelParameters/Advanced/MeasureMoments/TemplatableTextShrt);
-			parameter<string> FileTail    := '_' + /ModelParameters/Analysis_date + '_' + MomentShort + '_' + BlockFile
-			,	Descr = "De naam van het bestand na tt, zonder extensie: tt_<datum>_<moment>_<n>of<N>; de component of samenvoeging staat in de naam van de map.";
+			parameter<string> FileTail    := '_' + MomentShort + '_' + BlockFile
+			,	Descr = "De naam van het bestand na tt, zonder extensie: tt_<moment>_<n>of<N> (sinds 2026-10-20 zonder de datum); de datum en de component of samenvoeging staan in de naam van de map.";
 
 			// Het bestand van elke component in dit blok en vertrekmoment; een component met EenVertrekmoment (WW, CC, en Car zonder
 			// CarTimeDependent) heeft er een per blok, dat van het congestiemoment, dat voor elk vertrekmoment geldt.
-			attribute<string> CompFile (ComponentMerge_Def/Comps) := ComponentMerge_Def/BaseDir + ComponentMerge_Def/Comps/UitvoerAchtervoegsel + '/PerBlock/tt_' + /ModelParameters/Analysis_date
-				+ '_' + (ComponentMerge_Def/Comps/EenVertrekmoment_Eff ? /ModelParameters/Advanced/EenVertrekmoment_Shrt : MomentShort) + '_' + BlockFile + '.parquet';
+			attribute<string> CompFile (ComponentMerge_Def/Comps) := ComponentMerge_Def/BaseDir + ComponentMerge_Def/Comps/UitvoerAchtervoegsel + '/PerBlock/tt_'
+				+ (ComponentMerge_Def/Comps/EenVertrekmoment_Eff ? /ModelParameters/Advanced/EenVertrekmoment_Shrt : MomentShort) + '_' + BlockFile + '.parquet';
 			container PerComp := for_each_ne(ComponentMerge_Def/Comps/name
 				, 'Read' + ComponentMerge_Def/Comps/ExportKlasse + '_T(' + quote(ComponentMerge_Def/Comps/name) + ', ' + string(id(ComponentMerge_Def/Comps)) + 'b)'); // b: Comps is uint8
 
@@ -307,7 +307,7 @@ container ComponentMerge
 				, sum_uint64(Paren/zonder_auto)
 				, sum_uint64(Paren/zonder_auto_en_fiets));
 
-			// De uitvoer volgens ModelParameters/Advanced/OutputFormat: parquet, getypt en zonder het vertrekmoment in de kolomnamen (dat staat in
+			// De uitvoer volgens ModelParameters/OutputFormat: parquet, getypt en zonder het vertrekmoment in de kolomnamen (dat staat in
 			// de bestandsnaam), of csv, met het vertrekmoment achter de kolomnamen, zoals de csv van een component, en een onbekende waarde leeg.
 			container Parquet : StorageName = "=/ModelParameters/Advanced/OutputDir + '/PerBlock/tt' + FileTail + '.parquet'", StorageType = "gdalwrite.vect"
 			{
@@ -345,7 +345,7 @@ container ComponentMerge
 			parameter<string> File := 'OrgName;DestName;' + asList(CsvColumns/name + '_' + MomentShort, ';') + '\n' + asList(Line, '\n')
 			,	StorageName = "=/ModelParameters/Advanced/OutputDir + '/PerBlock/tt' + FileTail + '.csv'", StorageType = "str"
 			,	ExplicitSuppliers = "/NetworkSetup/Output_Sig/ForWriting";
-			parameter<string> Write := 'Ready', ExplicitSuppliers = "=/ModelParameters/Advanced/OutputFormat == 'parquet' ? 'Parquet/tt' : 'File'"
+			parameter<string> Write := 'Ready', ExplicitSuppliers = "=/ModelParameters/OutputFormat == 'parquet' ? 'Parquet/tt' : 'File'"
 			,	IntegrityCheck = "ComponentMerge_Def/MergeComponents_OK"
 			,	Descr = "Schrijft de samengevoegde uitvoer van dit blok en vertrekmoment, als parquet of csv (OutputFormat).";
 		}

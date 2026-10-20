@@ -137,7 +137,7 @@ container PublicTransport_Prep
 	container Create_Optimised_Network_Cycling  := Templates/CreateNetwork_Efficient_T(impl/Org, impl/Dest, SourceData/Infrastructure/Network_Cycling, 'Cycling', TRUE), Descr = "Network for pre- and post-transport. Sinds 2026-10-13 (#124) het fietsnet van ModelParameters/Advanced/CyclingNetwork (standaard de Fietsersbond), tot dan OSM.";
 	container Create_Optimised_Network_EBike    := Templates/CreateNetwork_Efficient_T(impl/Org, impl/Dest, SourceData/Infrastructure/Network_Cycling, 'E_Biking', TRUE), Descr = "Network for pre- and post-transport.";
 
-	// Directe ritten naast het OV. Per toegestane modaliteit (ModelParameters/AllowDirectWalking, -Cycling,
+	// Directe ritten naast het OV. Per toegestane modaliteit (ModelParameters/Advanced/AllowDirectWalking, -Cycling,
 	// -Car; de lijst staat in Advanced/DirectModes) de volledige HB-tabel uit /NetworkSetup/PrivateTransport,
 	// samengevoegd tot een tabel met dezelfde kolommen. De ketenrijger (PublicTransport/PerDepartureMoment_T,
 	// Union_with_DirectOD) voegt per blok deze rijen bij de OV-ketens en houdt per HB-paar het Pareto-front op
@@ -164,7 +164,7 @@ container PublicTransport_Prep
 		
 		unit<uint64> Cycling := /NetworkSetup/PrivateTransport/Cycling/Calc_Traveltimes_maxspeed_Cycling/Traveltimes
 		{
-			attribute<s>          Duration_seconds := convert(impedance[min_f] + /ModelParameters/Advanced/Cycling_StartTime, s);
+			attribute<s>          Duration_seconds := convert(impedance[min_f] + /ModelParameters/Cycling_StartTime, s);
 			attribute<dam>        Distance         := alt_imp[dam];
 			attribute<Ct>         Price_Augm       := rounded_convert(Duration_seconds[min_f] * /ModelParameters/Direct_Cycling_Time_Costs, Ct);
 			attribute<Ct>         Price            := =/ModelParameters/Advanced/IncludeCyclingCostsInPrice ? 'Price_Augm' : 'const(0, ., Ct)';
@@ -183,11 +183,11 @@ container PublicTransport_Prep
 		// HB-paar en het uitgedunde front (Car/Front). De handtekening (Signature) draagt alles wat de inhoud bepaalt; de naam sinds 2026-10-03
 		// alleen het moment, de herkomst- en bestemmingenset en een hash van de handtekening (NetworkModel_PBL#118). Eerst Write_Car berekenen
 		// (40 min scalair, langer met pareto; batch/UpdateAll.cmd cars doet alle momenten), dan herladen.
-		unit<uint8> CarMoments := range(uint8, 0b, uint8(4 + (/ModelParameters/CarTimeDependent ? #/ModelParameters/Advanced/MeasureMoments : 0)))
+		unit<uint8> CarMoments := range(uint8, 0b, uint8(4 + (/ModelParameters/Advanced/CarTimeDependent ? #/ModelParameters/Advanced/MeasureMoments : 0)))
 		,	Descr = "De congestiemomenten waarvoor een store van de directe autorit bestaat: de drie spitsen en de vrije stroom (TomTom: Freeflow, OSM: MaxSpeed); Car_CongestionMoment_ForDirect kiest er een. Met CarTimeDependent (sinds 2026-10-09, #132) daarnaast per vertrekmoment een tijdafhankelijke store, TD<moment> (TD07h00m), waaruit de eindafweging van dat moment per blok haar rijen leest (PerDepartureMoment_T, CarRows)."
 		{
 			attribute<string> name := ='union_data(., ''MorningRush'', ''NoonRush'', ''LateEveningRush'', '+quote(/ModelParameters/UseTomTomNetworkForCars ? 'Freeflow' : 'MaxSpeed')
-				+ (/ModelParameters/CarTimeDependent ? ', ' + asList(quote('TD' + /ModelParameters/Advanced/MeasureMoments/TemplatableTextShrt), ', ') : '') + ')';
+				+ (/ModelParameters/Advanced/CarTimeDependent ? ', ' + asList(quote('TD' + /ModelParameters/Advanced/MeasureMoments/TemplatableTextShrt), ', ') : '') + ')';
 		}
 		container CarPerMoment := for_each_ne(CarMoments/name, 'DirectCarStore_T('+quote(CarMoments/name)+')')
 		,	Descr = "Per congestiemoment: Write_Car (schrijft de store), Car_store (leest hem) en Car (met prijs, Summary per HB-paar en het front, Car/Front).";
@@ -201,9 +201,9 @@ container PublicTransport_Prep
 				? '/NetworkSetup/PrivateTransport/Car/Traveltimes/TD/' + Moment + '/impedanceMatrix'
 				: '/NetworkSetup/PrivateTransport/Car/Traveltimes/'+Moment+(/ModelParameters/UseTomTomNetworkForCars ? '_TomTom' : '_OSM')+'_w_AltImp'+(/ModelParameters/Advanced/ParetoLegs_Car ? '_pareto' : '')+'/impedanceMatrix'
 			,	Descr = "Rekenkant: de (pareto-)afstandsmatrix van PrivateTransport_Car_T op dit moment, of de tijdafhankelijke zoektocht van dit vertrekmoment (Traveltimes/TD). Niet zelf gebruiken; Write_Car schrijft hem weg en Car leest hem terug.";
-			parameter<km_hr>  MaxSpeed        := MakeDefined(rjoin(IsTD ? /ModelParameters/Car_CongestionMoment_ForDirect : Moment, /ModelParameters/Advanced/CongestionTimes/name, /ModelParameters/Advanced/CongestionTimes/MaxSpeed), 0[km_hr]), Descr = "Het snelheidsplafond van dit moment (0 = geen), voor de storenaam; bij een tijdafhankelijke store dat van het congestiemoment.";
+			parameter<km_hr>  MaxSpeed        := MakeDefined(rjoin(IsTD ? /ModelParameters/Advanced/Car_CongestionMoment_ForDirect : Moment, /ModelParameters/Advanced/CongestionTimes/name, /ModelParameters/Advanced/CongestionTimes/MaxSpeed), 0[km_hr]), Descr = "Het snelheidsplafond van dit moment (0 = geen), voor de storenaam; bij een tijdafhankelijke store dat van het congestiemoment.";
 			parameter<string> TD_Tag          := IsTD
-				? '_td-' + /ModelParameters/Car_CongestionMoment_ForDirect + '-' + string(/ModelParameters/Advanced/CarTD_WindowStart / 60) + 'min-' + string(/ModelParameters/Advanced/CarTD_NrSlots) + 'x300s-st' + string(/ModelParameters/Car_StartTime) + (/ModelParameters/Advanced/CarTD_Search == 'scalar' ? '-scalar' : '')
+				? '_td-' + /ModelParameters/Advanced/Car_CongestionMoment_ForDirect + '-' + string(/ModelParameters/Advanced/CarTD_WindowStart / 60) + 'min-' + string(/ModelParameters/Advanced/CarTD_NrSlots) + 'x300s-st' + string(/ModelParameters/Car_StartTime) + (/ModelParameters/Advanced/CarTD_Search == 'scalar' ? '-scalar' : '')
 				: ''
 			,	Descr = "Deel van de handtekening van een tijdafhankelijke store: de referentie, het venster (begin in minuten, aantal tijdvakken), Car_StartTime (die verschuift de vertrektijd op het netwerk) en de zoektocht.";
 			parameter<string> Signature := 'DirectCar_' + Moment
@@ -302,23 +302,23 @@ container PublicTransport_Prep
 		}
 
 		// De directe autorit die meedoet in het front: het moment van Car_CongestionMoment_ForDirect.
-		unit<uint64> Car := ='CarPerMoment/'+/ModelParameters/Car_CongestionMoment_ForDirect+'/Car/Front'
+		unit<uint64> Car := ='CarPerMoment/'+/ModelParameters/Advanced/Car_CongestionMoment_ForDirect+'/Car/Front'
 		,	Descr = "De directe autorit op het congestiemoment Car_CongestionMoment_ForDirect, uit de store van CarPerMoment/<moment>; bekijk het front en de samenvatting daar."
 		{
-			attribute<s>          Duration_seconds := ='CarPerMoment/'+/ModelParameters/Car_CongestionMoment_ForDirect+'/Car/Front/Duration_seconds';
-			attribute<dam>        Distance         := ='CarPerMoment/'+/ModelParameters/Car_CongestionMoment_ForDirect+'/Car/Front/Distance';
-			attribute<Ct>         Price            := ='CarPerMoment/'+/ModelParameters/Car_CongestionMoment_ForDirect+'/Car/Front/Price';
-			attribute<Ct>         Price_Augm       := ='CarPerMoment/'+/ModelParameters/Car_CongestionMoment_ForDirect+'/Car/Front/Price_Augm';
-			attribute<impl/Modes> Mode_rel         := ='CarPerMoment/'+/ModelParameters/Car_CongestionMoment_ForDirect+'/Car/Front/Mode_rel';
-			attribute<impl/org>   OrgZone_rel      := ='CarPerMoment/'+/ModelParameters/Car_CongestionMoment_ForDirect+'/Car/Front/OrgZone_rel';
-			attribute<impl/dest>  DstZone_rel      := ='CarPerMoment/'+/ModelParameters/Car_CongestionMoment_ForDirect+'/Car/Front/DstZone_rel';
+			attribute<s>          Duration_seconds := ='CarPerMoment/'+/ModelParameters/Advanced/Car_CongestionMoment_ForDirect+'/Car/Front/Duration_seconds';
+			attribute<dam>        Distance         := ='CarPerMoment/'+/ModelParameters/Advanced/Car_CongestionMoment_ForDirect+'/Car/Front/Distance';
+			attribute<Ct>         Price            := ='CarPerMoment/'+/ModelParameters/Advanced/Car_CongestionMoment_ForDirect+'/Car/Front/Price';
+			attribute<Ct>         Price_Augm       := ='CarPerMoment/'+/ModelParameters/Advanced/Car_CongestionMoment_ForDirect+'/Car/Front/Price_Augm';
+			attribute<impl/Modes> Mode_rel         := ='CarPerMoment/'+/ModelParameters/Advanced/Car_CongestionMoment_ForDirect+'/Car/Front/Mode_rel';
+			attribute<impl/org>   OrgZone_rel      := ='CarPerMoment/'+/ModelParameters/Advanced/Car_CongestionMoment_ForDirect+'/Car/Front/OrgZone_rel';
+			attribute<impl/dest>  DstZone_rel      := ='CarPerMoment/'+/ModelParameters/Advanced/Car_CongestionMoment_ForDirect+'/Car/Front/DstZone_rel';
 		}
 	}
 	
 	// Met CarTimeDependent (sinds 2026-10-09, #132) hangt de autorit van het vertrekmoment af: hij staat dan niet in Direct_OD, maar per moment in
 	// een eigen store (Direct/CarPerMoment/TD<moment>), en de eindafweging van elk blok en moment leest daaruit de rijen van haar herkomsten en
 	// voegt ze toe (PerDepartureMoment_T, CarRows en Direct_OD_M). Zonder andere directe modaliteit (Component Auto) is Direct_OD dan leeg.
-	unit<uint8> DirectModes_TI := select_with_attr_by_cond(DirectModes_Selected, not(/ModelParameters/CarTimeDependent && DirectModes_Selected/name == 'Car'))
+	unit<uint8> DirectModes_TI := select_with_attr_by_cond(DirectModes_Selected, not(/ModelParameters/Advanced/CarTimeDependent && DirectModes_Selected/name == 'Car'))
 	,	Descr = "De directe modaliteiten die niet van het vertrekmoment afhangen: alle toegestane, behalve de auto met CarTimeDependent.";
 	parameter<bool> HasDirectTI := #DirectModes_TI > 0;
 	unit<uint64> Direct_OD := = HasDirectTI ? 'union_unit_uint64('+asList('Direct/'+DirectModes_TI/name, ',')+')' : 'range(uint64, 0u64, 0u64)'
@@ -397,13 +397,13 @@ container PublicTransport_Prep
 		parameter<TimeInvariantTypes> TimeInvariantTypes_rel := rlookup(TypeName, TimeInvariantTypes/name);
 		parameter<bool>   IsPre      := TimeInvariantTypes/VN_Transport[TimeInvariantTypes_rel] == 'V';
 		parameter<string> NetworkTag := TimeInvariantTypes/NetworkType[TimeInvariantTypes_rel] == 'Cycling'
-			? 'cycling' + string(/ModelParameters/Advanced/CyclingSpeed_kmhr) + 'kmh' + (/ModelParameters/Advanced/CyclingNetwork_FileTag != '' ? /ModelParameters/Advanced/CyclingNetwork_FileTag : '_osm' + /SourceData/Infrastructure/OSM/file_date + /SourceData/Infrastructure/OSM/StoreRevision)
-			: 'walking' + string(/ModelParameters/Advanced/WalkingSpeed_kmhr) + 'kmh_osm' + /SourceData/Infrastructure/OSM/file_date + /SourceData/Infrastructure/OSM/StoreRevision
+			? 'cycling' + string(/ModelParameters/CyclingSpeed_kmhr) + 'kmh' + (/ModelParameters/Advanced/CyclingNetwork_FileTag != '' ? /ModelParameters/Advanced/CyclingNetwork_FileTag : '_osm' + /SourceData/Infrastructure/OSM/file_date + /SourceData/Infrastructure/OSM/StoreRevision)
+			: 'walking' + string(/ModelParameters/WalkingSpeed_kmhr) + 'kmh_osm' + /SourceData/Infrastructure/OSM/file_date + /SourceData/Infrastructure/OSM/StoreRevision
 		,	Descr = "Het netwerk en de snelheid, voor de handtekening: het Fietsersbond-fietsnet (CyclingNetwork_FileTag) of de OSM-netwerkstore.";
 		parameter<string> Signature := 'Legs_' + TypeName + '_' + NetworkTag
 			+ '_MaxTime-' + string(TimeInvariantTypes/MaxTime[TimeInvariantTypes_rel]) + 'min'
 			+ '_ORG-' + /ModelParameters/Advanced/OrgSet_string + '_DEST-' + /ModelParameters/Advanced/DestSet_string
-			+ '_' + /ModelParameters/Analysis_date + (/ModelParameters/GTFS_file_date == /ModelParameters/Analysis_date ? '' : '_gtfs' + /ModelParameters/GTFS_file_date)
+			+ '_' + /ModelParameters/Advanced/Analysis_date + (/ModelParameters/Advanced/GTFS_file_date == /ModelParameters/Advanced/Analysis_date ? '' : '_gtfs' + /ModelParameters/Advanced/GTFS_file_date)
 			+ '_places' + string(#impl/Places) + '-stops' + string(#impl/Stops)
 			+ '_parquet_r2'
 		,	Descr = "Handtekening van de store: het type, netwerk en snelheid, de maximale tijd, de herkomsten, de bestemmingen en de haltes (feed en peildatum; het aantal plaatsen en haltes ter controle), het formaat en de revisie.";
@@ -475,14 +475,14 @@ container PublicTransport_Prep
 			attribute<dam>         Distance             := Src_alt_imp[org_rel][dam];
 			// start- en parkeertijd en prijs zoals in Templates/CreateNetwork_Pedestrian_Bike_T
 			attribute<bool>        EndsAtICStation      := IsPreTransport && IsDefined(impl/Places/Ric_Stop_rel[To_Place_rel]);
-			parameter<min_f>       ExtraTime_min        := (IsCycling ? ModelParameters/Advanced/Cycling_StartTime : 0[min_f])
+			parameter<min_f>       ExtraTime_min        := (IsCycling ? ModelParameters/Cycling_StartTime : 0[min_f])
 			                                             + (IsCycling && IsPreTransport ? ModelParameters/Advanced/Cycling_PreTransport_Penalty : 0[min_f]);
 			attribute<s_f>         ExtraTime_seconds    := = IsCycling && IsPreTransport
-			                                             ? 'convert(ExtraTime_min, s_f) + (EndsAtICStation ? convert(ModelParameters/Advanced/Cycling_ParkingTime_IC_Station, s_f) : 0[s_f])'
+			                                             ? 'convert(ExtraTime_min, s_f) + (EndsAtICStation ? convert(ModelParameters/Cycling_ParkingTime_IC_Station, s_f) : 0[s_f])'
 			                                             : 'const(convert(ExtraTime_min, s_f), .)';
 			attribute<s_f>         Duration_seconds_ext := impedance + ExtraTime_seconds;
 			attribute<ct>          Price                := = TimeInvariantTypes/IsOVfiets[TimeInvariantTypes_rel]
-			                                             ? 'const(rounded_convert(ModelParameters/Advanced/OVFiets_RentalPrice, ct), .)'
+			                                             ? 'const(rounded_convert(ModelParameters/OVFiets_RentalPrice, ct), .)'
 			                                             : 'rounded_convert(Duration_seconds_ext[min_f] * ModelParameters/' + (IsPreTransport ? 'PreTransport' : 'PostTransport') + '_' + Mode + '_Time_Costs, ct)';
 			attribute<impl/Modes>  Mode_rel             := const(TimeInvariantTypes/Mode_rel[TimeInvariantTypes_rel], .);
 		}
@@ -776,10 +776,10 @@ container PublicTransport_Prep
 	parameter<string>     ChainStore_Signature :=
 		'PT_Chains_'+Time/TemplatableTextShrt[impl/FirstDepartureMoment]+
 		'_to_'+Time/TemplatableTextShrt[impl/LastArrivalMoment]+
-		'_'+/ModelParameters/Analysis_date+
-		(/ModelParameters/GTFS_file_date == /ModelParameters/Analysis_date ? '' : '_gtfs'+/ModelParameters/GTFS_file_date)+
+		'_'+/ModelParameters/Advanced/Analysis_date+
+		(/ModelParameters/Advanced/GTFS_file_date == /ModelParameters/Advanced/Analysis_date ? '' : '_gtfs'+/ModelParameters/Advanced/GTFS_file_date)+
 		'_min-'+asList(Classifications/FinalParetoAttr/FileNameElement, '_')+
-		'_maxtransf-'+string(ModelParameters/Advanced/Max_transfers)+
+		'_maxtransf-'+string(ModelParameters/Max_transfers)+
 		'_MaxOV-' + string(ModelParameters/MaxPTTime) + 'min'+
 		// De pareto-benen (ObjectVision/NetworkModel_PBL#115) veranderen de inhoud van dit bestand,
 		// dus moeten ze in de handtekening staan: anders overschrijft een pareto-run stilzwijgend het
@@ -798,7 +798,7 @@ container PublicTransport_Prep
 		ModelParameters/Advanced/ChainStore_ParamTag+
 		ModelParameters/Advanced/ChainStore_Revision; // '_r2' sinds audit 3.5 (2026-09-25)
 	container ChainStore_Hash := /Templates/StringHash_T(ChainStore_Signature);
-	parameter<string>     StorageBase_Str := '%LocalDataProjDir%/IntermediateResults/PT_Chains_' + /ModelParameters/Analysis_date + '_' + ChainStore_Window + '_' + ChainStore_Hash/Hex
+	parameter<string>     StorageBase_Str := '%LocalDataProjDir%/IntermediateResults/PT_Chains_' + /ModelParameters/Advanced/Analysis_date + '_' + ChainStore_Window + '_' + ChainStore_Hash/Hex
 	, Descr = "Naam van de ketenstore zonder extensie (sinds 2026-10-03, NetworkModel_PBL#118): datum en tijdvenster leesbaar, de rest als hash van ChainStore_Signature. Bijvoorbeeld PT_Chains_20261006_07h00m-09h29m_11a52bac; tot dan stond de hele handtekening in de naam en was het langste pad 252 tekens.";
 	parameter<string>     StorageName_Str := StorageBase_Str + '.mmd', Descr = "De ene ketenstore van Write_Result (ChainStore_PerBlock FALSE).";
 	parameter<string>     StorageBlockDir_Str := StorageBase_Str

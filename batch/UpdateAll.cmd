@@ -24,7 +24,7 @@ REM                                 (ConfigurationPerBlock/Generate_Output), met
 REM                                 PT_DepartureHours/Minutes. Maakt die map eerst leeg (sinds 2026-10-03, #118): alleen de
 REM                                 bestanden van het model (tt_*.csv, tt_*.xml, signature.txt/.xml), ook de samengevoegde,
 REM                                 en sinds 2026-10-04 de tellingen od_tellingen.csv en unieke_od_tellingen.csv (met .xml).
-REM                                 Sinds 2026-10-16 met ModelParameters/Advanced/OutputFormat 'parquet' parquet in plaats van
+REM                                 Sinds 2026-10-16 met ModelParameters/OutputFormat 'parquet' parquet in plaats van
 REM                                 csv (tt_*.parquet), en de tellingen per blok in Tellingen (tellingen_*.csv).
 REM                                 Sinds 2026-10-07 in porties van blokken (WriteOutputBlocks.ps1, een GeoDmsRun per
 REM                                 portie, daarna de tellingen met OdTellingen.py); blokken per portie per component in
@@ -115,7 +115,7 @@ if /I not "%SECTION%"=="all" goto done
 :cars
 if "%SKIP_CARS%"=="1" goto cars_done
 REM Zonder directe autorit (AllowDirectCar FALSE: elke component behalve Car, #117) geen autostores.
-call :run cars_check /ModelParameters/AllowDirectCar
+call :run cars_check /ModelParameters/Advanced/AllowDirectCar
 if not "!RC!"=="0" goto failed
 findstr /R "^Minimum.0" "%LOGDIR%\UpdateAll_cars_check.txt" >nul
 if not errorlevel 1 (

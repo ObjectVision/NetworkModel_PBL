@@ -68,7 +68,7 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 		unit<uint32> OrgBlockDomain   := range(0, ModelParameters/Advanced/NumberOfOrgBlocks)
 		{
 			attribute<string> name          := 'Block_'+string(id(.)+1)+'of'+string(max(id(.))+1);
-			attribute<string> FileName      := string(id(.)+1)+'of'+string(max(id(.))+1), Descr = "Het blok in de naam van de uitvoer per blok, PerBlock/tt_<datum>_<moment>_<n>of<N>.csv (sinds 2026-10-03 zonder 'Block_', NetworkModel_PBL#118).";
+			attribute<string> FileName      := string(id(.)+1)+'of'+string(max(id(.))+1), Descr = "Het blok in de naam van de uitvoer per blok, PerBlock/tt_<moment>_<n>of<N>.csv (sinds 2026-10-20 zonder de datum, sinds 2026-10-03 zonder 'Block_', NetworkModel_PBL#118).";
 			attribute<uint64> BlockOffset   := min_elem(uint64(id(.)) * uint64(ModelParameters/Advanced/MaxOrgBlockSize), uint64(#OrgBlockSelections));
 			attribute<uint64> BlockEnd      := min_elem(BlockOffset + uint64(ModelParameters/Advanced/MaxOrgBlockSize), uint64(#OrgBlockSelections));
 			attribute<uint32> BlockSize     := uint32(BlockEnd - BlockOffset);
@@ -81,18 +81,18 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 	// een map met een andere handtekening; de lezers en samenvoegers (ReadExport_OV_perTime_T, Merge_Regions_OV_T, Merge_Times,
 	// PostAnalysis/FindMedian) weigeren te lezen als hij ontbreekt of afwijkt. De ketenstore en de autostore horen erbij, want de
 	// uitvoer is uit hun inhoud gerekend.
-	parameter<string> Output_CarSignature := = /ModelParameters/AllowDirectCar
-		? (/ModelParameters/CarTimeDependent
+	parameter<string> Output_CarSignature := = /ModelParameters/Advanced/AllowDirectCar
+		? (/ModelParameters/Advanced/CarTimeDependent
 			? '''_''+/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/TD' + first(/ModelParameters/Advanced/MeasureMoments/TemplatableTextShrt) + '/Signature'
-			: '''_''+/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/' + /ModelParameters/Car_CongestionMoment_ForDirect + '/Signature')
+			: '''_''+/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/' + /ModelParameters/Advanced/Car_CongestionMoment_ForDirect + '/Signature')
 		: ''''''
 	, Descr = "De handtekening van de autostore van de directe autorit (Car_CongestionMoment_ForDirect) met een _ ervoor, leeg zonder AllowDirectCar. Met CarTimeDependent die van de store van het eerste vertrekmoment, die de tijdafhankelijke zoektocht in TD_Tag draagt (sinds 2026-10-09).";
 	parameter<string> Output_Signature_Run :=
-		  'tt_' + /ModelParameters/Analysis_date + '_ORG-' + /ModelParameters/Advanced/OrgSet_string + /ModelParameters/Advanced/PT_Output_ParamTag
+		  'tt_' + /ModelParameters/Advanced/Analysis_date + '_ORG-' + /ModelParameters/Advanced/OrgSet_string + /ModelParameters/Advanced/PT_Output_ParamTag
 		+ '_export' + (/ModelParameters/Export_TravelledDistance ? '-dist' : '') + (/ModelParameters/Export_PriceInformation ? '-price' : '')
 		+ (/ModelParameters/Advanced/MetOV ? '_' + /NetworkSetup/PublicTransport_Prep/ChainStore_Signature : '')
 		+ Output_CarSignature
-		+ (/ModelParameters/Advanced/OutputFormat == 'parquet' ? '_parquet-' + /ModelParameters/Advanced/ExportKlasse : '')
+		+ (/ModelParameters/OutputFormat == 'parquet' ? '_parquet-' + /ModelParameters/Advanced/ExportKlasse : '')
 	, Descr = "Handtekening van de OV-uitvoer: datum, herkomstenset en PT_Output_ParamTag (tot 2026-10-03 de bestandsnaam zonder vertrekmoment en blok), de kolommen (Export_TravelledDistance, Export_PriceInformation), de handtekeningen van de ketenstore (alleen als het OV meedoet, Advanced/MetOV) en van de autostore, en sinds 2026-10-16 _parquet bij OutputFormat 'parquet' (de lezers en samenvoegers lezen csv), sinds 2026-10-19 met de soort component erachter (_parquet-PT, -Car of -Direct: de kolommen, ModelParameters/Advanced/ExportKlasse).";
 	parameter<string> Output_Signature := =/ModelParameters/Advanced/IsSamen ? 'ComponentMerge_Def/Signature' : 'Output_Signature_Run'
 	, Descr = "De handtekening van de uitvoermap: Output_Signature_Run van een run, of bij MergeOutput (#117) die van ComponentMerge, met de handtekeningen van de samengevoegde componenten.";
@@ -100,9 +100,9 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 		  /ModelParameters/Advanced/OutputDir
 		, /ModelParameters/Advanced/OutputDir + '/signature.txt'
 		, Output_Signature
-		, strlen('/PerBlock/tt_' + /ModelParameters/Analysis_date + '_') + max_elem(max(strlen(/ModelParameters/Advanced/MeasureMoments/TemplatableTextShrt)), strlen('mediaan')) + 1 + max(strlen(impl/OrgBlockDomain/FileName)) + strlen(/ModelParameters/Advanced/OutputExt)
+		, strlen('/PerBlock/tt_') + max_elem(max(strlen(/ModelParameters/Advanced/MeasureMoments/TemplatableTextShrt)), strlen('mediaan')) + 1 + max(strlen(impl/OrgBlockDomain/FileName)) + strlen(/ModelParameters/Advanced/OutputExt)
 		)
-	, Descr = "De handtekening in de uitvoermap: de schrijver per blok schrijft hem (en controleert het langste pad, PerBlock/tt_<datum>_<moment>_<n>of<N>.csv of .parquet), de lezers en samenvoegers controleren hem.";
+	, Descr = "De handtekening in de uitvoermap: de schrijver per blok schrijft hem (en controleert het langste pad, PerBlock/tt_<moment>_<n>of<N>.csv of .parquet; tot 2026-10-20 met de datum na tt_), de lezers en samenvoegers controleren hem.";
 	parameter<string> OutputDir_ForBatch := replace(expand(., /ModelParameters/Advanced/OutputDir), '/', '\\'), StorageName = "%ConfigDir%/../../batch/log/output_dir.txt", StorageType = "str"
 	, Descr = "De uitvoermap voor batch/UpdateAll.cmd output, dat er voor de uitvoerstap de bestanden van het model uit weghaalt (tt_*.csv, tt_*.xml en de handtekening).";
 

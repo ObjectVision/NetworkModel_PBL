@@ -8,7 +8,7 @@ Template CreateNetwork_Pedestrian_Bike_T : using = "geometries"
 	parameter<string> ConnectionType;
 	container         Optimised_Network;
 	////
-	parameter<min_f> MaxDistSelection_min := ='ModelParameters/Max'+TravelMode+'Time_'+ConnectionType;
+	parameter<min_f> MaxDistSelection_min := ='ModelParameters/' + (TravelMode == 'Walking' && ConnectionType != 'Org2Stops' && ConnectionType != 'Stops2Dest' && ConnectionType != 'Org2Dest' ? 'Advanced/' : '') + 'Max'+TravelMode+'Time_'+ConnectionType; // de looptijden die geen component gebruikt staan sinds 2026-10-20 in Advanced
 	parameter<s_f>   MaxDistSelection_sec := convert(MaxDistSelection_min, s_f);
 	
 	unit<uint32> LinkSet0 := Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet;
@@ -61,9 +61,9 @@ Template CreateNetwork_Pedestrian_Bike_T : using = "geometries"
 		// Fiets (#117), niet.
 		parameter<bool>    IsCycling                        := TravelMode == 'Cycling';
 		attribute<bool>    EndsAtICStation                  := IsPreTransport && IsDefined(Places/Ric_Stop_rel[To_Place_rel]);
-		parameter<min_f>   ExtraTime_min                    := (IsCycling ? ModelParameters/Advanced/Cycling_StartTime : 0[min_f])
+		parameter<min_f>   ExtraTime_min                    := (IsCycling ? ModelParameters/Cycling_StartTime : 0[min_f])
 		                                                     + (IsCycling && IsPreTransport ? ModelParameters/Advanced/Cycling_PreTransport_Penalty : 0[min_f]);
-		parameter<s_f>     ExtraTime_IC_seconds             := convert(ModelParameters/Advanced/Cycling_ParkingTime_IC_Station, s_f);
+		parameter<s_f>     ExtraTime_IC_seconds             := convert(ModelParameters/Cycling_ParkingTime_IC_Station, s_f);
 		attribute<s_f>     ExtraTime_seconds                := = IsCycling && IsPreTransport
 		                                                     ? 'convert(ExtraTime_min, s_f) + (EndsAtICStation ? ExtraTime_IC_seconds : 0[s_f])'
 		                                                     : 'const(convert(ExtraTime_min, s_f), .)'
@@ -79,7 +79,7 @@ Template CreateNetwork_Pedestrian_Bike_T : using = "geometries"
 		attribute<Places>  From_Place_rel                   := ='rlookup(Start_rel, Places/'+OriginSetStr+'_rel)';
 		attribute<Places>  To_Place_rel                     := ='rlookup(End_rel,  Places/'+DestinationSet+'_rel)';
 		attribute<ct>      Price                            := =IsOVFiets
-																	? 'const(rounded_convert(ModelParameters/Advanced/OVFiets_RentalPrice, ct),.)'
+																	? 'const(rounded_convert(ModelParameters/OVFiets_RentalPrice, ct),.)'
 																	: 'rounded_convert(Duration_seconds_ext[min_f] * ModelParameters/'+PreTransportStr+'_'+TravelMode+'_Time_Costs, ct)'
 		,	Descr = "De huurprijs bij de OV-fiets; anders de tijdwaardering over de verlengde tijd, bij fietsen in het natransport voor een eigen fiets bij de laatste halte (sinds 2026-10-19; tot dan kreeg RMT_Stops2Dest_Cycling met UseOVFietsPriceForAllCyclingPostTransport de huurprijs).";
 		parameter<bool>               IsOVFiets                      := TimeInvariantTypes/IsOVfiets[TimeInvariantTypes_rel];
