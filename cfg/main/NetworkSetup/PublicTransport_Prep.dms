@@ -2,11 +2,36 @@ container PublicTransport_Prep
 {
 	container impl
 	{
-		unit<uint32> org := =Org_domain
+		// Sinds 2026-10-21 (#129): bij een HB-paar (ModelParameters/Advanced/IsOD) zijn de herkomsten en de bestemmingen elk het ene element
+		// van Orgset en Destset met de naam OD_Herkomst en OD_Bestemming (OD_Org, OD_Dest). Alles erna (de plaatsen, de herkomstblokken, de
+		// benen, de directe ritten en de auto) heeft dan een herkomst en een bestemming. De buurtvariant blijft die van de sets (Advanced/Buurtset).
+		parameter<string> Org_domain        := rjoin(lowercase(ModelParameters/Orgset),  lowercase(Advanced/org_domain_list/label),  Advanced/org_domain_list/path);
+		parameter<string> Dest_domain       := rjoin(lowercase(ModelParameters/DestSet), lowercase(Advanced/dest_domain_list/label), Advanced/dest_domain_list/path);
+		parameter<string> Org_unit          := ModelParameters/Advanced/IsOD ? '/NetworkSetup/PublicTransport_Prep/impl/OD_Org' : Org_domain, Descr = "Het pad van de herkomsten: Orgset (Org_domain), of bij een HB-paar de ene herkomst daarvan (OD_Org).";
+		parameter<string> Dest_unit         := ModelParameters/Advanced/IsOD ? '/NetworkSetup/PublicTransport_Prep/impl/OD_Dest' : Dest_domain, Descr = "Het pad van de bestemmingen: Destset (Dest_domain), of bij een HB-paar de ene bestemming daarvan (OD_Dest).";
+		// Met select_with_org_rel en de attributen die het model leest: select_with_attr_by_cond zou alle attributen van de set meenemen,
+		// ook die van bronnen die er niet zijn (de inwoners per 100 m-vierkant bij de buurten).
+		unit<uint32> OD_Org  := ='select_with_org_rel(' + Org_domain + '/name == ModelParameters/OD_Herkomst)'
+		, Descr = "De herkomst van het HB-paar: het element van Orgset met de naam OD_Herkomst."
 		{
-			attribute<rdc>                   geometry       := =impl/Org_domain+'/geometry';
-			attribute<string>                name           := =impl/Org_domain+'/name';
-			attribute<float32>               nr_inwoners    := =impl/Org_domain+'/nr_inwoners[float32]';
+			attribute<rdc>                   geometry       := =impl/Org_domain + '/geometry[org_rel]';
+			attribute<string>                name           := =impl/Org_domain + '/name[org_rel]';
+			attribute<float32>               nr_inwoners    := =impl/Org_domain + '/nr_inwoners[float32][org_rel]';
+		}
+		unit<uint32> OD_Dest := ='select_with_org_rel(' + Dest_domain + '/name == ModelParameters/OD_Bestemming)'
+		, Descr = "De bestemming van het HB-paar: het element van Destset met de naam OD_Bestemming."
+		{
+			attribute<uint32>                nr_items_of_interest := =impl/Dest_domain + '/' + Advanced/items_of_interest + '[org_rel]';
+			attribute<rdc>                   geometry             := =impl/Dest_domain + '/geometry[org_rel]';
+			attribute<string>                name                 := =impl/Dest_domain + '/name[org_rel]';
+			attribute<string>                label                := =impl/Dest_domain + '/label[org_rel]';
+		}
+
+		unit<uint32> org := =Org_unit
+		{
+			attribute<rdc>                   geometry       := =impl/Org_unit+'/geometry';
+			attribute<string>                name           := =impl/Org_unit+'/name', IntegrityCheck = "!ModelParameters/Advanced/IsOD || #impl/org == 1", Descr = "Bij een HB-paar precies een herkomst, met de naam OD_Herkomst.";
+			attribute<float32>               nr_inwoners    := =impl/Org_unit+'/nr_inwoners[float32]';
 		}
 		
 		unit<uint32> dest := impl/dest_src
@@ -14,15 +39,12 @@ container PublicTransport_Prep
 			attribute<rdc>                   geometry       := impl/dest_src/geometry;
 		}
 		
-		parameter<string> Org_domain        := rjoin(lowercase(ModelParameters/Orgset),  lowercase(Advanced/org_domain_list/label),  Advanced/org_domain_list/path);
-		parameter<string> Dest_domain       := rjoin(lowercase(ModelParameters/DestSet), lowercase(Advanced/dest_domain_list/label), Advanced/dest_domain_list/path);
-		
-		unit<uint32> dest_src := =Dest_domain
+		unit<uint32> dest_src := =Dest_unit
 		{
-			attribute<uint32>                nr_items_of_interest := =Dest_domain+'/'+Advanced/items_of_interest;
-			attribute<rdc>                   geometry             := =Dest_domain+'/geometry';
-			attribute<string>                name                 := =Dest_domain+'/name';
-			attribute<string>                label                := =Dest_domain+'/label';
+			attribute<uint32>                nr_items_of_interest := =Dest_unit+'/'+(ModelParameters/Advanced/IsOD ? 'nr_items_of_interest' : Advanced/items_of_interest);
+			attribute<rdc>                   geometry             := =Dest_unit+'/geometry';
+			attribute<string>                name                 := =Dest_unit+'/name', IntegrityCheck = "!ModelParameters/Advanced/IsOD || #impl/dest_src == 1", Descr = "Bij een HB-paar precies een bestemming, met de naam OD_Bestemming.";
+			attribute<string>                label                := =Dest_unit+'/label';
 		}
 		
 		parameter<string>   PT_path_str           := 'SourceData/Infrastructure/GTFS/PublicTransportNet'; 
@@ -220,7 +242,7 @@ container PublicTransport_Prep
 				? 'TT' + replace(/SourceData/Infrastructure/TomTom/file_date, 'yr', '', '_', '-')
 				: 'OSM' + /SourceData/Infrastructure/OSM/file_date
 			,	Descr = "Het wegennet in de naam van de store (sinds 2026-10-21): TT en de TomTom-editie (TT2025-12 voor yr2025_12) of OSM en de datum van de OSM-extractie. Een autostore hangt van de editie af, niet van de peildatum: Y2025 en Y2026 delen yr2025_12.";
-			parameter<string> StorageBase_Str := '%LocalDataProjDir%/IntermediateResults/DirectCar_' + NetTag + '_' + Moment + '_' + /ModelParameters/Advanced/OrgSet_PathTag + '_' + /ModelParameters/Advanced/DestSet_PathTag + '_' + Hash/Hex
+			parameter<string> StorageBase_Str := /ModelParameters/Advanced/IntermediateResultsDir + '/DirectCar_' + NetTag + '_' + Moment + '_' + /ModelParameters/Advanced/OrgSet_PathTag + '_' + /ModelParameters/Advanced/DestSet_PathTag + '_' + Hash/Hex
 			,	Descr = "Naam van de store zonder extensie: het wegennet (NetTag, sinds 2026-10-21), het congestiemoment, de herkomst- en bestemmingenset leesbaar (sinds 2026-10-20 kort, OrgSet_PathTag: b2025 voor buurt2025), de rest als hash van Signature. Bijvoorbeeld DirectCar_TT2025-12_TD07h00m_b2025_b2025_3dc99b97.mmd.";
 			parameter<string> StorageName_Str := StorageBase_Str + '.mmd';
 			container Sig := /Templates/StoreSignature_T(StorageName_Str, StorageName_Str + '/signature.txt', Signature, strlen('/0Dictionary.dms'))
@@ -412,7 +434,7 @@ container PublicTransport_Prep
 			+ '_parquet_r2'
 		,	Descr = "Handtekening van de store: het type, netwerk en snelheid, de maximale tijd, de herkomsten, de bestemmingen en de haltes (feed en peildatum; het aantal plaatsen en haltes ter controle), het formaat en de revisie.";
 		container Hash := /Templates/StringHash_T(Signature);
-		parameter<string> StorageBase_Str := '%LocalDataProjDir%/IntermediateResults/Legs_' + replace(TypeName, 'Org2', /ModelParameters/Advanced/OrgSet_NameTag + 'to', 'Dest', /ModelParameters/Advanced/DestSet_NameTag) + '_' + Hash/Hex
+		parameter<string> StorageBase_Str := /ModelParameters/Advanced/IntermediateResultsDir + '/Legs_' + replace(TypeName, 'Org2', /ModelParameters/Advanced/OrgSet_NameTag + 'to', 'Dest', /ModelParameters/Advanced/DestSet_NameTag) + '_' + Hash/Hex
 		,	Descr = "Naam van de store zonder extensie: het type met de herkomsten- of bestemmingenset (OrgSet_NameTag: Legs_B2025toStops_Walking, Legs_Stops2B2025_Cycling), de rest als hash van Signature.";
 		parameter<string> StorageName_Str := StorageBase_Str + '.parquet';
 		container Sig := /Templates/StoreSignature_T(StorageName_Str, StorageBase_Str + '.signature.txt', Signature, strlen('.signature.txt') - strlen('.parquet'))
@@ -851,7 +873,7 @@ container PublicTransport_Prep
 		ModelParameters/Advanced/ChainStore_ParamTag+
 		ModelParameters/Advanced/ChainStore_Revision; // '_r2' sinds audit 3.5 (2026-09-25)
 	container ChainStore_Hash := /Templates/StringHash_T(ChainStore_Signature);
-	parameter<string>     StorageBase_Str := '%LocalDataProjDir%/IntermediateResults/PT_Chains_' + /ModelParameters/Advanced/Analysis_date + '_' + ChainStore_Window + '_' + ChainStore_Hash/Hex
+	parameter<string>     StorageBase_Str := /ModelParameters/Advanced/IntermediateResultsDir + '/PT_Chains_' + /ModelParameters/Advanced/Analysis_date + '_' + ChainStore_Window + '_' + ChainStore_Hash/Hex
 	, Descr = "Naam van de ketenstore zonder extensie (sinds 2026-10-03, NetworkModel_PBL#118): datum en tijdvenster leesbaar, de rest als hash van ChainStore_Signature. Bijvoorbeeld PT_Chains_20261006_07h00m-09h29m_11a52bac; tot dan stond de hele handtekening in de naam en was het langste pad 252 tekens.";
 	parameter<string>     StorageName_Str := StorageBase_Str + '.mmd', Descr = "De ene ketenstore van Write_Result (ChainStore_PerBlock FALSE).";
 	parameter<string>     StorageBlockDir_Str := StorageBase_Str
