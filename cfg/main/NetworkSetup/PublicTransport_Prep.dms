@@ -251,13 +251,36 @@ container PublicTransport_Prep
 			parameter<string> StorageName_Str := StorageBase_Str + '.mmd';
 			container Sig := /Templates/StoreSignature_T(StorageName_Str, StorageName_Str + '/signature.txt', Signature, strlen('/0Dictionary.dms'))
 			,	Descr = "De handtekening in de map van de store (signature.txt, naast 0Dictionary.dms; sinds 2026-10-06, tot dan <naam>.signature.txt ernaast in IntermediateResults): Write_Car schrijft hem, Car_store controleert hem.";
-			unit<uint64> Write_Car := Car_src, StorageName = "=StorageName_Str", ExplicitSuppliers = "Sig/ForWriting"
+			unit<uint64> Write_Car := Car_src, StorageName = "=StorageName_Str", ExplicitSuppliers = "='Sig/ForWriting' + (/ModelParameters/Advanced/IsOD && IsTD && /ModelParameters/Advanced/EngineHasParetoLinkSet ? ';Write_CarLinks/links' : '')"
 			,	Descr = "Schrijft de afstandsmatrix van de directe autorit op dit moment naar StorageName_Str, en de handtekening ernaast (Sig); bereken dit item om de store (opnieuw) te maken."
 			{
 				attribute<s_f>        impedance   := Car_src/Car_Time, Descr = "De reistijd van de route; met de relatieve epsilon (sinds 2026-10-05) het tweede zoekcriterium, de afstand het eerste.";
 				attribute<km>         alt_imp     := Car_src/Car_Distance, Descr = "De afstand van de route (sinds 2026-10-05, #88; tot dan de linkkosten in euro).";
 				attribute<impl/org>   OrgZone_rel := Car_src/OrgZone_rel;
 				attribute<impl/dest>  DstZone_rel := Car_src/DstZone_rel;
+			}
+			// DE LINKS VAN DE ROUTES (sinds 2026-10-21, #129), alleen in de HB-paarmodus met een tijdafhankelijke store: per route (een rij van de
+			// store) de links in de volgorde van de rit, met de vorm van de weg uit TomTom.
+			parameter<string> Links_Src     := '/NetworkSetup/PrivateTransport/Car/Traveltimes/TD/' + Moment;
+			parameter<string> LinksName_Str := StorageBase_Str + '_links.gpkg';
+			container Write_CarLinks : StorageName = "=LinksName_Str", StorageType = "gdalwrite.vect"
+			,	Descr = "Schrijft de links van de routes naar LinksName_Str; bereken Write_CarLinks/links. Alleen in de HB-paarmodus, bij een tijdafhankelijke store."
+			{
+				unit<uint32> links := =Links_Src + '/Links/Rows', ExplicitSuppliers = "Sig/ForWriting"
+				{
+					attribute<uint32> Route    := ='uint32(' + Links_Src + '/Links/Rows/Route_rel)', Descr = "De rij van de store (Write_Car).";
+					attribute<uint32> Volgnr   := =Links_Src + '/Links/Rows/Volgnr';
+					attribute<rdc>    geometry (arc) := =Links_Src + '/LinkGeometrie';
+				}
+			}
+			container CarLinks_store : StorageName = "=LinksName_Str", StorageType = "gdal.vect", StorageReadOnly = "true"
+			{
+				unit<uint32> links
+				{
+					attribute<uint32> Route;
+					attribute<uint32> Volgnr;
+					attribute<rdc>    geometry (arc);
+				}
 			}
 			unit<uint64> Car_store : StorageName = "=Sig/ForReading", StorageReadOnly = "true"
 			,	Descr = "Kale lezer van de store; declareert niets. Faalt als de handtekening ontbreekt of afwijkt (Sig/CheckGate); bestaat de store niet, bereken dan eerst Write_Car.";

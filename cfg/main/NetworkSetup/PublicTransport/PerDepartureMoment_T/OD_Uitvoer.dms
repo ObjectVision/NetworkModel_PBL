@@ -187,12 +187,32 @@ container OD_Uitvoer
 	container D_Lopen   := DirectLinks_T('Walking');
 	container D_Fietsen := DirectLinks_T('Cycling');
 
+	// de directe autorit van dit vertrekmoment (CarTD): de links van zijn route uit de autostore van het moment (CarLinks_store), gekoppeld
+	// op de rij van de store: optie -> Direct_OD_M -> DirectCar_M = DirectCar/Front -> CarRows -> rij van de store
+	unit<uint64> AutoOpties := = CarTD ? 'select_with_org_rel(Opties/IsDirect && Direct_OD_M/IsCarTD[value(Opties/Bron_rel, Direct_OD_M)])' : 'range(uint64, 0u64, 0u64)'
+	{
+		attribute<Opties> Optie_rel := = CarTD ? 'org_rel' : 'const(value(null_u, Opties), .)';
+		attribute<uint32> StoreRij  := = CarTD ? 'uint32(CarRows/Store_rel[DirectCar/Front/org_rel[value(Direct_OD_M/Bron_rel[value(Opties/Bron_rel[Optie_rel], Direct_OD_M)], DirectCar/Front)]])' : 'const(0, ., uint32)';
+	}
+	unit<uint32> AutoLinks_Src := = CarTD && /ModelParameters/Advanced/EngineHasParetoLinkSet ? '/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/' + TDName + '/CarLinks_store/links' : 'range(uint32, 0, 0)'
+	{
+		attribute<uint32> Route  := = CarTD && /ModelParameters/Advanced/EngineHasParetoLinkSet ? '/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/' + TDName + '/CarLinks_store/links/Route' : 'const(0, ., uint32)';
+	}
+	unit<uint64> A_Auto := join_equal_values_uint64(AutoOpties/StoreRij, AutoLinks_Src/Route)
+	{
+		attribute<Opties> Optie_rel := AutoOpties/Optie_rel[first_rel];
+		attribute<uint32> Onderdeel := const(0, ., uint32);
+		attribute<uint32> Volgnr    := ='/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/' + TDName + '/CarLinks_store/links/Volgnr[second_rel]';
+		attribute<Modes>  Mode_rel  := const(Modes/V/Car, .);
+		attribute<rdc>    geometry (arc) := ='/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/' + TDName + '/CarLinks_store/links/geometry[second_rel]';
+	}
+
 	// De delen van Links die deze run heeft: het OV met MetOV, de directe ritten van de toegestane modaliteiten, voor- en natransport van
 	// de typen van de component (de andere leveren geen rijen, maar zo leest de run hun store niet).
-	unit<uint8> LinkDelen : nrofrows = 9
+	unit<uint8> LinkDelen : nrofrows = 10
 	{
-		attribute<string> name  : ['V_Lopen/Sel', 'V_Fietsen/Sel', 'PT_L/Rows', 'PT_R/Rows', 'Overstappen', 'N_Lopen/Sel', 'N_Fietsen/Sel', 'D_Lopen/Rows', 'D_Fietsen/Rows'];
-		attribute<bool>   IsMee := union_data(., MetOV && IsDefined(strpos(/ModelParameters/Advanced/Component_Voortransport, 'Walking')), MetOV && IsDefined(strpos(/ModelParameters/Advanced/Component_Voortransport, 'Cycling')), MetOV, MetOV, MetOV, MetOV && IsDefined(strpos(/ModelParameters/Advanced/Component_Natransport, 'Walking')), MetOV && IsDefined(strpos(/ModelParameters/Advanced/Component_Natransport, 'Cycling')), /ModelParameters/Advanced/AllowDirectWalking, /ModelParameters/Advanced/AllowDirectCycling);
+		attribute<string> name  : ['V_Lopen/Sel', 'V_Fietsen/Sel', 'PT_L/Rows', 'PT_R/Rows', 'Overstappen', 'N_Lopen/Sel', 'N_Fietsen/Sel', 'D_Lopen/Rows', 'D_Fietsen/Rows', 'A_Auto'];
+		attribute<bool>   IsMee := union_data(., MetOV && IsDefined(strpos(/ModelParameters/Advanced/Component_Voortransport, 'Walking')), MetOV && IsDefined(strpos(/ModelParameters/Advanced/Component_Voortransport, 'Cycling')), MetOV, MetOV, MetOV, MetOV && IsDefined(strpos(/ModelParameters/Advanced/Component_Natransport, 'Walking')), MetOV && IsDefined(strpos(/ModelParameters/Advanced/Component_Natransport, 'Cycling')), /ModelParameters/Advanced/AllowDirectWalking, /ModelParameters/Advanced/AllowDirectCycling, CarTD && /ModelParameters/Advanced/EngineHasParetoLinkSet);
 		attribute<string> Volgnr := name == 'Overstappen' ? 'const(0, Overstappen, uint32)' : name + '/Volgnr';
 		attribute<string> Mode   := name == 'Overstappen' ? 'const(Modes/V/Walking, Overstappen)' : name + '/Mode_rel';
 	}

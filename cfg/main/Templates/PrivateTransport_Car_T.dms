@@ -178,8 +178,11 @@ Template PrivateTransport_Car_T
 			parameter<string> BidirSpec   := ModelParameters/Advanced/InterpretAllRoadsAsBidirectional ? 'bidirectional' : 'bidirectional(link_flag)';
 			parameter<string> BidirArg    := ModelParameters/Advanced/InterpretAllRoadsAsBidirectional ? '' : ', not(LinkSet_dom/IsOneDirection)';
 			parameter<string> TDArgs      := ', Create_Network_TomTom/TimeDependent/Profile_rel, Create_Network_TomTom/TimeDependent/ProfileSlot/factor, ModelParameters/Advanced/CarTD_SlotDuration, Departure';
+			// In de HB-paarmodus (sinds 2026-10-21, #129) ook de links van elke route (pareto met LinkSet: GeoDMS#1325, EngineHasParetoLinkSet).
+			parameter<bool>   MetLinks    := ModelParameters/Advanced/IsOD && (ModelParameters/Advanced/EngineHasParetoLinkSet || !IsPareto);
+			parameter<string> OdSpec      := 'od:impedance,OrgZone_rel,DstZone_rel' + (MetLinks ? ',LinkSet' : '');
 			unit<uint64> impedanceMatrix := = IsPareto
-				? 'impedance_matrix_od64(''' + BidirSpec + ';startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;pareto(OrgZone_max_imp2,imp2_epsilon);timedependent_alt(link_profile_rel,profile_slot_factor,slot_duration,departure_time);od:impedance,OrgZone_rel,DstZone_rel''
+				? 'impedance_matrix_od64(''' + BidirSpec + ';startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;pareto(OrgZone_max_imp2,imp2_epsilon);timedependent_alt(link_profile_rel,profile_slot_factor,slot_duration,departure_time);' + OdSpec + '''
 						, LinkSet_dom/LengthKm
 						, LinkSet_dom/F1
 						, LinkSet_dom/F2' + BidirArg + '
@@ -190,7 +193,7 @@ Template PrivateTransport_Car_T
 						, convert(settings/max_traveldistance_min, s_f)
 						, ModelParameters/Advanced/CarFrontEpsilon' + TDArgs + '
 					)'
-				: 'impedance_matrix_od64(''' + BidirSpec + ';startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;timedependent(link_profile_rel,profile_slot_factor,slot_duration,departure_time);od:impedance,OrgZone_rel,DstZone_rel''
+				: 'impedance_matrix_od64(''' + BidirSpec + ';startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;timedependent(link_profile_rel,profile_slot_factor,slot_duration,departure_time);' + OdSpec + '''
 						, Create_Network_TomTom/TimeDependent/T_ref
 						, LinkSet_dom/F1
 						, LinkSet_dom/F2' + BidirArg + '
@@ -204,6 +207,11 @@ Template PrivateTransport_Car_T
 				attribute<km>     Car_Distance := = IsPareto ? 'impedance' : 'alt_imp', Descr = "De afstand van de route.";
 				attribute<string> Org_Dest     := string(OrgZone_rel)+'_'+string(DstZone_rel);
 			}
+			container Links := = MetLinks
+				? 'Templates/RouteLinks_T(impedanceMatrix, impedanceMatrix/LinkSet, LinkSet_dom, NodeSet_dom, LinkSet_dom/F1, LinkSet_dom/F2, NodeSet_dom/geometry, NodeSet_dom/DestNode_rel[impedanceMatrix/DstZone_rel])'
+				: 'Templates/GeenRouteLinks_T()'
+			, Descr = "De links van elke route, alleen in de HB-paarmodus (MetLinks).";
+			attribute<rdc> LinkGeometrie (arc, Links/Rows) := = MetLinks ? 'LinkSet_dom/geometry[Links/Rows/Link_rel]' : 'const(value(null_u, rdc), Links/Rows)', Descr = "De vorm van de weg van elke link, uit TomTom.";
 		}
 
 		Template ImpedanceMatrix_with_AltImp_pareto_T
