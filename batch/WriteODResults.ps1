@@ -102,7 +102,8 @@ function Run($dst, $section, $extra) {
 	WaitForMemory
 	$env:GEODMS_EXE = $Exe
 	$sw = [Diagnostics.Stopwatch]::StartNew()
-	& cmd /c "`"$dst\batch\UpdateAll.cmd`" $section $extra" | Out-Null
+	# de uitvoer van UpdateAll.cmd, ook stderr, naar een bestand in de log van de kopie: zo wordt een melding van cmd geen fout van dit script
+	& cmd /c "`"$dst\batch\UpdateAll.cmd`" $section $extra > `"$dst\batch\log\od_$section.txt`" 2>&1"
 	$rc = $LASTEXITCODE
 	Say ("{0} {1} {2}: exit {3}, {4:N0} s" -f (Split-Path (Split-Path $dst) -Leaf), $section, $extra, $rc, $sw.Elapsed.TotalSeconds)
 	if ($rc -ne 0) { throw "$section in $dst mislukt, zie $dst\batch\log" }

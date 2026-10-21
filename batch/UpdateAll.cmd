@@ -18,7 +18,8 @@ REM   UpdateAll.cmd chains          de OV-ketenstore per haltenblok (WriteChainB
 REM                                 CHAINSTORE_SINGLE de ene store van PublicTransport_Prep/x/Write_Result), na de
 REM                                 voorcheck op haltenblokken en prijsdekking; uren, veel geheugen
 REM   UpdateAll.cmd legs            de stores van de benen van het voor- en natransport (sinds 2026-10-19): de vier
- een csv per herkomstblok en vertrekmoment in
+REM                                 basissets, lopen en fietsen naar en van elke halte (PublicTransport_Prep/LegStores_Write)
+REM   UpdateAll.cmd output          de OV-uitvoer: een csv per herkomstblok en vertrekmoment in
 REM                                 %LocalDataProjDir%\Output\<Analysis_date>_<OutputLabel><_component>\PerBlock
 REM                                 (ConfigurationPerBlock/Generate_Output), met de ketenstore van de vertrekmomenten in
 REM                                 PT_DepartureHours/Minutes. Maakt die map eerst leeg (sinds 2026-10-03, #118): alleen de
