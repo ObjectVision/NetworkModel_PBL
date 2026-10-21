@@ -78,8 +78,10 @@ container OD_Uitvoer
 		attribute<string>   Modaliteit  := Modes/name[Mode_rel];
 		attribute<string>   Van         := union_data(., Places/label[Result_AfterSecondCondensation/From_Place_rel[Direct/org_rel]], Places/label[Result_AfterSecondCondensation/From_Place_rel[PT/Optie_rel]], Stops/name[Benen/From_Stop_rel[PT_Delen/Been_rel]], Places/label[PT/N_Stop_Place]);
 		attribute<string>   Naar        := union_data(., Places/label[Result_AfterSecondCondensation/To_Place_rel[Direct/org_rel]], Places/label[PT/V_Stop_Place], Stops/name[Benen/To_Stop_rel[PT_Delen/Been_rel]], Places/label[Result_AfterSecondCondensation/To_Place_rel[PT/Optie_rel]]);
-		attribute<Time>     Vertrek_rel := union_data(., const(inTime[Time], Direct), PT/V_Vertrek, Benen/From_Time_rel[PT_Delen/Been_rel], PT/N_Vertrek);
-		attribute<s>        Duur        := union_data(., Result_AfterSecondCondensation/V_time[Direct/org_rel], PT/V_Duur, Benen/Duur[PT_Delen/Been_rel], PT/N_Duur);
+		// een OV-been van zijn vertrek tot zijn aankomst volgens de dienstregeling (Rit_Vertrek, Rit_Aankomst), niet van zijn begin- tot zijn
+		// eindknoop: die kunnen een minuut stilstand bij instappen of uitstappen bevatten (07:52 instappen, 07:53 vertrek)
+		attribute<Time>     Vertrek_rel := union_data(., const(inTime[Time], Direct), PT/V_Vertrek, MakeDefined(Rit_Vertrek, Benen/From_Time_rel[PT_Delen/Been_rel]), PT/N_Vertrek);
+		attribute<s>        Duur        := union_data(., Result_AfterSecondCondensation/V_time[Direct/org_rel], PT/V_Duur, MakeDefined((Rit_Aankomst - Rit_Vertrek)[s], Benen/Duur[PT_Delen/Been_rel]), PT/N_Duur);
 		attribute<Time>     Aankomst_rel := Vertrek_rel + Duur[Time];
 		attribute<string>   Vertrek     := Time/Label[Vertrek_rel];
 		attribute<string>   Aankomst    := Time/Label[Aankomst_rel];
@@ -143,16 +145,31 @@ container OD_Uitvoer
 		container R := /Templates/RouteLinks_T(Eigen, LinkSet, Set, Set/NodeSet, Set/F1, Set/F2, Set/NodeSet/geometry, Delen/Eind[od/DstZone_rel[Eigen/org_rel]]);
 		unit<uint32> Rows := R/Rows
 		{
-			attribute<PT_Delen> Deel_rel  := Delen/org_rel[od/DstZone_rel[Eigen/org_rel[R/Rows/Route_rel]]];
+			attribute<Delen>    Delen_rel := od/DstZone_rel[Eigen/org_rel[R/Rows/Route_rel]];
+			attribute<PT_Delen> Deel_rel  := Delen/org_rel[Delen_rel];
 			attribute<Opties>   Optie_rel := PT/Optie_rel[PT_Delen/PT_rel[Deel_rel]];
 			attribute<uint32>   Onderdeel := Benen/Volgnr[PT_Delen/Been_rel[Deel_rel]] + 1;
 			attribute<uint32>   Volgnr    := R/Rows/Volgnr;
 			attribute<Modes>    Mode_rel  := Benen/Mode_rel[PT_Delen/Been_rel[Deel_rel]];
 			attribute<rdc>      geometry (arc) := Set/geometry[R/Rows/Link_rel];
 		}
+		// De dienstregelingstijden van het been: het vertrek van zijn eerste en de aankomst van zijn laatste geplande link. De begin- en
+		// eindknoop kunnen de aankomst- en de vertrekknoop zijn van een halte waar de rit stilstaat (instappen bij aankomst, uitstappen
+		// bij vertrek), zodat hun tijden een minuut stilstand kunnen bevatten. Binnen een rit lopen de tijden op (Time: 48 uur, zonder
+		// omslag), dus het eerste vertrek is het kleinste en de laatste aankomst de grootste.
+		unit<uint32> Gepland := select_with_org_rel(Set/LinkType_rel[R/Rows/Link_rel] == /Classifications/LinkTypes/V/Scheduled)
+		{
+			attribute<Delen> Delen_rel := Rows/Delen_rel[org_rel];
+		}
+		attribute<Time> Vertrek  (Delen) := min(Set/From_Time_rel[R/Rows/Link_rel[Gepland/org_rel]], Gepland/Delen_rel);
+		attribute<Time> Aankomst (Delen) := max(Set/To_Time_rel[R/Rows/Link_rel[Gepland/org_rel]], Gepland/Delen_rel);
 	}
 	container PT_L := PTLinks_T('L');
 	container PT_R := PTLinks_T('R');
+	// de dienstregelingstijden van elk OV-been (een overstap heeft ze niet), voor Onderdelen; zonder OV niets, zodat een run zonder OV
+	// Set_L en Set_R niet vraagt
+	attribute<Time> Rit_Vertrek  (PT_Delen) := = MetOV ? 'MakeDefined(PT_L/Vertrek[invert(PT_L/Delen/org_rel)], PT_R/Vertrek[invert(PT_R/Delen/org_rel)])' : 'const(value(null_u, Time), PT_Delen)';
+	attribute<Time> Rit_Aankomst (PT_Delen) := = MetOV ? 'MakeDefined(PT_L/Aankomst[invert(PT_L/Delen/org_rel)], PT_R/Aankomst[invert(PT_R/Delen/org_rel)])' : 'const(value(null_u, Time), PT_Delen)';
 
 	// een overstap: de rechte looplijn
 	unit<uint64> Overstappen := select_with_org_rel(Benen/IsOverstap[PT_Delen/Been_rel])
