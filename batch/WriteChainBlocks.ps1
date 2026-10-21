@@ -31,7 +31,7 @@ function Get-ToDo {
 	return @(Get-Content $todoFile | Where-Object { $_.Trim() -ne '' })
 }
 
-$todo = Get-ToDo
+$todo = @(Get-ToDo)   # @(): een lijst met een regel (de HB-paarmodus, #129) wordt anders een string, en $todo[0..0] zijn eerste teken
 Say ("ketenstap per blok: {0} blokken zonder store" -f $todo.Count)
 if ($MaxBlocks -gt 0 -and $todo.Count -gt $MaxBlocks) { $todo = $todo[0..($MaxBlocks - 1)] }
 $nb = [Math]::Ceiling($todo.Count / [double]$BatchSize)
@@ -44,6 +44,6 @@ for ($b = 0; $b -lt $nb; $b++) {
 	Say ("portie {0}/{1}: {2} blokken, exit {3}, {4:N0} s" -f ($b + 1), $nb, $part.Count, $p.ExitCode, $sw.Elapsed.TotalSeconds)
 	if ($p.ExitCode -ne 0) { Say "MISLUKT, zie $out en $LogDir\UpdateAll_chains.log"; exit 1 }
 }
-$rest = Get-ToDo
+$rest = @(Get-ToDo)
 Say ("klaar: {0} blokken nog zonder store" -f $rest.Count)
 if ($rest.Count -eq 0 -or $MaxBlocks -gt 0) { exit 0 } else { exit 1 }
