@@ -206,9 +206,13 @@ if not defined OUTDIR (
   set STEP=output_dir
   goto failed
 )
-REM Bevat het pad \Output\? (vervangen door niets laat het dan korter; cmd vervangt hoofdletterongevoelig)
-if "!OUTDIR:\Output\=!"=="!OUTDIR!" (
-  echo ABORT: de uitvoermap !OUTDIR! ligt niet onder een map Output
+REM Bevat het pad \Output\, of \Output_ van een HB-paar (Output_<O>_<D>, sinds 2026-10-21, #129)? (vervangen door niets laat het
+REM dan korter; cmd vervangt hoofdletterongevoelig)
+set OUTOK=
+if not "!OUTDIR:\Output\=!"=="!OUTDIR!" set OUTOK=1
+if not "!OUTDIR:\Output_=!"=="!OUTDIR!" set OUTOK=1
+if not defined OUTOK (
+  echo ABORT: de uitvoermap !OUTDIR! ligt niet onder een map Output of Output_^<O^>_^<D^>
   set STEP=output_dir
   goto failed
 )
