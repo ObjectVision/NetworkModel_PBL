@@ -3,8 +3,9 @@
 // vertrekmoment, naast de gewone uitvoer, <OutputDir>/PerBlock/od_<moment>.gpkg met drie lagen: od_opties, od_onderdelen en od_links (NetworkSetup/
 // PublicTransport/PerDepartureMoment_T/OD_Uitvoer). Deze container leest ze terug, per component in MergeComponents en voor Samen:
 // - <component>/Opties en Samen/Opties: een rij per optie en vertrekmoment (tabel);
-// - <component>/Onderdelen: de reisbeschrijving per optie (tabel);
-// - <component>/Links en Samen/Links: de links van de routes (kaart), met Optie en Modaliteit om op te kleuren of te filteren;
+// - <component>/Onderdelen: de reisbeschrijving per optie, in de volgorde van de reis (tabel);
+// - <component>/Links en Samen/Links: de links van de routes (kaart), gekleurd per modaliteit (Modes); met Optie en Modaliteit_rel om op
+//   te kleuren of te filteren;
 //   Kaart/Optie toont alleen ModelParameters/OD_Optie;
 // - Grafiek: Prijs en Reistijd per optie; open de Scatter Chart van Grafiek/Prijs.
 // Samen voegt de opties van de componenten per vertrekmoment samen zoals ComponentMerge: niet gedomineerd op prijs en reistijd (met
@@ -21,6 +22,17 @@ container OD_Results : using = "units;geometries;ModelParameters"
 	unit<uint8> Comps := select_with_attr_by_cond(Advanced/Componenten, Advanced/Componenten/InMerge), Descr = "De componenten in MergeComponents; elk moet uitvoer voor het paar hebben (batch/WriteODResults.ps1), anders noemt de foutmelding het ontbrekende bestand.";
 	unit<uint32> OptieNrs := range(uint32, 0, 1000), Descr = "De nummers van de opties per vertrekmoment, voor de sleutel (moment, optie).";
 	unit<uint64> MomentOptie := combine_unit_uint64(Momenten, OptieNrs);
+	unit<uint32> Volgnrs := range(uint32, 0, 100), Descr = "De volgnummers van de onderdelen van een optie, voor de volgorde van de reis.";
+	unit<uint64> MomentOptieVolgnr := combine_unit_uint64(Momenten, OptieNrs, Volgnrs);
+
+	// De kaart: kleur en lijndikte per modaliteit. Links/geometry krijgt ze per link (PenColor en PenWidth van de links); Links/Modaliteit_rel
+	// toont ze als thema, met legenda.
+	unit<uint8> Modes := /Classifications/GTFS_Modes/Selection
+	{
+		attribute<uint32> PenColor : [rgb(0, 150, 0), rgb(200, 0, 0), rgb(225, 185, 0), rgb(90, 90, 90), rgb(0, 0, 140), rgb(240, 90, 0), rgb(150, 150, 150), rgb(120, 50, 225), rgb(0, 90, 200)], DialogType = "PenColor"
+		,	Descr = "In de volgorde van GTFS_Modes/Selection: tram, metro, trein, bus, veerboot, lopen, wachten, fietsen, auto.";
+		attribute<int16>  PenWidth : [3, 4, 4, 3, 3, 2, 2, 2, 3], DialogType = "PenWidth", Descr = "Lijndikte in pixels: trein en metro dikker, lopen en fietsen dunner.";
+	}
 
 	// Een gpkg van een component en een vertrekmoment
 	Template Lees_T
@@ -85,7 +97,8 @@ container OD_Results : using = "units;geometries;ModelParameters"
 			attribute<string>   ModeUsed   := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_opties/ModeUsed') + ')';
 			attribute<string>   label      := Naam + ' ' + string(Optie) + ' ' + Vertrek + ' ' + ModeUsed;
 		}
-		unit<uint32> Onderdelen := ='union_unit(' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_onderdelen') + ')'
+		unit<uint32> Onderdelen_Bron := ='union_unit(' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_onderdelen') + ')'
+		,	Descr = "De onderdelen in de volgorde van de gpkg: per vertrekmoment eerst de voortransportbenen, dan de OV-benen, de overstappen en het natransport."
 		{
 			attribute<Momenten> Moment_rel := ='union_data(., ' + AsItemList('const(' + string(id(Momenten)) + '[Momenten], PerMoment/' + Momenten/name + '/gpkg/od_onderdelen)') + ')';
 			attribute<uint32>   Optie      := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_onderdelen/Optie') + ')';
@@ -101,6 +114,25 @@ container OD_Results : using = "units;geometries;ModelParameters"
 			attribute<float32>  Minuten    := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_onderdelen/Minuten') + ')';
 			attribute<uint32>   Afstand_m  := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_onderdelen/Afstand_m') + ')';
 			attribute<float32>  Prijs      := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_onderdelen/Prijs') + ')';
+			attribute<MomentOptieVolgnr> Volgorde := combine_data(MomentOptieVolgnr, Moment_rel, value(Optie, OptieNrs), value(Volgnr, Volgnrs));
+		}
+		unit<uint32> Onderdelen := range(uint32, 0, #Onderdelen_Bron), Descr = "De reisbeschrijving: per vertrekmoment en optie de onderdelen in de volgorde van de reis (Volgnr)."
+		{
+			attribute<Onderdelen_Bron> org_rel := union_data(., index(Onderdelen_Bron/Volgorde));
+			attribute<Momenten> Moment_rel := Onderdelen_Bron/Moment_rel[org_rel];
+			attribute<uint32>   Optie      := Onderdelen_Bron/Optie[org_rel];
+			attribute<uint32>   Volgnr     := Onderdelen_Bron/Volgnr[org_rel];
+			attribute<string>   Soort      := Onderdelen_Bron/Soort[org_rel];
+			attribute<string>   Modaliteit := Onderdelen_Bron/Modaliteit[org_rel];
+			attribute<string>   Lijn       := Onderdelen_Bron/Lijn[org_rel];
+			attribute<string>   Vervoerder := Onderdelen_Bron/Vervoerder[org_rel];
+			attribute<string>   Van        := Onderdelen_Bron/Van[org_rel];
+			attribute<string>   Naar       := Onderdelen_Bron/Naar[org_rel];
+			attribute<string>   Vertrek    := Onderdelen_Bron/Vertrek[org_rel];
+			attribute<string>   Aankomst   := Onderdelen_Bron/Aankomst[org_rel];
+			attribute<float32>  Minuten    := Onderdelen_Bron/Minuten[org_rel];
+			attribute<uint32>   Afstand_m  := Onderdelen_Bron/Afstand_m[org_rel];
+			attribute<float32>  Prijs      := Onderdelen_Bron/Prijs[org_rel];
 		}
 		unit<uint32> Links := ='union_unit(' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_links') + ')'
 		{
@@ -110,12 +142,18 @@ container OD_Results : using = "units;geometries;ModelParameters"
 			attribute<uint32>   Volgnr     := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_links/Volgnr') + ')';
 			attribute<string>   Modaliteit := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_links/Modaliteit') + ')';
 			attribute<rdc>      geometry (arc) := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_links/geometry') + ')';
+			attribute<Modes>    Modaliteit_rel := rlookup(Modaliteit, Modes/name);
+			attribute<uint32>   PenColor   := Modes/PenColor[Modaliteit_rel], DialogType = "PenColor";
+			attribute<int16>    PenWidth   := Modes/PenWidth[Modaliteit_rel], DialogType = "PenWidth";
 		}
 		container Kaart
 		{
 			unit<uint32> Optie := select_with_org_rel(OD_Optie == 0 || Links/Optie == OD_Optie), Descr = "De links van ModelParameters/OD_Optie (0: alle).";
 			attribute<rdc>    geometry (arc, Optie) := Links/geometry[Optie/org_rel];
 			attribute<string> Modaliteit   (Optie) := Links/Modaliteit[Optie/org_rel];
+			attribute<Modes>  Modaliteit_rel (Optie) := Links/Modaliteit_rel[Optie/org_rel];
+			attribute<uint32> PenColor     (Optie) := Links/PenColor[Optie/org_rel], DialogType = "PenColor";
+			attribute<int16>  PenWidth     (Optie) := Links/PenWidth[Optie/org_rel], DialogType = "PenWidth";
 		}
 		unit<uint32> Grafiek := Opties
 		{
@@ -171,6 +209,9 @@ container OD_Results : using = "units;geometries;ModelParameters"
 			attribute<uint32>   Optie      := ='union_data(., ' + AsItemList('Deel/' + Comps_Er/name + '/Sel/Optie') + ')';
 			attribute<string>   Modaliteit := ='union_data(., ' + AsItemList('Deel/' + Comps_Er/name + '/Sel/Modaliteit') + ')';
 			attribute<rdc>      geometry (arc) := ='union_data(., ' + AsItemList('Deel/' + Comps_Er/name + '/Sel/geometry') + ')';
+			attribute<Modes>    Modaliteit_rel := rlookup(Modaliteit, Modes/name);
+			attribute<uint32>   PenColor   := Modes/PenColor[Modaliteit_rel], DialogType = "PenColor";
+			attribute<int16>    PenWidth   := Modes/PenWidth[Modaliteit_rel], DialogType = "PenWidth";
 		}
 		container Deel := for_each_ne(Comps_Er/name, 'Deel_T(' + quote(Comps_Er/name) + ')');
 		Template Deel_T
