@@ -38,6 +38,8 @@ Template PerDepartureMoment_T
 		attribute<dam>               Traveldist_Tram             := collect_by_cond(., Within_VW_Window_SelectionCriterium, PT_InBlock/Traveldist_Tram);
 		attribute<dam>               Traveldist_Rail             := collect_by_cond(., Within_VW_Window_SelectionCriterium, PT_InBlock/Traveldist_Rail);
 		attribute<dam>               Traveldist_Ferry            := collect_by_cond(., Within_VW_Window_SelectionCriterium, PT_InBlock/Traveldist_Ferry);
+		// de herkomst van elke rij, om een optie terug te leiden (sinds 2026-10-21, #129; alleen gevraagd in de HB-paarmodus, OD_Uitvoer)
+		attribute<PT_InBlock>        PT_InBlock_rel              := collect_by_cond(., Within_VW_Window_SelectionCriterium, id(PT_InBlock));
 	}
 
 	unit<uint64> Add_V_to_PT   := join_equal_values_uint64(V/To_Place_rel, Within_VW_Window/From_Place_rel)
@@ -132,6 +134,7 @@ Template PerDepartureMoment_T
 			attribute<dam>                         Traveldist_Tram                  := collect_by_cond(., ../IsValid, ../Traveldist_Tram);
 			attribute<dam>                         Traveldist_Rail                  := collect_by_cond(., ../IsValid, ../Traveldist_Rail);
 			attribute<dam>                         Traveldist_Ferry                 := collect_by_cond(., ../IsValid, ../Traveldist_Ferry);
+			attribute<Add_V_to_PT>                 VPT_rel                          := collect_by_cond(., ../IsValid, id(..)), Descr = "De rij van Add_V_to_PT (alleen gevraagd in de HB-paarmodus, OD_Uitvoer).";
 		}
 	}
 	
@@ -211,6 +214,7 @@ Template PerDepartureMoment_T
 			attribute<dam>                         Traveldist_Rail                  := collect_by_cond(., ../IsValid, ../Traveldist_Rail);
 			attribute<dam>                         Traveldist_Ferry                 := collect_by_cond(., ../IsValid, ../Traveldist_Ferry);
 			attribute<dam>                         Traveldist_N                     := collect_by_cond(., ../IsValid, ../Traveldist_N);
+			attribute<Add_N_to_VPT>                VPTN_rel                         := collect_by_cond(., ../IsValid, id(..)), Descr = "De rij van Add_N_to_VPT (alleen gevraagd in de HB-paarmodus, OD_Uitvoer).";
 		}
 	}
 	
@@ -242,6 +246,7 @@ Template PerDepartureMoment_T
 		attribute<km>                                           alt_imp     := = CarTD ? 'collect_by_cond(., CarStore/InBlock, ' + CarTD_Store + '/alt_imp)'     : 'const(0[km], .)';
 		attribute</NetworkSetup/PublicTransport_Prep/impl/org>  OrgZone_rel := = CarTD ? 'collect_by_cond(., CarStore/InBlock, ' + CarTD_Store + '/OrgZone_rel)' : 'const(value(null_u, /NetworkSetup/PublicTransport_Prep/impl/org), .)';
 		attribute</NetworkSetup/PublicTransport_Prep/impl/dest> DstZone_rel := = CarTD ? 'collect_by_cond(., CarStore/InBlock, ' + CarTD_Store + '/DstZone_rel)' : 'const(value(null_u, /NetworkSetup/PublicTransport_Prep/impl/dest), .)';
+		attribute<CarStore>                                     Store_rel   := collect_by_cond(., CarStore/InBlock, id(CarStore)), Descr = "De rij van de autostore (alleen gevraagd in de HB-paarmodus, OD_Uitvoer).";
 	}
 	container DirectCar := /NetworkSetup/PublicTransport_Prep/Direct/CarFront_T(CarRows, CarRows/impedance, CarRows/alt_imp, CarRows/OrgZone_rel, CarRows/DstZone_rel);
 	unit<uint64> DirectCar_M := DirectCar/Front
@@ -269,6 +274,9 @@ Template PerDepartureMoment_T
 		attribute<ct>     Price_Augm       := = CarTD ? 'union_data(., Direct_OD/Price_Augm, DirectCar_M/Price_Augm)' : 'Direct_OD/Price_Augm';
 		attribute<dam>    Distance         := = CarTD ? 'union_data(., Direct_OD/Distance, DirectCar_M/Distance)' : 'Direct_OD/Distance';
 		attribute<s>      Duration_seconds := = CarTD ? 'union_data(., Direct_OD/Duration_seconds, DirectCar_M/Duration_seconds)' : 'Direct_OD/Duration_seconds';
+		// de herkomst van elke rij (sinds 2026-10-21, #129; alleen gevraagd in de HB-paarmodus): een rij van Direct_OD of, met CarTD, van DirectCar_M
+		attribute<bool>   IsCarTD          := = CarTD ? 'union_data(., const(FALSE, Direct_OD), const(TRUE, DirectCar_M))' : 'const(FALSE, .)';
+		attribute<uint64> Bron_rel         := = CarTD ? 'union_data(., id(Direct_OD), id(DirectCar_M))' : 'id(Direct_OD)';
 	}
 
 	unit<uint64> Union_with_DirectOD   := ='union_unit_uint64(' + (MetOV ? 'Add_N_to_VPT/Result, ' : '') + 'Direct_OD_M)'
@@ -307,6 +315,7 @@ Template PerDepartureMoment_T
 			+ 'Direct_OD_M/NeedsBike)';
 
 		attribute<bool>                        IsDirectTravel                   := ='union_data(., ' + (MetOV ? 'const(FALSE, Add_N_to_VPT/Result), ' : '') + 'const(TRUE, Direct_OD_M))';
+		attribute<uint64>                      Bron_rel                         := ='union_data(., ' + (MetOV ? 'id(Add_N_to_VPT/Result), ' : '') + 'id(Direct_OD_M))', Descr = "De rij van Add_N_to_VPT/Result of, bij een directe rit (IsDirectTravel), van Direct_OD_M (alleen gevraagd in de HB-paarmodus, OD_Uitvoer).";
 		// Modaliteit van het voor- en natransport, voor de uitsplitsing naar lopen, fiets en auto in de uitvoer. Een directe rit
 		// staat in het voortransport (zie Price_V); zijn natransport heeft geen modaliteit.
 		attribute<Modes>                       V_mode_rel                       := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/V_mode_rel, ' : '') + 'Direct_OD_M/Mode_rel)';
@@ -387,6 +396,7 @@ Template PerDepartureMoment_T
 		attribute<bool>                                     IsDirectTravel              := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/IsDirectTravel);
 		attribute<Modes>                                    V_mode_rel                  := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/V_mode_rel);
 		attribute<Modes>                                    N_mode_rel                  := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/N_mode_rel);
+		attribute<Union_with_DirectOD>                      Union_rel                   := collect_by_cond(., Union_with_DirectOD/pareto_condition, id(Union_with_DirectOD)), Descr = "Alleen gevraagd in de HB-paarmodus (OD_Uitvoer).";
 	
 		///// ==== Step-wise condensation of result set ==== ////
  		unit<uint64>          OD_key_set                       := combine_unit_uint64(Places, Places), Descr = "Step-wise condensation of result set: third condense the results based on place to place.";
@@ -461,6 +471,7 @@ Template PerDepartureMoment_T
 		attribute<bool>                                     IsDirectTravel              := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/IsDirectTravel);
 		attribute<Modes>                                    V_mode_rel                  := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/V_mode_rel);
 		attribute<Modes>                                    N_mode_rel                  := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/N_mode_rel);
+		attribute<Result_AfterFirstCondensation>            First_rel                   := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, id(Result_AfterFirstCondensation)), Descr = "Alleen gevraagd in de HB-paarmodus (OD_Uitvoer).";
 
 		// Sinds 2026-10-03 (bespreking PBL 21-09-2026, punt 2) afstand, reistijd en prijs ook per modaliteit. Het OV is de OV-keten
 		// (TravelDist_PT, PT_time, Price_PT), met het lopen en wachten bij overstappen; lopen, fiets en auto zijn het voor- en
@@ -629,7 +640,7 @@ Template PerDepartureMoment_T
 			
 			container Results_Traveltime
 			{
-				parameter<string>  Generate := 'Ready', ExplicitSuppliers = "=ModelParameters/OutputFormat == 'parquet' ? 'Parquet_' + ModelParameters/Advanced/ExportKlasse + '/tt' : 'File'"
+				parameter<string>  Generate := 'Ready', ExplicitSuppliers = "=(ModelParameters/OutputFormat == 'parquet' ? 'Parquet_' + ModelParameters/Advanced/ExportKlasse + '/tt' : 'File') + (ModelParameters/Advanced/IsOD ? ';OD_Uitvoer/Write' : '')"
 				,	Descr = "Schrijft File, de csv van dit blok en vertrekmoment, of bij OutputFormat 'parquet' (sinds 2026-10-16) de parquet-schrijver van de soort component (Parquet_<ExportKlasse>, sinds 2026-10-19), en geeft alleen 'Ready' terug. Tot 2026-10-07 ='File': dan ging de hele tekst door de opvraging, en plakte de opvraging over alle blokken alle teksten aan elkaar (Auto, Buurt2023 naar Buurt2023: 284 GB), die tot het eind per blok in het geheugen bleven.";
 
 				// Tellingen voor <OutputDir>/od_tellingen.csv en unieke_od_tellingen.csv (sinds 2026-10-04). Ze staan binnen het hek,
@@ -695,6 +706,9 @@ Template PerDepartureMoment_T
 			// container Results_Decay_Fence      := PhaseContainer(Results_Decay, 'Results in region '+regio_name_if_enkel_sub+' are finished calculating'); //
 		}
 		
+		// De opties van het HB-paar met hun onderdelen en links (sinds 2026-10-21, #129; alleen in de HB-paarmodus), in dezelfde opvraging als de uitvoer.
+		#include<OD_Uitvoer.dms>
+
 		parameter<string> inTime_str_short := rjoin(inTime_string, ModelParameters/Advanced/MeasureMoments/Name , ModelParameters/Advanced/MeasureMoments/TemplatableTextShrt);
 		
 		parameter<string> fileNamePrefix := ModelParameters/Advanced/fileNamePrefix;

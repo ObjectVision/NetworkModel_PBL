@@ -1,0 +1,169 @@
+// DE KETENS VAN EEN HB-PAAR MET HUN BENEN (sinds 2026-10-21, #129; alleen in de HB-paarmodus, ModelParameters/Advanced/IsOD).
+// De ketenstap rekent dan een haltenblok: de ketens die vertrekken bij een halte die de herkomst bereikt met een voortransporttype, met
+// als laatste been van de langste ketens alleen benen naar een halte vanwaar de bestemming te bereiken is, en hij houdt alleen de ketens
+// naar zulke haltes (ChainGeneration_PerBlock_T, BlockResultContainer/Result). Voor die haltes zijn het dezelfde ketens als in de generieke
+// store: de ketenrijger groepeert per (instapmoment, uitstapmoment, eerste NS-station), het blokfront per (instapmoment, bestemmingshalte),
+// en de rechterbenen, overstappen en LastBoardingMoment zijn over het hele net. Eén ketenstore dient zo alle OV-componenten van het paar.
+//
+// Benen: per keten van de store, in de volgorde van de reis, de OV-benen en de overstappen ertussen, teruggeleid door de ketenrijger:
+// het laatste been van een keten van type K is Right_rel (een rij van OD_<letter>/Result of Result_ToD), de overstap ervoor
+// Valid1_rel->Transfers_rel, en de rest is Left_rel, een keten van het type zonder de laatste letter (Classifications/Chains/left), tot
+// het eerste been in Chain_Generation/L of R. Elk OV-been houdt de begin- en eindknoop in Set_<letter>/Set/NodeSet, waaruit de uitvoerstap
+// de halte-tot-haltelinks binnen de rit opzoekt. Write schrijft de ketens (Write_Block) en Benen (Write_Benen) in een opvraging, zodat de
+// ketenrijger een keer rekent (de ketenstap, batch/UpdateAll.cmd chains, met ChainStore_Blocks/ToDo).
+container OD_Haltes
+:	Descr = "De haltes van het HB-paar: waar een voortransportbeen van de herkomst eindigt (IsVStop) en waar een natransportbeen naar de bestemming begint (IsNStop), met de typen van de OV-componenten in MergeComponents. De typen met een stopklasse (C_RM, RM_C, OVf_C enzovoort) zijn een selectie uit de basistypen, dus die volstaan."
+{
+	unit<uint8>       PT_Comps := select_with_attr_by_cond(/ModelParameters/Advanced/Componenten, /ModelParameters/Advanced/Componenten/InMerge && /ModelParameters/Advanced/Componenten/MetOV);
+	parameter<bool>   LopenV   := any(IsDefined(strpos(PT_Comps/Voortransport, 'Walking'))), Descr = "Loopt een OV-component in MergeComponents naar de eerste halte?";
+	parameter<bool>   FietsV   := any(IsDefined(strpos(PT_Comps/Voortransport, 'Cycling')));
+	parameter<bool>   LopenN   := any(IsDefined(strpos(PT_Comps/Natransport, 'Walking')));
+	parameter<bool>   FietsN   := any(IsDefined(strpos(PT_Comps/Natransport, 'Cycling')));
+	parameter<string> TypeTag  := '-v' + (LopenV ? 'w' : '') + (FietsV ? 'c' : '') + '-n' + (LopenN ? 'w' : '') + (FietsN ? 'c' : ''), Descr = "De typen in de handtekening van de ketenstore van het paar.";
+	attribute<bool>   IsVStop (impl/Places) := (LopenV && pcount_uint32(Legs/Org2Stops_Walking/ODMatrix/To_Place_rel) > 0) || (FietsV && pcount_uint32(Legs/Org2Stops_Cycling/ODMatrix/To_Place_rel) > 0);
+	attribute<bool>   IsNStop (impl/Places) := (LopenN && pcount_uint32(Legs/Stops2Dest_Walking/ODMatrix/From_Place_rel) > 0) || (FietsN && pcount_uint32(Legs/Stops2Dest_Cycling/ODMatrix/From_Place_rel) > 0);
+	parameter<uint32> NrVStops := sum_uint32(IsVStop);
+	parameter<uint32> NrNStops := sum_uint32(IsNStop);
+}
+
+container OD_Ketens : using = "impl"
+{
+	container Blok := KetenGeneratie_PerBlock/Block_1of1, Descr = "Het ene haltenblok van de HB-paarmodus (ModelParameters/Advanced/NumberOfStopBlocks).";
+	unit<uint64> Ketens := Blok/Fence/Result, Descr = "De ketens van het blok, in de volgorde van de store (Write_Block).";
+	attribute<Allowed_ChainsK> K_rel     (Ketens) := Ketens/Allowed_ChainsK_rel;
+	attribute<uint32>          Chain_rel (Ketens) := Blok/Allowed_Chains/Chain_rel[Ketens/Allowed_Chains_rel], Descr = "Het rijnummer van de keten in Blok/Chain_Generation/<K_rel>/Result.";
+
+	// Per ketentype en positie van een been een stuk van Benen; vanaf de tweede positie ook de overstap ervoor.
+	unit<uint8>  Posities : nrofrows = 4
+	{
+		attribute<uint32> Nr := uint32(id(.)) + 1;
+	}
+	unit<uint32> TypePos := combine_uint32(Allowed_ChainsK, Posities);
+	unit<uint32> Stukken := select_with_org_rel(Posities/Nr[TypePos/second_rel] <= strlen(Allowed_ChainsK/name[TypePos/first_rel]))
+	{
+		attribute<Allowed_ChainsK> K_rel := TypePos/first_rel[org_rel];
+		attribute<uint32>          Pos   := Posities/Nr[TypePos/second_rel[org_rel]];
+		attribute<string>          KName := Allowed_ChainsK/name[K_rel];
+		attribute<string>          name  := KName + '_' + string(Pos);
+	}
+	unit<uint32> OverstapStukken := select_with_attr_by_cond(Stukken, Stukken/Pos >= 2);
+	container BeenStukken     := for_each_ne(Stukken/name, 'BeenStuk_T(' + string(Stukken/K_rel) + '[Allowed_ChainsK], ' + quote(Stukken/KName) + ', ' + string(Stukken/Pos) + ', FALSE)');
+	container OverstapStukken_ := for_each_ne(OverstapStukken/name, 'BeenStuk_T(' + string(OverstapStukken/K_rel) + '[Allowed_ChainsK], ' + quote(OverstapStukken/KName) + ', ' + string(OverstapStukken/Pos) + ', TRUE)');
+
+	Template BeenStuk_T
+	{
+		parameter<Allowed_ChainsK> K_id;
+		parameter<string>          KName;
+		parameter<uint32>          Pos;
+		parameter<bool>            IsOverstap;
+		///
+		parameter<uint32> N       := strlen(KName);
+		parameter<string> KPos    := left(KName, Pos);
+		parameter<string> G       := '/NetworkSetup/PublicTransport_Prep/OD_Ketens/Blok/Chain_Generation/';
+		// de keten van type KPos waarvan dit been het laatste is: Left_rel vanaf de keten zelf, N - Pos keer
+		parameter<string> E0      := 'value(/NetworkSetup/PublicTransport_Prep/OD_Ketens/Chain_rel[Keten_rel], ' + G + KName + '/Result)';
+		parameter<string> E1      := G + KName + '/Result/Left_rel[' + E0 + ']';
+		parameter<string> E2      := G + left(KName, MakeDefined(sub_or_null(N, 1), 0)) + '/Result/Left_rel[' + E1 + ']';
+		parameter<string> E3      := G + left(KName, MakeDefined(sub_or_null(N, 2), 0)) + '/Result/Left_rel[' + E2 + ']';
+		parameter<string> RowExpr := N - Pos == 0 ? E0 : N - Pos == 1 ? E1 : N - Pos == 2 ? E2 : E3;
+		// het been: bij de eerste positie de keten van een been zelf (Chain_Generation/L of R), anders het rechterbeen van KPos; de overstap ervoor
+		parameter<string> Unit    := IsOverstap ? G + KPos + '/Transfers' : Pos == 1 ? G + KPos + '/result' : G + KPos + '/Right';
+		parameter<string> Row     := IsOverstap
+			? G + KPos + '/Join_LeftT_Right/Valid1/Transfers_rel[' + G + KPos + '/Result/Valid1_rel[' + RowExpr + ']]'
+			: Pos == 1 ? RowExpr : G + KPos + '/Result/Right_rel[' + RowExpr + ']';
+
+		unit<uint64> Rows := select_with_org_rel(/NetworkSetup/PublicTransport_Prep/OD_Ketens/K_rel == K_id)
+		{
+			attribute</NetworkSetup/PublicTransport_Prep/OD_Ketens/Ketens> Keten_rel := org_rel;
+			attribute<uint32>   Volgnr        := const(2 * Pos - 2 - uint32(IsOverstap), .), Descr = "De plaats in de keten, vanaf 0: de benen op de even plaatsen, de overstappen ertussen.";
+			attribute<bool>     IsL           := const(substr(KName, Pos - 1, 1) == 'L', .), Descr = "Een been in het L-net (NS); anders het R-net. Bij een overstap: het been erna.";
+			attribute<Stops>    From_Stop_rel := =Unit + '/From_Stop_rel[' + Row + ']';
+			attribute<Stops>    To_Stop_rel   := =Unit + '/To_Stop_rel[' + Row + ']';
+			attribute<Time>     From_Time_rel := =Unit + '/From_Time_rel[' + Row + ']';
+			attribute<Time>     To_Time_rel   := =Unit + '/To_Time_rel[' + Row + ']';
+			attribute<Routes>   Route_rel     := =IsOverstap ? 'const(value(null_u, Routes), .)' : Unit + '/Route_rel[' + Row + ']';
+			attribute<Agencies> Agency_rel    := =IsOverstap ? 'const(value(null_u, Agencies), .)' : Unit + '/Agency_rel[' + Row + ']';
+			attribute<Modes>    Mode_rel      := =IsOverstap ? 'const(Modes/V/Walking, .)' : Unit + '/Mode_rel[' + Row + ']';
+			attribute<s>        Duur          := =IsOverstap ? Unit + '/Transfer_time[' + Row + ']' : Unit + '/Traveltime[' + Row + ']', Descr = "De reistijd van het been, of de tijd van de overstap: lopen en wachten.";
+			attribute<s>        Wachttijd     := =IsOverstap ? Unit + '/WaitingAtStop_time[' + Row + ']' : 'const(0[s], .)';
+			attribute<Ct>       Prijs         := =IsOverstap ? 'const(0[Ct], .)' : Unit + '/Price[' + Row + ']', Descr = "De prijs van het been alleen; in de keten kan een doorgaand tarief of het maximum van de opstaptarieven gelden.";
+			attribute<dam>      Afstand       := =IsOverstap ? Unit + '/Walking_Dist[' + Row + ']'
+				: Unit + '/TravelDist_Bus[' + Row + '] + ' + Unit + '/Traveldist_Metro[' + Row + '] + ' + Unit + '/Traveldist_Tram[' + Row + '] + ' + Unit + '/Traveldist_Rail[' + Row + '] + ' + Unit + '/Traveldist_Ferry[' + Row + ']';
+			attribute<uint32>   BeginKnoop    := =IsOverstap ? 'const(null_u, .)' : 'uint32(' + Unit + '/OrgZone_rel[' + Row + '])', Descr = "De knoop van het begin van het been in Set_L/Set/NodeSet (IsL) of Set_R/Set/NodeSet.";
+			attribute<uint32>   EindKnoop     := =IsOverstap ? 'const(null_u, .)' : 'uint32(' + Unit + '/DstZone_rel[' + Row + '])';
+		}
+	}
+
+	parameter<string> StukNamen := AsItemList('BeenStukken/' + Stukken/name + '/Rows') + ',' + AsItemList('OverstapStukken_/' + OverstapStukken/name + '/Rows');
+	unit<uint64> Benen := ='union_unit_uint64(' + StukNamen + ')'
+	,	Descr = "Per keten van de store de OV-benen en de overstappen, ongesorteerd; Keten_rel en Volgnr geven de volgorde."
+	{
+		attribute<Ketens>   Keten_rel     := ='union_data(., ' + replace(StukNamen, '/Rows', '/Rows/Keten_rel') + ')';
+		attribute<uint32>   Volgnr        := ='union_data(., ' + replace(StukNamen, '/Rows', '/Rows/Volgnr') + ')';
+		attribute<bool>     IsOverstap    := ='union_data(., ' + AsItemList('const(FALSE, BeenStukken/' + Stukken/name + '/Rows)') + ',' + AsItemList('const(TRUE, OverstapStukken_/' + OverstapStukken/name + '/Rows)') + ')';
+		attribute<bool>     IsL           := ='union_data(., ' + replace(StukNamen, '/Rows', '/Rows/IsL') + ')';
+		attribute<Stops>    From_Stop_rel := ='union_data(., ' + replace(StukNamen, '/Rows', '/Rows/From_Stop_rel') + ')';
+		attribute<Stops>    To_Stop_rel   := ='union_data(., ' + replace(StukNamen, '/Rows', '/Rows/To_Stop_rel') + ')';
+		attribute<Time>     From_Time_rel := ='union_data(., ' + replace(StukNamen, '/Rows', '/Rows/From_Time_rel') + ')';
+		attribute<Time>     To_Time_rel   := ='union_data(., ' + replace(StukNamen, '/Rows', '/Rows/To_Time_rel') + ')';
+		attribute<Routes>   Route_rel     := ='union_data(., ' + replace(StukNamen, '/Rows', '/Rows/Route_rel') + ')';
+		attribute<Agencies> Agency_rel    := ='union_data(., ' + replace(StukNamen, '/Rows', '/Rows/Agency_rel') + ')';
+		attribute<Modes>    Mode_rel      := ='union_data(., ' + replace(StukNamen, '/Rows', '/Rows/Mode_rel') + ')';
+		attribute<s>        Duur          := ='union_data(., ' + replace(StukNamen, '/Rows', '/Rows/Duur') + ')';
+		attribute<s>        Wachttijd     := ='union_data(., ' + replace(StukNamen, '/Rows', '/Rows/Wachttijd') + ')';
+		attribute<Ct>       Prijs         := ='union_data(., ' + replace(StukNamen, '/Rows', '/Rows/Prijs') + ')';
+		attribute<dam>      Afstand       := ='union_data(., ' + replace(StukNamen, '/Rows', '/Rows/Afstand') + ')';
+		attribute<uint32>   BeginKnoop    := ='union_data(., ' + replace(StukNamen, '/Rows', '/Rows/BeginKnoop') + ')';
+		attribute<uint32>   EindKnoop     := ='union_data(., ' + replace(StukNamen, '/Rows', '/Rows/EindKnoop') + ')';
+	}
+
+	// De store van de benen, naast de ketenstore van het blok (StorageBlockDir_Str), met dezelfde handtekening.
+	unit<uint64> Write_Benen := Benen
+	, StorageName = "=/NetworkSetup/PublicTransport_Prep/StorageBlockDir_Str + '/benen.mmd'"
+	, ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/ChainStore_Sig/ForWriting"
+	{
+		attribute<uint64>   Keten         := uint64(Benen/Keten_rel), Descr = "Het rijnummer van de keten in de ketenstore van het blok (Write_Block).";
+		attribute<uint32>   Volgnr        := Benen/Volgnr;
+		attribute<bool>     IsOverstap    := Benen/IsOverstap;
+		attribute<bool>     IsL           := Benen/IsL;
+		attribute<Stops>    From_Stop_rel := Benen/From_Stop_rel;
+		attribute<Stops>    To_Stop_rel   := Benen/To_Stop_rel;
+		attribute<Time>     From_Time_rel := Benen/From_Time_rel;
+		attribute<Time>     To_Time_rel   := Benen/To_Time_rel;
+		attribute<Routes>   Route_rel     := Benen/Route_rel;
+		attribute<Agencies> Agency_rel    := Benen/Agency_rel;
+		attribute<Modes>    Mode_rel      := Benen/Mode_rel;
+		attribute<s>        Duur          := Benen/Duur;
+		attribute<s>        Wachttijd     := Benen/Wachttijd;
+		attribute<Ct>       Prijs         := Benen/Prijs;
+		attribute<dam>      Afstand       := Benen/Afstand;
+		attribute<uint32>   BeginKnoop    := Benen/BeginKnoop;
+		attribute<uint32>   EindKnoop     := Benen/EindKnoop;
+	}
+	unit<uint64> Benen_store : StorageName = "=/NetworkSetup/PublicTransport_Prep/ChainStore_Sig/ForReading + '/benen.mmd'", StorageReadOnly = "true"
+	, Descr = "Kale lezer van de benen van de ketens van het HB-paar; declareert niets.";
+	unit<uint64> Benen_leeg := range(uint64, 0u64, 0u64)
+	, Descr = "De benen in een run zonder OV (WW, CC, Car), met de kolommen van Benen_store: daar is geen ketenstore."
+	{
+		attribute<uint64>   Keten         := const(0u64, .);
+		attribute<uint32>   Volgnr        := const(0, ., uint32);
+		attribute<bool>     IsOverstap    := const(FALSE, .);
+		attribute<bool>     IsL           := const(FALSE, .);
+		attribute<Stops>    From_Stop_rel := const(value(null_u, Stops), .);
+		attribute<Stops>    To_Stop_rel   := const(value(null_u, Stops), .);
+		attribute<Time>     From_Time_rel := const(value(null_u, Time), .);
+		attribute<Time>     To_Time_rel   := const(value(null_u, Time), .);
+		attribute<Routes>   Route_rel     := const(value(null_u, Routes), .);
+		attribute<Agencies> Agency_rel    := const(value(null_u, Agencies), .);
+		attribute<Modes>    Mode_rel      := const(value(null_b, Modes), .);
+		attribute<s>        Duur          := const(0[s], .);
+		attribute<s>        Wachttijd     := const(0[s], .);
+		attribute<Ct>       Prijs         := const(0[Ct], .);
+		attribute<dam>      Afstand       := const(0[dam], .);
+		attribute<uint32>   BeginKnoop    := const(null_u, .);
+		attribute<uint32>   EindKnoop     := const(null_u, .);
+	}
+
+	parameter<string> Write := 'Ready', ExplicitSuppliers = "Blok/Write_Block;Write_Benen"
+	, Descr = "De ketenstap van het HB-paar: de ketens van het blok en hun benen, in een opvraging (ChainStore_Blocks/ToDo).";
+}

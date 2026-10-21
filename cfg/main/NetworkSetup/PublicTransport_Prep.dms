@@ -144,6 +144,10 @@ container PublicTransport_Prep
 		unit<uint32> BlockSelections := Impl/Stops
 		{
 			attribute<.>      rnd_rel       := rnd_permutation(0, .);
+			attribute<BlockDomain> Block_rel := =ModelParameters/Advanced/IsOD
+				? '/NetworkSetup/PublicTransport_Prep/OD_Haltes/IsVStop[/NetworkSetup/PublicTransport_Prep/impl/Stops/Place_rel] ? value(0, BlockDomain) : value(null_u, BlockDomain)'
+				: 'value(rnd_rel / ModelParameters/Advanced/MaxStopBlockSize, BlockDomain)'
+			, Descr = "Het haltenblok van de ketenstap waarin een keten vanaf deze halte instapt: een random blok van MaxStopBlockSize haltes, of bij een HB-paar (sinds 2026-10-21, #129) het ene blok van de haltes van de herkomst (OD_Haltes/IsVStop) en anders geen.";
 		}	
 		unit<uint32>      BlockDomain   := range(0, ModelParameters/Advanced/NumberOfStopBlocks)
 		{
@@ -579,7 +583,7 @@ container PublicTransport_Prep
 	{
 		parameter<BlockDomain> BlockDomain_id;
 		///
-		container StartCalc0{parameter<string> BlockDomain_name := BlockDomain/name[../BlockDomain_id], IntegrityCheck = "uint64(ModelParameters/Advanced/MaxStopBlockSize) * uint64(ModelParameters/Advanced/NumberOfStopBlocks) > uint64(#BlockSelections)";}
+		container StartCalc0{parameter<string> BlockDomain_name := BlockDomain/name[../BlockDomain_id], IntegrityCheck = "ModelParameters/Advanced/IsOD || uint64(ModelParameters/Advanced/MaxStopBlockSize) * uint64(ModelParameters/Advanced/NumberOfStopBlocks) > uint64(#BlockSelections)";}
 		container StartCalc := PhaseContainer(StartCalc0, 'Start calculating '+string(StartCalc0/BlockDomain_name)+', with block size of '+string(BlockDomain/BlockSize[BlockDomain_id]));
 		
 		container Chain_Generation := 
@@ -587,6 +591,7 @@ container PublicTransport_Prep
 			,  'ChainJoiner_T(
 					'+impl/ToBeCalculated_Chains/left+'/Result' //left unit
 					',OD_'+impl/ToBeCalculated_Chains/right+'/Result' //right unit
+					+ (ModelParameters/Advanced/IsOD && strlen(impl/ToBeCalculated_Chains/name) == uint32(/Classifications/Chains/max_Chains) ? '_ToD' : '') + // bij een HB-paar het laatste been van de langste ketens alleen naar de haltes van de bestemming (sinds 2026-10-21, #129)
 					',Transfers/'+impl/ToBeCalculated_Chains/transfer_name+'/Result' //transfer unit
 					','+Quote(impl/ToBeCalculated_Chains/Left)+ //left name str
 					','+Quote(impl/ToBeCalculated_Chains/Right)+ //right name str
@@ -595,14 +600,14 @@ container PublicTransport_Prep
 		{
 			container L  
 			{
-				unit<uint32> result := select_with_attr_by_cond(OD_L/Result, BlockSelections/rnd_rel[OD_L/Result/From_Stop_rel] / ModelParameters/Advanced/MaxStopBlockSize == BlockDomain_id && OD_L/Result/From_Time_rel <= impl/LastBoardingMoment)
+				unit<uint32> result := select_with_attr_by_cond(OD_L/Result, BlockSelections/Block_rel[OD_L/Result/From_Stop_rel] == BlockDomain_id && OD_L/Result/From_Time_rel <= impl/LastBoardingMoment)
 				{
 					parameter<uint32> ModeFactor := OD_L/Result/ModeFactor;
 				}
 			}
 			container R 
 			{
-				unit<uint32> result := select_with_attr_by_cond(OD_R/Result, BlockSelections/rnd_rel[OD_R/Result/From_Stop_rel] / ModelParameters/Advanced/MaxStopBlockSize == BlockDomain_id && OD_R/Result/From_Time_rel <= impl/LastBoardingMoment)
+				unit<uint32> result := select_with_attr_by_cond(OD_R/Result, BlockSelections/Block_rel[OD_R/Result/From_Stop_rel] == BlockDomain_id && OD_R/Result/From_Time_rel <= impl/LastBoardingMoment)
 				{
 					parameter<uint32> ModeFactor := OD_R/Result/ModeFactor;
 				}
@@ -621,6 +626,9 @@ container PublicTransport_Prep
 			attribute<uq_c_ToTime_Stop>     uq_c_ToTime_Stop_rel           := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/uq_c_ToTime_Stop_rel')+')';
 			attribute<Stops>                From_Stop_rel                  := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/uq_c_FromTime_Stop_rel->From_Stop_rel')+')';
 			attribute<Stops>                To_Stop_rel                    := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/uq_c_ToTime_Stop_rel->To_Stop_rel')+')';
+			// om een keten terug te leiden naar zijn benen (sinds 2026-10-21, #129; alleen gevraagd in de HB-paarmodus, OD_Ketens)
+			attribute<uint32>               Chain_rel                      := ='union_data(., '+AsItemList('id(Chain_Generation/'+Allowed_ChainsK/name+'/Result)')+')', Descr = "Het rijnummer van de keten in Chain_Generation/<Allowed_ChainsK_rel>/Result.";
+			attribute<bool>                 EindigtBijD                    := /NetworkSetup/PublicTransport_Prep/OD_Haltes/IsNStop[Stops/Place_rel[To_Stop_rel]], Descr = "Alleen in de HB-paarmodus: stapt de keten uit bij een halte vanwaar de bestemming te bereiken is (OD_Haltes/IsNStop)?";
 
 			attribute<dam>                  TravelDist_Bus                 := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/TravelDist_Bus')+')';
 			attribute<dam>                  Traveldist_Metro               := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/Traveldist_Metro')+')';
@@ -667,8 +675,9 @@ container PublicTransport_Prep
 		: Descr = "hack om deadlock te omzeilen"
 		, URL = "https://github.com/ObjectVision/GeoDMS/issues/965"
 		{
-			unit<uint64> Result := select(Allowed_Chains/pareto_condition) //fka uq_OD_key
-			{ 
+			unit<uint64> Result := ='select(Allowed_Chains/pareto_condition' + (ModelParameters/Advanced/IsOD ? ' && Allowed_Chains/EindigtBijD' : '') + ')' //fka uq_OD_key; bij een HB-paar alleen de ketens naar de haltes van de bestemming (sinds 2026-10-21, #129)
+			{
+				attribute<Allowed_Chains>       Allowed_Chains_rel          := collect_by_cond(., id(Allowed_Chains)), Descr = "De keten in Allowed_Chains, om hem terug te leiden naar zijn benen (alleen gevraagd in de HB-paarmodus, OD_Ketens)."; 
 				attribute<ct>                   Price                       := =ModelParameters/Advanced/PriceExportsAndIntegrityChecksNeeded ? 'collect_by_cond(., Allowed_Chains/Price)' : 'const(null_f, ., ct)';
 				attribute<ct>                   Price_augm                  := =ModelParameters/Advanced/PriceExportsAndIntegrityChecksNeeded ? 'collect_by_cond(., Allowed_Chains/Price_augm)' : 'const(null_f, ., ct)';
 				attribute<ct>                   Price_S                     := =ModelParameters/Advanced/PriceExportsAndIntegrityChecksNeeded ? 'collect_by_cond(., Allowed_Chains/Price_S)' : 'const(null_f, ., ct)';
@@ -787,6 +796,7 @@ container PublicTransport_Prep
 				attribute<dam>                                                   Traveldist_Ferry       := collect_by_cond(., ../IsVBoarding, ../Store/Traveldist_Ferry);
 				attribute</NetworkSetup/PublicTransport_Prep/uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel := collect_by_cond(., ../IsVBoarding, ../Store/uq_c_FromTime_Stop_rel);
 				attribute</NetworkSetup/PublicTransport_Prep/uq_c_ToTime_Stop>   uq_c_ToTime_Stop_rel   := collect_by_cond(., ../IsVBoarding, ../Store/uq_c_ToTime_Stop_rel);
+				attribute<uint64>                                                Keten                  := collect_by_cond(., ../IsVBoarding, id(../Store)), Descr = "Het rijnummer van de keten in de store van het blok, zoals OD_Ketens/Benen_store/Keten (sinds 2026-10-21, #129; alleen gevraagd in de HB-paarmodus).";
 			}
 		}
 		container Read := for_each_ne(impl/BlockDomain/name, 'ReadBlock_T(' + quote(impl/BlockDomain/name) + ', ' + quote(impl/BlockDomain/StoreName) + ')');
@@ -796,7 +806,7 @@ container PublicTransport_Prep
 		parameter<uint32> NrWritten := sum(uint32(IsWritten));
 		unit<uint32> ToDo := select_with_attr_by_cond(impl/BlockDomain, NOT(IsWritten))
 		{
-			attribute<string> Item := '/NetworkSetup/PublicTransport_Prep/KetenGeneratie_PerBlock/' + name + '/Write_Block';
+			attribute<string> Item := ModelParameters/Advanced/IsOD ? '/NetworkSetup/PublicTransport_Prep/OD_Ketens/Write' : '/NetworkSetup/PublicTransport_Prep/KetenGeneratie_PerBlock/' + name + '/Write_Block', Descr = "De schrijver van het blok; bij een HB-paar (sinds 2026-10-21, #129) OD_Ketens/Write, die ook de benen en links van de ketens schrijft, in dezelfde opvraging.";
 		}
 		parameter<string> ToDo_List := AsList(ToDo/Item, '\n'), StorageName = "%ConfigDir%/../../batch/log/chain_blocks_todo.txt", StorageType = "str"
 		, ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/ChainStore_Sig/ForWriting"
@@ -868,6 +878,7 @@ container PublicTransport_Prep
 		attribute<dam>                   Traveldist_Ferry         := =ModelParameters/Advanced/ChainStore_PerBlock ? 'union_data(., ' + AsItemList('ChainStore_Blocks/Read/' + impl/BlockDomain/name + '/VBoarding/Traveldist_Ferry') + ')' : 'collect_by_cond(., IsVBoarding_PT, PT/Traveldist_Ferry)';
 		attribute<uq_c_FromTime_Stop>    uq_c_FromTime_Stop_rel   := =ModelParameters/Advanced/ChainStore_PerBlock ? 'union_data(., ' + AsItemList('ChainStore_Blocks/Read/' + impl/BlockDomain/name + '/VBoarding/uq_c_FromTime_Stop_rel') + ')' : 'collect_by_cond(., IsVBoarding_PT, PT/uq_c_FromTime_Stop_rel)';
 		attribute<uq_c_ToTime_Stop>      uq_c_ToTime_Stop_rel     := =ModelParameters/Advanced/ChainStore_PerBlock ? 'union_data(., ' + AsItemList('ChainStore_Blocks/Read/' + impl/BlockDomain/name + '/VBoarding/uq_c_ToTime_Stop_rel') + ')' : 'collect_by_cond(., IsVBoarding_PT, PT/uq_c_ToTime_Stop_rel)';
+		attribute<uint64>                Keten                    := =ModelParameters/Advanced/ChainStore_PerBlock ? 'union_data(., ' + AsItemList('ChainStore_Blocks/Read/' + impl/BlockDomain/name + '/VBoarding/Keten') + ')' : 'collect_by_cond(., IsVBoarding_PT, id(PT))', Descr = "Het rijnummer van de keten in de store van zijn blok (sinds 2026-10-21, #129; alleen gevraagd in de HB-paarmodus, met een blok: OD_Ketens/Benen_store/Keten).";
 	}
 
 	// De handtekening van de ketenstore: alle parameters waar de ketens van afhangen. Tot 2026-10-03 was dit de naam van de store
@@ -898,6 +909,8 @@ container PublicTransport_Prep
 		ModelParameters/Advanced/RitOpslag_FileTag+
 		// Prijs-, overstap- en halteparameters (audit 3.4): zonder deze tag las een gewijzigde parameter stil de oude ketens terug.
 		ModelParameters/Advanced/ChainStore_ParamTag+
+		// Een HB-paar (sinds 2026-10-21, #129): de ketens van de haltes van de herkomst naar die van de bestemming, met de maximale tijden van het natransport.
+		(ModelParameters/Advanced/IsOD ? '_od' + ModelParameters/Advanced/OD_Tag + OD_Haltes/TypeTag + string(ModelParameters/MaxWalkingTime_Stops2Dest) + '-' + string(ModelParameters/MaxCyclingTime_Stops2Dest) : '')+
 		ModelParameters/Advanced/ChainStore_Revision; // '_r2' sinds audit 3.5 (2026-09-25)
 	container ChainStore_Hash := /Templates/StringHash_T(ChainStore_Signature);
 	parameter<string>     StorageBase_Str := /ModelParameters/Advanced/IntermediateResultsDir + '/PT_Chains_' + /ModelParameters/Advanced/Analysis_date + '_' + ChainStore_Window + '_' + ChainStore_Hash/Hex
@@ -913,6 +926,7 @@ container PublicTransport_Prep
 		)
 	, Descr = "De handtekening in de map van de ketenstore (signature.txt; sinds 2026-10-06, tot dan <naam>.signature.txt ernaast in IntermediateResults): Write_Block, Write_Result en ChainStore_Blocks/ToDo_List schrijven hem (en controleren het langste pad, met uq_c_FromTime_Stop_rel als langste attribuutnaam), PT_store en ChainStore_Blocks/Read controleren hem.";
 		
+	#include<OD_Ketens.dms>
 	#include<ChainJoiner_T.dms>
 	#include<CreateTransfers_T.dms>
 	#include<Get_Windowed_Agency_Set_T.dms>
