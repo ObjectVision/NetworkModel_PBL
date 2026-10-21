@@ -1,0 +1,555 @@
+// Het OV-net in een tijdvenster, voor GIS (ObjectVision/NetworkModel_PBL#57, sinds 2026-10-21). Alle ritten van Dag die het
+// venster Begin-Eind overlappen, met hun lijn en kenmerken, ontdubbeld op twee manieren: per lijnvoering (lijn + shape) en per
+// segment tussen twee knopen van haltes (per modaliteit), met de kenmerken van de ritten geaggregeerd. De tabellen in Kaart zijn
+// voor de GUI (kleur naar Mode_rel, FlexKlasse_rel of een getal); Generate schrijft ze als gpkg, parquet of csv.
+container pt_windows_export
+:	using = "units;Classifications;SourceData/Infrastructure/GTFS/LoadFeeds"
+,	Descr = "Het OV-net in een tijdvenster (#57): de ritten van Dag die het venster Begin-Eind overlappen (Kaart/Ritten), per lijnvoering (Kaart/Lijnvoeringen), per segment tussen knopen van haltes (Kaart/Segmenten) en de knopen zelf (Kaart/Knopen). Bekijk de tabellen in de GUI, of schrijf ze met Generate naar %LocalDataProjDir%/Output/ptwindow_<feed>_<dag>_<venster>_<laag>.<ExportFormaat>, met het rapport ernaast."
+{
+	// INSTELLINGEN
+	parameter<string> Dag                  := ModelParameters/Advanced/Analysis_date
+	,	Descr = "De dag (jjjjmmdd) waarvan de ritten worden gezocht: elke dag die de geladen feed dekt. De feed is die van de peildatum van het model (ModelParameters/AnalysisMoment, Advanced/GTFS_file_date); het rapport noemt de eerste en laatste datum ervan. Standaard de peildatum zelf."
+	,	IntegrityCheck = "strlen(this) == 8";
+	parameter<string> Begin                := '07:00'
+	,	Descr = "Begin van het venster, HH:MM op de tijdas van Dag (seconden sinds 00:00; na 24:00 de nacht erna, tot 47:59)."
+	,	IntegrityCheck = "strlen(this) == 5 && substr(this, 2, 1) == ':'";
+	parameter<string> Eind                 := '09:00'
+	,	Descr = "Einde van het venster, HH:MM, na Begin."
+	,	IntegrityCheck = "strlen(this) == 5 && substr(this, 2, 1) == ':'";
+	parameter<m>      HalteClusterAfstand  := ModelParameters/Advanced/DistanceStopClusters
+	,	Descr = "Haltes binnen deze afstand van elkaar, en zo verder (single linkage), vormen een knoop: de perrons van een station, de haltes aan weerszijden van een straat. Bij 0 m alleen haltes op dezelfde plek.";
+	parameter<m>      MaxAfstandHalteShape := 100[m]
+	,	Descr = "Een halte verder dan dit van de shape van zijn rit wordt niet op de shape geprojecteerd; het segment wordt dan een rechte lijn.";
+	parameter<bool>   SegmentenOngericht   := true
+	,	Descr = "Heen en terug tussen dezelfde knopen zijn een segment (met nr_heen en nr_terug, heen van de knoop met het laagste nummer af), of een segment per richting.";
+	parameter<string> ExportFormaat        := 'gpkg'
+	,	Descr = "Het formaat van Generate: gpkg, parquet (zstd) of csv (de geometrie als WKT)."
+	,	IntegrityCheck = "this == 'gpkg' || this == 'parquet' || this == 'csv'";
+
+	// AFGELEID
+	parameter<Time>    BeginMoment := value(uint32(substr(Begin, 0, 2)) * 3600 + uint32(substr(Begin, 3, 2)) * 60, Time);
+	parameter<Time>    EindMoment  := value(uint32(substr(Eind, 0, 2)) * 3600 + uint32(substr(Eind, 3, 2)) * 60, Time)
+	,	IntegrityCheck = "BeginMoment < this && uint32(this) < #Time";
+	parameter<float32> VensterUren := float32(uint32(EindMoment) - uint32(BeginMoment)) / 3600f;
+	parameter<string>  Venster     := Time/TemplatableTextShrt[BeginMoment] + '-' + Time/TemplatableTextShrt[EindMoment];
+	parameter<string>  FileStem    := '%LocalDataProjDir%/Output/ptwindow_' + ModelParameters/Advanced/GTFS_file_date + '_' + Dag + '_' + Venster;
+
+	unit<uint32> Trips  := SourceData/Infrastructure/GTFS/RelevantSelection/Trips;
+	unit<uint32> Routes := SourceData/Infrastructure/GTFS/RelevantSelection/Routes;
+
+	container Klassen
+	{
+		unit<uint8> KlasseModaliteit := GTFS_Modes/Selection
+		,	Descr = "De modaliteiten van het model, met de kleuren van GTFS_Modes/List voor de kaart."
+		{
+			attribute<uint32> PenColor := rjoin(GTFS_Modes/Selection/ModeNr, GTFS_Modes/List/ModeNr, GTFS_Modes/List/PenColor), DialogType = "PenColor";
+		}
+		unit<uint8> KlasseFlex : nrofrows = 3
+		{
+			attribute<string> name     : ['vast', 'deels_flex', 'flex'];
+			attribute<string> label    : ['vaste dienstregeling', 'deels flex', 'flex'];
+			attribute<uint32> PenColor : [rgb(100, 100, 100), rgb(255, 160, 0), rgb(220, 0, 0)], DialogType = "PenColor";
+			container V := for_each_nedv(name, string(id(.)) + '[..]', void, .);
+		}
+	}
+
+	container Impl
+	{
+		// DE DAG: D-1, D en D+1 rond Dag, zoals LoadFeeds/ServiceDays voor Analysis_date, maar met de eigen dag en het eigen venster.
+		unit<uint32> DagEenheid : nrofrows = 1
+		{
+			attribute<uint32> yyyymmdd := const(uint32(Dag), .);
+		}
+		container DagNr := /Templates/DayNr_T(DagEenheid, DagEenheid/yyyymmdd);
+
+		unit<uint32> Dagen : nrofrows = 3
+		,	Descr = "D-1, D en D+1 rond Dag, op de tijdas van D: van D-1 de stop_times na middernacht (GTFS-tijd 24:00 en later, min 24 uur), van D alle, van D+1 de ritten die helemaal voor 24:00 GTFS-tijd liggen (plus 24 uur). Van elke dag alleen de ritten die het venster overlappen."
+		{
+			attribute<string>        name                 : ['Gisteren', 'Vandaag', 'Morgen'];
+			attribute<string>        label                : ['D-1', 'D', 'D+1'];
+			attribute<uint32>        AddSec               : [0, 0, 86400];
+			attribute<uint32>        SubSec               : [86400, 0, 0];
+			attribute<uint32>        MinVertrekDag        : [1, 0, 0], Descr = "De GTFS-dag (Time/Day) van het vertrek van een stop_time is minstens dit.";
+			attribute<uint32>        MaxAankomstDag       : [1, 1, 0], Descr = "De GTFS-dag van de aankomst van een stop_time is hoogstens dit.";
+			attribute<bool>          TeltZomertijd        : [false, true, true], Descr = "Een zomertijdwissel op deze dag verschuift de tijden; op D-1 niet, want van D-1 doen alleen de tijden na middernacht mee.";
+			attribute<uint32>        DayNr                := first(DagNr/DayNr) + id(.) - 1;
+			container                Civil                := /Templates/CivilDate_T(., DayNr);
+			attribute<uint32>        yyyymmdd             := Civil/yyyymmdd;
+			attribute<Weekdays>      Weekday_rel          := value((DayNr + 3) % 7, Weekdays);
+			attribute<bool>          IsDSTChange          := Weekday_rel == Weekdays/V/sunday && (Civil/M == 3 || Civil/M == 10) && Civil/D >= 25;
+			attribute<bool>          IsNodig              := union_data(., BeginMoment < ModelParameters/Advanced/PrevServiceDayTailEnd, true, uint32(EindMoment) > 86400)
+			,	Descr = "D altijd; D-1 als het venster voor ModelParameters/Advanced/PrevServiceDayTailEnd begint; D+1 als het na middernacht doorloopt.";
+			attribute<CalendarDates> CalendarDate_rel     := rlookup(yyyymmdd, CalendarDates/yyyymmdd);
+			attribute<uint32>        NrTrips              := MakeDefined(CalendarDates/NrTrips[CalendarDate_rel], 0);
+			attribute<uint32>        MaxTrips_SameWeekday := MakeDefined(CalendarDates/MaxTrips_PerWeekday[Weekday_rel], 0);
+			attribute<float32>       TripShare            := MaxTrips_SameWeekday > 0 ? float32(NrTrips) / float32(MaxTrips_SameWeekday) : 0f;
+			attribute<bool>          IsCompleet           := TripShare >= ModelParameters/Advanced/MinServiceDayTripShare;
+			attribute<string>        Report               := label + ' ' + string(yyyymmdd) + ' (' + Weekdays/name[Weekday_rel] + '): ' + string(NrTrips) + ' ritten, '
+			                                                 + string(round(TripShare * 100f)) + '% van de drukste ' + Weekdays/name[Weekday_rel] + ' in de feed'
+			                                                 + (IsNodig ? (IsCompleet ? '' : ', ONVOLLEDIG') : ', niet nodig voor dit venster')
+			                                                 + (IsDSTChange ? ', zomertijdwissel' : '');
+			attribute<string>        NetPad               := 'PerDag/' + name + '/Net/Links';
+		}
+		parameter<bool>   Check_DagenCompleet       := all(!Dagen/IsNodig || Dagen/IsCompleet)
+		,	IntegrityCheck = "Check_DagenCompleet == True"
+		,	Descr = "Elke dag die het venster nodig heeft, staat in de feed met minstens ModelParameters/Advanced/MinServiceDayTripShare van de ritten van de drukste dag met dezelfde weekdag; zie DagenReport.";
+		parameter<bool>   Check_GeenZomertijdwissel := all(!(Dagen/IsDSTChange && Dagen/IsNodig && Dagen/TeltZomertijd))
+		,	IntegrityCheck = "Check_GeenZomertijdwissel == True"
+		,	Descr = "Geen dag die het venster nodig heeft (D-1 uitgezonderd), is een dag van een zomertijdwissel.";
+		parameter<string> DagenReport := asList(Dagen/Report, '; ');
+		parameter<string> FeedReport  := 'feed ' + ModelParameters/Advanced/GTFS_file_date + ' met datums van ' + string(min(CalendarDates/yyyymmdd)) + ' tot en met ' + string(max(CalendarDates/yyyymmdd));
+
+		// DE LINKS VAN DE RITTEN OP DE TIJDAS VAN DAG
+		attribute<Time>   RitEinde    (protoTrips)     := max(protoStopTimes/arrivalTime/TimesVector/Time_rel, protoStopTimes/protoTrip_rel), Descr = "De laatste aankomst van de rit, in GTFS-tijd; protoTrips/StartTime is het eerste vertrek.";
+		attribute<uint32> VertrekDag  (protoStopTimes) := Time/Day[protoStopTimes/departureTime/TimesVector/Time_rel];
+		attribute<uint32> AankomstDag (protoStopTimes) := Time/Day[protoStopTimes/arrivalTime/TimesVector/Time_rel];
+
+		Template DagDeel_T
+		{
+			parameter<Dagen> d;
+			///
+			parameter<uint32> Datum  := Dagen/yyyymmdd[d];
+			parameter<uint32> AddSec := Dagen/AddSec[d];
+			parameter<uint32> SubSec := Dagen/SubSec[d];
+			attribute<bool>   Dienst (Services)   := sum(uint32(Calendar_dates/nDate == Datum) * Calendar_dates/nType, Calendar_dates/Services_rel) == 1
+			,	Descr = "Rijdt de dienst op Datum? Zoals LoadFeeds/Services/Today_exc voor Analysis_date.";
+			attribute<bool>   Rit    (protoTrips) := Dienst[protoTrips/Services_rel]
+			                                         && uint32(protoTrips/StartTime) + AddSec < uint32(EindMoment) + SubSec
+			                                         && uint32(RitEinde) + AddSec > uint32(BeginMoment) + SubSec
+			,	Descr = "Rijdt de rit op Datum, en overlapt hij dan het venster?";
+			container Net := DayLinks_T(Rit[protoStopTimes/protoTrip_rel] && VertrekDag >= Dagen/MinVertrekDag[d] && AankomstDag <= Dagen/MaxAankomstDag[d], AddSec, SubSec);
+		}
+		container PerDag := for_each_ne(Dagen/name, 'DagDeel_T(value(' + string(id(Dagen)) + ', Dagen))');
+
+		unit<uint32> Links := ='union_unit(' + asList(Dagen/NetPad, ', ') + ')'
+		,	Descr = "De links (van halte naar halte) van alle ritten van de drie dagen die het venster overlappen."
+		,	ExplicitSuppliers = "Check_DagenCompleet;Check_GeenZomertijdwissel"
+		{
+			attribute<Dagen>                    Dag_rel       := ='union_data(., ' + asList('const(value(' + string(id(Dagen)) + ', Dagen), ' + Dagen/NetPad + ', Dagen)', ', ') + ')';
+			attribute<protoTrips>               protoTrip_rel := ='union_data(., ' + asList(Dagen/NetPad + '/protoTrip_rel', ', ') + ')';
+			attribute<protoStops>               VanHalte_rel  := ='union_data(., ' + asList(Dagen/NetPad + '/From_protoStop_rel', ', ') + ')';
+			attribute<protoStops>               NaarHalte_rel := ='union_data(., ' + asList(Dagen/NetPad + '/To_protoStop_rel', ', ') + ')';
+			attribute<Time>                     depTime       := ='union_data(., ' + asList(Dagen/NetPad + '/depTime', ', ') + ')';
+			attribute<Time>                     arrTime       := ='union_data(., ' + asList(Dagen/NetPad + '/arrTime', ', ') + ')';
+			attribute<bool>                     InVenster     := depTime < EindMoment && arrTime > BeginMoment;
+			attribute<float32>                  Reistijd_min  := float32(sub_or_null(uint32(arrTime), uint32(depTime))) / 60f;
+			attribute<Routes>                   Route_rel     := Trips/Route_rel[protoTrip_rel];
+			attribute<Agencies>                 Agency_rel    := Trips/Agency_rel[protoTrip_rel];
+			attribute<Klassen/KlasseModaliteit> Mode_rel      := Trips/Mode_rel[protoTrip_rel];
+			attribute<Shapes/Uq>                Shape_rel     := Trips/shapes_uq_rel[protoTrip_rel];
+			attribute<bool>                     IsFlex        := protoTrips/IsFlex[protoTrip_rel];
+			attribute<bool>                     InOVnet       := protoTrips/KeepFlexOption[protoTrip_rel];
+			attribute<c_Dag_Rit>                Dag_Rit_rel   := combine_data(c_Dag_Rit, Dag_rel, protoTrip_rel);
+			attribute<RitInst>                  RitInst_rel   := rlookup(Dag_Rit_rel, RitInst/values);
+			attribute<Kaart/Knopen>             VanKnoop_rel  := HalteKnoop_rel[VanHalte_rel];
+			attribute<Kaart/Knopen>             NaarKnoop_rel := HalteKnoop_rel[NaarHalte_rel];
+		}
+		unit<uint32> VLinks := select_with_org_rel(Links/InVenster), Descr = "De links die in het venster rijden.";
+
+		// RITINSTANTIES: een rit op een dag; dezelfde trip_id rijdt vaak op meer dagen.
+		unit<uint32> c_Dag_Rit := combine_unit_uint32(Dagen, protoTrips);
+		unit<uint32> RitInst   := unique(Links/Dag_Rit_rel)
+		{
+			attribute<Dagen>      Dag_rel        := first_rel(values);
+			attribute<protoTrips> protoTrip_rel  := second_rel(values);
+			attribute<Time>       VertrekMoment  := min(Links/depTime, Links/RitInst_rel);
+			attribute<Time>       AankomstMoment := max(Links/arrTime, Links/RitInst_rel);
+			attribute<bool>       InVenster      := VertrekMoment < EindMoment && AankomstMoment > BeginMoment;
+		}
+
+		container PerRit
+		{
+			attribute<uint32>         NrHaltes     (protoTrips) := pcount(protoStopTimes/protoTrip_rel);
+			attribute<protoStopTimes> EersteST     (protoTrips) := min_index(protoStopTimes/Stop_Sequence, protoStopTimes/protoTrip_rel);
+			attribute<protoStopTimes> LaatsteST    (protoTrips) := max_index(protoStopTimes/Stop_Sequence, protoStopTimes/protoTrip_rel);
+		}
+
+		// Ritten zonder shape (in de feed van 20260925 2,4 %): een lijn langs hun haltes.
+		unit<uint32> RittenZonderShape := select_with_org_rel(not(Kaart/Ritten/heeft_shape));
+		unit<uint32> Haltelijnen       := unique(Kaart/Ritten/protoTrip_rel[RittenZonderShape/org_rel])
+		{
+			attribute<rdc> geometry (arc) := points2sequence(HaltelijnST/punt, HaltelijnST/Haltelijn_rel, HaltelijnST/ordinal);
+		}
+		attribute<Haltelijnen> Haltelijn_rel (protoStopTimes) := rlookup(protoStopTimes/protoTrip_rel, Haltelijnen/values);
+		unit<uint32> HaltelijnST := select(IsDefined(Haltelijn_rel))
+		{
+			attribute<Haltelijnen> Haltelijn_rel := collect_by_cond(., ../Haltelijn_rel);
+			attribute<protoStops>  Halte_rel     := collect_by_cond(., protoStopTimes/protoStop_rel);
+			attribute<uint32>      ordinal       := collect_by_cond(., protoStopTimes/ordered_ord);
+			attribute<rdc>         punt          := protoStops/geometry[Halte_rel];
+		}
+
+		// LIJNVOERINGEN: per lijn en shape, voor ritten zonder shape per lijn en haltepatroon (eerste en laatste halte, aantal haltes,
+		// zoals LoadFeeds/FlexOptions/PatternKey).
+		unit<uint64> c_Route_Shape   := combine_unit_uint64(Routes, Shapes/Uq);
+		unit<uint32> NrHaltesKlasse  := range(uint32, 0, 1024);
+		unit<uint64> c_Route_Patroon := combine_unit_uint64(Routes, protoStops, protoStops, NrHaltesKlasse);
+		unit<uint32> RittenMetShape  := select_with_org_rel(Kaart/Ritten/heeft_shape);
+		unit<uint32> LV_Shape        := unique(Kaart/Ritten/LV_Shape_key[RittenMetShape/org_rel]);
+		unit<uint32> LV_Haltes       := unique(Kaart/Ritten/LV_Haltes_key[RittenZonderShape/org_rel]);
+
+		// KNOPEN: haltes binnen HalteClusterAfstand, zoals SourceData/Infrastructure/GTFS/OV_Knooppunten/Knopen, over alle haltes
+		// van de feed, zodat de nummers niet van de dag of het venster afhangen.
+		unit<uint32> HalteParen := join_near_values(protoStops/geometry, protoStops/geometry, float64(HalteClusterAfstand));
+		unit<uint32> Clusters   := connected_parts(HalteParen/first_rel, HalteParen/second_rel);
+		attribute<uint32>       Vertrekken      (protoStops) := sum_uint32(Links/InVenster, Links/VanHalte_rel);
+		attribute<uint32>       Bezoeken        (protoStops) := Vertrekken + sum_uint32(Links/InVenster, Links/NaarHalte_rel);
+		attribute<uint32>       ClusterBezoeken (Clusters)   := sum(Bezoeken, Clusters/PartNr);
+		attribute<protoStops>   Hoofdhalte      (Clusters)   := max_index(Bezoeken, Clusters/PartNr), Descr = "De halte van het cluster met de meeste vertrekken en aankomsten in het venster; geeft de naam en het punt.";
+		attribute<Kaart/Knopen> HalteKnoop_rel  (protoStops) := invert(Kaart/Knopen/org_rel)[Clusters/PartNr];
+
+		unit<uint32> KnoopBezoeken := union_unit(VLinks, VLinks), Descr = "Vertrek en aankomst van elke link in het venster."
+		{
+			attribute<Kaart/Knopen>             Knoop_rel := union_data(., Links/VanKnoop_rel[VLinks/org_rel], Links/NaarKnoop_rel[VLinks/org_rel]);
+			attribute<Klassen/KlasseModaliteit> Mode_rel  := union_data(., Links/Mode_rel[VLinks/org_rel], Links/Mode_rel[VLinks/org_rel]);
+			attribute<Routes>                   Route_rel := union_data(., Links/Route_rel[VLinks/org_rel], Links/Route_rel[VLinks/org_rel]);
+		}
+		unit<uint64> c_Knoop_Mode  := combine_unit_uint64(Kaart/Knopen, Klassen/KlasseModaliteit);
+		unit<uint32> KnoopModes    := unique(combine_data(c_Knoop_Mode, KnoopBezoeken/Knoop_rel, KnoopBezoeken/Mode_rel))
+		{
+			attribute<Kaart/Knopen>             Knoop_rel := first_rel(values);
+			attribute<Klassen/KlasseModaliteit> Mode_rel  := second_rel(values);
+		}
+		unit<uint64> c_Knoop_Route := combine_unit_uint64(Kaart/Knopen, Routes);
+		unit<uint32> KnoopRoutes   := unique(combine_data(c_Knoop_Route, KnoopBezoeken/Knoop_rel, KnoopBezoeken/Route_rel))
+		{
+			attribute<Kaart/Knopen> Knoop_rel := first_rel(values);
+		}
+
+		// SEGMENTEN: de links in het venster tussen twee verschillende knopen, per knopenpaar en modaliteit.
+		parameter<uint32> NrBinnenKnoop      := sum_uint32(Links/InVenster && Links/VanKnoop_rel == Links/NaarKnoop_rel), Descr = "Links in het venster binnen een knoop (tussen perrons van een station, bijvoorbeeld); die vormen geen segment.";
+		parameter<uint32> NrZonderModaliteit := sum_uint32(Links/InVenster && Links/VanKnoop_rel != Links/NaarKnoop_rel && !IsDefined(Links/Mode_rel));
+		unit<uint64> c_Knoop_Knoop_Mode := combine_unit_uint64(Kaart/Knopen, Kaart/Knopen, Klassen/KlasseModaliteit);
+		unit<uint32> SegLinks := select_with_org_rel(Links/InVenster && Links/VanKnoop_rel != Links/NaarKnoop_rel && IsDefined(Links/Mode_rel))
+		{
+			attribute<Kaart/Knopen>             Van           := Links/VanKnoop_rel[org_rel];
+			attribute<Kaart/Knopen>             Naar          := Links/NaarKnoop_rel[org_rel];
+			attribute<Kaart/Knopen>             KnoopA        := SegmentenOngericht ? min_elem(Van, Naar) : Van;
+			attribute<Kaart/Knopen>             KnoopB        := SegmentenOngericht ? max_elem(Van, Naar) : Naar;
+			attribute<bool>                     IsHeen        := Van == KnoopA;
+			attribute<Klassen/KlasseModaliteit> Mode_rel      := Links/Mode_rel[org_rel];
+			attribute<c_Knoop_Knoop_Mode>       Seg_key       := combine_data(c_Knoop_Knoop_Mode, KnoopA, KnoopB, Mode_rel);
+			attribute<Kaart/Segmenten>          Seg_rel       := rlookup(Seg_key, Kaart/Segmenten/values);
+			attribute<protoStops>               VanHalte_rel  := Links/VanHalte_rel[org_rel];
+			attribute<protoStops>               NaarHalte_rel := Links/NaarHalte_rel[org_rel];
+			attribute<Time>                     depTime       := Links/depTime[org_rel];
+			attribute<float32>                  Reistijd_min  := Links/Reistijd_min[org_rel];
+			attribute<Routes>                   Route_rel     := Links/Route_rel[org_rel];
+			attribute<Agencies>                 Agency_rel    := Links/Agency_rel[org_rel];
+			attribute<Shapes/Uq>                Shape_rel     := Links/Shape_rel[org_rel];
+			attribute<bool>                     IsFlex        := Links/IsFlex[org_rel];
+			attribute<bool>                     InOVnet       := Links/InOVnet[org_rel];
+		}
+		unit<uint64> c_Seg_Route  := combine_unit_uint64(Kaart/Segmenten, Routes);
+		unit<uint32> SegRoutes    := unique(combine_data(c_Seg_Route, SegLinks/Seg_rel, SegLinks/Route_rel))
+		{
+			attribute<Kaart/Segmenten> Seg_rel   := first_rel(values);
+			attribute<Routes>          Route_rel := second_rel(values);
+		}
+		unit<uint64> c_Seg_Agency := combine_unit_uint64(Kaart/Segmenten, Agencies);
+		unit<uint32> SegAgencies  := unique(combine_data(c_Seg_Agency, SegLinks/Seg_rel, SegLinks/Agency_rel))
+		{
+			attribute<Kaart/Segmenten> Seg_rel    := first_rel(values);
+			attribute<Agencies>        Agency_rel := second_rel(values);
+		}
+
+		// De lijn van een segment: het stuk van de shape van een representatieve link, de eerste in het venster met een shape.
+		// Zijn haltes A en B worden op de shape geprojecteerd met connect_info_eq, dezelfde projectie als connect, maar alleen op
+		// de eigen shape; de lijn loopt van A naar de projectie van A, langs de hoekpunten van de shape tot de projectie van B,
+		// en naar B. Zonder shape, met een halte verder dan MaxAfstandHalteShape of met B niet na A op de shape (een lus): de
+		// rechte lijn van A naar B.
+		container SegGeom
+		{
+			attribute<bool>     HeeftShape (Kaart/Segmenten) := any(IsDefined(SegLinks/Shape_rel), SegLinks/Seg_rel);
+			unit<uint32> LinksMetShape := select_with_org_rel(IsDefined(SegLinks/Shape_rel))
+			{
+				attribute<Kaart/Segmenten> Seg_rel := SegLinks/Seg_rel[org_rel];
+				attribute<Time>            depTime := SegLinks/depTime[org_rel];
+			}
+			attribute<SegLinks> Rep    (Kaart/Segmenten) := HeeftShape
+				? LinksMetShape/org_rel[min_index(LinksMetShape/depTime, LinksMetShape/Seg_rel)]
+				: min_index(SegLinks/depTime, SegLinks/Seg_rel);
+			attribute<rdc>      PuntA  (Kaart/Segmenten) := protoStops/geometry[SegLinks/VanHalte_rel[Rep]];
+			attribute<rdc>      PuntB  (Kaart/Segmenten) := protoStops/geometry[SegLinks/NaarHalte_rel[Rep]];
+
+			unit<uint32> MetShape := select_with_org_rel(HeeftShape)
+			{
+				attribute<Shapes/Uq> Shape_rel := SegLinks/Shape_rel[Rep[org_rel]];
+				attribute<Bogen>     Boog_rel  := rlookup(Shape_rel, Bogen/values);
+				attribute<rdc>       A_punt    := PuntA[org_rel];
+				attribute<rdc>       B_punt    := PuntB[org_rel];
+				attribute<uint32>    SegA      := uint32(ProjA/SegmID);
+				attribute<uint32>    SegB      := uint32(ProjB/SegmID);
+				attribute<rdc>       CutA      := ProjA/CutPoint;
+				attribute<rdc>       CutB      := ProjB/CutPoint;
+				attribute<rdc>       BeginSegA := Hoekpunten/point[value(uint32(Bogen/EersteHoek[Boog_rel]) + SegA, Hoekpunten)], Descr = "Het eerste hoekpunt van het segment van de boog waar A op valt.";
+				attribute<rdc>       dA        := CutA - BeginSegA;
+				attribute<rdc>       dB        := CutB - BeginSegA;
+				attribute<bool>      Knipbaar  := IsDefined(CutA) && IsDefined(CutB) && IsDefined(SegA) && IsDefined(SegB)
+				                                  && (SegA < SegB || (SegA == SegB && PointCol(dA) * PointCol(dA) + PointRow(dA) * PointRow(dA) <= PointCol(dB) * PointCol(dB) + PointRow(dB) * PointRow(dB)));
+			}
+			unit<uint32> Bogen := unique(MetShape/Shape_rel), Descr = "De shapes van de representatieve links."
+			{
+				attribute<rdc>        geometry (arc) := Shapes/Uq/geometry[values];
+				attribute<Hoekpunten> EersteHoek     := min_index(Hoekpunten/ordinal, Hoekpunten/sequence_rel);
+			}
+			unit<uint32> Hoekpunten := sequence2points(Bogen/geometry);
+			parameter<float64> MaxAfstand2 := float64(MaxAfstandHalteShape) * float64(MaxAfstandHalteShape)
+			,	Descr = "connect_info_eq neemt de maximale afstand in het kwadraat (probe 2026-10-21: bij 5 vond hij haltes op 1 en 2 m van de boog wel, op 3 en 4 m niet).";
+			container ProjA := connect_info_eq(Bogen/geometry, id(Bogen), MetShape/A_punt, MetShape/Boog_rel, MaxAfstand2);
+			container ProjB := connect_info_eq(Bogen/geometry, id(Bogen), MetShape/B_punt, MetShape/Boog_rel, MaxAfstand2);
+
+			// De punten van alle segmenten achter elkaar: per segment A, de projectie van A, de hoekpunten SegA+1 tot en met SegB, de
+			// projectie van B en B; of alleen A en B.
+			attribute<MetShape> MetShape_rel (Kaart/Segmenten) := invert(MetShape/org_rel);
+			attribute<bool>     Knipbaar     (Kaart/Segmenten) := MakeDefined(MetShape/Knipbaar[MetShape_rel], false);
+			attribute<uint32>   NrPunten     (Kaart/Segmenten) := Knipbaar ? sub_or_null(MetShape/SegB[MetShape_rel], MetShape/SegA[MetShape_rel]) + 4 : 2, Descr = "sub_or_null: de engine rekent beide takken, ook waar B voor A ligt.";
+			attribute<uint32>   Offset       (Kaart/Segmenten) := cumulate(NrPunten) - NrPunten;
+			unit<uint32> Punten := range(uint32, 0, sum(NrPunten))
+			{
+				attribute<Kaart/Segmenten> Seg_rel := classify(id(.), Offset);
+				attribute<uint32>          j       := id(.) - Offset[Seg_rel];
+				attribute<uint32>          n       := NrPunten[Seg_rel];
+				attribute<MetShape>        ms      := MetShape_rel[Seg_rel];
+				attribute<uint32>          Hoek    := j >= 2 && j + 2 < n ? uint32(Bogen/EersteHoek[MetShape/Boog_rel[ms]]) + MetShape/SegA[ms] + sub_or_null(j, 1) : null_u;
+				attribute<rdc>             punt    := j == 0 ? PuntA[Seg_rel]
+				                                    : j + 1 == n ? PuntB[Seg_rel]
+				                                    : j == 1 ? MetShape/CutA[ms]
+				                                    : j + 2 == n ? MetShape/CutB[ms]
+				                                    : Hoekpunten/point[value(Hoek, Hoekpunten)];
+			}
+		}
+	}
+
+	container Kaart : using = "Impl;Klassen"
+	{
+		unit<uint32> Ritten := select_with_org_rel(RitInst/InVenster)
+		,	Descr = "De ritinstanties (een rit op een dag van Dagen) die het venster overlappen, met de shape van de rit of een lijn langs zijn haltes. Een rit met maar een halte heeft geen link en doet niet mee (in de feed van 20260925 in het venster 07:00-09:00 vier ritten van lijn Z132 naar Zierikzee)."
+		{
+			attribute<protoTrips>       protoTrip_rel    := RitInst/protoTrip_rel[org_rel];
+			attribute<Dagen>            Dag_rel          := RitInst/Dag_rel[org_rel];
+			attribute<Time>             VertrekMoment    := RitInst/VertrekMoment[org_rel];
+			attribute<Time>             AankomstMoment   := RitInst/AankomstMoment[org_rel];
+			attribute<Routes>           Route_rel        := Trips/Route_rel[protoTrip_rel];
+			attribute<Agencies>         Agency_rel       := Trips/Agency_rel[protoTrip_rel];
+			attribute<KlasseModaliteit> Mode_rel         := Trips/Mode_rel[protoTrip_rel];
+			attribute<KlasseFlex>       FlexKlasse_rel   := is_flex ? KlasseFlex/V/flex : KlasseFlex/V/vast;
+			attribute<Shapes/Uq>        Shape_rel        := Trips/shapes_uq_rel[protoTrip_rel];
+			attribute<protoStops>       EersteHalte_rel  := protoStopTimes/protoStop_rel[PerRit/EersteST[protoTrip_rel]];
+			attribute<protoStops>       LaatsteHalte_rel := protoStopTimes/protoStop_rel[PerRit/LaatsteST[protoTrip_rel]];
+			attribute<c_Route_Shape>    LV_Shape_key     := combine_data(c_Route_Shape, Route_rel, Shape_rel);
+			attribute<c_Route_Patroon>  LV_Haltes_key    := combine_data(c_Route_Patroon, Route_rel, EersteHalte_rel, LaatsteHalte_rel, value(min_elem(nr_haltes, 1023), NrHaltesKlasse));
+			attribute<Lijnvoeringen>    Lijnvoering_rel  := value(heeft_shape ? uint32(rlookup(LV_Shape_key, LV_Shape/values)) : #LV_Shape + uint32(rlookup(LV_Haltes_key, LV_Haltes/values)), Lijnvoeringen);
+
+			attribute<rdc>     geometry (arc)  := heeft_shape ? Shapes/Uq/geometry[Shape_rel] : Haltelijnen/geometry[rlookup(protoTrip_rel, Haltelijnen/values)];
+			attribute<string>  trip_id         := protoTrips/trip_id[protoTrip_rel];
+			attribute<string>  dienstdag       := Dagen/label[Dag_rel];
+			attribute<uint32>  datum           := Dagen/yyyymmdd[Dag_rel];
+			attribute<string>  vertrek         := Time/Label[VertrekMoment];
+			attribute<string>  aankomst        := Time/Label[AankomstMoment];
+			attribute<float32> duur_min        := float32(sub_or_null(uint32(AankomstMoment), uint32(VertrekMoment))) / 60f;
+			attribute<string>  lijn            := MakeDefined(Routes/route_short_name[Route_rel], '');
+			attribute<string>  lijnnaam        := MakeDefined(Routes/route_long_name[Route_rel], '');
+			attribute<string>  aanbieder       := Agencies/label[Agency_rel];
+			attribute<string>  modaliteit      := KlasseModaliteit/name[Mode_rel];
+			attribute<bool>    is_flex         := protoTrips/IsFlex[protoTrip_rel];
+			attribute<bool>    in_ovnet        := protoTrips/KeepFlexOption[protoTrip_rel], Descr = "Doet de rit mee in het OV-net van het model? Alleen gedunde flexopties niet (LoadFeeds/FlexOptions).";
+			attribute<bool>    heeft_shape     := IsDefined(Shape_rel);
+			attribute<uint32>  nr_haltes       := PerRit/NrHaltes[protoTrip_rel];
+			attribute<string>  eerste_halte    := protoStops/stop_name[EersteHalte_rel];
+			attribute<string>  laatste_halte   := protoStops/stop_name[LaatsteHalte_rel];
+			attribute<string>  headsign        := Read/Trips/data/trip_headsign[protoTrip_rel];
+			attribute<string>  richting        := Read/Trips/data/direction_id[protoTrip_rel];
+			attribute<float32> lengte_km       := arc_length(geometry, m_f64)[km];
+		}
+
+		unit<uint32> Lijnvoeringen := union_unit(LV_Shape, LV_Haltes)
+		,	Descr = "De ritten in het venster, ontdubbeld per lijn en shape (zonder shape: per lijn en haltepatroon). De vaste kenmerken zijn die van de eerste rit."
+		{
+			attribute<Ritten>           Rep_rel         := min_index(Ritten/VertrekMoment, Ritten/Lijnvoering_rel);
+			attribute<Routes>           Route_rel       := Ritten/Route_rel[Rep_rel];
+			attribute<Agencies>         Agency_rel      := Ritten/Agency_rel[Rep_rel];
+			attribute<KlasseModaliteit> Mode_rel        := Ritten/Mode_rel[Rep_rel];
+			attribute<KlasseFlex>       FlexKlasse_rel  := Ritten/FlexKlasse_rel[Rep_rel];
+
+			attribute<rdc>     geometry (arc)  := Ritten/geometry[Rep_rel];
+			attribute<string>  lijn            := Ritten/lijn[Rep_rel];
+			attribute<string>  lijnnaam        := Ritten/lijnnaam[Rep_rel];
+			attribute<string>  aanbieder       := Ritten/aanbieder[Rep_rel];
+			attribute<string>  modaliteit      := Ritten/modaliteit[Rep_rel];
+			attribute<bool>    is_flex         := Ritten/is_flex[Rep_rel];
+			attribute<uint32>  nr_ritten       := pcount(Ritten/Lijnvoering_rel);
+			attribute<float32> ritten_per_uur  := float32(nr_ritten) / VensterUren;
+			attribute<uint32>  nr_in_ovnet     := sum_uint32(Ritten/in_ovnet, Ritten/Lijnvoering_rel);
+			attribute<string>  eerste_vertrek  := Time/Label[min(Ritten/VertrekMoment, Ritten/Lijnvoering_rel)];
+			attribute<string>  laatste_vertrek := Time/Label[max(Ritten/VertrekMoment, Ritten/Lijnvoering_rel)];
+			attribute<float32> gem_duur_min    := mean(Ritten/duur_min, Ritten/Lijnvoering_rel);
+			attribute<uint32>  nr_haltes       := Ritten/nr_haltes[Rep_rel];
+			attribute<string>  eerste_halte    := Ritten/eerste_halte[Rep_rel];
+			attribute<string>  laatste_halte   := Ritten/laatste_halte[Rep_rel];
+			attribute<string>  bron_geometrie  := Ritten/heeft_shape[Rep_rel] ? 'shape' : 'haltes';
+			attribute<float32> lengte_km       := Ritten/lengte_km[Rep_rel];
+		}
+
+		unit<uint32> Knopen := select_with_org_rel(ClusterBezoeken > 0)
+		,	Descr = "Knopen van haltes binnen HalteClusterAfstand met vertrekken of aankomsten in het venster, op de plek van hun drukste halte."
+		{
+			attribute<protoStops> Hoofdhalte_rel     := Hoofdhalte[org_rel];
+			attribute<rdc>        geometry           := protoStops/geometry[Hoofdhalte_rel];
+			attribute<string>     knoopnaam          := protoStops/stop_name[Hoofdhalte_rel];
+			attribute<uint32>     nr_haltes          := sum_uint32(Bezoeken > 0, HalteKnoop_rel), Descr = "Haltes van de knoop met vertrekken of aankomsten in het venster.";
+			attribute<uint32>     nr_vertrekken      := sum(Vertrekken, HalteKnoop_rel);
+			attribute<float32>    vertrekken_per_uur := float32(nr_vertrekken) / VensterUren;
+			attribute<string>     modaliteiten       := asList(KlasseModaliteit/name[KnoopModes/Mode_rel], ',', KnoopModes/Knoop_rel);
+			attribute<uint32>     nr_lijnen          := pcount(KnoopRoutes/Knoop_rel);
+		}
+
+		unit<uint32> Segmenten := unique(SegLinks/Seg_key)
+		,	Descr = "De links in het venster tussen twee knopen, ontdubbeld per knopenpaar (SegmentenOngericht: in beide richtingen samen) en modaliteit, met de kenmerken van hun ritten. De lijn volgt de shape van de eerste rit met een shape (SegGeom)."
+		{
+			attribute<Knopen>           VanKnoop_rel     := first_rel(values);
+			attribute<Knopen>           NaarKnoop_rel    := second_rel(values);
+			attribute<KlasseModaliteit> Mode_rel         := combine_rel(values, 2);
+			attribute<Agencies>         Agency_rel       := modus(SegLinks/Agency_rel, SegLinks/Seg_rel), Descr = "De aanbieder van de meeste passages.";
+			attribute<KlasseFlex>       FlexKlasse_rel   := nr_flex == 0 ? KlasseFlex/V/vast : nr_flex < nr_passages ? KlasseFlex/V/deels_flex : KlasseFlex/V/flex;
+
+			attribute<rdc>     geometry (arc)   := points2sequence(SegGeom/Punten/punt, SegGeom/Punten/Seg_rel, SegGeom/Punten/j);
+			attribute<uint32>  van_knoop        := uint32(VanKnoop_rel);
+			attribute<uint32>  naar_knoop       := uint32(NaarKnoop_rel);
+			attribute<string>  van_naam         := Knopen/knoopnaam[VanKnoop_rel];
+			attribute<string>  naar_naam        := Knopen/knoopnaam[NaarKnoop_rel];
+			attribute<string>  modaliteit       := KlasseModaliteit/name[Mode_rel];
+			attribute<uint32>  nr_passages      := pcount(SegLinks/Seg_rel);
+			attribute<float32> per_uur          := float32(nr_passages) / VensterUren;
+			attribute<uint32>  nr_heen          := sum_uint32(SegLinks/IsHeen, SegLinks/Seg_rel);
+			attribute<uint32>  nr_terug         := nr_passages - nr_heen;
+			attribute<uint32>  nr_lijnen        := pcount(SegRoutes/Seg_rel);
+			attribute<string>  lijnen           := asList(MakeDefined(Routes/route_short_name[SegRoutes/Route_rel], '?'), ',', SegRoutes/Seg_rel);
+			attribute<string>  aanbieders       := asList(Agencies/label[SegAgencies/Agency_rel], ',', SegAgencies/Seg_rel);
+			attribute<string>  aanbieder        := Agencies/label[Agency_rel];
+			attribute<uint32>  nr_flex          := sum_uint32(SegLinks/IsFlex, SegLinks/Seg_rel);
+			attribute<float32> aandeel_flex     := float32(nr_flex) / float32(nr_passages);
+			attribute<string>  flexklasse       := KlasseFlex/label[FlexKlasse_rel];
+			attribute<uint32>  nr_in_ovnet      := sum_uint32(SegLinks/InOVnet, SegLinks/Seg_rel);
+			attribute<float32> min_reistijd_min := min(SegLinks/Reistijd_min, SegLinks/Seg_rel);
+			attribute<float32> gem_reistijd_min := mean(SegLinks/Reistijd_min, SegLinks/Seg_rel);
+			attribute<string>  eerste_vertrek   := Time/Label[min(SegLinks/depTime, SegLinks/Seg_rel)];
+			attribute<string>  laatste_vertrek  := Time/Label[max(SegLinks/depTime, SegLinks/Seg_rel)];
+			attribute<float32> lengte_km        := arc_length(geometry, m_f64)[km];
+			attribute<string>  bron_geometrie   := SegGeom/Knipbaar ? 'shape' : 'recht';
+		}
+	}
+
+	// DE EXPORT: per laag een bestand FileStem_<laag>.<ExportFormaat>, met de kenmerken als tekst en getal. Een unit schrijft
+	// alleen de attributen die hij zelf heeft (probe 2026-10-21), dus hier staan ze nog eens.
+	container Export
+	{
+		parameter<string> GDAL_LayerCreationOptions := ExportFormaat == 'csv' ? 'GEOMETRY=AS_WKT' : ExportFormaat == 'parquet' ? 'COMPRESSION=ZSTD' : '';
+
+		unit<uint32> Ritten := Kaart/Ritten, StorageName = "=FileStem + '_ritten.' + ExportFormaat", StorageType = "gdalwrite.vect"
+		{
+			attribute<rdc>     geometry (arc) := Kaart/Ritten/geometry;
+			attribute<string>  trip_id        := Kaart/Ritten/trip_id;
+			attribute<string>  dienstdag      := Kaart/Ritten/dienstdag;
+			attribute<uint32>  datum          := Kaart/Ritten/datum;
+			attribute<string>  vertrek        := Kaart/Ritten/vertrek;
+			attribute<string>  aankomst       := Kaart/Ritten/aankomst;
+			attribute<float32> duur_min       := Kaart/Ritten/duur_min;
+			attribute<string>  lijn           := Kaart/Ritten/lijn;
+			attribute<string>  lijnnaam       := Kaart/Ritten/lijnnaam;
+			attribute<string>  aanbieder      := Kaart/Ritten/aanbieder;
+			attribute<string>  modaliteit     := Kaart/Ritten/modaliteit;
+			attribute<bool>    is_flex        := Kaart/Ritten/is_flex;
+			attribute<bool>    in_ovnet       := Kaart/Ritten/in_ovnet;
+			attribute<bool>    heeft_shape    := Kaart/Ritten/heeft_shape;
+			attribute<uint32>  nr_haltes      := Kaart/Ritten/nr_haltes;
+			attribute<string>  eerste_halte   := Kaart/Ritten/eerste_halte;
+			attribute<string>  laatste_halte  := Kaart/Ritten/laatste_halte;
+			attribute<string>  headsign       := Kaart/Ritten/headsign;
+			attribute<string>  richting       := Kaart/Ritten/richting;
+			attribute<float32> lengte_km      := Kaart/Ritten/lengte_km;
+			attribute<uint32>  lijnvoering    := uint32(Kaart/Ritten/Lijnvoering_rel);
+		}
+		unit<uint32> Lijnvoeringen := Kaart/Lijnvoeringen, StorageName = "=FileStem + '_lijnvoeringen.' + ExportFormaat", StorageType = "gdalwrite.vect"
+		{
+			attribute<rdc>     geometry (arc)  := Kaart/Lijnvoeringen/geometry;
+			attribute<uint32>  lijnvoering     := uint32(id(.));
+			attribute<string>  lijn            := Kaart/Lijnvoeringen/lijn;
+			attribute<string>  lijnnaam        := Kaart/Lijnvoeringen/lijnnaam;
+			attribute<string>  aanbieder       := Kaart/Lijnvoeringen/aanbieder;
+			attribute<string>  modaliteit      := Kaart/Lijnvoeringen/modaliteit;
+			attribute<bool>    is_flex         := Kaart/Lijnvoeringen/is_flex;
+			attribute<uint32>  nr_ritten       := Kaart/Lijnvoeringen/nr_ritten;
+			attribute<float32> ritten_per_uur  := Kaart/Lijnvoeringen/ritten_per_uur;
+			attribute<uint32>  nr_in_ovnet     := Kaart/Lijnvoeringen/nr_in_ovnet;
+			attribute<string>  eerste_vertrek  := Kaart/Lijnvoeringen/eerste_vertrek;
+			attribute<string>  laatste_vertrek := Kaart/Lijnvoeringen/laatste_vertrek;
+			attribute<float32> gem_duur_min    := Kaart/Lijnvoeringen/gem_duur_min;
+			attribute<uint32>  nr_haltes       := Kaart/Lijnvoeringen/nr_haltes;
+			attribute<string>  eerste_halte    := Kaart/Lijnvoeringen/eerste_halte;
+			attribute<string>  laatste_halte   := Kaart/Lijnvoeringen/laatste_halte;
+			attribute<string>  bron_geometrie  := Kaart/Lijnvoeringen/bron_geometrie;
+			attribute<float32> lengte_km       := Kaart/Lijnvoeringen/lengte_km;
+		}
+		unit<uint32> Knopen := Kaart/Knopen, StorageName = "=FileStem + '_knopen.' + ExportFormaat", StorageType = "gdalwrite.vect"
+		{
+			attribute<rdc>     geometry           := Kaart/Knopen/geometry;
+			attribute<uint32>  knoop              := uint32(id(.));
+			attribute<string>  knoopnaam          := Kaart/Knopen/knoopnaam;
+			attribute<uint32>  nr_haltes          := Kaart/Knopen/nr_haltes;
+			attribute<uint32>  nr_vertrekken      := Kaart/Knopen/nr_vertrekken;
+			attribute<float32> vertrekken_per_uur := Kaart/Knopen/vertrekken_per_uur;
+			attribute<string>  modaliteiten       := Kaart/Knopen/modaliteiten;
+			attribute<uint32>  nr_lijnen          := Kaart/Knopen/nr_lijnen;
+		}
+		unit<uint32> Segmenten := Kaart/Segmenten, StorageName = "=FileStem + '_segmenten.' + ExportFormaat", StorageType = "gdalwrite.vect"
+		{
+			attribute<rdc>     geometry (arc)   := Kaart/Segmenten/geometry;
+			attribute<uint32>  van_knoop        := Kaart/Segmenten/van_knoop;
+			attribute<uint32>  naar_knoop       := Kaart/Segmenten/naar_knoop;
+			attribute<string>  van_naam         := Kaart/Segmenten/van_naam;
+			attribute<string>  naar_naam        := Kaart/Segmenten/naar_naam;
+			attribute<string>  modaliteit       := Kaart/Segmenten/modaliteit;
+			attribute<uint32>  nr_passages      := Kaart/Segmenten/nr_passages;
+			attribute<float32> per_uur          := Kaart/Segmenten/per_uur;
+			attribute<uint32>  nr_heen          := Kaart/Segmenten/nr_heen;
+			attribute<uint32>  nr_terug         := Kaart/Segmenten/nr_terug;
+			attribute<uint32>  nr_lijnen        := Kaart/Segmenten/nr_lijnen;
+			attribute<string>  lijnen           := Kaart/Segmenten/lijnen;
+			attribute<string>  aanbieders       := Kaart/Segmenten/aanbieders;
+			attribute<string>  aanbieder        := Kaart/Segmenten/aanbieder;
+			attribute<uint32>  nr_flex          := Kaart/Segmenten/nr_flex;
+			attribute<float32> aandeel_flex     := Kaart/Segmenten/aandeel_flex;
+			attribute<string>  flexklasse       := Kaart/Segmenten/flexklasse;
+			attribute<uint32>  nr_in_ovnet      := Kaart/Segmenten/nr_in_ovnet;
+			attribute<float32> min_reistijd_min := Kaart/Segmenten/min_reistijd_min;
+			attribute<float32> gem_reistijd_min := Kaart/Segmenten/gem_reistijd_min;
+			attribute<string>  eerste_vertrek   := Kaart/Segmenten/eerste_vertrek;
+			attribute<string>  laatste_vertrek  := Kaart/Segmenten/laatste_vertrek;
+			attribute<float32> lengte_km        := Kaart/Segmenten/lengte_km;
+			attribute<string>  bron_geometrie   := Kaart/Segmenten/bron_geometrie;
+		}
+	}
+
+	// HET RAPPORT, in dezelfde opvraging als de export (Generate).
+	parameter<bool>   CheckRitten    := sum(Kaart/Lijnvoeringen/nr_ritten) == #Kaart/Ritten;
+	parameter<bool>   CheckSegmenten := sum(Kaart/Segmenten/nr_passages) + Impl/NrBinnenKnoop + Impl/NrZonderModaliteit == #Impl/VLinks;
+	parameter<string> Report :=
+		'OV-net in het venster ' + Begin + '-' + Eind + ' op ' + Dag + ' (' + Impl/FeedReport + ')'
+		+ '\ndagen: ' + Impl/DagenReport
+		+ '\nritten: ' + string(#Kaart/Ritten) + ' (' + asList(Impl/Dagen/label + ' ' + string(pcount(Kaart/Ritten/Dag_rel)), ', ') + '), waarvan ' + string(sum_uint32(not(Kaart/Ritten/heeft_shape))) + ' zonder shape, ' + string(sum_uint32(Kaart/Ritten/is_flex)) + ' flex, '
+			+ string(sum_uint32(not(Kaart/Ritten/in_ovnet))) + ' niet in het OV-net van het model (gedunde flexopties)'
+		+ '\nlijnvoeringen: ' + string(#Kaart/Lijnvoeringen) + ', waarvan ' + string(#Impl/LV_Shape) + ' per shape en ' + string(#Impl/LV_Haltes) + ' per haltepatroon'
+		+ '\nknopen: ' + string(#Kaart/Knopen) + ' (clusterafstand ' + string(HalteClusterAfstand) + ' m)'
+		+ '\nsegmenten: ' + string(#Kaart/Segmenten) + (SegmentenOngericht ? ' ongericht' : ' gericht') + ', ' + string(sum_uint32(Impl/SegGeom/Knipbaar)) + ' langs de shape, '
+			+ string(sum_uint32(Impl/SegGeom/HeeftShape && !Impl/SegGeom/Knipbaar)) + ' recht met shape (halte verder dan ' + string(MaxAfstandHalteShape) + ' m van de shape, of B niet na A), '
+			+ string(sum_uint32(!Impl/SegGeom/HeeftShape)) + ' recht zonder shape'
+		+ '\nlinks in het venster: ' + string(#Impl/VLinks) + ', waarvan ' + string(Impl/NrBinnenKnoop) + ' binnen een knoop en ' + string(Impl/NrZonderModaliteit) + ' zonder modaliteit'
+		+ '\ncontroles: ' + (CheckRitten ? 'PASS' : 'FAIL') + ' ritten = som van nr_ritten van de lijnvoeringen; '
+			+ (CheckSegmenten ? 'PASS' : 'FAIL') + ' links in het venster = som van nr_passages + binnen een knoop + zonder modaliteit'
+		+ '\n'
+	,	StorageName = "=FileStem + '_report.txt'", StorageType = "str";
+
+	parameter<string> Generate := 'Ready', ExplicitSuppliers = "Export/Ritten;Export/Lijnvoeringen;Export/Knopen;Export/Segmenten;Report"
+	,	Descr = "Schrijft de vier lagen in ExportFormaat en het rapport, in een opvraging.";
+}
