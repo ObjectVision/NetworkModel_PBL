@@ -43,12 +43,14 @@ container pt_windows_export
 		,	Descr = "De modaliteiten van het model, met de kleuren van GTFS_Modes/List voor de kaart."
 		{
 			attribute<uint32> PenColor := rjoin(GTFS_Modes/Selection/ModeNr, GTFS_Modes/List/ModeNr, GTFS_Modes/List/PenColor), DialogType = "PenColor";
+			attribute<int16>  PenWidth : [3, 3, 3, 2, 3, 1, 1, 1, 1], DialogType = "PenWidth", Descr = "Lijndikte in pixels, in de volgorde van GTFS_Modes/Selection: tram, metro, trein en veerboot dikker dan bus.";
 		}
 		unit<uint8> KlasseFlex : nrofrows = 3
 		{
 			attribute<string> name     : ['vast', 'deels_flex', 'flex'];
 			attribute<string> label    : ['vaste dienstregeling', 'deels flex', 'flex'];
 			attribute<uint32> PenColor : [rgb(100, 100, 100), rgb(255, 160, 0), rgb(220, 0, 0)], DialogType = "PenColor";
+			attribute<int16>  PenWidth : [2, 3, 3], DialogType = "PenWidth";
 			container V := for_each_nedv(name, string(id(.)) + '[..]', void, .);
 		}
 	}
@@ -98,6 +100,12 @@ container pt_windows_export
 		,	Descr = "Geen dag die het venster nodig heeft (D-1 uitgezonderd), is een dag van een zomertijdwissel.";
 		parameter<string> DagenReport := asList(Dagen/Report, '; ');
 		parameter<string> FeedReport  := 'feed ' + ModelParameters/Advanced/GTFS_file_date + ' met datums van ' + string(min(CalendarDates/yyyymmdd)) + ' tot en met ' + string(max(CalendarDates/yyyymmdd));
+
+		// Haltes met coordinaten (0, 0) in de feed krijgen het punt van hun parent_station. In de feed van 20260925 zijn het er 187,
+		// waarvan 45 met stop_times (onder meer perrons van Berlin Hbf en Muenster-Haeger), alle 45 met een parent met een punt.
+		// Zonder dit liepen de segmenten naar Muenster-Haeger naar de Golf van Guinee (6209 km vanaf Altenberge).
+		attribute<bool> ZonderPunt (protoStops) := protoStops/stop_lat == 0d || protoStops/stop_lon == 0d;
+		attribute<rdc>  HaltePunt  (protoStops) := ZonderPunt ? protoStops/geometry[rlookup(Read/Stops/data/parent_station, protoStops/stop_id)] : protoStops/geometry;
 
 		// DE LINKS VAN DE RITTEN OP DE TIJDAS VAN DAG
 		attribute<Time>   RitEinde    (protoTrips)     := max(protoStopTimes/arrivalTime/TimesVector/Time_rel, protoStopTimes/protoTrip_rel), Descr = "De laatste aankomst van de rit, in GTFS-tijd; protoTrips/StartTime is het eerste vertrek.";
@@ -176,7 +184,7 @@ container pt_windows_export
 			attribute<Haltelijnen> Haltelijn_rel := collect_by_cond(., ../Haltelijn_rel);
 			attribute<protoStops>  Halte_rel     := collect_by_cond(., protoStopTimes/protoStop_rel);
 			attribute<uint32>      ordinal       := collect_by_cond(., protoStopTimes/ordered_ord);
-			attribute<rdc>         punt          := protoStops/geometry[Halte_rel];
+			attribute<rdc>         punt          := HaltePunt[Halte_rel];
 		}
 
 		// LIJNVOERINGEN: per lijn en shape, voor ritten zonder shape per lijn en haltepatroon (eerste en laatste halte, aantal haltes,
@@ -190,7 +198,7 @@ container pt_windows_export
 
 		// KNOPEN: haltes binnen HalteClusterAfstand, zoals SourceData/Infrastructure/GTFS/OV_Knooppunten/Knopen, over alle haltes
 		// van de feed, zodat de nummers niet van de dag of het venster afhangen.
-		unit<uint32> HalteParen := join_near_values(protoStops/geometry, protoStops/geometry, float64(HalteClusterAfstand));
+		unit<uint32> HalteParen := join_near_values(HaltePunt, HaltePunt, float64(HalteClusterAfstand));
 		unit<uint32> Clusters   := connected_parts(HalteParen/first_rel, HalteParen/second_rel);
 		attribute<uint32>       Vertrekken      (protoStops) := sum_uint32(Links/InVenster, Links/VanHalte_rel);
 		attribute<uint32>       Bezoeken        (protoStops) := Vertrekken + sum_uint32(Links/InVenster, Links/NaarHalte_rel);
@@ -269,8 +277,8 @@ container pt_windows_export
 			attribute<SegLinks> Rep    (Kaart/Segmenten) := HeeftShape
 				? LinksMetShape/org_rel[min_index(LinksMetShape/depTime, LinksMetShape/Seg_rel)]
 				: min_index(SegLinks/depTime, SegLinks/Seg_rel);
-			attribute<rdc>      PuntA  (Kaart/Segmenten) := protoStops/geometry[SegLinks/VanHalte_rel[Rep]];
-			attribute<rdc>      PuntB  (Kaart/Segmenten) := protoStops/geometry[SegLinks/NaarHalte_rel[Rep]];
+			attribute<rdc>      PuntA  (Kaart/Segmenten) := HaltePunt[SegLinks/VanHalte_rel[Rep]];
+			attribute<rdc>      PuntB  (Kaart/Segmenten) := HaltePunt[SegLinks/NaarHalte_rel[Rep]];
 
 			unit<uint32> MetShape := select_with_org_rel(HeeftShape)
 			{
@@ -395,7 +403,7 @@ container pt_windows_export
 		,	Descr = "Knopen van haltes binnen HalteClusterAfstand met vertrekken of aankomsten in het venster, op de plek van hun drukste halte."
 		{
 			attribute<protoStops> Hoofdhalte_rel     := Hoofdhalte[org_rel];
-			attribute<rdc>        geometry           := protoStops/geometry[Hoofdhalte_rel];
+			attribute<rdc>        geometry           := HaltePunt[Hoofdhalte_rel];
 			attribute<string>     knoopnaam          := protoStops/stop_name[Hoofdhalte_rel];
 			attribute<uint32>     nr_haltes          := sum_uint32(Bezoeken > 0, HalteKnoop_rel), Descr = "Haltes van de knoop met vertrekken of aankomsten in het venster.";
 			attribute<uint32>     nr_vertrekken      := sum(Vertrekken, HalteKnoop_rel);
@@ -540,7 +548,7 @@ container pt_windows_export
 		+ '\nritten: ' + string(#Kaart/Ritten) + ' (' + asList(Impl/Dagen/label + ' ' + string(pcount(Kaart/Ritten/Dag_rel)), ', ') + '), waarvan ' + string(sum_uint32(not(Kaart/Ritten/heeft_shape))) + ' zonder shape, ' + string(sum_uint32(Kaart/Ritten/is_flex)) + ' flex, '
 			+ string(sum_uint32(not(Kaart/Ritten/in_ovnet))) + ' niet in het OV-net van het model (gedunde flexopties)'
 		+ '\nlijnvoeringen: ' + string(#Kaart/Lijnvoeringen) + ', waarvan ' + string(#Impl/LV_Shape) + ' per shape en ' + string(#Impl/LV_Haltes) + ' per haltepatroon'
-		+ '\nknopen: ' + string(#Kaart/Knopen) + ' (clusterafstand ' + string(HalteClusterAfstand) + ' m)'
+		+ '\nknopen: ' + string(#Kaart/Knopen) + ' (clusterafstand ' + string(HalteClusterAfstand) + ' m); ' + string(sum_uint32(Impl/ZonderPunt)) + ' haltes van de feed met coordinaten (0, 0) hebben het punt van hun parent_station'
 		+ '\nsegmenten: ' + string(#Kaart/Segmenten) + (SegmentenOngericht ? ' ongericht' : ' gericht') + ', ' + string(sum_uint32(Impl/SegGeom/Knipbaar)) + ' langs de shape, '
 			+ string(sum_uint32(Impl/SegGeom/HeeftShape && !Impl/SegGeom/Knipbaar)) + ' recht met shape (halte verder dan ' + string(MaxAfstandHalteShape) + ' m van de shape, of B niet na A), '
 			+ string(sum_uint32(!Impl/SegGeom/HeeftShape)) + ' recht zonder shape'
