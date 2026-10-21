@@ -29,18 +29,19 @@ Template CreateNetwork_Pedestrian_Bike_T : using = "geometries"
 	attribute<s_f> impedance (LinkSet) := ='LinkSet0/Impedance_per_ImpedanceType/max_'+NetworkType+'[LinkSet/org_rel]';
 	attribute<km>  distance  (LinkSet) := ='LinkSet0/Distance_per_ImpedanceType/max_'+NetworkType+'[LinkSet/org_rel]';
 	
-	unit<uint64> ODMatrix :=
-		// impedance_matrix_od64('bidirectional;startPoint(Node_rel):max_imp;endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel,LinkSet'
-		impedance_matrix_od64('bidirectional(link_flag);startPoint(Node_rel):max_imp;endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel'
+	// In de HB-paarmodus (ModelParameters/Advanced/IsOD, sinds 2026-10-21, #129) vraagt de zoektocht ook de LinkSet, en geeft Links per been
+	// de links van zijn route (Templates/RouteLinks_T); de reistijden zijn dezelfde.
+	unit<uint64> ODMatrix := ='impedance_matrix_od64(''bidirectional(link_flag);startPoint(Node_rel):max_imp;endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel'
+		+ (ModelParameters/Advanced/IsOD ? ',LinkSet' : '') + '''
 			, impedance
 			, LinkSet/F1
 			, LinkSet/F2
 			, LinkSet/IsBidirectional
 			, NodeSet/OrgNode_rel
 			, NodeSet/DestNode_rel
-			, MaxDistSelection_sec //cut impedance      
-			, distance //alt imp
-		)
+			, MaxDistSelection_sec
+			, distance
+		)'
 	{
 		attribute<Time>	   Duration                         := RoundUp(Impedance)[uint32][Time];
 		attribute<s_f>     Duration_seconds                 := Impedance;
@@ -95,20 +96,9 @@ Template CreateNetwork_Pedestrian_Bike_T : using = "geometries"
 			attribute<uint32>               CumulOrdinal := union_data(., const(0,..,uint32), const(1,..,uint32));
 		}
 		
-/* 		unit<uint32> TravelledJourney := sequence2points(LinkSet) //vertaling van LinkSet attribute (afgelegde route in OD), naar onderdelen van de reis
-		{
-			// voor visuaisatie
-			attribute<rdc>         Route (arc) := points2sequence(LinkPoints/Point, LinkPoints/Sequence_rel, LinkPoints/Ordinal);
-			attribute<rdc>         FromPoint   := LinkSet/FirstPoint[point];
-			attribute<rdc>         ToPoint     := LinkSet/LastPoint[point];
-
-			unit<uint32> LinkPoints := union_unit(., .)
-			{
-				attribute<rdc>                  Point        := union_data(., FromPoint, ToPoint);
-				attribute<..>                   Sequence_rel := union_data(., id(..), id(..));
-				attribute<uint32>               Ordinal      := union_data(., const(0,..,uint32), const(1,..,uint32));
-			}
-		}
-*/
 	}
+	container Links := =ModelParameters/Advanced/IsOD
+		? 'Templates/RouteLinks_T(ODMatrix, ODMatrix/LinkSet, LinkSet, NodeSet, LinkSet/F1, LinkSet/F2, NodeSet/geometry, NodeSet/DestNode_rel[ODMatrix/End_rel])'
+		: 'Templates/GeenRouteLinks_T()'
+	, Descr = "De links van de route van elk been, alleen in de HB-paarmodus (IsOD); de geometrie is die van het vereenvoudigde net, een rechte lijn per link.";
 }

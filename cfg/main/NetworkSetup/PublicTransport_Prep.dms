@@ -413,8 +413,8 @@ container PublicTransport_Prep
 	,	Descr = "De basissets van de benen met een store, elk een Dijkstra over het hele netwerk met de maximale tijd van het type.";
 	container LegStores := for_each_ne(BaseLegTypes/name, 'LegStore_T(' + quote(BaseLegTypes/name) + ')')
 	,	Descr = "Per basisset: Write_Legs (schrijft de store), Legs_store (leest hem).";
-	parameter<string> LegStores_Write := 'Ready', ExplicitSuppliers = "=asList('LegStores/' + BaseLegTypes/name + '/Write_Legs/legs', ';')"
-	,	Descr = "Schrijft de stores van de benen (batch/UpdateAll.cmd legs).";
+	parameter<string> LegStores_Write := 'Ready', ExplicitSuppliers = "=asList('LegStores/' + BaseLegTypes/name + '/Write_Legs/legs', ';') + (/ModelParameters/Advanced/IsOD ? ';' + asList('LegStores/' + BaseLegTypes/name + '/Write_LegLinks/links', ';') : '')"
+	,	Descr = "Schrijft de stores van de benen (batch/UpdateAll.cmd legs), in de HB-paarmodus ook de links van de benen (Write_LegLinks).";
 
 	Template LegStore_T
 	{
@@ -462,6 +462,33 @@ container PublicTransport_Prep
 			attribute<string>  stop_id;
 			attribute<float64> Traveltime;
 			attribute<float64> TravelDist;
+		}
+
+		// DE LINKS VAN DE BENEN (sinds 2026-10-21, #129), alleen in de HB-paarmodus (ModelParameters/Advanced/IsOD): per been, in de volgorde van
+		// de reis, de links van zijn route over het vereenvoudigde net (Create_Routes/Links), elk met zijn rechte lijn, als gpkg naast de store.
+		parameter<string> LinksName_Str := StorageBase_Str + '_links.gpkg';
+		container Write_LegLinks : StorageName = "=LinksName_Str", StorageType = "gdalwrite.vect"
+		,	Descr = "Schrijft de links van de benen naar LinksName_Str; bereken Write_LegLinks/links. Alleen in de HB-paarmodus."
+		{
+			unit<uint32> links := ='TimeInvariantConnections/' + TypeName + '/Create_Routes/Links/Rows', ExplicitSuppliers = "Sig/ForWriting"
+			{
+				attribute<Src>     Leg_rel    := ='TimeInvariantConnections/' + TypeName + '/Create_Routes/Links/Rows/Route_rel';
+				attribute<string>  BuurtCode  := impl/Places/label[Buurt_Place_rel[Leg_rel]];
+				attribute<string>  stop_id    := /SourceData/Infrastructure/GTFS/PublicTransportNet/Stops/stop_id[impl/Places/Stop_rel[Stop_Place_rel[Leg_rel]]];
+				attribute<uint32>  Volgnr     := ='TimeInvariantConnections/' + TypeName + '/Create_Routes/Links/Rows/Volgnr';
+				attribute<rdc>     geometry (arc) := ='TimeInvariantConnections/' + TypeName + '/Create_Routes/Links/Rows/geometry';
+			}
+		}
+		container LegLinks_store : StorageName = "=LinksName_Str", StorageType = "gdal.vect", StorageReadOnly = "true"
+		,	Descr = "Lezer van de links van de benen (Write_LegLinks); alleen in de HB-paarmodus."
+		{
+			unit<uint32> links
+			{
+				attribute<string>  BuurtCode;
+				attribute<string>  stop_id;
+				attribute<uint32>  Volgnr;
+				attribute<rdc>     geometry (arc);
+			}
 		}
 	}
 

@@ -440,51 +440,45 @@ container NetworkSetup : using = "units;geometries;SourceData;Classifications;Mo
 			parameter<float32> decay_b := ='Advanced/Distance_Decay/'+DecayMode+'_b';
 			parameter<float32> decay_c := ='Advanced/Distance_Decay/'+DecayMode+'_c';
 			
-			unit<uint64> Traveltimes :=
-				impedance_matrix_od64('bidirectional(link_flag);startPoint(Node_rel):max_imp;endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel'
+			// In de HB-paarmodus (ModelParameters/Advanced/IsOD, sinds 2026-10-21, #129) vraagt de zoektocht ook de LinkSet, en geeft Links per
+			// rit de links van zijn route (Templates/RouteLinks_T); de reistijden zijn dezelfde.
+			unit<uint64> Traveltimes := ='impedance_matrix_od64(''bidirectional(link_flag);startPoint(Node_rel):max_imp;endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel'
+				+ (ModelParameters/Advanced/IsOD ? ',LinkSet' : '') + '''
 					, convert(impedance, min_f)
 					, LinkSet_dom/F1
 					, LinkSet_dom/F2
-					, not(LinkSet_dom/IsOneDirection) // sinds 2026-10-13 (#124): eenrichtingsfietspaden van de Fietsersbond; OSM-lopen en -fietsen hebben geen eenrichting
+					, not(LinkSet_dom/IsOneDirection)
 					, NodeSet_dom/OrgNode_rel
 					, NodeSet_dom/DestNode_rel
-					, MaxTraveltime_min //cut impedance
+					, MaxTraveltime_min
 					, distance
-				)
+				)'
 			{
 				attribute<string> Org_Dest    := string(OrgZone_rel)+'_'+string(DstZone_rel);
 			}
+			// sinds 2026-10-13 (#124) met eenrichtingsfietspaden van de Fietsersbond (not(IsOneDirection)); OSM-lopen en -fietsen hebben geen eenrichting
+			container Links := =ModelParameters/Advanced/IsOD
+				? 'Templates/RouteLinks_T(Traveltimes, Traveltimes/LinkSet, LinkSet_dom, NodeSet_dom, LinkSet_dom/F1, LinkSet_dom/F2, NodeSet_dom/geometry, NodeSet_dom/DestNode_rel[Traveltimes/DstZone_rel])'
+				: 'Templates/GeenRouteLinks_T()'
+			, Descr = "De links van de route van elke rit, alleen in de HB-paarmodus (IsOD).";
 			
+			// De routes van alle ritten, ook buiten de HB-paarmodus, om te bekijken. Sinds 2026-10-21 de lijn per route uit RouteLinks_T; tot
+			// dan was geometry de rechte lijn van een link per rit (TravelledJourney/Route[invert(Sequence_rel)]).
 			unit<uint64> Traveltimes_with_Linkset :=
 				impedance_matrix_od64('bidirectional(link_flag);startPoint(Node_rel):max_imp;endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel,LinkSet'
 					, convert(impedance, min_f)
 					, LinkSet_dom/F1
 					, LinkSet_dom/F2
-					, not(LinkSet_dom/IsOneDirection) // sinds 2026-10-13 (#124): eenrichtingsfietspaden van de Fietsersbond; OSM-lopen en -fietsen hebben geen eenrichting
+					, not(LinkSet_dom/IsOneDirection)
 					, NodeSet_dom/OrgNode_rel
 					, NodeSet_dom/DestNode_rel
-					, MaxTraveltime_min //cut impedance
+					, MaxTraveltime_min
 					, distance
 				)
 			{
 				attribute<string> Org_Dest := string(OrgZone_rel)+'_'+string(DstZone_rel);
-				attribute<rdc>    geometry (arc) := TravelledJourney/Route[invert(TravelledJourney/Sequence_rel)];
-				
-				unit<uint32> TravelledJourney := sequence2points(LinkSet) //vertaling van LinkSet attribute (afgelegde route in OD), naar onderdelen van de reis
-				{
-					attribute<rdc>         Route (arc)    := points2sequence(LinkPoints/Point, LinkPoints/Sequence_rel, LinkPoints/Ordinal);
-					attribute<rdc>         FromPoint      := LinkSet_dom/FromPoint[point];
-					attribute<rdc>         ToPoint        := LinkSet_dom/ToPoint[point];
-
-					unit<uint32> LinkPoints := union_unit(., .)
-					{
-						attribute<rdc>                  Point        := union_data(., FromPoint, ToPoint);
-						attribute<..>                   Sequence_rel := union_data(., id(..), id(..));
-						attribute<uint32>               Ordinal      := union_data(., const(0,..,uint32), const(1,..,uint32));
-						attribute<...>                  Sequence_rel_old := TravelledJourney/Sequence_rel[Sequence_rel];
-						attribute<uint32>               Ordinal_old      := TravelledJourney/Ordinal[Sequence_rel];
-					}
-				}
+				attribute<rdc>    geometry (arc) := TravelledJourney/geometry;
+				container TravelledJourney := Templates/RouteLinks_T(., LinkSet, LinkSet_dom, NodeSet_dom, LinkSet_dom/F1, LinkSet_dom/F2, NodeSet_dom/geometry, NodeSet_dom/DestNode_rel[DstZone_rel]);
 			}
 			
 			unit<uint64> Decay := 
