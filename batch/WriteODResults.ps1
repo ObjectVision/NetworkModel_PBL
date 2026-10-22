@@ -12,7 +12,7 @@
 #
 # Aanroep, bijvoorbeeld de rit Laapersweg 1 Hilversum -> De Boelelaan 1085 om 07:30 (de wiki, Routes of an OD pair):
 #   powershell -ExecutionPolicy Bypass -File batch\WriteODResults.ps1 -Org BU04020501 -Dest BU0363KP03 -Moment 07:30
-# De engine moet pareto met LinkSet kennen (GeoDMS#1325) voor de autoroutes: standaard de build 20.25.0_06ee574b4; met een oudere
+# De engine moet pareto met LinkSet kennen (GeoDMS#1325) voor de autoroutes: standaard GeoDMS 20.26.0 (.m); met een oudere
 # engine ModelParameters/Advanced/EngineHasParetoLinkSet op FALSE (dan geen autoroute op de kaart).
 # -AlleenUitvoer slaat de benen en de ketens over, als hun stores er al zijn (een herhaling van de uitvoer na een wijziging daarin).
 # Lange runs als eenmalige geplande taak (zie de wiki, How to run the model). -WaitForMemoryGB wacht tot er zoveel geheugen beschikbaar is
@@ -27,7 +27,7 @@ param(
 	[string]$Destset = 'Buurt2025',
 	[string]$Label = 'od',
 	[string]$Components = '',
-	[string]$Exe = 'C:\LocalData\GeoDMS_engine\20.25.0_06ee574b4\GeoDmsRun.exe',
+	[string]$Exe = 'C:\Program Files\ObjectVision\GeoDms20.26.0.m\GeoDmsRun.exe',
 	[string]$Root = 'C:\LocalData\NM_PBL_runs',
 	[int]$WaitForMemoryGB = 0,
 	[switch]$AlleenUitvoer
