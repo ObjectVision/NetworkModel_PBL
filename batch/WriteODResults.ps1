@@ -80,8 +80,9 @@ function MakeCopy($name, $comp, $merge) {
 	New-Item -ItemType Directory -Force $dst | Out-Null
 	& (Join-Path $env:SystemRoot 'System32\tar.exe') -xf $archive -C $dst
 	if ($LASTEXITCODE -ne 0) { throw "tar: exit $LASTEXITCODE" }
-	foreach ($f in 'ConfigSettings.dms', 'config.ini') { $src = Join-Path $repo "cfg\main\$f"; if (Test-Path $src) { Copy-Item $src (Join-Path $dst "cfg\main\$f") } }
-	Set-Content -Path (Join-Path $dst 'COMMIT.txt') -Value "$commit (git archive, plus ConfigSettings.dms en config.ini uit de working copy)"
+	# ConfigSettings.dms zit sinds 23-10-2026 in git (paden die afwijken in het register, zie dat bestand); config.ini is machine-lokaal
+	foreach ($f in 'config.ini') { $src = Join-Path $repo "cfg\main\$f"; if (Test-Path $src) { Copy-Item $src (Join-Path $dst "cfg\main\$f") } }
+	Set-Content -Path (Join-Path $dst 'COMMIT.txt') -Value "$commit (git archive, plus config.ini uit de working copy)"
 	$mp = Join-Path $dst 'cfg\main\ModelParameters.dms'
 	SetParam $mp 'AnalysisMoment'   "'$AnalysisMoment'"
 	SetParam $mp 'Dagdeel'          "'$Dagdeel'"

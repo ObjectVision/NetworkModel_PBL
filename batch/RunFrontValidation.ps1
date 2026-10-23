@@ -179,8 +179,7 @@ foreach ($r in $runs) {
 			& git -C $repo archive --format=zip -o $zip HEAD cfg data batch
 			Expand-Archive -Path $zip -DestinationPath $dst -Force
 			Remove-Item $zip
-			Copy-Item (Join-Path $repo 'cfg\main\ConfigSettings.dms') (Join-Path $dst 'cfg\main\ConfigSettings.dms')
-			Set-Content -Path (Join-Path $dst 'COMMIT.txt') -Value "$(& git -C $repo rev-parse HEAD) (git archive, plus cfg/main/ConfigSettings.dms uit de working copy)"
+			Set-Content -Path (Join-Path $dst 'COMMIT.txt') -Value "$(& git -C $repo rev-parse HEAD) (git archive)"
 			SetParam $mp 'AnalysisMoment' "'$AnalysisMoment'"
 			SetParam $mp 'Dagdeel'        "'$Dagdeel'"
 			SetComponent $mp $Component
