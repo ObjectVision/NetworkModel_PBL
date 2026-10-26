@@ -7,7 +7,8 @@
 // - <component>/Links en Samen/Links: de links van de routes (kaart), gekleurd per modaliteit (Modes); met Optie en Modaliteit_rel om op
 //   te kleuren of te filteren;
 //   Kaart/Optie toont alleen ModelParameters/OD_Optie;
-// - Grafiek: Prijs en Reistijd per optie; open de Scatter Chart van Grafiek/Prijs.
+// - Grafiek: Prijs tegen Reistijd, een reeks per groep van Gebruik (auto, fiets) in een eigen kleur; open de Scatter Chart van
+//   Grafiek/<groep>/Punten/Prijs en sleep de Prijs van de andere groepen erop.
 // Samen voegt de opties van de componenten per vertrekmoment samen zoals ComponentMerge: niet gedomineerd op prijs en reistijd (met
 // ChainParetoTimeEpsilon) en op autobezit en fietsbezit als MergeCriteria die noemt. Een component zonder uitvoer telt niet mee; Ontbreekt
 // noemt hem.
@@ -32,6 +33,35 @@ container OD_Results : using = "units;geometries;ModelParameters"
 		attribute<uint32> PenColor : [rgb(0, 150, 0), rgb(200, 0, 0), rgb(225, 185, 0), rgb(90, 90, 90), rgb(0, 0, 140), rgb(240, 90, 0), rgb(150, 150, 150), rgb(120, 50, 225), rgb(0, 90, 200)], DialogType = "PenColor"
 		,	Descr = "In de volgorde van GTFS_Modes/Selection: tram, metro, trein, bus, veerboot, lopen, wachten, fietsen, auto.";
 		attribute<int16>  PenWidth : [3, 4, 4, 3, 3, 2, 2, 2, 3], DialogType = "PenWidth", Descr = "Lijndikte in pixels: trein en metro dikker, lopen en fietsen dunner.";
+	}
+
+	// De grafiek: een reeks per groep van opties naar wat ze vragen, een auto (NeedsCar) en een fiets (NeedsBike), de criteria Car en Bike
+	// van MergeCriteria. Een Scatter Chart kleurt een punt naar de klasse van zijn Y-waarde, niet naar een ander attribuut; daarom heeft
+	// elke groep een eigen reeks, waarvan Prijs een classificatie van een klasse in de kleur van de groep heeft (Reeks_T).
+	unit<uint8> Gebruik : nrofrows = 4, Descr = "De groepen van opties naar het gebruik van een auto en een fiets, met hun kleur in de grafiek."
+	{
+		attribute<string> name        : ['ZonderAutoFiets', 'MetFiets', 'MetAuto', 'MetAutoFiets'];
+		attribute<string> label       : ['zonder auto of fiets', 'met fiets', 'met auto', 'met auto en fiets'];
+		attribute<uint32> SymbolColor : [rgb(225, 150, 0), rgb(120, 50, 225), rgb(0, 90, 200), rgb(0, 150, 150)], DialogType = "SymbolColor", Descr = "Als op de kaart: oranje voor lopen en OV, paars voor de fiets, blauw voor de auto.";
+		container V := for_each_nedv(name, String(ID(.))+'[..]', void, .);
+	}
+	Template Reeks_T
+	{
+		unit<uint32>       Bron;
+		parameter<Gebruik> Groep;
+		///
+		unit<uint32> Punten := select_with_org_rel(Bron/Gebruik_rel == Groep), Descr = "De opties van de groep Groep."
+		{
+			attribute<float32> Reistijd := Bron/Reistijd[org_rel], DialogType = "XAxis", Descr = "In minuten, de X-as van de Scatter Chart van Prijs.";
+			attribute<float32> Prijs    := Bron/Prijs[org_rel], cdf = "Klasse/ClassBreaks", Descr = "In euro, in de kleur van de groep; open de Scatter Chart van dit attribuut en sleep de Prijs van de andere groepen erop.";
+			attribute<string>  label    := Bron/label[org_rel];
+			unit<uint8> Klasse : nrofrows = 1
+			{
+				attribute<float32> ClassBreaks : [0], DialogType = "Classification";
+				attribute<uint32>  SymbolColor := const(Gebruik/SymbolColor[Groep], .), DialogType = "SymbolColor";
+				attribute<string>  Label       := const(Gebruik/label[Groep], .);
+			}
+		}
 	}
 
 	// Een gpkg van een component en een vertrekmoment
@@ -96,7 +126,11 @@ container OD_Results : using = "units;geometries;ModelParameters"
 			attribute<float32>  Prijs      := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_opties/Prijs') + ')', Descr = "In euro.";
 			attribute<string>   ModeUsed   := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_opties/ModeUsed') + ')';
 			attribute<string>   label      := Naam + ' ' + string(Optie) + ' ' + Vertrek + ' ' + ModeUsed;
+			attribute<Gebruik>  Gebruik_rel := const(Groep, .);
 		}
+		parameter<bool>    NeedsCar  := Comps/NeedsCar[rlookup(Naam, Comps/name)];
+		parameter<bool>    NeedsBike := Comps/NeedsBike[rlookup(Naam, Comps/name)];
+		parameter<Gebruik> Groep     := NeedsCar ? (NeedsBike ? Gebruik/V/MetAutoFiets : Gebruik/V/MetAuto) : (NeedsBike ? Gebruik/V/MetFiets : Gebruik/V/ZonderAutoFiets);
 		unit<uint32> Onderdelen_Bron := ='union_unit(' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_onderdelen') + ')'
 		,	Descr = "De onderdelen in de volgorde van de gpkg: per vertrekmoment eerst de voortransportbenen, dan de OV-benen, de overstappen en het natransport."
 		{
@@ -155,12 +189,7 @@ container OD_Results : using = "units;geometries;ModelParameters"
 			attribute<uint32> PenColor     (Optie) := Links/PenColor[Optie/org_rel], DialogType = "PenColor";
 			attribute<int16>  PenWidth     (Optie) := Links/PenWidth[Optie/org_rel], DialogType = "PenWidth";
 		}
-		unit<uint32> Grafiek := Opties
-		{
-			attribute<float32> Reistijd := Opties/Reistijd, DialogType = "XAxis", Descr = "In minuten; de X-as van de grafiek van Prijs (DialogType XAxis, sinds GeoDMS 20.26.0).";
-			attribute<float32> Prijs    := Opties/Prijs, Descr = "In euro; open de Scatter Chart van dit attribuut, met Reistijd op de X-as.";
-			attribute<string>  label    := Opties/label;
-		}
+		container Grafiek := Reeks_T(Opties, Groep);
 	}
 	container PerComponent := for_each_ne(Comps/name, 'Component_T(' + quote(Comps/name) + ', ' + quote(Comps/UitvoerAchtervoegsel) + ')');
 	unit<uint8> Comps_Er := Comps;
@@ -201,6 +230,9 @@ container OD_Results : using = "units;geometries;ModelParameters"
 			attribute<float32>  Prijs      := Kandidaten/Prijs[org_rel];
 			attribute<string>   ModeUsed   := Kandidaten/ModeUsed[org_rel];
 			attribute<string>   label      := Component + ' ' + string(Optie) + ' ' + Vertrek + ' ' + ModeUsed;
+			attribute<bool>     NeedsCar   := Kandidaten/NeedsCar[org_rel];
+			attribute<bool>     NeedsBike  := Kandidaten/NeedsBike[org_rel];
+			attribute<Gebruik>  Gebruik_rel := NeedsCar ? (NeedsBike ? Gebruik/V/MetAutoFiets : Gebruik/V/MetAuto) : (NeedsBike ? Gebruik/V/MetFiets : Gebruik/V/ZonderAutoFiets);
 		}
 		// de links van de gekozen opties, uit de links van hun component
 		unit<uint32> Links := ='union_unit(' + AsItemList('Deel/' + Comps_Er/name + '/Sel') + ')'
@@ -233,11 +265,6 @@ container OD_Results : using = "units;geometries;ModelParameters"
 				attribute<rdc>    geometry (arc) := L/geometry[org_rel];
 			}
 		}
-		unit<uint32> Grafiek := Opties
-		{
-			attribute<float32> Reistijd := Opties/Reistijd, DialogType = "XAxis", Descr = "In minuten; de X-as van de grafiek van Prijs (DialogType XAxis, sinds GeoDMS 20.26.0).";
-			attribute<float32> Prijs    := Opties/Prijs, Descr = "In euro; open de Scatter Chart van dit attribuut, met Reistijd op de X-as.";
-			attribute<string>  label    := Opties/label;
-		}
+		container Grafiek := for_each_ne(Gebruik/name, 'Reeks_T(Opties, ' + string(id(Gebruik)) + '[Gebruik])');
 	}
 }
