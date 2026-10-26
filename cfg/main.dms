@@ -1,18 +1,15 @@
 container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 17.0900" // format 17.1.2 -> 17.0102
 { 	
-	//// GENEREER OV Resultaten: 
-	// 1. Genereer de benodigde ontkoppelde OV-netwerk. Dit is onafhankelijk van orgs en dests -> MakeUnlinkedData/PublicTransportNet/Generate_PT
-	// 2. Reload, i.e. Alt+R
-	// 3. Genereer de output (i.e. csv's) voor alle blocken en tijdstippen, dus alle org-dests. -> /NetworkSetup/ConfigurationPerBlock/Generate_Output/OUTPUT_Generate_PublicTransport_fullOD_long_CSVFiles
-	// 4. Reload, i.e. Alt+R
-	// 5. Merge block/tijd csv's naar enkel tijd-csv's -> /NetworkSetup/ConfigurationPerBlock/MergeRegions/OUTPUT_Merge_PublicTransport_Regions_fullOD_long_CSVFiles
-	// 6. Reload, i.e. Alt+R
-	// 7. Merge tijd-csv's naar een enkel csv met alle resultaten in long-format -> /NetworkSetup/ConfigurationPerBlock/MergeTimes/OUTPUT_Merge_PublicTransport_Times_fullOD_long_CSVFiles
+	// DE STAPPEN VAN EEN RUN: zie de wiki, How to run the model, stap 1 tot en met 6. In GeoDmsGui staan ze onder
+	// MakeUnlinkedData (GTFS, LegStores, ChainStore) en NetworkSetup/Generate_Output; buiten de GUI met batch/UpdateAll.cmd.
 
 	container ChecksBeforeRunning
 	{
-		parameter<string> PT_CheckBlocks         := MakeUnlinkedData/PublicTransportNet/CheckEerstDezeIntegrityCheck_1;
-		parameter<string> PT_CheckPrices         := MakeUnlinkedData/PublicTransportNet/CheckEerstDezeIntegrityCheck_2;
+		parameter<string> PT_CheckBlocks         := uint64(ModelParameters/Advanced/MaxStopBlockSize) * uint64(ModelParameters/Advanced/NumberOfStopBlocks) > uint64(#/NetworkSetup/PublicTransport_Prep/Impl/BlockSelections) 
+																																? 'PASS: block numbers and size are adequate. It needs to be at least '+string(#/NetworkSetup/PublicTransport_Prep/Impl/BlockSelections)+' and now it is '+string(ModelParameters/Advanced/MaxStopBlockSize)+' * '+string(ModelParameters/Advanced/NumberOfStopBlocks)+' = '+string(uint64(ModelParameters/Advanced/MaxStopBlockSize) * uint64(ModelParameters/Advanced/NumberOfStopBlocks)) 
+																																: 'FAIL: you need more or larger blocks to accomodate all stops. It needs to be at least '+string(#/NetworkSetup/PublicTransport_Prep/Impl/BlockSelections)+' and now it is '+string(ModelParameters/Advanced/MaxStopBlockSize)+' * '+string(ModelParameters/Advanced/NumberOfStopBlocks)+' = '+string(uint64(ModelParameters/Advanced/MaxStopBlockSize) * uint64(ModelParameters/Advanced/NumberOfStopBlocks))+''
+																															, Descr = "Passen alle haltes in de haltenblokken (MaxStopBlockSize x NumberOfStopBlocks)? Zo niet, maak de blokken groter of talrijker.";
+		parameter<string> PT_CheckPrices         := all(NetworkSetup/PublicTransport_Prep/Impl/OD_R/Impl/Price_IntegrityCheck) && all(/NetworkSetup/PublicTransport_Prep/Impl/OD_L/NS_Station_Price_IntegrityCheck)  ? 'PASS: all links have a valid price (or no prices are needed)' : 'FAIL: you need to check the prices (or turn of prices)', Descr = "Heeft elk OV-been een geldige prijs (een FareTable-rij met prijzen), als de instellingen prijzen vragen? Rekent na de netwerkbouw; de ongeprijsde combinaties staan in NetworkSetup/PublicTransport_Prep/Impl/OD_R/impl/Ongeprijsd/uniek, de goedkope voorcheck is PT_CheckPriceCoverage.";
 		parameter<string> PT_CheckPriceCoverage  := SourceData/Infrastructure/OVprijzen/PrijsDekking/Status_gated
 													, Descr = "Goedkope voorcheck, te draaien VOOR de (uren durende) netwerkbouw en blokruns, bij elke nieuwe feed of nieuw prijsjaar: dekt de actieve prijstabel alle (mode,agency)-combinaties van de geladen GTFS-feed, en zijn alle tabelprijzen gevuld en plausibel? PT_CheckPrices blijft de sluitende check op OD-niveau (na netwerkbouw); diagnose bij FAIL daarvan: NetworkSetup/PublicTransport_Prep/Impl/OD_R/impl/Ongeprijsd/uniek.";
 		parameter<string> Check_OriginBlocks      := ModelParameters/Advanced/NumberOfOrgBlocks * ModelParameters/Advanced/MaxOrgBlockSize >= #/NetworkSetup/Impl/OrgBlockSelections 
@@ -25,7 +22,6 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 17.0900" // format
 		container OSM
 		{   
 			parameter<String> Step1_Generate_roads_Final_Network             := 'Ready', ExplicitSuppliers = "SourceData/Infrastructure/OSM/Make_Final_Network";
-			parameter<String> Export_Networks_toShapefile                    := 'Ready', ExplicitSuppliers = "SourceData/Infrastructure/OSM/OSM_Netwerken_Export/Generate";
 		}
 		
 		container TomTom
@@ -41,16 +37,6 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 17.0900" // format
 			parameter<String> Export_OV_Knooppunten                      := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/GTFS/OV_Knooppunten/Export_Knooppunten";
 			parameter<String> Export_Reistijd_OV_Knooppunt_tif          := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/GTFS/OV_Knooppunten/Bereikbaarheid_Auto/Reistijd";
 			parameter<String> Export_OV_Net_Venster                      := 'Ready', ExplicitSuppliers = "/pt_windows_export/Generate", Descr = "Het OV-net in een tijdvenster als lagen voor GIS (#57); dag, venster en formaat bovenin /pt_windows_export.";
-		}
-		
-		container PublicTransportNet
-		{
-			parameter<string> CheckEerstDezeIntegrityCheck_1               := uint64(ModelParameters/Advanced/MaxStopBlockSize) * uint64(ModelParameters/Advanced/NumberOfStopBlocks) > uint64(#/NetworkSetup/PublicTransport_Prep/Impl/BlockSelections) 
-																																	? 'PASS: block numbers and size are adequate. It needs to be at least '+string(#/NetworkSetup/PublicTransport_Prep/Impl/BlockSelections)+' and now it is '+string(ModelParameters/Advanced/MaxStopBlockSize)+' * '+string(ModelParameters/Advanced/NumberOfStopBlocks)+' = '+string(uint64(ModelParameters/Advanced/MaxStopBlockSize) * uint64(ModelParameters/Advanced/NumberOfStopBlocks)) 
-																																	: 'FAIL: you need more or larger blocks to accomodate all stops. It needs to be at least '+string(#/NetworkSetup/PublicTransport_Prep/Impl/BlockSelections)+' and now it is '+string(ModelParameters/Advanced/MaxStopBlockSize)+' * '+string(ModelParameters/Advanced/NumberOfStopBlocks)+' = '+string(uint64(ModelParameters/Advanced/MaxStopBlockSize) * uint64(ModelParameters/Advanced/NumberOfStopBlocks))+''
-																																, Descr = "Is the number of stops smaller or equal to the number of blocks times the size of the blocks. If this fails, check the size";
-			parameter<string> CheckEerstDezeIntegrityCheck_2               := all(NetworkSetup/PublicTransport_Prep/Impl/OD_R/Impl/Price_IntegrityCheck) && all(/NetworkSetup/PublicTransport_Prep/Impl/OD_L/NS_Station_Price_IntegrityCheck)  ? 'PASS: all links have a valid price (or no prices are needed)' : 'FAIL: you need to check the prices (or turn of prices)', Descr = "Check whether all links have a valid price (a matching FareTable row that actually contains prices), if prices are necessary (i.e. given model parameters). If this fails: see NetworkSetup/PublicTransport_Prep/Impl/OD_R/impl/Ongeprijsd/uniek for the uncovered (mode,agency,concession,line) combinations, and run /ChecksBeforeRunning/PT_CheckPriceCoverage as cheap pre-check before rebuilding.";
-			parameter<String> Generate_PT                                  := 'Ready', ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/x/Write_Result";
 		}
 		
 		container ExportNetworks

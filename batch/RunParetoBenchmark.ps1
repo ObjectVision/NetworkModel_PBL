@@ -72,8 +72,8 @@ $StageItem = @{
     # een aselecte steekproef van NrBlocks blokken (ParetoBenchmark.dms), per arm naar csv;
     # vergelijk daarna met batch\CompareParetoChains.py <scalar.csv> <pareto.csv>
     Sample = '/ParetoBenchmark/ChainSample/Rows'
-    # de volledige nationale ketenrun naar PT_Chains_*.fss
-    Full  = '/MakeUnlinkedData/PublicTransportNet/Generate_PT'
+    # de volledige nationale ketenrun als een store (x/Write_Result)
+    Full  = '/NetworkSetup/PublicTransport_Prep/x/Write_Result'
 }
 
 # ParetoLegs_R, ParetoLegs_L, LegDistanceQuantum[km], UseQuantisedLegDistanceInScalarRun
