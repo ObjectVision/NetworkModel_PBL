@@ -58,8 +58,44 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 17.0900" // format
 			parameter<string> Car_TomTom  := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/TomTom/Roads_selection/Export/Network"; 
 			parameter<string> Cycling_OSM := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/OSM/OSM_Netwerken_Export/Cycling/Generate"; 
 			parameter<string> Walking_OSM := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/OSM/OSM_Netwerken_Export/Walking/Generate"; 
-			parameter<string> Car_OSM     := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/OSM/OSM_Netwerken_Export/Car/Generate"; 
-			
+			parameter<string> Car_OSM     := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/OSM/OSM_Netwerken_Export/Car/Generate";
+
+		}
+
+		// De stores van de benen en de ketenstore als aan te klikken stappen; buiten de GUI doen batch/UpdateAll.cmd legs en chains hetzelfde.
+		// Een schrijver schrijft eerst de handtekening van zijn store en stopt als er al een andere staat; zie de wiki, How to run the model,
+		// stap 3 en 4.
+		container LegStores
+		:	Descr = "De benen van voor- en natransport: een parquet-store per basisset in %LocalDataProjDir%/IntermediateResults, een keer per peildatum en buurtset (UpdateAll.cmd legs); de dagdelen en de componenten lezen dezelfde stores."
+		{
+			parameter<String> Generate_All       := 'Ready', ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/LegStores_Write"
+			,	Descr = "Alle basissets in een keer, zoals UpdateAll.cmd legs: de drie hieronder, en Stops2Dest_Walking als herkomsten en bestemmingen verschillen (anders is lopen van de halte naar de bestemming het spiegelbeeld van Org2Stops_Walking).";
+			parameter<String> Org2Stops_Walking  := 'Ready', ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/LegStores/Org2Stops_Walking/Write_Legs/legs"
+			,	Descr = "Lopen van elke herkomst naar elke halte, over OSM: Legs_<set>toStops_Walking_<hash>.parquet.";
+			parameter<String> Org2Stops_Cycling  := 'Ready', ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/LegStores/Org2Stops_Cycling/Write_Legs/legs"
+			,	Descr = "Fietsen van elke herkomst naar elke halte, over het net van ModelParameters/Advanced/CyclingNetwork: Legs_<set>toStops_Cycling_<hash>.parquet.";
+			parameter<String> Stops2Dest_Cycling := 'Ready', ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/LegStores/Stops2Dest_Cycling/Write_Legs/legs"
+			,	Descr = "Fietsen van elke halte naar elke bestemming: Legs_Stops2<set>_Cycling_<hash>.parquet. Een eigen store, want het Fietsersbond-net heeft eenrichtingsfietspaden.";
+		}
+
+		container ChainStore
+		:	Descr = "De OV-ketenstore van het dagdeel: een store per haltenblok in %LocalDataProjDir%/IntermediateResults/PT_Chains_<datum>_<venster>_<hash>, dezelfde als UpdateAll.cmd chains maakt."
+		{
+			parameter<String> Step1_CheckBlocks        := /ChecksBeforeRunning/PT_CheckBlocks, Descr = "Passen alle haltes in de haltenblokken (MaxStopBlockSize x NumberOfStopBlocks)?";
+			parameter<String> Step2_CheckPriceCoverage := /ChecksBeforeRunning/PT_CheckPriceCoverage, Descr = "Dekt de prijstabel alle combinaties van modaliteit en vervoerder in de feed? Seconden; draai hem voor de ketens.";
+			parameter<String> Step3_BlocksWritten      := string(/NetworkSetup/PublicTransport_Prep/ChainStore_Blocks/NrWritten) + ' van ' + string(/NetworkSetup/PublicTransport_Prep/ChainStore_Blocks/NrBlocks) + ' haltenblokken hebben een store'
+			,	Descr = "Hoeveel blokken van de ketenstore met de huidige handtekening er al zijn (een blok telt als zijn 0Dictionary.dms bestaat).";
+			parameter<String> Step4_Generate_ToDo      := 'Ready', ExplicitSuppliers = "=AsList(/NetworkSetup/PublicTransport_Prep/ChainStore_Blocks/ToDo/Item, ';')"
+			,	Descr = "Rekent en schrijft de blokken zonder store in een opvraging; UpdateAll.cmd chains rekent ze in porties, elk in een eigen GeoDmsRun, zodat het geheugen tussen de porties vrijkomt.";
+			container PerBlock := for_each_ne(/NetworkSetup/PublicTransport_Prep/impl/BlockDomain/name, 'WriteBlock_T(' + quote(/NetworkSetup/PublicTransport_Prep/impl/BlockDomain/name) + ')')
+			,	Descr = "Per haltenblok: Write rekent en schrijft de store van dat blok, bijvoorbeeld om een blok te proberen.";
+
+			Template WriteBlock_T
+			{
+				parameter<string> BlockName;
+				///
+				parameter<String> Write := 'Ready', ExplicitSuppliers = "='/NetworkSetup/PublicTransport_Prep/KetenGeneratie_PerBlock/' + BlockName + '/Write_Block'";
+			}
 		}
 	}
 	
