@@ -21,7 +21,7 @@ REM   UpdateAll.cmd legs            de stores van de benen van het voor- en natr
 REM                                 basissets, lopen en fietsen naar en van elke halte (PublicTransport_Prep/LegStores_Write)
 REM   UpdateAll.cmd output          de OV-uitvoer: een csv per herkomstblok en vertrekmoment in
 REM                                 %LocalDataProjDir%\Output\<Analysis_date>_<OutputLabel><_component>[_fb]\PerBlock
-REM                                 (_fb: een component over het fietsnet met CyclingNetwork 'Fietsersbond', sinds 2026-10-26)
+REM                                 (_fb: een component over het fietsnet met CyclingNetwork 'Fietsersbond')
 REM                                 (ConfigurationPerBlock/Generate_Output), met de ketenstore van de vertrekmomenten in
 REM                                 PT_DepartureHours/Minutes. Maakt die map eerst leeg (sinds 2026-10-03, #118): alleen de
 REM                                 bestanden van het model (tt_*.csv, tt_*.xml, signature.txt/.xml), ook de samengevoegde,
