@@ -71,6 +71,9 @@ Waarom: een fss is geen uitwisselformaat tussen GeoDMS-versies (een fss uit 14.7
 
 ## 9. Commits
 
+- Een commitboodschap is voor een collega die het model kent maar niet weet wat er in de sessie gebeurde. De onderwerpregel blijft onder de 70 tekens, want Visual Studio en GitHub kappen daarna af. De body zegt in een paar volledige zinnen wat er veranderde, waarom, en wat het oplevert, met een verwijzing naar het issue; metingen, tussenstappen en de afweging staan in het issue.
+- Geen harde enter binnen een alinea, alleen een witregel tussen alinea's. Het afbreken op 72 tekens is een oude terminalgewoonte; Visual Studio en GitHub breken zelf af op de breedte van het venster.
+- Schrijf volledige zinnen, geen telegramstijl ("Weg: X."), geen namen die alleen in de sessie bestaan, en een getal met wat het is en waartegen het staat. Een reeks getallen hoort in het issue, in een tabel met labels.
 - De onderwerpregel begint met het issuenummer: `#129 OD_Uitvoer: een OV-onderdeel met de dienstregelingstijden van zijn rit`. Visual Studio toont alleen de eerste regel, en alleen met hekje koppelt GitHub de commit aan het issue. Tussen repo's gekwalificeerd: `ObjectVision/GeoDMS#1282`.
 - Altijd `git commit --cleanup=whitespace`, anders gooit git bij een amend, rebase of `-F` een regel die met `#` begint stil weg, en daarmee de hele onderwerpregel.
 - Grote thematische commits per afgerond stuk werk, een onderwerp per commit; werk aan hetzelfde issue in een commit zolang er niet gepusht is.
@@ -84,6 +87,7 @@ Waarom: een fss is geen uitwisselformaat tussen GeoDMS-versies (een fss uit 14.7
 - Een goed issue noemt pad en regelnummer, het gemeten getal en waartegen het afgezet is, scheidt waarneming van interpretatie en zegt wat niet getoetst is. Open vragen onderaan, per partij die aan zet is, alleen als ze niet al ergens beantwoord zijn en niet met een meting op te lossen zijn.
 - Een issue sluiten is drie handelingen: een afrondende comment (wat, met welke uitkomst, wat blijft liggen), de commit met het nummer, sluiten.
 - Geen vet in lopende tekst en geen gedachtenstreepjes: zulke tekst is meteen herkenbaar als door AI geschreven.
+- Schrijf voor een mens die er niet bij was: volledige zinnen met een werkwoord, geen eigen namen voor toetsruns of tussenstanden, en bij elk getal wat het is en waartegen het staat. Een regel, knoop of rit is "hij" of "het", niet "zij". Dat geldt ook voor de chat met de gebruiker.
 
 ## 11. De wiki is naslag
 
