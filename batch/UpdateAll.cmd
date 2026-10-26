@@ -45,15 +45,23 @@ REM
 REM De oude RunAll.cmd, RunKetens*.cmd, RunPrepare.cmd, RunDayGroups.cmd en RunCongestionSpeeds.cmd
 REM wezen naar itempaden van voor 2025 en zijn op 2026-09-23 verwijderd.
 REM ---------------------------------------------------------------------------------------------
-REM Engine: sinds 2026-09-23 de lokale msbuild-build 20.21.x in C:\dev\GeoDMS_2026\bin\Release\x64, want het model
-REM gebruikt de pareto-epsilon van GeoDMS #1282 (impedance_matrix_od64 met pareto(imp2_epsilon), pareto_optimal_eps);
-REM de geinstalleerde 20.20.0.m kent die niet en rekent dan met kwantisatie per link.
-REM Sinds 2026-10-01 vraagt de eindafweging met MinimiseCriteria 'Car' en 'Bike' (#117) bool-criteria in pareto_optimal_eps
-REM (GeoDMS #1287, vanaf commit e04ad20f0; een eerdere 20.22.1 geeft 'Cannot find operator'). Lange runs gebruiken een kopie
-REM van de build in C:\LocalData\GeoDMS_engine via GEODMS_EXE, nu 20.22.1_e04ad20f0.
-set EXE=C:\dev\GeoDMS_2026\bin\Release\x64\GeoDmsRun.exe
-REM Met de omgevingsvariabele GEODMS_EXE draait een andere GeoDmsRun.exe, bijvoorbeeld een proefbuild.
+REM Engine. Het model vraagt de pareto-epsilon en de bool-criteria van pareto_optimal_eps, die oudere versies van
+REM GeoDMS niet kennen; GEODMS_VERSION is de versie waarmee het getoetst is. GeoDmsRun.exe komt uit, in deze volgorde:
+REM de omgevingsvariabele GEODMS_EXE (een andere engine, bijvoorbeeld een proefbuild); de lokale build in
+REM C:\dev\GeoDMS_2026; de geinstalleerde GEODMS_VERSION, flavor m of c, in de map die de installer in het register
+REM zet (standaard C:\Program Files\ObjectVision\GeoDms<versie>.<flavor>).
+set GEODMS_VERSION=20.26.0
+set "EXE="
 if defined GEODMS_EXE set "EXE=%GEODMS_EXE%"
+if not defined EXE if exist "C:\dev\GeoDMS_2026\bin\Release\x64\GeoDmsRun.exe" set "EXE=C:\dev\GeoDMS_2026\bin\Release\x64\GeoDmsRun.exe"
+if not defined EXE for %%F in (m c) do if not defined EXE (
+  for /f "tokens=2,*" %%A in ('reg query "HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\GeoDms%GEODMS_VERSION%.%%F" /v InstallLocation /reg:64 2^>nul ^| findstr /i InstallLocation') do if exist "%%B\GeoDmsRun.exe" set "EXE=%%B\GeoDmsRun.exe"
+  if not defined EXE if exist "%ProgramW6432%\ObjectVision\GeoDms%GEODMS_VERSION%.%%F\GeoDmsRun.exe" set "EXE=%ProgramW6432%\ObjectVision\GeoDms%GEODMS_VERSION%.%%F\GeoDmsRun.exe"
+)
+if not defined EXE (
+  echo ABORT: geen GeoDmsRun.exe gevonden. Installeer GeoDMS %GEODMS_VERSION%, of zet GEODMS_EXE op het volledige pad van GeoDmsRun.exe.
+  exit /b 1
+)
 REM De volledige padnaam zonder "..": GeoDMS leidt %LocalDataProjDir% af uit de naam van de map boven cfg, en
 REM met batch\..\cfg\main.dms werd dat "..", zodat de stores in c:\LocalData\..\IntermediateResults (= C:\) kwamen.
 for %%I in ("%~dp0..\cfg\main.dms") do set CFG=%%~fI
@@ -81,6 +89,7 @@ goto args
 :argsdone
 
 echo UpdateAll %SECTION%%MOMENTS% gestart %DATE% %TIME%
+echo engine: %EXE%
 
 if /I "%SECTION%"=="all"     goto sources
 if /I "%SECTION%"=="sources" goto sources
