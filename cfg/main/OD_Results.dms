@@ -7,8 +7,8 @@
 // - <component>/Links en Samen/Links: de links van de routes (kaart), gekleurd per modaliteit (Modes); met Optie en Modaliteit_rel om op
 //   te kleuren of te filteren;
 //   Kaart/Optie toont alleen ModelParameters/OD_Optie;
-// - Grafiek: Prijs tegen Reistijd, een reeks per groep van Gebruik (auto, fiets) in een eigen kleur; open de Scatter Chart van
-//   Grafiek/<groep>/Punten/Prijs en sleep de Prijs van de andere groepen erop.
+// - Grafiek: Prijs tegen Reistijd, een reeks per vertrekmoment en groep van Gebruik (auto, fiets), een front, in de kleur van de
+//   groep; open de Scatter Chart van Grafiek/<moment>_<groep>/Punten/Prijs en sleep de Prijs van de andere groepen erop.
 // Samen voegt de opties van de componenten per vertrekmoment samen zoals ComponentMerge: niet gedomineerd op prijs en reistijd (met
 // ChainParetoTimeEpsilon) en op autobezit en fietsbezit als MergeCriteria die noemt. Een component zonder uitvoer telt niet mee; Ontbreekt
 // noemt hem.
@@ -45,13 +45,27 @@ container OD_Results : using = "units;geometries;ModelParameters"
 		attribute<uint32> SymbolColor : [rgb(225, 150, 0), rgb(120, 50, 225), rgb(0, 90, 200), rgb(0, 150, 150)], DialogType = "SymbolColor", Descr = "Als op de kaart: oranje voor lopen en OV, paars voor de fiets, blauw voor de auto.";
 		container V := for_each_nedv(name, String(ID(.))+'[..]', void, .);
 	}
+	unit<uint32> MomentGroep := combine_unit_uint32(Momenten, Gebruik), Descr = "De reeksen van de grafiek van Samen, een per vertrekmoment en groep; die van een moment staan naast elkaar."
+	{
+		attribute<Momenten> Moment_rel := first_rel(id(.));
+		attribute<Gebruik>  Groep_rel  := second_rel(id(.));
+		attribute<string>   name       := Momenten/name[Moment_rel] + '_' + Gebruik/name[Groep_rel];
+	}
+	// Een reeks is een front: de opties van een groep en een vertrekmoment, op reistijd, zodat de lijn van de grafiek (Points + Line, in
+	// de volgorde van de rijen) ze van snel en duur naar langzaam en goedkoop verbindt.
 	Template Reeks_T
 	{
-		unit<uint32>       Bron;
-		parameter<Gebruik> Groep;
+		unit<uint32>        Bron;
+		parameter<Gebruik>  Groep;
+		parameter<Momenten> Moment;
 		///
-		unit<uint32> Punten := select_with_org_rel(Bron/Gebruik_rel == Groep), Descr = "De opties van de groep Groep."
+		unit<uint32> Keuze := select_with_org_rel(Bron/Gebruik_rel == Groep && Bron/Moment_rel == Moment)
 		{
+			attribute<float32> Reistijd := Bron/Reistijd[org_rel];
+		}
+		unit<uint32> Punten := range(uint32, 0, #Keuze), Descr = "De opties van de groep Groep en het vertrekmoment Moment, op reistijd."
+		{
+			attribute<Bron>    org_rel  := Keuze/org_rel[union_data(., index(Keuze/Reistijd))];
 			attribute<float32> Reistijd := Bron/Reistijd[org_rel], DialogType = "XAxis", Descr = "In minuten, de X-as van de Scatter Chart van Prijs.";
 			attribute<float32> Prijs    := Bron/Prijs[org_rel], cdf = "Klasse/ClassBreaks", Descr = "In euro, in de kleur van de groep; open de Scatter Chart van dit attribuut en sleep de Prijs van de andere groepen erop.";
 			attribute<string>  label    := Bron/label[org_rel];
@@ -189,7 +203,7 @@ container OD_Results : using = "units;geometries;ModelParameters"
 			attribute<uint32> PenColor     (Optie) := Links/PenColor[Optie/org_rel], DialogType = "PenColor";
 			attribute<int16>  PenWidth     (Optie) := Links/PenWidth[Optie/org_rel], DialogType = "PenWidth";
 		}
-		container Grafiek := Reeks_T(Opties, Groep);
+		container Grafiek := for_each_ne(Momenten/name, 'Reeks_T(Opties, Groep, ' + string(id(Momenten)) + '[Momenten])');
 	}
 	container PerComponent := for_each_ne(Comps/name, 'Component_T(' + quote(Comps/name) + ', ' + quote(Comps/UitvoerAchtervoegsel) + ')');
 	unit<uint8> Comps_Er := Comps;
@@ -265,6 +279,6 @@ container OD_Results : using = "units;geometries;ModelParameters"
 				attribute<rdc>    geometry (arc) := L/geometry[org_rel];
 			}
 		}
-		container Grafiek := for_each_ne(Gebruik/name, 'Reeks_T(Opties, ' + string(id(Gebruik)) + '[Gebruik])');
+		container Grafiek := for_each_ne(MomentGroep/name, 'Reeks_T(Opties, ' + string(MomentGroep/Groep_rel) + '[Gebruik], ' + string(MomentGroep/Moment_rel) + '[Momenten])');
 	}
 }
