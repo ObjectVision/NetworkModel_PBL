@@ -204,10 +204,10 @@ echo %DATE% %TIME% pauze voorbij, de uitvoerstap start
 :output_go
 REM De uitvoermap leegmaken (sinds 2026-10-03, NetworkModel_PBL#118): de bestandsnamen dragen alleen datum, moment en blok, de
 REM parameters staan in signature.txt in de map. Zonder leegmaken zou een run na een codewijziging zijn blokken naast die van de
-REM vorige run zetten. Het model geeft de map (NetworkSetup/OutputDir_ForBatch, naar batch\log\output_dir.txt); alleen de
+REM vorige run zetten. Het model geeft de map (NetworkSetup/GenerateOutput/OutputDir_ForBatch, naar batch\log\output_dir.txt); alleen de
 REM bestanden die het model daar schrijft gaan weg, en alleen als de map onder een map Output ligt. Output_Sig/PathGate faalt
 REM vooraf als het langste uitvoerpad te lang is.
-call :run output_dir /NetworkSetup/OutputDir_ForBatch /NetworkSetup/Output_Sig/PathGate
+call :run output_dir /NetworkSetup/GenerateOutput/OutputDir_ForBatch /NetworkSetup/GenerateOutput/Output_Sig/PathGate
 if not "!RC!"=="0" goto failed
 set OUTDIR=
 set /p OUTDIR=<"%LOGDIR%\output_dir.txt"
@@ -234,7 +234,7 @@ REM Sinds 2026-10-07 in porties van herkomstblokken, elk een eigen GeoDmsRun, en
 REM (WriteOutputBlocks.ps1). Blokken per portie: ModelParameters/Advanced/Componenten/BlokkenPerPortie van de component
 REM (standaard 50), of de omgevingsvariabele OUTPUT_BATCHSIZE; OUTPUT_MAXBLOCKS rekent hooguit zoveel blokken (om te
 REM testen). Met de omgevingsvariabele OUTPUT_SINGLE een
-REM opvraging voor alle blokken, met de tellingen erin (NetworkSetup/Generate_Output), zoals tot dan. Bij MergeOutput
+REM opvraging voor alle blokken, met de tellingen erin (NetworkSetup/GenerateOutput/Generate_Output), zoals tot dan. Bij MergeOutput
 REM (sinds 2026-10-05, #117) het samenvoegen van de componenten, sinds 2026-10-07 ook per blok in porties (ComponentMerge/PerBlock).
 if defined OUTPUT_SINGLE goto output_single
 echo === uitvoer: csv per herkomstblok en vertrekmoment, in porties (WriteOutputBlocks.ps1; uren) ===
@@ -248,7 +248,7 @@ if not "!RC!"=="0" goto failed
 goto done
 :output_single
 echo === uitvoer: csv per herkomstblok en vertrekmoment, een opvraging (OUTPUT_SINGLE; uren) ===
-call :run output /NetworkSetup/Generate_Output
+call :run output /NetworkSetup/GenerateOutput/Generate_Output
 if not "!RC!"=="0" goto failed
 goto done
 

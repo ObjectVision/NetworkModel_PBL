@@ -251,7 +251,7 @@ container PublicTransport_Prep
 			parameter<string> StorageName_Str := StorageBase_Str + '.mmd';
 			container Sig := /Templates/StoreSignature_T(StorageName_Str, StorageName_Str + '/signature.txt', Signature, strlen('/0Dictionary.dms'))
 			,	Descr = "De handtekening in de map van de store (signature.txt, naast 0Dictionary.dms; sinds 2026-10-06, tot dan <naam>.signature.txt ernaast in IntermediateResults): Write_Car schrijft hem, Car_store controleert hem.";
-			unit<uint64> Write_Car := Car_src, StorageName = "=StorageName_Str", ExplicitSuppliers = "='Sig/ForWriting' + (/ModelParameters/Advanced/IsOD && IsTD && /ModelParameters/Advanced/EngineHasParetoLinkSet ? ';Write_CarLinks/links' : '')"
+			unit<uint64> Write_Car := Car_src, StorageName = "=StorageName_Str", ExplicitSuppliers = "='Sig/ForWriting' + (/ModelParameters/Advanced/IsOD && IsTD ? ';Write_CarLinks/links' : '')"
 			,	Descr = "Schrijft de afstandsmatrix van de directe autorit op dit moment naar StorageName_Str, en de handtekening ernaast (Sig); bereken dit item om de store (opnieuw) te maken."
 			{
 				attribute<s_f>        impedance   := Car_src/Car_Time, Descr = "De reistijd van de route; met de relatieve epsilon (sinds 2026-10-05) het tweede zoekcriterium, de afstand het eerste.";
@@ -334,7 +334,7 @@ container PublicTransport_Prep
 			// in volgorde van afstand (de prijs) blijft een langere route alleen als ze meer dan die fractie sneller is dan de kortere routes die
 			// blijven, de regel van de zoektocht zelf; met dezelfde epsilon als de store dunt dit niets meer uit. De kortste route blijft altijd.
 			// Eerder op 2026-10-05 reistijd eerst, met tijdbakken van 60 s en afstandsbakken van 400 m, waarin een kortere route de snelste kon vervangen.
-			attribute<bool>       keep             (Rows) := = /ModelParameters/Advanced/EngineHasParetoEpsilon && /ModelParameters/Advanced/CarFrontEpsilon > 0f
+			attribute<bool>       keep             (Rows) := = /ModelParameters/Advanced/CarFrontEpsilon > 0f
 			                                                 ? 'pareto_optimal_eps(Summary_rel, alt_imp, impedance, /ModelParameters/Advanced/CarFrontEpsilon)'
 			                                                 : 'const(TRUE, Rows, bool)';
 			unit<uint64> Front := select_with_org_rel(keep)
@@ -663,35 +663,9 @@ container PublicTransport_Prep
 			attribute<StarEvent2Stop>       OD_pair_key                    := combine_data(StarEvent2Stop, uq_c_FromTime_Stop_rel, To_Stop_rel); //fka OD_key
 			unit<uint32>                    OD_pair                        := unique_uint32(OD_pair_key);
 			attribute<OD_pair>              OD_pair_rel                    := rlookup(OD_pair_key, OD_pair/values);
-			attribute<.>                    good_candidate_of_OD (OD_Pair) := ='min_index('+first(ParetoAttr/Name)+', OD_pair_rel)', Descr = "do a pre-selection to limit the size of the pareto_candidate selection. Here, first select a point which is a good starting point from which to compare others.";
-			attribute<.>                    good_candidate_in_OD           := good_candidate_of_OD[OD_pair_rel];
-			
 			unit<uint8> ParetoAttr := Classifications/FinalParetoAttr;
-			
-			attribute<bool>                 pe_compared_to_good_candidate  := =asList(replace('@PA@ < good_candidate_in_OD->@PA@', '@PA@', ParetoAttr/Name), ' or '), Descr = "Option is Pareto efficient compared to good candidate.";
-			attribute<bool>                 is_also_good_candidate         := pe_compared_to_good_candidate or (ID(.) == good_candidate_in_OD);
-					
-			unit<uint64> Valid := select(is_also_good_candidate)
-			{
-				attribute<OD_Pair>    OD_pair_rel      := collect_by_cond(., ../OD_pair_rel);
-				attribute<s>          TravelTime       := collect_by_cond(., ../TravelTime);
-				attribute<Ct>         Price            := collect_by_cond(., ../Price);
-				attribute<Ct>         Price_augm       := collect_by_cond(., ../Price_augm);
-			}
-			unit<uint64> pareto_vergelijker := join_equal_values_uint64(Valid/OD_pair_rel, Valid/OD_pair_rel)
-			{
-				attribute<bool>       is_less_or_equal := =asList('Valid/'+ ParetoAttr/Name+'[./first_rel] <= Valid/'+ParetoAttr/Name+'[./second_rel]',  ' and ');
-				attribute<bool>       is_equal         := =asList('Valid/'+ ParetoAttr/Name+'[./first_rel] == Valid/'+ParetoAttr/Name+'[./second_rel]',  ' and ');
-				attribute<bool>       is_less          := is_less_or_equal && (not(is_equal) || first_rel < second_rel);
-			}
-			attribute<bool>                 Valid_pareto_condition (Valid) := not(any(pareto_vergelijker/is_less, pareto_vergelijker/second_rel));
-			attribute<bool>                 pareto_condition_classic       := recollect_by_cond(is_also_good_candidate, Valid_pareto_condition, false), Descr = "De handgeschreven vergelijker, voor engines voor 20.21.0.";
-			// Sinds GeoDMS 20.21.0 (#1282) doet pareto_optimal_eps hetzelfde als de handgeschreven vergelijker (zwakke dominantie,
-			// index-tiebreak) in een sortering en een veegslag, met per criterium een epsilon (Classifications/../EpsilonExpr; 0 = exact):
-			// rijen van dezelfde groep in dezelfde prijs- of tijdbak tellen als gelijk en alleen de beste blijft.
-			attribute<bool>                 pareto_condition               := = /ModelParameters/Advanced/EngineHasParetoEpsilon
-				? 'pareto_optimal_eps(OD_pair_rel, ' + asList(ParetoAttr/ParetoArgs, ', ') + ')'
-				: 'pareto_condition_classic';
+			// pareto_optimal_eps keeps per group the rows that no other row dominates, with a relative epsilon per criterion (Classifications/../EpsilonExpr; 0 = exact).
+			attribute<bool>                 pareto_condition               := ='pareto_optimal_eps(OD_pair_rel, ' + asList(ParetoAttr/ParetoArgs, ', ') + ')';
 		} 
 
 		container BlockResultContainer
@@ -923,9 +897,6 @@ container PublicTransport_Prep
 		(ModelParameters/Advanced/ParetoLegs_R ? '_paretoR' : '')+
 		ModelParameters/Advanced/ChainPareto_FileTag+ // '_chainrel1pct': de relatieve epsilon op de reistijd in de ketenrijging (GeoDMS #1282; tot 2026-10-05 '_chaineps10ct60s'), leeg als die uit staan
 		(ModelParameters/Advanced/ParetoLegs_L ? '_paretoL' : '')+
-		((ModelParameters/Advanced/ParetoLegs_R || ModelParameters/Advanced/ParetoLegs_L || ModelParameters/Advanced/UseQuantisedLegDistanceInScalarRun) && ModelParameters/Advanced/LegDistanceQuantum > 0[km]
-			? '_q'+string(ModelParameters/Advanced/LegDistanceQuantum * 1000f)+'m'
-			: '')+
 		// Flexvervoer (ObjectVision/NetworkModel_PBL#113, #116): '_noflex', of '_flex<i>i<w>w<c>ct' met de flexparameters; leeg als die alle drie 0 zijn.
 		ModelParameters/Advanced/Flex_FileTag+
 		// NS International en rit-opslag (ObjectVision/NetworkModel_PBL#3): leeg met de standaard, anders '_' met I, R of w<min>.

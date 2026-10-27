@@ -16,7 +16,6 @@ Template PrivateTransport_Car_T
 		parameter<string>  netwerk_type_suffix := ModelParameters/UseTomTomNetworkForCars ? '-TomTom' : '-OSM';
 		parameter<string>  fileNamePrefix :=  ModelParameters/Advanced/fileNamePrefix;
 		parameter<string>  fileNameSuffix :=  
-			// '_ORG-'    + ModelParameters/Orgset + '-' + NetworkSetup/Impl/OrgBlockDomain/name[BlockDomain_id] + 
 			'_ORG-'    + ModelParameters/Advanced/OrgSet_PathTag + 
 			'_DEST-'   + ModelParameters/Advanced/DestSet_PathTag +
 			'_NETWERK-'+ netwerk_type_OSM + netwerk_type_suffix +
@@ -178,8 +177,8 @@ Template PrivateTransport_Car_T
 			parameter<string> BidirSpec   := ModelParameters/Advanced/InterpretAllRoadsAsBidirectional ? 'bidirectional' : 'bidirectional(link_flag)';
 			parameter<string> BidirArg    := ModelParameters/Advanced/InterpretAllRoadsAsBidirectional ? '' : ', not(LinkSet_dom/IsOneDirection)';
 			parameter<string> TDArgs      := ', Create_Network_TomTom/TimeDependent/Profile_rel, Create_Network_TomTom/TimeDependent/ProfileSlot/factor, ModelParameters/Advanced/CarTD_SlotDuration, Departure';
-			// In de HB-paarmodus (sinds 2026-10-21, #129) ook de links van elke route (pareto met LinkSet: GeoDMS#1325, EngineHasParetoLinkSet).
-			parameter<bool>   MetLinks    := ModelParameters/Advanced/IsOD && (ModelParameters/Advanced/EngineHasParetoLinkSet || !IsPareto);
+			// In de HB-paarmodus (sinds 2026-10-21, #129) ook de links van elke route (pareto met LinkSet: GeoDMS#1325).
+			parameter<bool>   MetLinks    := ModelParameters/Advanced/IsOD;
 			parameter<string> OdSpec      := 'od:impedance,OrgZone_rel,DstZone_rel' + (MetLinks ? ',LinkSet' : '');
 			unit<uint64> impedanceMatrix := = IsPareto
 				? 'impedance_matrix_od64(''' + BidirSpec + ';startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;pareto(OrgZone_max_imp2,imp2_epsilon);timedependent_alt(link_profile_rel,profile_slot_factor,slot_duration,departure_time);' + OdSpec + '''
@@ -224,7 +223,7 @@ Template PrivateTransport_Car_T
 			// Een bi-criteria label-setting zoektocht met per HB-paar een rij per Pareto-optimale route (GeoDMS#856,
 			// doc/bicriteria-impedance.md). Car_Time en Car_Distance geven reistijd en afstand, in welke volgorde ook gezocht is.
 			//
-			// Sinds 2026-10-05 (EngineHasParetoEpsilon en CarFrontEpsilon > 0, GeoDMS #1282): AFSTAND EERST, want de prijs is afstand x
+			// Sinds 2026-10-05 (CarFrontEpsilon > 0, GeoDMS #1282): AFSTAND EERST, want de prijs is afstand x
 			// Car_CostPerKm en het rapportagethema is bereikbaarheidsarmoede. De engine neemt per bestemmingszone de routes aan in
 			// volgorde van afstand, de kortste (goedkoopste) eerst, en een langere route alleen als haar reistijd meer dan de fractie
 			// CarFrontEpsilon onder de snelste al aangenomen reistijd ligt (pareto(imp2_epsilon), relatief). De grens van MaxCarTime is
@@ -240,7 +239,7 @@ Template PrivateTransport_Car_T
 			// (in uint64, want GeoDMS meldt een overflow bij uint32-vermenigvuldiging in plaats van te wikkelen)
 			// Tot 2026-10-05 ook met de epsilon reistijd eerst, met afstandsbakken van 400 m (CarFrontDistanceEpsilon).
 			attribute<float32> dither (LinkSet_dom) := float32(mod(uint64(id(LinkSet_dom)) * uint64(7919), uint64(1000))) / 1000f;
-			parameter<bool>   UseEngineEpsilon := ModelParameters/Advanced/EngineHasParetoEpsilon && ModelParameters/Advanced/CarFrontEpsilon > 0f;
+			parameter<bool>   UseEngineEpsilon := ModelParameters/Advanced/CarFrontEpsilon > 0f;
 			attribute<km>     AltImp_q (LinkSet_dom) := not(UseEngineEpsilon) && ModelParameters/Advanced/CarLegDistanceQuantum > 0[km]
 			                                          ? float32(rounddown(Distance / ModelParameters/Advanced/CarLegDistanceQuantum + dither)) * ModelParameters/Advanced/CarLegDistanceQuantum
 			                                          : Distance;

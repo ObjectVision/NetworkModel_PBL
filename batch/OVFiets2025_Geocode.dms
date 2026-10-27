@@ -9,7 +9,7 @@
 container ovf2025_geocode
 {
 	container eenheden { unit<int32> datum; unit<int16> jaar; }
-	container geometries
+	container Geography
 	{
 		unit<dpoint> rdc_base : SpatialReference = "EPSG:28992";
 		unit<dpoint> rdc      := range(rdc_base, point_xy(0d, 300000d), point_xy(280000d, 625000d));
@@ -32,7 +32,7 @@ container ovf2025_geocode
 	unit<uint32> Stops0 : StorageName = "F:/SourceData/NetworkModel_PBL/Infrastructuur/GTFS/20250930/stops.csv", StorageType = "gdal.vect", StorageReadOnly = "true";
 	unit<uint32> Stops := Stops0
 	{
-		attribute<geometries/rdc> geometry := LatLongWgs842RD(point_yx(float64(Stops0/stop_lat), float64(Stops0/stop_lon), dpoint), dpoint)[geometries/rdc];
+		attribute<Geography/rdc> geometry := LatLongWgs842RD(point_yx(float64(Stops0/stop_lat), float64(Stops0/stop_lon), dpoint), dpoint)[Geography/rdc];
 		attribute<bool>           IsStation := Stops0/location_type == '1';
 		attribute<string>         name := Stops0/stop_name;
 	}
@@ -57,7 +57,7 @@ container ovf2025_geocode
 		attribute<NA>      na_rel  := strlen(nr) > 0 && strlen(pc) == 6 ? rlookup(pc + '_' + nr, NA/key) : value(null_u, NA);
 		attribute<Postcodes> pc_rel := strlen(pc) == 6 ? rlookup(pc, Postcodes/values) : value(null_u, Postcodes);
 		attribute<Stops>   st_rel  := rlookup(Naam, Stops/name), Descr = "Een GTFS-halte met precies deze naam (station of perron).";
-		attribute<geometries/rdc> na_geom := point_xy(NA/X[na_rel], NA/Y[na_rel], geometries/rdc);
+		attribute<Geography/rdc> na_geom := point_xy(NA/X[na_rel], NA/Y[na_rel], Geography/rdc);
 		attribute<float64> na_dstop := IsDefined(na_rel) ? dist(na_geom, UqStops/values[connect(UqStops/values, na_geom)]) : null_d;
 		// Een nieuw of gewijzigd adres verder dan 200 m van elke halte (DistanceOVFietsStops) koppelt het model aan geen station; dan de halte met dezelfde naam.
 		attribute<uint8>   bron    := same ? 1b : IsDefined(na_rel) && (na_dstop <= 200.0 || not(IsDefined(st_rel))) ? 2b : IsDefined(st_rel) && not(IsDefined(o_rel)) ? 5b : IsDefined(o_rel) ? 3b : IsDefined(st_rel) ? 5b : IsDefined(pc_rel) ? 4b : 0b;
@@ -66,7 +66,7 @@ container ovf2025_geocode
 		attribute<float64> d23     := IsDefined(o_rel) ? sqrt(sqr(X - float64(L23/X[o_rel])) + sqr(Y - float64(L23/Y[o_rel]))) : null_d, Descr = "Afstand tot de locatie met dezelfde naam in 2023, in m.";
 		attribute<string>  BronTxt := bron == 1b ? 'zoals 2023' : bron == 2b ? 'BAG-adres' : bron == 3b ? '2023 (adres niet in de BAG)' : bron == 4b ? 'BAG-postcode' : bron == 5b ? 'GTFS-station' : 'niet gevonden';
 		attribute<string>  Line    := string(id(.)) + ',' + Naam + ',' + straat + ',' + nr + ',,' + pc + ',' + string(X) + ',' + string(Y) + ',' + BronTxt;
-		attribute<geometries/rdc> geometry := point_xy(X, Y, geometries/rdc);
+		attribute<Geography/rdc> geometry := point_xy(X, Y, Geography/rdc);
 		attribute<UqStops> near   := connect(UqStops/values, geometry);
 		attribute<float64> dstop   := dist(geometry, UqStops/values[near]), Descr = "Afstand tot de dichtstbijzijnde GTFS-halte (feed 20250930), in m; het model koppelt binnen DistanceOVFietsStops (200 m).";
 		attribute<bool>    melden  := bron == 4b || bron == 5b || bron == 0b || (IsDefined(d23) && d23 > 300.0) || not(IsDefined(o_rel)) || dstop > 200.0;

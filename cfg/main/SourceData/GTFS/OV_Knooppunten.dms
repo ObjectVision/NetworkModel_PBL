@@ -200,46 +200,12 @@ container OV_Knooppunten : using = "RelevantSelection"
 				Werking: een multi-source dijkstra (impedance_table, zelfde patroon als PostAnalysis) vanaf alle knooppunt-nodes geeft per netwerk-node de reistijd naar het dichtstbijzijnde knooppunt;
 				elk woonpand krijgt de reistijd van zijn netwerk-node. Output: tif op rdc_25m (alleen cellen met een woonpand krijgen een waarde, overige cellen nodata) - voldoende voor koppeling aan woningtransacties."
 	{
-		// unit<uint32> LinkSet := /NetworkSetup/PrivateTransport/Car/OSM_LinkSet;
-		// unit<uint32> org     := /NetworkSetup/PrivateTransport/Org;
-		// unit<uint32> dest    := /NetworkSetup/PrivateTransport/Dest;
-		// unit<uint32> NodeSet := /NetworkSetup/PrivateTransport/Car/OSM_NodeSet
-		// {
-		// 	attribute<.>   OrgNode_rel   (org)  := rlookup(org/geometry,  geometry);
-		// 	attribute<.>   DestNode_rel  (dest) := rlookup(dest/geometry, geometry);
-		// }
 
-		// parameter<string> Check_OrgDest := 'Orgset='+ModelParameters/Orgset+', Destset='+ModelParameters/Destset
-		// , IntegrityCheck = "ModelParameters/Destset == 'OV_Knooppunten'"
-		// , Descr = "Deze berekening is alleen zinvol met OV-knooppunten als bestemmingen; Orgset bepaalt waar reistijden landen (bedoeld: BAG_woonpanden_Clustered).";
-
-		// attribute<min_f> Reistijd_node (NodeSet) :=
-		// 	convert(
-		// 		impedance_table(
-		// 			  'bidirectional(link_flag);startPoint(Node_rel);cut(OrgZone_max_imp)'
-		// 			, LinkSet/Impedance_per_ImpedanceType/max_limit_car
-		// 			, LinkSet/F1
-		// 			, LinkSet/F2
-		// 			, NOT(LinkSet/IsOneDirection)
-		// 			, NodeSet/DestNode_rel
-		// 			, convert(ModelParameters/MaxCarTime, s_f)
-		// 		)
-		// 	, min_f)
-		// , Descr = "Reistijd per netwerk-node naar het dichtstbijzijnde OV-knooppunt; null buiten MaxCarTime.";
-
-		// attribute<min_f>   Reistijd_pand (org)      := Reistijd_node[NodeSet/OrgNode_rel], Descr = "Reistijd per BAG-woonpand(cluster) naar het dichtstbijzijnde OV-knooppunt.";
-
-		// container Landsdekkend
-		// : Descr = "Landsdekkende reistijdkaart op rdc_25m volgens de AccessibilityModelling-methode (From_100m_Points, zoals tt_500k):
-		// 			alle 100m-celmiddens binnen NL worden als origins aan het autonetwerk geknoopt (aanrijafstand zit in de aansluitlink),
-		// 			zodat elke landcel een echte netwerk-reistijd naar het dichtstbijzijnde OV-knooppunt krijgt - geen interpolatie of buffer-artefacten.
-		// 			De 100m-waarden worden 1-op-16 doorgezet naar het 25m-grid; alleen cellen buiten NL blijven nodata."
-		// {
 			//// dekkende origin-set: alle 100m-celmiddens op NL-land (provincie-landmasker via poly2grid; bewust niet perGridsize/points, die hangt aan het kapotte geos_union_polygon NL-item)
 			attribute<bool> InNL (rdc_100m) := IsDefined(/SourceData/RegioIndelingen/Provincie/per_rdc_100m);
 			unit<uint32> Org_100m := select_with_org_rel(InNL)
 			{
-				attribute<rdc>      geometry := geometries/perGridsize/size_100m/domain/geometry[org_rel];
+				attribute<rdc>      geometry := Geography/perGridsize/size_100m/domain/geometry[org_rel];
 				attribute<rdc_100m> grid_rel := org_rel;
 			}
 
@@ -299,10 +265,9 @@ container OV_Knooppunten : using = "RelevantSelection"
 			attribute<min_f>   Reistijd_100m_gevuld (rdc_100m) := MakeDefined(Reistijd_100m, InNL && Pot_n > 0f ? convert(Pot_sum / Pot_n, min_f) : (0/0)[min_f]);
 
 			//// 100m -> 25m: elke 25m-cel krijgt de waarde van zijn 100m-cel (directe grid-naar-grid mapping)
-			attribute<min_f> Reistijd      (rdc_25m) := Reistijd_100m_gevuld[geometries/perGridsize/size_25m/domain/rdc_100m_rel]
+			attribute<min_f> Reistijd      (rdc_25m) := Reistijd_100m_gevuld[Geography/perGridsize/size_25m/domain/rdc_100m_rel]
 			, StorageName = "='%LocalDataProjDir%/Output/TraveltimeToNearest_OV_Knooppunten_'+ModelParameters/Advanced/GTFS_file_date+'_rdc25m.tif'"
 			, StorageType = "gdalwrite.grid"
 			, Descr = "Reistijd (min) per auto naar het dichtstbijzijnde OV-knooppunt, per 25m-cel, landsdekkend binnen NL.";
-		// }
 	}
 }

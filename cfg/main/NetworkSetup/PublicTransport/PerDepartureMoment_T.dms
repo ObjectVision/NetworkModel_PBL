@@ -335,36 +335,10 @@ Template PerDepartureMoment_T
 		unit<uint64>          uq_OD_key                        := unique(OD_key);
 		attribute<uq_OD_key>  uq_OD_key_rel                    := rlookup(OD_key, uq_OD_key/values); //attribuut om partitionering van price/traveltime etc te doen.
 		
-		attribute<.>          good_candidate_of_OD (uq_OD_key) := ='min_index('+first(ParetoAttr/Name)+', uq_OD_key_rel)', Descr = "do a pre-selection to limit the size of the pareto_candidate selection. Here, first select a point which is a good starting point from which to compare others.";
-		attribute<.>          good_candidate_in_OD             := good_candidate_of_OD[uq_OD_key_rel], Descr = "";
-		attribute<bool>       pe_compared_to_good_candidate    := =asList(replace('@PA@ < good_candidate_in_OD->@PA@', '@PA@', ParetoAttr/Name), ' or '), Descr = "Option is Pareto efficient compared to good candidate.";
-		attribute<bool>       is_also_good_candidate           := pe_compared_to_good_candidate OR (ID(.) == good_candidate_in_OD), Descr = "";
-				
-		unit<uint64> Valid := select(is_also_good_candidate)
-		{
-			attribute<uq_OD_key>  uq_OD_key_rel    := collect_by_cond(., ../uq_OD_key_rel);
-			attribute<s>          TravelTime       := collect_by_cond(., ../TravelTime);
-			attribute<Ct>         Price            := collect_by_cond(., ../Price);
-			attribute<Ct>         Price_augm       := collect_by_cond(., ../Price_augm);
-			attribute<bool>       NeedsCar         := collect_by_cond(., ../NeedsCar);
-			attribute<bool>       NeedsBike        := collect_by_cond(., ../NeedsBike);
-		}
-		unit<uint64> pareto_vergelijker := join_equal_values_uint64(Valid/uq_OD_key_rel, Valid/uq_OD_key_rel)
-		{
-			attribute<bool>       is_less_or_equal := =asList('Valid/'+ ParetoAttr/Name+'[./first_rel] <= Valid/'+ParetoAttr/Name+'[./second_rel]',  ' and ');
-			attribute<bool>       is_equal         := =asList('Valid/'+ ParetoAttr/Name+'[./first_rel] == Valid/'+ParetoAttr/Name+'[./second_rel]',  ' and ');
-			attribute<bool>       is_less          := is_less_or_equal && (not(is_equal) || first_rel < second_rel);
-		}
-		attribute<bool>       Valid_pareto_condition   (Valid) := not(any(pareto_vergelijker/is_less, pareto_vergelijker/second_rel));
-		attribute<bool>       pareto_condition_classic         := recollect_by_cond(is_also_good_candidate, Valid_pareto_condition, false), Descr = "De handgeschreven vergelijker, voor engines voor 20.21.0.";
-		// Sinds GeoDMS 20.21.0 (#1282) doet pareto_optimal_eps hetzelfde als de handgeschreven vergelijker (zwakke dominantie,
-		// index-tiebreak) in een sortering en een veegslag, met per criterium een epsilon (Classifications/../EpsilonExpr; 0 = exact):
-		// rijen van dezelfde groep in dezelfde prijs- of tijdbak tellen als gelijk en alleen de beste blijft.
+		// pareto_optimal_eps keeps per group the rows that no other row dominates, with a relative epsilon per criterion (Classifications/../EpsilonExpr; 0 = exact).
 		// NeedsCar en NeedsBike (#117) zijn bool-criteria zonder epsilon (GeoDMS #1287, vanaf e04ad20f0; een oudere engine geeft
-		// 'Cannot find operator'). pareto_condition_classic vergelijkt bools met < en <= ook goed (false < true).
-		attribute<bool>       pareto_condition                 := = /ModelParameters/Advanced/EngineHasParetoEpsilon
-			? 'pareto_optimal_eps(uq_OD_key_rel, ' + asList(ParetoAttr/ParetoArgs, ', ') + ')'
-			: 'pareto_condition_classic';
+		// 'Cannot find operator').
+		attribute<bool>       pareto_condition                 := ='pareto_optimal_eps(uq_OD_key_rel, ' + asList(ParetoAttr/ParetoArgs, ', ') + ')';
 	}
 	
 	unit<uint64> Result_AfterFirstCondensation := select(Union_with_DirectOD/pareto_condition)
@@ -404,36 +378,10 @@ Template PerDepartureMoment_T
 		unit<uint64>          uq_OD_key                        := unique(OD_key);
 		attribute<uq_OD_key>  uq_OD_key_rel                    := rlookup(OD_key, uq_OD_key/values); //attribuut om partitionering van price/traveltime etc te doen.
 		
-		attribute<.>          good_candidate_of_OD (uq_OD_key) := ='min_index('+first(ParetoAttr/Name)+', uq_OD_key_rel)', Descr = "do a pre-selection to limit the size of the pareto_candidate selection. Here, first select a point which is a good starting point from which to compare others.";
-		attribute<.>          good_candidate_in_OD             := good_candidate_of_OD[uq_OD_key_rel], Descr = "";
-		attribute<bool>       pe_compared_to_good_candidate    := =asList(replace('@PA@ < good_candidate_in_OD->@PA@', '@PA@', ParetoAttr/Name), ' or '), Descr = "Option is Pareto efficient compared to good candidate.";
-		attribute<bool>       is_also_good_candidate           := pe_compared_to_good_candidate OR (ID(.) == good_candidate_in_OD), Descr = "";
-				
-		unit<uint64> Valid := select(is_also_good_candidate)
-		{
-			attribute<uq_OD_key>  uq_OD_key_rel    := collect_by_cond(., ../uq_OD_key_rel);
-			attribute<s>          TravelTime       := collect_by_cond(., ../TravelTime);
-			attribute<Ct>         Price            := collect_by_cond(., ../Price);
-			attribute<Ct>         Price_augm       := collect_by_cond(., ../Price_augm);
-			attribute<bool>       NeedsCar         := collect_by_cond(., ../NeedsCar);
-			attribute<bool>       NeedsBike        := collect_by_cond(., ../NeedsBike);
-		}
-		unit<uint64> pareto_vergelijker := join_equal_values_uint64(Valid/uq_OD_key_rel, Valid/uq_OD_key_rel)
-		{
-			attribute<bool>       is_less_or_equal := =asList('Valid/'+ ParetoAttr/Name+'[./first_rel] <= Valid/'+ParetoAttr/Name+'[./second_rel]',  ' and ');
-			attribute<bool>       is_equal         := =asList('Valid/'+ ParetoAttr/Name+'[./first_rel] == Valid/'+ParetoAttr/Name+'[./second_rel]',  ' and ');
-			attribute<bool>       is_less          := is_less_or_equal && (not(is_equal) || first_rel < second_rel);
-		}
-		attribute<bool>       Valid_pareto_condition   (Valid) := not(any(pareto_vergelijker/is_less, pareto_vergelijker/second_rel));
-		attribute<bool>       pareto_condition_classic         := recollect_by_cond(is_also_good_candidate, Valid_pareto_condition, false), Descr = "De handgeschreven vergelijker, voor engines voor 20.21.0.";
-		// Sinds GeoDMS 20.21.0 (#1282) doet pareto_optimal_eps hetzelfde als de handgeschreven vergelijker (zwakke dominantie,
-		// index-tiebreak) in een sortering en een veegslag, met per criterium een epsilon (Classifications/../EpsilonExpr; 0 = exact):
-		// rijen van dezelfde groep in dezelfde prijs- of tijdbak tellen als gelijk en alleen de beste blijft.
+		// pareto_optimal_eps keeps per group the rows that no other row dominates, with a relative epsilon per criterion (Classifications/../EpsilonExpr; 0 = exact).
 		// NeedsCar en NeedsBike (#117) zijn bool-criteria zonder epsilon (GeoDMS #1287, vanaf e04ad20f0; een oudere engine geeft
-		// 'Cannot find operator'). pareto_condition_classic vergelijkt bools met < en <= ook goed (false < true).
-		attribute<bool>       pareto_condition                 := = /ModelParameters/Advanced/EngineHasParetoEpsilon
-			? 'pareto_optimal_eps(uq_OD_key_rel, ' + asList(ParetoAttr/ParetoArgs, ', ') + ')'
-			: 'pareto_condition_classic';
+		// 'Cannot find operator').
+		attribute<bool>       pareto_condition                 := ='pareto_optimal_eps(uq_OD_key_rel, ' + asList(ParetoAttr/ParetoArgs, ', ') + ')';
 	}
 	
 	unit<uint64> Result_AfterSecondCondensation := select(Result_AfterFirstCondensation/pareto_condition)
@@ -505,7 +453,6 @@ Template PerDepartureMoment_T
 		attribute<string>  OrgName                              (domain) := domain/OrgName;
 		attribute<string>  DestName                             (domain) := domain/DestName;
 		attribute<string>  OrgDestName                          (domain) := OrgName + '_' + DestName;
-		// attribute<float32> nr_items_of_interest_bereikbaar_decayed (org) := domain/nr_items_of_interest_bereikbaar_decayed;
 		// Een onbekende waarde wordt een leeg veld: de directe autorit had tot 2026-10-05 geen afstand (TravelDist_V null), en een null
 		// in de samengestelde regel maakte de hele regel null, zodat alle autoritten uit de csv verdwenen (2026-09-24).
 		// Sinds 2026-10-03 heet elk item hieronder naar zijn kolom (zonder het vertrekmoment), en bepaalt Columns welke kolommen in
@@ -571,7 +518,7 @@ Template PerDepartureMoment_T
 			attribute<string>  BodyLines (domain) := ='domain/OrgName + '';'' + domain/DestName + '';'' + ' + asList(ExportColumns/name, ' + '';'' + ');
 			parameter<string>  File              := 'OrgName;DestName;' + asList(ExportColumns/name + '_' + inTime_str_short, ';') + '\n' + asList(BodyLines, '\n')
 			,	StorageName = "=fileNamePrefix+'tt'+fileNameSuffix +'.csv'", StorageType = "str"
-			,	ExplicitSuppliers = "/NetworkSetup/Output_Sig/ForWriting"; // schrijft de handtekening van de uitvoermap, of faalt bij een andere of een te lang pad (#118)
+			,	ExplicitSuppliers = "/NetworkSetup/GenerateOutput/Output_Sig/ForWriting"; // schrijft de handtekening van de uitvoermap, of faalt bij een andere of een te lang pad (#118)
 
 			// Sinds 2026-10-16 de uitvoer ook als parquet (ModelParameters/OutputFormat 'parquet', sinds 2026-10-19 de standaard), met
 			// zstd, getypt (tijden in min en prijzen in euro als float32, afstanden in m als uint32), een onbekende waarde null, zonder het
@@ -591,7 +538,7 @@ Template PerDepartureMoment_T
 			:	StorageName = "=fileNamePrefix+'tt'+fileNameSuffix+'.parquet'", StorageType = "gdalwrite.vect"
 			,	Descr = "WW en CC: alleen de reistijd (een route per HB-paar; afstand en prijs volgen uit de reistijd)."
 			{
-				unit<uint64> tt := domain, ExplicitSuppliers = "/NetworkSetup/Output_Sig/ForWriting"
+				unit<uint64> tt := domain, ExplicitSuppliers = "/NetworkSetup/GenerateOutput/Output_Sig/ForWriting"
 				{
 					attribute<string> OrgName            := domain/OrgName;
 					attribute<string> DestName           := domain/DestName;
@@ -602,7 +549,7 @@ Template PerDepartureMoment_T
 			:	StorageName = "=fileNamePrefix+'tt'+fileNameSuffix+'.parquet'", StorageType = "gdalwrite.vect"
 			,	Descr = "Car: reistijd en afstand van elke route in het front (de prijs is Car_FixedCosts_PerTrip plus de afstand maal Car_CostPerKm)."
 			{
-				unit<uint64> tt := domain, ExplicitSuppliers = "/NetworkSetup/Output_Sig/ForWriting"
+				unit<uint64> tt := domain, ExplicitSuppliers = "/NetworkSetup/GenerateOutput/Output_Sig/ForWriting"
 				{
 					attribute<string> OrgName            := domain/OrgName;
 					attribute<string> DestName           := domain/DestName;
@@ -614,7 +561,7 @@ Template PerDepartureMoment_T
 			:	StorageName = "=fileNamePrefix+'tt'+fileNameSuffix+'.parquet'", StorageType = "gdalwrite.vect"
 			,	Descr = "Een OV-component: reistijd, prijs, de gewaardeerde prijs, de vervoerwijzen, het wachten thuis, de tijd van voor- en natransport en de afstand per OV-vervoerwijze."
 			{
-				unit<uint64> tt := domain, ExplicitSuppliers = "/NetworkSetup/Output_Sig/ForWriting"
+				unit<uint64> tt := domain, ExplicitSuppliers = "/NetworkSetup/GenerateOutput/Output_Sig/ForWriting"
 				{
 					attribute<string> OrgName            := domain/OrgName;
 					attribute<string> DestName           := domain/DestName;
@@ -634,10 +581,6 @@ Template PerDepartureMoment_T
 			}
 		
 		
-			// attribute<string>  BodyLines_decay     (org) := org/name + ';' + string(nr_items_of_interest_bereikbaar_decayed);
-			// parameter<string>  File_decay                := 'Org;'+ModelParameters/Advanced/items_of_interest+'_'+inTime_string+'\n'++asList(BodyLines_decay, '\n')
-																// , StorageName = "=fileNamePrefix+ModelParameters/Advanced/items_of_interest+'_decayed_'+fileNameSuffix +'.csv'", StorageType = "str";
-			
 			container Results_Traveltime
 			{
 				parameter<string>  Generate := 'Ready', ExplicitSuppliers = "=(ModelParameters/OutputFormat == 'parquet' ? 'Parquet_' + ModelParameters/Advanced/ExportKlasse + '/tt' : 'File') + (ModelParameters/Advanced/IsOD ? ';OD_Uitvoer/Write' : '')"
@@ -697,13 +640,8 @@ Template PerDepartureMoment_T
 						, sum_uint64(Paren/zonder_auto_en_fiets));
 				}
 			}
-			// container Results_Decay
-			// {
-				// parameter<string>  Generate := ='File_decay';
-			// }
 			
 			container Results_Traveltime_Fence := PhaseContainer(Results_Traveltime, 'Results in '+NetworkSetup/Impl/OrgBlockDomain/name[BlockDomain_id]+' are finished calculating'); //
-			// container Results_Decay_Fence      := PhaseContainer(Results_Decay, 'Results in region '+regio_name_if_enkel_sub+' are finished calculating'); //
 		}
 		
 		// De opties van het HB-paar met hun onderdelen en links (sinds 2026-10-21, #129; alleen in de HB-paarmodus), in dezelfde opvraging als de uitvoer.
@@ -715,7 +653,7 @@ Template PerDepartureMoment_T
 		// Sinds 2026-10-20 alleen vertrekmoment en blok: tt_<moment>_<n>of<N>.csv of .parquet in <OutputDir>/PerBlock; de datum staat al
 		// in de naam van de uitvoermap (wens PBL 20-10, MAX_PATH). Van 2026-10-03 (NetworkModel_PBL#118) tot dan tt_<datum>_<moment>_
 		// <n>of<N>. De herkomstenset, _DEST, modaliteiten, overstappen, criteria, MaxPT en de tags staan in de handtekening van de
-		// uitvoermap (NetworkSetup/Output_Signature); tot 2026-10-03 stonden ze hier, tot 261 tekens in het langste pad.
+		// uitvoermap (NetworkSetup/GenerateOutput/Output_Signature); tot 2026-10-03 stonden ze hier, tot 261 tekens in het langste pad.
 		parameter<string> fileNameSuffix :=
 			'_' + inTime_str_short +
 			'_' + NetworkSetup/Impl/OrgBlockDomain/FileName[BlockDomain_id];

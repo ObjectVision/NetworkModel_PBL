@@ -48,5 +48,5 @@ Zie de skill `model-validatie`: hoe je 9292 invult (Akkoord, Van/Naar, datum en 
 
 ## Rapporten
 
-- `/RitOpslagReport/Report`, `/Net/Report`, `/Keten/Report`: TE-steekproef tegen NS, treinroutes en binnenlandse bruikbaarheid, benen met rit-opslag, ketenprijs. Uitvoer `%LocalDataProjDir%/Output/ritopslag_*`.
+- `/SourceData/Infrastructure/OVprijzen/RitOpslagReport/Report`, `/Net/Report`, `/Keten/Report`: TE-steekproef tegen NS, treinroutes en binnenlandse bruikbaarheid, benen met rit-opslag, ketenprijs. Uitvoer `%LocalDataProjDir%/Output/ritopslag_*`.
 - Draai GeoDmsRun vanuit PowerShell (Git Bash verminkt `/L...` en itempaden), met de engine-kopie in `C:\LocalData\GeoDMS_engine\...`, niet met `C:\dev\GeoDMS_2026\bin\Release\x64` (daar wordt gebouwd). Wil je met andere `ModelParameters` testen, kopieer dan `cfg` en `data` naar een scratchmap en pas het daar aan, niet in de gedeelde werkkopie.

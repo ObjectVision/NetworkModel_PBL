@@ -7,13 +7,12 @@
 #   3. per component de autostore van het vertrekmoment (cars, alleen Car) en de uitvoer (output): PerBlock/tt_<moment>_1of1.parquet en
 #      PerBlock/od_<moment>.gpkg met opties, onderdelen en links;
 #   4. het samenvoegen (een kopie met MergeOutput TRUE, output).
-# Tussenresultaten in %LocalDataProjDir%\IntermediateResults_<O>_<D>, uitvoer in Output_<O>_<D>; /OD_Results in de GUI leest ze, met
+# Tussenresultaten in %LocalDataProjDir%\IntermediateResults_<O>_<D>, uitvoer in Output_<O>_<D>; /Output/OD_Results in de GUI leest ze, met
 # dezelfde instellingen in ModelParameters (groep 1 en 6).
 #
 # Aanroep, bijvoorbeeld de rit Laapersweg 1 Hilversum -> De Boelelaan 1085 om 07:30 (de wiki, Routes of an OD pair):
 #   powershell -ExecutionPolicy Bypass -File batch\WriteODResults.ps1 -Org BU04020501 -Dest BU0363KP03 -Moment 07:30
-# De engine moet pareto met LinkSet kennen (GeoDMS#1325) voor de autoroutes: standaard GeoDMS 20.26.0 (.m); met een oudere
-# engine ModelParameters/Advanced/EngineHasParetoLinkSet op FALSE (dan geen autoroute op de kaart).
+# De engine moet pareto met LinkSet kennen (GeoDMS#1325) voor de autoroutes: GeoDMS 20.26.0 of later.
 # -AlleenUitvoer slaat de benen en de ketens over, als hun stores er al zijn (een herhaling van de uitvoer na een wijziging daarin).
 # Lange runs als eenmalige geplande taak (zie de wiki, How to run the model). -WaitForMemoryGB wacht tot er zoveel geheugen beschikbaar is
 # voordat een stap begint, zodat het paar andere runs niet laat pagineren; de ketenstap rekent alle OV-benen van het net (20-30 GB).
@@ -130,4 +129,4 @@ foreach ($c in $comps) {
 $dst = MakeCopy 'Merged' '' $true
 Run $dst 'output' ''
 Remove-Item $archive
-Say "klaar: de uitvoer staat in Output_$($Org)_$($Dest); open /OD_Results in GeoDmsGui met dezelfde instellingen"
+Say "klaar: de uitvoer staat in Output_$($Org)_$($Dest); open /Output/OD_Results in GeoDmsGui met dezelfde instellingen"

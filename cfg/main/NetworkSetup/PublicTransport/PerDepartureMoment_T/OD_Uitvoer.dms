@@ -5,11 +5,10 @@
 // - voor- en natransport: de links van het been uit de benenstore (PublicTransport_Prep/LegStores/<basistype>/LegLinks_store);
 // - een OV-been: de halte-tot-haltelinks binnen de rit, uit een zoektocht in Set_L of Set_R tussen de begin- en eindknoop van het been
 //   (OD_Ketens/Benen_store), die op het tijd-geexpandeerde net hetzelfde pad geeft als het been (elk pad tussen twee knopen duurt even lang,
-//   en met ParetoLegs is de keuze bij gelijke tijd de kortste, Length_q);
+//   en met ParetoLegs is de keuze bij gelijke tijd de kortste, Length);
 // - een overstap: de rechte looplijn tussen de haltes;
 // - de directe loop- en fietsrit: de links van de zoektocht (PrivateTransport/<modaliteit>/Calc_Traveltimes_maxspeed_<modaliteit>/Links).
 // Write schrijft ze als drie lagen van <OutputDir>/PerBlock/od_<moment>.gpkg (od_opties, od_onderdelen en od_links; GeoDMS-namen zijn
-// hoofdletterongevoelig, dus opties := Opties zou naar zichzelf verwijzen), in de opvraging van de uitvoer (Results_Traveltime/Generate).
 container OD_Uitvoer
 {
 	unit<uint64> Opties := Result_AfterSecondCondensation
@@ -139,7 +138,7 @@ container OD_Uitvoer
 			attribute<Set/NodeSet> Begin := value(Benen/BeginKnoop[PT_Delen/Been_rel[org_rel]], Set/NodeSet);
 			attribute<Set/NodeSet> Eind  := value(Benen/EindKnoop[PT_Delen/Been_rel[org_rel]], Set/NodeSet);
 		}
-		unit<uint64> od := ='impedance_matrix_od64(''directed;startPoint(Node_rel);endPoint(Node_rel);od:impedance,OrgZone_rel,DstZone_rel,LinkSet'', Set/' + (IsPareto ? 'Length_q' : 'Duration') + ', Set/F1, Set/F2, Delen/Begin, Delen/Eind)';
+		unit<uint64> od := ='impedance_matrix_od64(''directed;startPoint(Node_rel);endPoint(Node_rel);od:impedance,OrgZone_rel,DstZone_rel,LinkSet'', Set/' + (IsPareto ? 'Length' : 'Duration') + ', Set/F1, Set/F2, Delen/Begin, Delen/Eind)';
 		unit<uint64> Eigen := select_with_org_rel(od/OrgZone_rel == od/DstZone_rel), Descr = "De zoektocht van elk been naar zijn eigen eindknoop.";
 		attribute<uint32> LinkSet (arc, Eigen) := od/LinkSet[Eigen/org_rel];
 		container R := /Templates/RouteLinks_T(Eigen, LinkSet, Set, Set/NodeSet, Set/F1, Set/F2, Set/NodeSet/geometry, Delen/Eind[od/DstZone_rel[Eigen/org_rel]]);
@@ -214,9 +213,9 @@ container OD_Uitvoer
 		attribute<Opties> Optie_rel := = CarTD ? 'org_rel' : 'const(value(null_u, Opties), .)';
 		attribute<uint32> StoreRij  := = CarTD ? 'uint32(CarRows/Store_rel[DirectCar/Front/org_rel[value(Direct_OD_M/Bron_rel[value(Opties/Bron_rel[Optie_rel], Direct_OD_M)], DirectCar/Front)]])' : 'const(0, ., uint32)';
 	}
-	unit<uint32> AutoLinks_Src := = CarTD && /ModelParameters/Advanced/EngineHasParetoLinkSet ? '/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/' + TDName + '/CarLinks_store/links' : 'range(uint32, 0, 0)'
+	unit<uint32> AutoLinks_Src := = CarTD ? '/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/' + TDName + '/CarLinks_store/links' : 'range(uint32, 0, 0)'
 	{
-		attribute<uint32> Route  := = CarTD && /ModelParameters/Advanced/EngineHasParetoLinkSet ? '/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/' + TDName + '/CarLinks_store/links/Route' : 'const(0, ., uint32)';
+		attribute<uint32> Route  := = CarTD ? '/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/' + TDName + '/CarLinks_store/links/Route' : 'const(0, ., uint32)';
 	}
 	unit<uint64> A_Auto := join_equal_values_uint64(AutoOpties/StoreRij, AutoLinks_Src/Route)
 	{
@@ -232,7 +231,7 @@ container OD_Uitvoer
 	unit<uint8> LinkDelen : nrofrows = 10
 	{
 		attribute<string> name  : ['V_Lopen/Sel', 'V_Fietsen/Sel', 'PT_L/Rows', 'PT_R/Rows', 'Overstappen', 'N_Lopen/Sel', 'N_Fietsen/Sel', 'D_Lopen/Rows', 'D_Fietsen/Rows', 'A_Auto'];
-		attribute<bool>   IsMee := union_data(., MetOV && IsDefined(strpos(/ModelParameters/Advanced/Component_Voortransport, 'Walking')), MetOV && IsDefined(strpos(/ModelParameters/Advanced/Component_Voortransport, 'Cycling')), MetOV, MetOV, MetOV, MetOV && IsDefined(strpos(/ModelParameters/Advanced/Component_Natransport, 'Walking')), MetOV && IsDefined(strpos(/ModelParameters/Advanced/Component_Natransport, 'Cycling')), /ModelParameters/Advanced/AllowDirectWalking, /ModelParameters/Advanced/AllowDirectCycling, CarTD && /ModelParameters/Advanced/EngineHasParetoLinkSet);
+		attribute<bool>   IsMee := union_data(., MetOV && IsDefined(strpos(/ModelParameters/Advanced/Component_Voortransport, 'Walking')), MetOV && IsDefined(strpos(/ModelParameters/Advanced/Component_Voortransport, 'Cycling')), MetOV, MetOV, MetOV, MetOV && IsDefined(strpos(/ModelParameters/Advanced/Component_Natransport, 'Walking')), MetOV && IsDefined(strpos(/ModelParameters/Advanced/Component_Natransport, 'Cycling')), /ModelParameters/Advanced/AllowDirectWalking, /ModelParameters/Advanced/AllowDirectCycling, CarTD);
 		attribute<string> Volgnr := name == 'Overstappen' ? 'const(0, Overstappen, uint32)' : name + '/Volgnr';
 		attribute<string> Mode   := name == 'Overstappen' ? 'const(Modes/V/Walking, Overstappen)' : name + '/Mode_rel';
 	}
@@ -252,7 +251,7 @@ container OD_Uitvoer
 	parameter<string> FileName := fileNamePrefix + 'od_' + inTime_str_short + '.gpkg';
 	container Write_gpkg : StorageName = "=FileName", StorageType = "gdalwrite.vect"
 	{
-		unit<uint64> od_opties := Opties, ExplicitSuppliers = "/NetworkSetup/Output_Sig/ForWriting"
+		unit<uint64> od_opties := Opties, ExplicitSuppliers = "/NetworkSetup/GenerateOutput/Output_Sig/ForWriting"
 		{
 			attribute<uint32> Optie      := Opties/Optie;
 			attribute<string> OrgName    := Result_AfterSecondCondensation/OrgName;

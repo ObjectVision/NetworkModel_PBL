@@ -3,12 +3,12 @@
 # Vraagt eerst de lijst van de blokken op (NetworkSetup/ConfigurationPerBlock/Generate_Output/OutputBlocks_List, geschreven naar
 # batch\log\output_blocks.txt; dat schrijft of controleert ook de handtekening van de uitvoermap en het langste pad) en rekent die
 # dan in porties van BatchSize blokken per GeoDmsRun. Elke portie is een eigen proces, zodat het geheugen tussen de porties
-# vrijkomt: in een opvraging voor alle blokken (NetworkSetup/Generate_Output) groeide het vastgelegde geheugen van de uitvoer van
+# vrijkomt: in een opvraging voor alle blokken (NetworkSetup/GenerateOutput/Generate_Output) groeide het vastgelegde geheugen van de uitvoer van
 # Auto voor Buurt2023 naar Buurt2023 (450 blokken, 779 miljoen autoroutes) met ongeveer 0,7 GB per blok tot 386 GB (2026-10-06/07).
 # Daarna maakt batch\OdTellingen.py de tellingen (od_tellingen.csv, unieke_od_tellingen.csv) uit de csv's; in de ene opvraging deed
 # het model dat zelf (OD_Tellingen), met dezelfde regels, maar dat vraagt de resultaten van alle blokken in hetzelfde proces.
 # Bij MergeOutput noemt de lijst het samenvoegen per blok (ComponentMerge/PerBlock; sinds 2026-10-07, in een opvraging groeide
-# dat met ongeveer 7 GB per blok). Is de lijst leeg, dan een opvraging van NetworkSetup/Generate_Output.
+# dat met ongeveer 7 GB per blok). Is de lijst leeg, dan een opvraging van NetworkSetup/GenerateOutput/Generate_Output.
 #
 # Aanroep (door UpdateAll.cmd output): WriteOutputBlocks.ps1 -Exe <GeoDmsRun.exe> -Cfg <cfg\main.dms> -LogDir <batch\log> -OutDir <uitvoermap>
 #   -BatchSize  blokken per GeoDmsRun; zonder deze parameter die van de component, ModelParameters/Advanced/Componenten/
@@ -40,8 +40,8 @@ if ($BatchSize -lt 0) { $BatchSize = [int](Get-Content $sizeFile -Raw).Trim() }
 if ($BatchSize -eq 0) { $BatchSize = [Math]::Max($blocks.Count, 1) }
 
 if ($blocks.Count -eq 0) {
-	Say 'uitvoer: geen blokken (Samen), een opvraging van /NetworkSetup/Generate_Output'
-	$p = Start-Process -FilePath $Exe -ArgumentList @("/L$LogDir\UpdateAll_output.log", $Cfg, '@statistics', '/NetworkSetup/Generate_Output') -PassThru -Wait -WindowStyle Hidden -RedirectStandardOutput "$LogDir\UpdateAll_output.txt"
+	Say 'uitvoer: geen blokken (Samen), een opvraging van /NetworkSetup/GenerateOutput/Generate_Output'
+	$p = Start-Process -FilePath $Exe -ArgumentList @("/L$LogDir\UpdateAll_output.log", $Cfg, '@statistics', '/NetworkSetup/GenerateOutput/Generate_Output') -PassThru -Wait -WindowStyle Hidden -RedirectStandardOutput "$LogDir\UpdateAll_output.txt"
 	Say "uitvoer: exit $($p.ExitCode)"
 	if ($p.ExitCode -eq 0) { exit 0 } else { exit 1 }
 }
