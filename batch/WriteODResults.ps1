@@ -1,13 +1,13 @@
 # WriteODResults.ps1 (sinds 2026-10-21, #129): de routes van een HB-paar, voor elke component in MergeComponents en samengevoegd.
 #
-# Maakt per component een runkopie van HEAD (git archive, zoals make_y2025.ps1) met OD_Herkomst, OD_Bestemming en OD_Vertrekmoment, en
+# Maakt per component een runkopie van HEAD (git archive, zoals make_y2025.ps1) met OD_Origin, OD_Destination en OD_DepartureTime, en
 # rekent daarmee na elkaar, elk met batch\UpdateAll.cmd van de kopie:
-#   1. de benen van voor- en natransport, met hun links (legs), en
+#   1. de benen van voor- en PostTransport, met hun links (legs), en
 #   2. de ketens van het paar met hun benen (chains), beide een keer, in de kopie van de eerste OV-component;
 #   3. per component de autostore van het vertrekmoment (cars, alleen Car) en de uitvoer (output): PerBlock/tt_<moment>_1of1.parquet en
 #      PerBlock/od_<moment>.gpkg met opties, onderdelen en links;
 #   4. het samenvoegen (een kopie met MergeOutput TRUE, output).
-# Tussenresultaten in %LocalDataProjDir%\IntermediateResults_<O>_<D>, uitvoer in Output_<O>_<D>; /Output/OD_Results in de GUI leest ze, met
+# Tussenresultaten in %LocalDataProjDir%\IntermediateResults_<O>_<D>, uitvoer in Output_<O>_<D>; /Output/OD_PairRoutes in de GUI leest ze, met
 # dezelfde instellingen in ModelParameters (groep 1 en 6).
 #
 # Aanroep, bijvoorbeeld de rit Laapersweg 1 Hilversum -> De Boelelaan 1085 om 07:30 (de wiki, Routes of an OD pair):
@@ -21,7 +21,7 @@ param(
 	[Parameter(Mandatory=$true)][string]$Dest,
 	[string]$Moment = '',
 	[string]$AnalysisMoment = 'Y2026',
-	[string]$Dagdeel = 'Ochtendspits',
+	[string]$PartOfDay = 'Ochtendspits',
 	[string]$Orgset = 'Buurt2025',
 	[string]$Destset = 'Buurt2025',
 	[string]$Label = 'od',
@@ -58,7 +58,7 @@ function WaitForMemory {
 		Start-Sleep -Seconds 300
 	}
 }
-# De onderdelen van een component, zoals RunFrontValidation.ps1: WW, CC, Car, of <voortransport>_PT_<natransport>.
+# De onderdelen van een component, zoals RunFrontValidation.ps1: WW, CC, Car, of <PreTransport>_PT_<PostTransport>.
 $voor = @{ 'W' = 'Org2Stops_Walking'; 'C' = 'Org2Stops_Cycling'; 'C_RM' = 'Org2RM_Stops_Cycling'; 'C_RMT' = 'Org2RMT_Stops_Cycling'; 'C_Ric' = 'Org2Ric_Stops_Cycling' }
 $na   = @{ 'W' = 'Stops2Dest_Walking'; 'C' = 'Stops2Dest_Cycling'; 'RM_C' = 'RM_Stops2Dest_Cycling'; 'RMT_C' = 'RMT_Stops2Dest_Cycling'; 'OVf_C' = 'OVF_Stops2Dest_Cycling' }
 
@@ -71,7 +71,7 @@ $archive = Join-Path $runs 'head.tar'
 & git -C $repo archive --format=tar -o $archive HEAD cfg data batch
 if ($LASTEXITCODE -ne 0) { throw "git archive: exit $LASTEXITCODE" }
 $commit = & git -C $repo rev-parse HEAD
-Say "HB-paar $Org -> $Dest, moment '$Moment', $AnalysisMoment $Dagdeel, $Orgset/$Destset, componenten $($comps -join ','), commit $commit, engine $Exe"
+Say "HB-paar $Org -> $Dest, moment '$Moment', $AnalysisMoment $PartOfDay, $Orgset/$Destset, Components $($comps -join ','), commit $commit, engine $Exe"
 
 function MakeCopy($name, $comp, $merge) {
 	$dst = Join-Path $runs "$name\NetworkModel_PBL"
@@ -84,19 +84,19 @@ function MakeCopy($name, $comp, $merge) {
 	Set-Content -Path (Join-Path $dst 'COMMIT.txt') -Value "$commit (git archive, plus config.ini uit de working copy)"
 	$mp = Join-Path $dst 'cfg\main\ModelParameters.dms'
 	SetParam $mp 'AnalysisMoment'   "'$AnalysisMoment'"
-	SetParam $mp 'Dagdeel'          "'$Dagdeel'"
+	SetParam $mp 'PartOfDay'          "'$PartOfDay'"
 	SetParam $mp 'Orgset'           "'$Orgset'"
 	SetParam $mp 'Destset'          "'$Destset'"
 	SetParam $mp 'OutputLabel'      "'$Label'"
 	SetParam $mp 'MergeComponents'  "'$Components'"
-	SetParam $mp 'OD_Herkomst'      "'$Org'"
-	SetParam $mp 'OD_Bestemming'    "'$Dest'"
-	SetParam $mp 'OD_Vertrekmoment' "'$Moment'"
+	SetParam $mp 'OD_Origin'      "'$Org'"
+	SetParam $mp 'OD_Destination'    "'$Dest'"
+	SetParam $mp 'OD_DepartureTime' "'$Moment'"
 	if ($merge) { SetParam $mp 'MergeOutput' 'TRUE' }
 	elseif ($comp -in 'WW', 'CC', 'Car') { SetParam $mp 'Component' "'$comp'" }
 	else {
 		$x = [regex]::Match($comp, '^(.+)_PT_(.+)$')
-		SetParam $mp 'Component' "'PT'"; SetType $mp 'Voortransport' $voor[$x.Groups[1].Value]; SetType $mp 'Natransport' $na[$x.Groups[2].Value]
+		SetParam $mp 'Component' "'PT'"; SetType $mp 'PreTransport' $voor[$x.Groups[1].Value]; SetType $mp 'PostTransport' $na[$x.Groups[2].Value]
 	}
 	return $dst
 }
@@ -129,4 +129,4 @@ foreach ($c in $comps) {
 $dst = MakeCopy 'Merged' '' $true
 Run $dst 'output' ''
 Remove-Item $archive
-Say "klaar: de uitvoer staat in Output_$($Org)_$($Dest); open /Output/OD_Results in GeoDmsGui met dezelfde instellingen"
+Say "klaar: de uitvoer staat in Output_$($Org)_$($Dest); open /Output/OD_PairRoutes in GeoDmsGui met dezelfde instellingen"

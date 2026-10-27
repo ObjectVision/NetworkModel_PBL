@@ -6,7 +6,7 @@ Template PerDepartureMoment_T
 	parameter<min_f>    Max_V_Time := /ModelParameters/Impl/PT_Max_V_Time
 	,	Descr = "Langste voortransportbeen dat nog geldig kan zijn: de grootste Max*Time-grens (op netwerktijd) plus de start- en parkeertijden die sinds 2026-09-23 in het been zitten. Begrenst het venster van OV-vertrekken; te ruim is onschadelijk, te krap laat combinaties weg.";
 	unit<uint8>         ParetoAttr := Classifications/OutputParetoAttr; // sinds 2026-10-01 met NeedsCar en NeedsBike (#117); tot dan FinalParetoAttr
-	// De OV-ketens die binnen voortransport plus wachten thuis vertrekken. Sinds 2026-09-27 (audit 6.7) met de ondergrens inTime:
+	// De OV-ketens die binnen PreTransport plus wachten thuis vertrekken. Sinds 2026-09-27 (audit 6.7) met de ondergrens inTime:
 	// een keten die eerder vertrekt haalt IsWaitingTimeValid toch nooit, maar werd wel aan alle voortransportbenen gekoppeld;
 	// bij vertrek 07:45 met de ketenstore 07:00-09:29 was dat 59% van de rijen (307 van 523 miljoen op herkomstblok 1). Sinds 2026-10-20
 	// uit de ketens van het blok (PublicTransport/PT_InBlock), tot dan uit alle ketens (PublicTransport_Prep/PT): dezelfde rijen voor het
@@ -73,7 +73,7 @@ Template PerDepartureMoment_T
 		attribute<bool>                                        IsWaitingTimeValid               := WaitingStart_Time_rel <= WaitingEnd_Time_rel;
 		
 		attribute<s>                                           V_time_wo_Penalty                := V/impedance[V_rel];
-		attribute<s>                                           V_time_net                       := V/impedance_net[V_rel], Descr = "Netwerkreistijd van het voortransport, zonder start- en parkeertijd; hierop toetst IsVTimeNotTooLong.";
+		attribute<s>                                           V_time_net                       := V/impedance_net[V_rel], Descr = "Netwerkreistijd van het PreTransport, zonder start- en parkeertijd; hierop toetst IsVTimeNotTooLong.";
 		attribute<Modes>                                       V_mode_rel                       := V/Mode_rel[V_rel];
 		attribute<VN_ModeClasses/Uq>                           V_ModeClass_rel                  := V/ModeClass_rel[V_rel];
 		attribute<ct>                                          V_price                          := V/Price[V_rel];
@@ -86,10 +86,10 @@ Template PerDepartureMoment_T
 		attribute<c_Time_Places>                               c_fromTime_Place_rel             := V_c_fromTime_Place_rel;
 		attribute<c_Time_Places>                               c_toTime_Place_rel               := PT_c_toTime_Place_rel;
 
-		// Het voortransport telt in Price mee zoals de directe rit van dezelfde modaliteit: fietsen met IncludeCyclingCostsInPrice,
+		// Het PreTransport telt in Price mee zoals de directe rit van dezelfde modaliteit: fietsen met IncludeCyclingCostsInPrice,
 		// lopen sinds 2026-09-26 met IncludeWalkingCostsInPrice (audit 6.4; tot dan betaalde alleen de directe looprit).
 		attribute<bool>                                        V_PriceCounts                    := (ModelParameters/Advanced/IncludeCyclingCostsInPrice && V_mode_rel == Modes/v/Cycling) || (ModelParameters/Advanced/IncludeWalkingCostsInPrice && V_mode_rel == Modes/v/Walking);
-		attribute<ct>                                          Price_V                          := V_PriceCounts ? V_price : 0[ct], Descr = "Het deel van Price voor het voortransport: V_price als dat meetelt (V_PriceCounts), anders 0. Sinds 2026-10-02 apart in de uitvoer (PretransPrice).";
+		attribute<ct>                                          Price_V                          := V_PriceCounts ? V_price : 0[ct], Descr = "Het deel van Price voor het PreTransport: V_price als dat meetelt (V_PriceCounts), anders 0. Sinds 2026-10-02 apart in de uitvoer (PretransPrice).";
 		attribute<ct>                                          Price                            := Within_VW_Window/Price[PT_rel] + Price_V;
 		attribute<ct>                                          Price_augm                       := Within_VW_Window/Price_augm[PT_rel] + V_price;
 		attribute<s>                                           PT_time                          := Within_VW_Window/Traveltime[PT_rel];
@@ -150,7 +150,7 @@ Template PerDepartureMoment_T
 		attribute<Time>                                        N_To_Time_rel                    := PT_To_Time_rel + N_time[Time];
 		attribute<Places>                                      N_to_Place_rel                   := N/To_Place_rel[N_rel];
 		attribute<s>                                           N_time                           := N/impedance[N_rel];
-		attribute<s>                                           N_time_net                       := N/impedance_net[N_rel], Descr = "Netwerkreistijd van het natransport, zonder starttijd; hierop toetst IsNTimeNotTooLong.";
+		attribute<s>                                           N_time_net                       := N/impedance_net[N_rel], Descr = "Netwerkreistijd van het PostTransport, zonder starttijd; hierop toetst IsNTimeNotTooLong.";
 		attribute<Modes>                                       N_mode_rel                       := N/Mode_rel[N_rel];
 		attribute<VN_ModeClasses/Uq>                           N_ModeClass_rel                  := N/ModeClass_rel[N_rel];
 		attribute<ct>                                          N_price                          := N/Price[N_rel];
@@ -158,9 +158,9 @@ Template PerDepartureMoment_T
 		attribute<c_Time_Places>                               c_fromTime_Place_rel             := PT_c_fromTime_Place_rel;
 		attribute<c_Time_Places>                               c_toTime_Place_rel               := combine_data(c_Time_Places, N_To_Time_rel, N_to_Place_rel);
 		
-		// Het natransport net als het voortransport (audit 6.4).
+		// Het PostTransport net als het PreTransport (audit 6.4).
 		attribute<bool>                                        N_PriceCounts                    := (ModelParameters/Advanced/IncludeCyclingCostsInPrice && N_mode_rel == Modes/v/Cycling) || (ModelParameters/Advanced/IncludeWalkingCostsInPrice && N_mode_rel == Modes/v/Walking);
-		attribute<ct>                                          Price_N                          := N_PriceCounts ? N_price : 0[ct], Descr = "Het deel van Price voor het natransport, zoals Price_V voor het voortransport (PosttransPrice in de uitvoer).";
+		attribute<ct>                                          Price_N                          := N_PriceCounts ? N_price : 0[ct], Descr = "Het deel van Price voor het PostTransport, zoals Price_V voor het PreTransport (PosttransPrice in de uitvoer).";
 		attribute<ct>                                          Price_V                          := Add_V_to_PT/Result/Price_V[PT_rel];
 		attribute<ct>                                          Price                            := Add_V_to_PT/Result/Price[PT_rel] + Price_N;
 		attribute<ct>                                          Price_augm                       := Add_V_to_PT/Result/Price_augm[PT_rel] + N_price;
@@ -218,9 +218,9 @@ Template PerDepartureMoment_T
 		}
 	}
 	
-	// Zonder OV (Component Auto, ModelParameters/Impl/MetOV FALSE, #117) alleen de directe ritten: dan verwijst niets naar
-	// Add_N_to_VPT, en rekent de eindafweging geen ketens, voor- en natransport.
-	parameter<bool>   MetOV := /ModelParameters/Impl/MetOV;
+	// Zonder OV (Component Auto, ModelParameters/Impl/WithPT FALSE, #117) alleen de directe ritten: dan verwijst niets naar
+	// Add_N_to_VPT, en rekent de eindafweging geen ketens, voor- en PostTransport.
+	parameter<bool>   WithPT := /ModelParameters/Impl/WithPT;
 
 	// De directe ritten van dit vertrekmoment (sinds 2026-10-09, #132): die van het blok (Direct_OD, niet afhankelijk van het moment) en, met
 	// de tijdafhankelijke autorit (ModelParameters/Impl/CarTimeDependent), de autoritten van dit moment uit de store van dit moment.
@@ -279,10 +279,10 @@ Template PerDepartureMoment_T
 		attribute<uint64> Bron_rel         := = CarTD ? 'union_data(., id(Direct_OD), id(DirectCar_M))' : 'id(Direct_OD)';
 	}
 
-	unit<uint64> Union_with_DirectOD   := ='union_unit_uint64(' + (MetOV ? 'Add_N_to_VPT/Result, ' : '') + 'Direct_OD_M)'
+	unit<uint64> Union_with_DirectOD   := ='union_unit_uint64(' + (WithPT ? 'Add_N_to_VPT/Result, ' : '') + 'Direct_OD_M)'
 	{
-		attribute<c_Time_Places>               c_fromTime_Place_rel             := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/c_FromTime_Place_rel, ' : '') + 'combine_data(c_Time_Places, inTime[Time], Direct_OD_M/From_Place_rel))'; 
-		attribute<c_Time_Places>               c_toTime_Place_rel               := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/c_toTime_Place_rel, ' : '') + 'combine_data(c_Time_Places, inTime[Time] + Direct_OD_M/Duration_seconds[Time], Direct_OD_M/To_Place_rel))'; 
+		attribute<c_Time_Places>               c_fromTime_Place_rel             := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/c_FromTime_Place_rel, ' : '') + 'combine_data(c_Time_Places, inTime[Time], Direct_OD_M/From_Place_rel))'; 
+		attribute<c_Time_Places>               c_toTime_Place_rel               := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/c_toTime_Place_rel, ' : '') + 'combine_data(c_Time_Places, inTime[Time] + Direct_OD_M/Duration_seconds[Time], Direct_OD_M/To_Place_rel))'; 
 		
 		unit<uint32> uq_c_FromTime_Place := unique_uint32(c_fromTime_Place_rel);
 		unit<uint32> uq_c_ToTime_Place   := unique_uint32(c_toTime_Place_rel);
@@ -295,39 +295,39 @@ Template PerDepartureMoment_T
 		attribute<Time>                        To_Time_rel                      := value(c_ToTime_Place_rel / uint64(#Places), Time);
 		attribute<Places>                      To_Place_rel                     := value(c_ToTime_Place_rel % uint64(#Places), Places);
 
-		attribute<s>                           W_time                           := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/W_time, ' : '') + 'const(0w, Direct_OD_M, s))';
-		attribute<s>                           V_time                           := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/V_time, ' : '') + 'Direct_OD_M/duration_seconds)';
-		attribute<s>                           PT_time                          := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/PT_time, ' : '') + 'const(0w, Direct_OD_M, s))';
-		attribute<s>                           N_time                           := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/N_time, ' : '') + 'const(0w, Direct_OD_M, s))';
+		attribute<s>                           W_time                           := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/W_time, ' : '') + 'const(0w, Direct_OD_M, s))';
+		attribute<s>                           V_time                           := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/V_time, ' : '') + 'Direct_OD_M/duration_seconds)';
+		attribute<s>                           PT_time                          := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/PT_time, ' : '') + 'const(0w, Direct_OD_M, s))';
+		attribute<s>                           N_time                           := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/N_time, ' : '') + 'const(0w, Direct_OD_M, s))';
 		
-		attribute<ct>                          Price                            := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/Price, ' : '') + 'Direct_OD_M/Price)';
-		// De directe rit staat, net als zijn reistijd (V_time) en afstand (TravelDist_V), in de kolom van het voortransport.
-		attribute<ct>                          Price_V                          := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/Price_V, ' : '') + 'Direct_OD_M/Price)';
-		attribute<ct>                          Price_N                          := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/Price_N, ' : '') + 'const(0w, Direct_OD_M, ct))';
-		attribute<ct>                          Price_augm                       := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/Price_augm, ' : '') + 'Direct_OD_M/Price_Augm)';
-		attribute<s>                           Traveltime                       := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/Traveltime, ' : '') + 'Direct_OD_M/duration_seconds)';
-		attribute<string>                      ModeUsed                         := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/ModeUsed, ' : '') + 'Direct_OD_M/ModeUsed)';
+		attribute<ct>                          Price                            := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/Price, ' : '') + 'Direct_OD_M/Price)';
+		// De directe rit staat, net als zijn reistijd (V_time) en afstand (TravelDist_V), in de kolom van het PreTransport.
+		attribute<ct>                          Price_V                          := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/Price_V, ' : '') + 'Direct_OD_M/Price)';
+		attribute<ct>                          Price_N                          := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/Price_N, ' : '') + 'const(0w, Direct_OD_M, ct))';
+		attribute<ct>                          Price_augm                       := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/Price_augm, ' : '') + 'Direct_OD_M/Price_Augm)';
+		attribute<s>                           Traveltime                       := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/Traveltime, ' : '') + 'Direct_OD_M/duration_seconds)';
+		attribute<string>                      ModeUsed                         := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/ModeUsed, ' : '') + 'Direct_OD_M/ModeUsed)';
 		// Criteria van de eindafweging als MinimiseCriteria 'Car' en 'Bike' noemt (Classifications/OwnershipParetoAttr, #117).
-		// Een OV-keten vraagt geen auto (er is geen P+R-voortransport), en alleen een fiets als een voor- of natransporttype dat doet.
-		attribute<bool>                        NeedsCar                         := ='union_data(., ' + (MetOV ? 'const(FALSE, Add_N_to_VPT/Result), ' : '') + 'Direct_OD_M/NeedsCar)';
+		// Een OV-keten vraagt geen auto (er is geen P+R-PreTransport), en alleen een fiets als een voor- of natransporttype dat doet.
+		attribute<bool>                        NeedsCar                         := ='union_data(., ' + (WithPT ? 'const(FALSE, Add_N_to_VPT/Result), ' : '') + 'Direct_OD_M/NeedsCar)';
 		attribute<bool>                        NeedsBike                        := ='union_data(., '
-			+ (MetOV ? (VN_ModeClasses/AnyNeedsBike ? 'Add_N_to_VPT/Result/NeedsBike, ' : 'const(FALSE, Add_N_to_VPT/Result), ') : '')
+			+ (WithPT ? (VN_ModeClasses/AnyNeedsBike ? 'Add_N_to_VPT/Result/NeedsBike, ' : 'const(FALSE, Add_N_to_VPT/Result), ') : '')
 			+ 'Direct_OD_M/NeedsBike)';
 
-		attribute<bool>                        IsDirectTravel                   := ='union_data(., ' + (MetOV ? 'const(FALSE, Add_N_to_VPT/Result), ' : '') + 'const(TRUE, Direct_OD_M))';
-		attribute<uint64>                      Bron_rel                         := ='union_data(., ' + (MetOV ? 'id(Add_N_to_VPT/Result), ' : '') + 'id(Direct_OD_M))', Descr = "De rij van Add_N_to_VPT/Result of, bij een directe rit (IsDirectTravel), van Direct_OD_M (alleen gevraagd in de HB-paarmodus, OD_Uitvoer).";
-		// Modaliteit van het voor- en natransport, voor de uitsplitsing naar lopen, fiets en auto in de uitvoer. Een directe rit
-		// staat in het voortransport (zie Price_V); zijn natransport heeft geen modaliteit.
-		attribute<Modes>                       V_mode_rel                       := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/V_mode_rel, ' : '') + 'Direct_OD_M/Mode_rel)';
-		attribute<Modes>                       N_mode_rel                       := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/N_mode_rel, ' : '') + 'const(value(null_b, Modes), Direct_OD_M))';
+		attribute<bool>                        IsDirectTravel                   := ='union_data(., ' + (WithPT ? 'const(FALSE, Add_N_to_VPT/Result), ' : '') + 'const(TRUE, Direct_OD_M))';
+		attribute<uint64>                      Bron_rel                         := ='union_data(., ' + (WithPT ? 'id(Add_N_to_VPT/Result), ' : '') + 'id(Direct_OD_M))', Descr = "De rij van Add_N_to_VPT/Result of, bij een directe rit (IsDirectTravel), van Direct_OD_M (alleen gevraagd in de HB-paarmodus, OD_Uitvoer).";
+		// Modaliteit van het voor- en PostTransport, voor de uitsplitsing naar lopen, fiets en auto in de uitvoer. Een directe rit
+		// staat in het PreTransport (zie Price_V); zijn PostTransport heeft geen modaliteit.
+		attribute<Modes>                       V_mode_rel                       := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/V_mode_rel, ' : '') + 'Direct_OD_M/Mode_rel)';
+		attribute<Modes>                       N_mode_rel                       := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/N_mode_rel, ' : '') + 'const(value(null_b, Modes), Direct_OD_M))';
 
-		attribute<dam>                         TravelDist_V                     := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/TravelDist_V, ' : '') + 'Direct_OD_M/distance)';
-		attribute<dam>                         TravelDist_Bus                   := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/TravelDist_Bus, ' : '') + 'const(0w, Direct_OD_M, dam))';
-		attribute<dam>                         Traveldist_Metro                 := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/Traveldist_Metro, ' : '') + 'const(0w, Direct_OD_M, dam))';
-		attribute<dam>                         Traveldist_Tram                  := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/Traveldist_Tram, ' : '') + 'const(0w, Direct_OD_M, dam))';
-		attribute<dam>                         Traveldist_Rail                  := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/Traveldist_Rail, ' : '') + 'const(0w, Direct_OD_M, dam))';
-		attribute<dam>                         Traveldist_Ferry                 := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/Traveldist_Ferry, ' : '') + 'const(0w, Direct_OD_M, dam))';
-		attribute<dam>                         Traveldist_N                     := ='union_data(., ' + (MetOV ? 'Add_N_to_VPT/Result/Traveldist_N, ' : '') + 'const(0w, Direct_OD_M, dam))';
+		attribute<dam>                         TravelDist_V                     := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/TravelDist_V, ' : '') + 'Direct_OD_M/distance)';
+		attribute<dam>                         TravelDist_Bus                   := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/TravelDist_Bus, ' : '') + 'const(0w, Direct_OD_M, dam))';
+		attribute<dam>                         Traveldist_Metro                 := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/Traveldist_Metro, ' : '') + 'const(0w, Direct_OD_M, dam))';
+		attribute<dam>                         Traveldist_Tram                  := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/Traveldist_Tram, ' : '') + 'const(0w, Direct_OD_M, dam))';
+		attribute<dam>                         Traveldist_Rail                  := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/Traveldist_Rail, ' : '') + 'const(0w, Direct_OD_M, dam))';
+		attribute<dam>                         Traveldist_Ferry                 := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/Traveldist_Ferry, ' : '') + 'const(0w, Direct_OD_M, dam))';
+		attribute<dam>                         Traveldist_N                     := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/Traveldist_N, ' : '') + 'const(0w, Direct_OD_M, dam))';
 
 		///// ==== Step-wise condensation of result set ==== ////
  		unit<uint64>          OD_key_set                       := combine_unit_uint64(Union_with_DirectOD/uq_c_FromTime_Place, Places), Descr = "Step-wise condensation of result set: second condense the results based on time-place to place.";
@@ -390,7 +390,7 @@ Template PerDepartureMoment_T
 		attribute<ct>                                       Price                       := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Price);
 		attribute<ct>                                       Price_V                     := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Price_V);
 		attribute<ct>                                       Price_N                     := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Price_N);
-		attribute<ct>                                       Price_PT                    := Price - Price_V - Price_N, Descr = "Het OV-deel van Price: de ketenprijs zonder voor- en natransport; 0 bij een directe rit.";
+		attribute<ct>                                       Price_PT                    := Price - Price_V - Price_N, Descr = "Het OV-deel van Price: de ketenprijs zonder voor- en PostTransport; 0 bij een directe rit.";
 		attribute<ct>                                       Price_augm                  := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Price_augm);
 		attribute<s>                                        Traveltime                  := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Traveltime);
 		attribute<string>                                   ModeUsed                    := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/ModeUsed);
@@ -423,7 +423,7 @@ Template PerDepartureMoment_T
 
 		// Sinds 2026-10-03 (bespreking PBL 21-09-2026, punt 2) afstand, reistijd en prijs ook per modaliteit. Het OV is de OV-keten
 		// (TravelDist_PT, PT_time, Price_PT), met het lopen en wachten bij overstappen; lopen, fiets en auto zijn het voor- en
-		// natransport en de directe rit met die modaliteit. De wachttijd thuis (W_time) valt onder geen van de vier. De auto had van
+		// PostTransport en de directe rit met die modaliteit. De wachttijd thuis (W_time) valt onder geen van de vier. De auto had van
 		// 2026-10-03 tot 2026-10-05 geen afstand, toen het autofront de kosten droeg in plaats van de afstand (0eb61ea); sinds het
 		// front op reistijd en afstand staat (#88) is TravelDist_Car er weer.
 		attribute<dam>                                      TravelDist_PT               := TravelDist_Bus + Traveldist_Metro + Traveldist_Tram + Traveldist_Rail + Traveldist_Ferry;
@@ -475,8 +475,8 @@ Template PerDepartureMoment_T
 		attribute<string>  PretransTime                         (domain) := MakeDefined(string(convert(domain/V_time, min_f)), '');
 		attribute<string>  PTTime                               (domain) := MakeDefined(string(convert(domain/PT_time, min_f)), '');
 		attribute<string>  PosttransTime                        (domain) := MakeDefined(string(convert(domain/N_time, min_f)), '');
-		// Sinds 2026-10-02 (bespreking PBL 21-09-2026, punt 2) Price uitgesplitst zoals de reistijd: voortransport, OV en natransport,
-		// samen precies Price. Een directe rit staat in het voortransport, zoals bij V_time en TravelDist_V.
+		// Sinds 2026-10-02 (bespreking PBL 21-09-2026, punt 2) Price uitgesplitst zoals de reistijd: PreTransport, OV en PostTransport,
+		// samen precies Price. Een directe rit staat in het PreTransport, zoals bij V_time en TravelDist_V.
 		attribute<string>  PretransPrice                        (domain) := MakeDefined(string(convert(domain/Price_V, euro)), '');
 		attribute<string>  PTPrice                              (domain) := MakeDefined(string(convert(domain/Price_PT, euro)), '');
 		attribute<string>  PosttransPrice                       (domain) := MakeDefined(string(convert(domain/Price_N, euro)), '');
@@ -529,11 +529,11 @@ Template PerDepartureMoment_T
 			parameter<string> GDAL_LayerCreationOptions := 'COMPRESSION=ZSTD';
 			// Sinds 2026-10-19 per soort component alleen de kolommen die binnen de component varieren en niet lineair uit andere volgen
 			// (zoals de afstand van een loop- of fietsrit uit de reistijd, of de autoprijs uit de afstand); ModelParameters/Advanced/
-			// ExportKlasse kiest de schrijver, en alleen die wordt opgevraagd (Generate). De andere kolommen zijn constant in de component
+			// ExportClass kiest de schrijver, en alleen die wordt opgevraagd (Generate). De andere kolommen zijn constant in de component
 			// (ModeUsed van een directe rit, NeedsCar, NeedsBike, WaitingTime 0) of een lineaire combinatie: TravelDist_V en _N uit de
-			// tijden van voor- en natransport, TravelDist_PT als som van de OV-afstanden, PTTime = Traveltime - PretransTime -
-			// PosttransTime, de prijsdelen uit Price en die tijden (het voor- en natransport kost per minuut, de OV-fiets een vast bedrag),
-			// en de kolommen per modaliteit uit die van voor- en natransport.
+			// tijden van voor- en PostTransport, TravelDist_PT als som van de OV-afstanden, PTTime = Traveltime - PretransTime -
+			// PosttransTime, de prijsdelen uit Price en die tijden (het voor- en PostTransport kost per minuut, de OV-fiets een vast bedrag),
+			// en de kolommen per modaliteit uit die van voor- en PostTransport.
 			container Parquet_Direct
 			:	StorageName = "=fileNamePrefix+'tt'+fileNameSuffix+'.parquet'", StorageType = "gdalwrite.vect"
 			,	Descr = "WW en CC: alleen de reistijd (een route per HB-paar; afstand en prijs volgen uit de reistijd)."
@@ -559,7 +559,7 @@ Template PerDepartureMoment_T
 			}
 			container Parquet_PT
 			:	StorageName = "=fileNamePrefix+'tt'+fileNameSuffix+'.parquet'", StorageType = "gdalwrite.vect"
-			,	Descr = "Een OV-component: reistijd, prijs, de gewaardeerde prijs, de vervoerwijzen, het wachten thuis, de tijd van voor- en natransport en de afstand per OV-vervoerwijze."
+			,	Descr = "Een OV-component: reistijd, prijs, de gewaardeerde prijs, de vervoerwijzen, het wachten thuis, de tijd van voor- en PostTransport en de afstand per OV-vervoerwijze."
 			{
 				unit<uint64> tt := domain, ExplicitSuppliers = "/NetworkSetup/GenerateOutput/Output_Sig/ForWriting"
 				{
@@ -583,8 +583,8 @@ Template PerDepartureMoment_T
 		
 			container Results_Traveltime
 			{
-				parameter<string>  Generate := 'Ready', ExplicitSuppliers = "=(ModelParameters/OutputFormat == 'parquet' ? 'Parquet_' + ModelParameters/Impl/ExportKlasse + '/tt' : 'File') + (ModelParameters/Impl/IsOD ? ';OD_Uitvoer/Write' : '')"
-				,	Descr = "Schrijft File, de csv van dit blok en vertrekmoment, of bij OutputFormat 'parquet' (sinds 2026-10-16) de parquet-schrijver van de soort component (Parquet_<ExportKlasse>, sinds 2026-10-19), en geeft alleen 'Ready' terug. Tot 2026-10-07 ='File': dan ging de hele tekst door de opvraging, en plakte de opvraging over alle blokken alle teksten aan elkaar (Auto, Buurt2023 naar Buurt2023: 284 GB), die tot het eind per blok in het geheugen bleven.";
+				parameter<string>  Generate := 'Ready', ExplicitSuppliers = "=(ModelParameters/OutputFormat == 'parquet' ? 'Parquet_' + ModelParameters/Impl/ExportClass + '/tt' : 'File') + (ModelParameters/Impl/IsOD ? ';OD_Uitvoer/Write' : '')"
+				,	Descr = "Schrijft File, de csv van dit blok en vertrekmoment, of bij OutputFormat 'parquet' (sinds 2026-10-16) de parquet-schrijver van de soort component (Parquet_<ExportClass>, sinds 2026-10-19), en geeft alleen 'Ready' terug. Tot 2026-10-07 ='File': dan ging de hele tekst door de opvraging, en plakte de opvraging over alle blokken alle teksten aan elkaar (Auto, Buurt2023 naar Buurt2023: 284 GB), die tot het eind per blok in het geheugen bleven.";
 
 				// Tellingen voor <OutputDir>/od_tellingen.csv en unieke_od_tellingen.csv (sinds 2026-10-04). Ze staan binnen het hek,
 				// uit het eindresultaat dat voor File toch al gerekend is. De telling per blok (PublicTransport/Generate_Output/
@@ -618,14 +618,14 @@ Template PerDepartureMoment_T
 						attribute<bool> zonder_auto          := any(../IsZonderAuto, ../Paren_rel);
 						attribute<bool> zonder_auto_en_fiets := any(../IsZonderAutoEnFiets, ../Paren_rel);
 
-						// De goedkoopste optie van het paar, voor de mediaan per blok (ModelParameters/Advanced/MaakMediaan;
+						// De goedkoopste optie van het paar, voor de mediaan per blok (ModelParameters/Advanced/MakeMedian;
 						// PublicTransport/Generate_Output/Traveltime_ForEachDepTime/Tellingen/UniekeParen): de laagste prijs, bij gelijke
 						// prijs de laagste reistijd. Van 2026-10-08 tot 2026-10-19 de snelste optie (overleg PBL 19-10-2026).
 						attribute<ct>      Price_ct         := min(../R/Price, ../Paren_rel);
 						attribute<R>       Goedkoopste_rel  := min_index(../TijdBijGoedkoopste, ../Paren_rel);
 						attribute<min_f>   Traveltime       := convert(../R/Traveltime[Goedkoopste_rel], min_f);
 						attribute<Euro>    Price            := convert(Price_ct, Euro);
-						attribute<m>       TravelDist       := convert(../R/TravelDist_V[Goedkoopste_rel] + ../R/TravelDist_PT[Goedkoopste_rel] + ../R/Traveldist_N[Goedkoopste_rel], m), Descr = "Voor-, OV- en natransport; bij een directe rit alleen TravelDist_V.";
+						attribute<m>       TravelDist       := convert(../R/TravelDist_V[Goedkoopste_rel] + ../R/TravelDist_PT[Goedkoopste_rel] + ../R/Traveldist_N[Goedkoopste_rel], m), Descr = "Voor-, OV- en PostTransport; bij een directe rit alleen TravelDist_V.";
 					}
 					attribute<Paren>  Paren_rel          (R) := rlookup(OD_key, Paren/values);
 					attribute<min_f>  TijdBijGoedkoopste (R) := R/Price == Paren/Price_ct[Paren_rel] ? convert(R/Traveltime, min_f) : null_f[min_f], Descr = "De reistijd van een rij met de laagste prijs van zijn paar, anders leeg: min_index kiest zo de snelste van de goedkoopste.";

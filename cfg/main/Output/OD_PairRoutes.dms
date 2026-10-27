@@ -1,18 +1,18 @@
 // DE ROUTES VAN EEN HB-PAAR OP KAART, IN TABEL EN GRAFIEK (sinds 2026-10-21, #129).
-// Met OD_Herkomst en OD_Bestemming (ModelParameters, groep 6) rekent het model alleen dat paar en schrijft de uitvoerstap per component en
+// Met OD_Origin en OD_Destination (ModelParameters, groep 6) rekent het model alleen dat paar en schrijft de uitvoerstap per component en
 // vertrekmoment, naast de gewone uitvoer, <OutputDir>/PerBlock/od_<moment>.gpkg met drie lagen: od_opties, od_onderdelen en od_links (NetworkSetup/
 // PublicTransport/PerDepartureMoment_T/OD_Uitvoer). Deze container leest ze terug, per component in MergeComponents en voor Samen:
 // - <component>/Opties en Samen/Opties: een rij per optie en vertrekmoment (tabel);
 // - <component>/Onderdelen: de reisbeschrijving per optie, in de volgorde van de reis (tabel);
 // - <component>/Links en Samen/Links: de links van de routes (kaart), gekleurd per modaliteit (Modes); met Optie en Modaliteit_rel om op
 //   te kleuren of te filteren;
-//   Kaart/Optie toont alleen ModelParameters/OD_Optie;
+//   Kaart/Optie toont alleen ModelParameters/OD_Option;
 // - Grafiek: Prijs tegen Reistijd, een reeks per vertrekmoment en groep van Gebruik (auto, fiets), een front, in de kleur van de
 //   groep; open de Scatter Chart van Grafiek/<moment>_<groep>/Punten/Prijs en sleep de Prijs van de andere groepen erop.
-// Samen voegt de opties van de componenten per vertrekmoment samen zoals ComponentMerge: niet gedomineerd op prijs en reistijd (met
+// Samen voegt de opties van de Components per vertrekmoment samen zoals ComponentMerge: niet gedomineerd op prijs en reistijd (met
 // ChainParetoTimeEpsilon) en op autobezit en fietsbezit als MergeCriteria die noemt. Een component zonder uitvoer telt niet mee; Ontbreekt
 // noemt hem.
-container OD_Results : using = "units;Geography;ModelParameters"
+container OD_PairRoutes : using = "units;Geography;ModelParameters"
 {
 	parameter<string> Map := '%LocalDataProjDir%/Output' + ModelParameters/Impl/OD_Tag + '/' + ModelParameters/Impl/Analysis_date + '_' + OutputLabel
 	,	Descr = "De uitvoermap van het paar zonder het achtervoegsel van de component: Output_<O>_<D>/<datum>_<label>.";
@@ -20,7 +20,7 @@ container OD_Results : using = "units;Geography;ModelParameters"
 	{
 		attribute<string> Kort := Time/TemplatableTextShrt[Moment];
 	}
-	unit<uint8> Comps := select_with_attr_by_cond(Advanced/Componenten, Advanced/Componenten/InMerge), Descr = "De componenten in MergeComponents; elk moet uitvoer voor het paar hebben (batch/WriteODResults.ps1), anders noemt de foutmelding het ontbrekende bestand.";
+	unit<uint8> Comps := select_with_attr_by_cond(Advanced/Components, Advanced/Components/InMerge), Descr = "De Components in MergeComponents; elk moet uitvoer voor het paar hebben (batch/WriteODResults.ps1), anders noemt de foutmelding het ontbrekende bestand.";
 	unit<uint32> OptieNrs := range(uint32, 0, 1000), Descr = "De nummers van de opties per vertrekmoment, voor de sleutel (moment, optie).";
 	unit<uint64> MomentOptie := combine_unit_uint64(Momenten, OptieNrs);
 	unit<uint32> Volgnrs := range(uint32, 0, 100), Descr = "De volgnummers van de onderdelen van een optie, voor de volgorde van de reis.";
@@ -146,7 +146,7 @@ container OD_Results : using = "units;Geography;ModelParameters"
 		parameter<bool>    NeedsBike := Comps/NeedsBike[rlookup(Naam, Comps/name)];
 		parameter<Gebruik> Groep     := NeedsCar ? (NeedsBike ? Gebruik/V/MetAutoFiets : Gebruik/V/MetAuto) : (NeedsBike ? Gebruik/V/MetFiets : Gebruik/V/ZonderAutoFiets);
 		unit<uint32> Onderdelen_Bron := ='union_unit(' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_onderdelen') + ')'
-		,	Descr = "De onderdelen in de volgorde van de gpkg: per vertrekmoment eerst de voortransportbenen, dan de OV-benen, de overstappen en het natransport."
+		,	Descr = "De onderdelen in de volgorde van de gpkg: per vertrekmoment eerst de voortransportbenen, dan de OV-benen, de overstappen en het PostTransport."
 		{
 			attribute<Momenten> Moment_rel := ='union_data(., ' + AsItemList('const(' + string(id(Momenten)) + '[Momenten], PerMoment/' + Momenten/name + '/gpkg/od_onderdelen)') + ')';
 			attribute<uint32>   Optie      := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_onderdelen/Optie') + ')';
@@ -196,7 +196,7 @@ container OD_Results : using = "units;Geography;ModelParameters"
 		}
 		container Kaart
 		{
-			unit<uint32> Optie := select_with_org_rel(OD_Optie == 0 || Links/Optie == OD_Optie), Descr = "De links van ModelParameters/OD_Optie (0: alle).";
+			unit<uint32> Optie := select_with_org_rel(OD_Option == 0 || Links/Optie == OD_Option), Descr = "De links van ModelParameters/OD_Option (0: alle).";
 			attribute<rdc>    geometry (arc, Optie) := Links/geometry[Optie/org_rel];
 			attribute<string> Modaliteit   (Optie) := Links/Modaliteit[Optie/org_rel];
 			attribute<Modes>  Modaliteit_rel (Optie) := Links/Modaliteit_rel[Optie/org_rel];
@@ -205,7 +205,7 @@ container OD_Results : using = "units;Geography;ModelParameters"
 		}
 		container Grafiek := for_each_ne(Momenten/name, 'Reeks_T(Opties, Groep, ' + string(id(Momenten)) + '[Momenten])');
 	}
-	container PerComponent := for_each_ne(Comps/name, 'Component_T(' + quote(Comps/name) + ', ' + quote(Comps/UitvoerAchtervoegsel) + ')');
+	container PerComponent := for_each_ne(Comps/name, 'Component_T(' + quote(Comps/name) + ', ' + quote(Comps/OutputSuffix) + ')');
 	unit<uint8> Comps_Er := Comps;
 
 	container Samen

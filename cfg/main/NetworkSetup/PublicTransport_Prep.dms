@@ -3,7 +3,7 @@ container PublicTransport_Prep
 	container impl
 	{
 		// Sinds 2026-10-21 (#129): bij een HB-paar (ModelParameters/Impl/IsOD) zijn de herkomsten en de bestemmingen elk het ene element
-		// van Orgset en Destset met de naam OD_Herkomst en OD_Bestemming (OD_Org, OD_Dest). Alles erna (de plaatsen, de herkomstblokken, de
+		// van Orgset en Destset met de naam OD_Origin en OD_Destination (OD_Org, OD_Dest). Alles erna (de plaatsen, de herkomstblokken, de
 		// benen, de directe ritten en de auto) heeft dan een herkomst en een bestemming. De buurtvariant blijft die van de sets (ModelParameters/Impl/Buurtset).
 		parameter<string> Org_domain        := rjoin(lowercase(ModelParameters/Orgset),  lowercase(Advanced/org_domain_list/label),  Advanced/org_domain_list/path);
 		parameter<string> Dest_domain       := rjoin(lowercase(ModelParameters/DestSet), lowercase(Advanced/dest_domain_list/label), Advanced/dest_domain_list/path);
@@ -11,15 +11,15 @@ container PublicTransport_Prep
 		parameter<string> Dest_unit         := ModelParameters/Impl/IsOD ? '/NetworkSetup/PublicTransport_Prep/impl/OD_Dest' : Dest_domain, Descr = "Het pad van de bestemmingen: Destset (Dest_domain), of bij een HB-paar de ene bestemming daarvan (OD_Dest).";
 		// Met select_with_org_rel en de attributen die het model leest: select_with_attr_by_cond zou alle attributen van de set meenemen,
 		// ook die van bronnen die er niet zijn (de inwoners per 100 m-vierkant bij de buurten).
-		unit<uint32> OD_Org  := ='select_with_org_rel(' + Org_domain + '/name == ModelParameters/OD_Herkomst)'
-		, Descr = "De herkomst van het HB-paar: het element van Orgset met de naam OD_Herkomst."
+		unit<uint32> OD_Org  := ='select_with_org_rel(' + Org_domain + '/name == ModelParameters/OD_Origin)'
+		, Descr = "De herkomst van het HB-paar: het element van Orgset met de naam OD_Origin."
 		{
 			attribute<rdc>                   geometry       := =impl/Org_domain + '/geometry[org_rel]';
 			attribute<string>                name           := =impl/Org_domain + '/name[org_rel]';
 			attribute<float32>               nr_inwoners    := =impl/Org_domain + '/nr_inwoners[float32][org_rel]';
 		}
-		unit<uint32> OD_Dest := ='select_with_org_rel(' + Dest_domain + '/name == ModelParameters/OD_Bestemming)'
-		, Descr = "De bestemming van het HB-paar: het element van Destset met de naam OD_Bestemming."
+		unit<uint32> OD_Dest := ='select_with_org_rel(' + Dest_domain + '/name == ModelParameters/OD_Destination)'
+		, Descr = "De bestemming van het HB-paar: het element van Destset met de naam OD_Destination."
 		{
 			attribute<rdc>                   geometry             := =impl/Dest_domain + '/geometry[org_rel]';
 			attribute<string>                name                 := =impl/Dest_domain + '/name[org_rel]';
@@ -29,7 +29,7 @@ container PublicTransport_Prep
 		unit<uint32> org := =Org_unit
 		{
 			attribute<rdc>                   geometry       := =impl/Org_unit+'/geometry';
-			attribute<string>                name           := =impl/Org_unit+'/name', IntegrityCheck = "!ModelParameters/Impl/IsOD || #impl/org == 1", Descr = "Bij een HB-paar precies een herkomst, met de naam OD_Herkomst.";
+			attribute<string>                name           := =impl/Org_unit+'/name', IntegrityCheck = "!ModelParameters/Impl/IsOD || #impl/org == 1", Descr = "Bij een HB-paar precies een herkomst, met de naam OD_Origin.";
 			attribute<float32>               nr_inwoners    := =impl/Org_unit+'/nr_inwoners[float32]';
 		}
 		
@@ -41,7 +41,7 @@ container PublicTransport_Prep
 		unit<uint32> dest_src := =Dest_unit
 		{
 			attribute<rdc>                   geometry             := =Dest_unit+'/geometry';
-			attribute<string>                name                 := =Dest_unit+'/name', IntegrityCheck = "!ModelParameters/Impl/IsOD || #impl/dest_src == 1", Descr = "Bij een HB-paar precies een bestemming, met de naam OD_Bestemming.";
+			attribute<string>                name                 := =Dest_unit+'/name', IntegrityCheck = "!ModelParameters/Impl/IsOD || #impl/dest_src == 1", Descr = "Bij een HB-paar precies een bestemming, met de naam OD_Destination.";
 			attribute<string>                label                := =Dest_unit+'/label';
 		}
 		
@@ -120,12 +120,12 @@ container PublicTransport_Prep
 			attribute<bool>   IsFlexLink := MakeDefined(Routes/IsFlex[Route_rel], false), Descr = "#113: link van een flex-lijn; wachtlinks dragen Route_rel van hun rit en vallen dus mee. MakeDefined: een null-conditie telt in select_with_attr_by_cond stil als false.";
 		}
 
-		// #113: zonder flex (ModelParameters/Advanced/IsFlexMeenemen = FALSE) gaan alle links van flex-lijnen uit beide netten (Set_L laat wachtlinks van
+		// #113: zonder flex (ModelParameters/Advanced/IncludeFlex = FALSE) gaan alle links van flex-lijnen uit beide netten (Set_L laat wachtlinks van
 		// flexritten bij stations toe, vandaar ook daar). Leeg als flex meedoet, zodat de select-expressie
 		// van Set_R/Set_L letterlijk gelijk blijft aan die van voor #113. Exact, want in Set_R/Set zijn de
-		// samenhangende componenten per route (NodeSet = (tijd, halte, route)): flex-links weglaten verwijdert
-		// precies de flex-componenten en raakt geen enkel ander been.
-		parameter<string> FlexSelection_str := ModelParameters/Advanced/IsFlexMeenemen ? '' : ' && not(PTnet_prep/IsFlexLink)';
+		// samenhangende Components per route (NodeSet = (tijd, halte, route)): flex-links weglaten verwijdert
+		// precies de flex-Components en raakt geen enkel ander been.
+		parameter<string> FlexSelection_str := ModelParameters/Advanced/IncludeFlex ? '' : ' && not(PTnet_prep/IsFlexLink)';
 
 		container Set_R := Get_Windowed_Agency_Set_T(' &&  '+impl/PT_path_str+'/Agency_rel->IsRO &&  '+impl/PT_path_str+'/Duration > 0f' + impl/FlexSelection_str), Descr = "subset of public transport net for the relevant time windows and agency-set.", using = "impl";
 		// Het L-net: de vervoerders met NS-tarief (Agencies/IsLnet: NS en, sinds 2026-10-02 (#3), NS International) zonder de
@@ -415,7 +415,7 @@ container PublicTransport_Prep
 											')';
 	}
 
-	// DE BENEN VAN HET VOOR- EN NATRANSPORT IN STORES (sinds 2026-10-19): een keer per peildatum, herkomstenset en bestemmingenset
+	// DE BENEN VAN HET VOOR- EN PostTransport IN STORES (sinds 2026-10-19): een keer per peildatum, herkomstenset en bestemmingenset
 	// de basissets, lopen en fietsen naar elke halte en fietsen van elke halte, elk een parquet-bestand in IntermediateResults
 	// (LegStores/<type>/Write_Legs; batch/UpdateAll.cmd legs), zodat ze ook buiten het model bruikbaar zijn: per been de buurt
 	// (CBS-code), de halte (GTFS stop_id en stop_name), de netwerkreistijd in minuten en de afstand in meter (float64, zodat het
@@ -423,7 +423,7 @@ container PublicTransport_Prep
 	// <hash>.parquet; de handtekening staat ernaast in <naam>.signature.txt. Lopen van een halte naar de bestemmingen is het
 	// spiegelbeeld van lopen van de buurten naar de haltes als herkomsten en bestemmingen dezelfde set zijn (WalkingMirror): het
 	// loopnet heeft geen eenrichting. Fietsen niet: het fietsnet van de Fietsersbond heeft eenrichtingsfietspaden. Ze hangen niet af
-	// van het dagdeel of de component. De andere typen zijn een selectie daaruit (Legs/<type>/ODMatrix): de route naar een halte is
+	// van het PartOfDay of de component. De andere typen zijn een selectie daaruit (Legs/<type>/ODMatrix): de route naar een halte is
 	// dezelfde, welke haltes er ook doelen zijn, dus C_RM, C_RMT en C_Ric zijn C_ naar die haltes, RM_C, RMT_C en OVf_C zijn _C van
 	// die haltes, met hun eigen maximale tijd (die niet langer mag zijn dan die van de basisset). Start- en parkeertijd en de prijs
 	// volgen bij het lezen, zoals in Templates/CreateNetwork_Pedestrian_Bike_T. Tot 2026-10-20 waren de stores mmd, tot 2026-10-19
@@ -545,7 +545,7 @@ container PublicTransport_Prep
 		for_each_ne(
 			TimeInvariantTypes/name
 			, 'Legs_T(' + string(id(TimeInvariantTypes)) + '[TimeInvariantTypes])'
-		), Descr = "Per type van voor- of natransport de benen uit de store van zijn basisset (sinds 2026-10-19), met dezelfde kolommen als TimeInvariantConnections/<type>/Create_Routes/ODMatrix.";
+		), Descr = "Per type van voor- of PostTransport de benen uit de store van zijn basisset (sinds 2026-10-19), met dezelfde kolommen als TimeInvariantConnections/<type>/Create_Routes/ODMatrix.";
 	Template Legs_T
 	{
 		parameter<TimeInvariantTypes> TimeInvariantTypes_rel;
@@ -560,7 +560,7 @@ container PublicTransport_Prep
 		parameter<min_f>   MaxTime        := TimeInvariantTypes/MaxTime[TimeInvariantTypes_rel]
 		,	IntegrityCheck = "MaxTime <= TimeInvariantTypes/MaxTime[rlookup(BaseType, TimeInvariantTypes/name)]";
 		unit<uint32> Src := ='LegStores/' + BaseType + '/Legs';
-		// de buurt is een herkomst in het voortransport en een bestemming in het natransport, ook bij het spiegelbeeld
+		// de buurt is een herkomst in het PreTransport en een bestemming in het PostTransport, ook bij het spiegelbeeld
 		attribute<impl/Places> Buurt_Place_rel (Src) := = IsPreTransport
 		                                               ? 'invert(impl/Places/Origin_rel)[rlookup(Src/BuurtCode, impl/org/name)]'
 		                                               : 'invert(impl/Places/Dest_rel)[rlookup(Src/BuurtCode, impl/dest/name)]';
@@ -664,7 +664,7 @@ container PublicTransport_Prep
 			attribute<Allowed_ChainsK>      Allowed_ChainsK_rel           := ='union_data(., '+asList('const('+string(id(Allowed_ChainsK))+'[Allowed_ChainsK], Chain_Generation/'+Allowed_ChainsK/name+'/Result)', ',')+')';
 			attribute<ct>                   Price                          := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/Price')+')';
 			attribute<ct>                   Price_augm                     := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/Price_augm')+')';
-			attribute<ct>                   Price_S                        := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/Price_S')+')', Descr = "Rit-opslag van de keten (#3), het deel van Price dat per been geldt (ICD/ICE-toeslag); voor validatie tegen 9292 (#53), dat de toeslag niet in de prijs telt.";
+			attribute<ct>                   Price_S                        := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/Price_S')+')', Descr = "Rit-opslag van de keten (#3), het deel van Price dat per been geldt (ICD/ICE-toeslag); voor Validation tegen 9292 (#53), dat de toeslag niet in de prijs telt.";
 			attribute<s>                    Traveltime                     := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/Traveltime')+')';
 			attribute<uint32>               ModeCode                       := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/ModeCode')+')';
 			attribute<uq_c_FromTime_Stop>   uq_c_FromTime_Stop_rel         := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/uq_c_FromTime_Stop_rel')+')';
@@ -879,7 +879,7 @@ container PublicTransport_Prep
 
 	// De ketens die de uitvoer kan gebruiken (sinds 2026-10-20): die instappen bij een halte waar een voortransportbeen van de component
 	// eindigt (NetworkSetup/impl/IsVStop), alleen met de kolommen die de vertrekmomenten lezen, uit de store per haltenblok
-	// (PT_Chains_Blocks/PerBlock/<blok>/VBoarding). Elk herkomstblok kiest hieruit de ketens van zijn eigen voortransport
+	// (PT_Chains_Blocks/PerBlock/<blok>/VBoarding). Elk herkomstblok kiest hieruit de ketens van zijn eigen PreTransport
 	// (PublicTransport/PT_InBlock), en elk vertrekmoment daaruit zijn venster (PerDepartureMoment_T/Within_VW_Window). Tot dan kozen de
 	// vertrekmomenten uit PT: alle ketens met hun afgeleide relaties in het geheugen, voor Y2025, Buurt2025 naar Buurt2025, 572 miljoen
 	// ketens en een piek van ±99 GB vastgelegd geheugen in elke portie van de uitvoerstap (W_PT_OVf_C, 2026-10-20), ongeacht de grootte van
@@ -924,10 +924,10 @@ container PublicTransport_Prep
 		// Flexvervoer (ObjectVision/NetworkModel_PBL#113, #116): '_noflex', of '_flex<i>i<w>w<c>ct' met de flexparameters; leeg als die alle drie 0 zijn.
 		ModelParameters/Impl/Flex_FileTag+
 		// NS International en rit-opslag (ObjectVision/NetworkModel_PBL#3): leeg met de standaard, anders '_' met I, R of w<min>.
-		ModelParameters/Impl/RitOpslag_FileTag+
+		ModelParameters/Impl/TripSurcharge_FileTag+
 		// Prijs-, overstap- en halteparameters (audit 3.4): zonder deze tag las een gewijzigde parameter stil de oude ketens terug.
 		ModelParameters/Impl/PT_Chains_ParamTag+
-		// Een HB-paar (sinds 2026-10-21, #129): de ketens van de haltes van de herkomst naar die van de bestemming, met de maximale tijden van het natransport.
+		// Een HB-paar (sinds 2026-10-21, #129): de ketens van de haltes van de herkomst naar die van de bestemming, met de maximale tijden van het PostTransport.
 		(ModelParameters/Impl/IsOD ? '_od' + ModelParameters/Impl/OD_Tag + OD_Haltes/TypeTag + string(ModelParameters/MaxWalkingTime_Stops2Dest) + '-' + string(ModelParameters/MaxCyclingTime_Stops2Dest) : '')+
 		ModelParameters/Impl/PT_Chains_Revision; // '_r2' sinds audit 3.5 (2026-09-25)
 	container PT_Chains_Hash := /Templates/StringHash_T(PT_Chains_Signature);

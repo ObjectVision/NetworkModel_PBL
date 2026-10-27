@@ -33,7 +33,7 @@ container NetworkSetup : using = "units;Geography;SourceData;Classifications;Mod
 			attribute<OrgBlockDomain>                       OrgBlock_rel     := OrgBlockSelections/OrgBlock_rel[OrgZone_rel];
 		}
 
-		// Het voor- en natransport van alle herkomsten (sinds 2026-10-19 uit de stores van de benen, PublicTransport_Prep/Legs), een keer verenigd over de typen van de component (OV_PreTransport_Typen,
+		// Het voor- en PostTransport van alle herkomsten (sinds 2026-10-19 uit de stores van de benen, PublicTransport_Prep/Legs), een keer verenigd over de typen van de component (OV_PreTransport_Typen,
 		// OV_PostTransport_Typen); elk blok kiest zijn voortransportbenen op het herkomstblok (PublicTransport/V) en gebruikt alle
 		// natransportbenen (PublicTransport/N). Tot 2026-10-07 verenigde elk blok alle benen opnieuw, met voor elk voortransportbeen
 		// de tekst OrgName en de keuze IsRelevantForOrgSubset.
@@ -94,12 +94,12 @@ container NetworkSetup : using = "units;Geography;SourceData;Classifications;Mod
 		parameter<string> Output_Signature_Run :=
 			'tt_' + /ModelParameters/Impl/Analysis_date + '_ORG-' + /ModelParameters/Impl/OrgSet_string + /ModelParameters/Impl/PT_Output_ParamTag
 			+ '_export' + (/ModelParameters/Export_TravelledDistance ? '-dist' : '') + (/ModelParameters/Export_PriceInformation ? '-price' : '')
-			+ (/ModelParameters/Impl/MetOV ? '_' + /NetworkSetup/PublicTransport_Prep/PT_Chains_Signature : '')
+			+ (/ModelParameters/Impl/WithPT ? '_' + /NetworkSetup/PublicTransport_Prep/PT_Chains_Signature : '')
 			+ Output_CarSignature
-			+ (/ModelParameters/OutputFormat == 'parquet' ? '_parquet-' + /ModelParameters/Impl/ExportKlasse : '')
-		, Descr = "Handtekening van de OV-uitvoer: datum, herkomstenset en PT_Output_ParamTag (tot 2026-10-03 de bestandsnaam zonder vertrekmoment en blok), de kolommen (Export_TravelledDistance, Export_PriceInformation), de handtekeningen van de ketenstore (alleen als het OV meedoet, ModelParameters/Impl/MetOV) en van de autostore, en sinds 2026-10-16 _parquet bij OutputFormat 'parquet' (de lezers en samenvoegers lezen csv), sinds 2026-10-19 met de soort component erachter (_parquet-PT, -Car of -Direct: de kolommen, ModelParameters/Impl/ExportKlasse).";
+			+ (/ModelParameters/OutputFormat == 'parquet' ? '_parquet-' + /ModelParameters/Impl/ExportClass : '')
+		, Descr = "Handtekening van de OV-uitvoer: datum, herkomstenset en PT_Output_ParamTag (tot 2026-10-03 de bestandsnaam zonder vertrekmoment en blok), de kolommen (Export_TravelledDistance, Export_PriceInformation), de handtekeningen van de ketenstore (alleen als het OV meedoet, ModelParameters/Impl/WithPT) en van de autostore, en sinds 2026-10-16 _parquet bij OutputFormat 'parquet' (de lezers en samenvoegers lezen csv), sinds 2026-10-19 met de soort component erachter (_parquet-PT, -Car of -Direct: de kolommen, ModelParameters/Impl/ExportClass).";
 		
-		parameter<string> Output_Signature := =/ModelParameters/Impl/IsSamen ? 'ComponentMerge_Def/Signature' : 'Output_Signature_Run', Descr = "De handtekening van de uitvoermap: Output_Signature_Run van een run, of bij MergeOutput (#117) die van ComponentMerge, met de handtekeningen van de samengevoegde componenten.";
+		parameter<string> Output_Signature := =/ModelParameters/Impl/IsMerged ? 'ComponentMerge_Def/Signature' : 'Output_Signature_Run', Descr = "De handtekening van de uitvoermap: Output_Signature_Run van een run, of bij MergeOutput (#117) die van ComponentMerge, met de handtekeningen van de samengevoegde Components.";
 		
 		container Output_Sig := /Templates/StoreSignature_T(
 			/ModelParameters/Impl/OutputDir
@@ -111,8 +111,8 @@ container NetworkSetup : using = "units;Geography;SourceData;Classifications;Mod
 	
 		parameter<string> OutputDir_ForBatch := replace(expand(., /ModelParameters/Impl/OutputDir), '/', '\\'), StorageName = "%ConfigDir%/../../batch/log/output_dir.txt", StorageType = "str"
 		, Descr = "De uitvoermap voor batch/UpdateAll.cmd output, dat er voor de uitvoerstap de bestanden van het model uit weghaalt (tt_*.csv, tt_*.xml en de handtekening).";
-		parameter<string> Generate_Output := =/ModelParameters/Impl/IsSamen ? 'ComponentMerge/Generate' : 'ConfigurationPerBlock/Generate_Output/OUTPUT_Generate_PublicTransport_fullOD_long_CSVFiles'
-		, Descr = "De uitvoerstap (batch/UpdateAll.cmd output): de uitvoer per blok en vertrekmoment, met de tellingen, of bij MergeOutput het samenvoegen van de componenten (ComponentMerge; sinds 2026-10-05, #117). Bij Samen maakt batch/OdTellingen.py de tellingen.";
+		parameter<string> Generate_Output := =/ModelParameters/Impl/IsMerged ? 'ComponentMerge/Generate' : 'ConfigurationPerBlock/Generate_Output/OUTPUT_Generate_PublicTransport_fullOD_long_CSVFiles'
+		, Descr = "De uitvoerstap (batch/UpdateAll.cmd output): de uitvoer per blok en vertrekmoment, met de tellingen, of bij MergeOutput het samenvoegen van de Components (ComponentMerge; sinds 2026-10-05, #117). Bij Samen maakt batch/OdTellingen.py de tellingen.";
 	}
 	
 
@@ -131,16 +131,16 @@ container NetworkSetup : using = "units;Geography;SourceData;Classifications;Mod
 			// Sinds 2026-10-07 rekent batch/WriteOutputBlocks.ps1 de uitvoer in porties van blokken, een GeoDmsRun per portie, zoals
 			// WriteChainBlocks.ps1 de ketenstap: in een opvraging voor alle blokken (hierboven) groeide het geheugen van de uitvoer van
 			// Auto voor Buurt2023 naar Buurt2023 met ongeveer 0,7 GB per blok tot 386 GB. De tellingen maakt dan batch/OdTellingen.py.
-			parameter<string> OutputBlocks_List := AsList(/ModelParameters/Impl/IsSamen
+			parameter<string> OutputBlocks_List := AsList(/ModelParameters/Impl/IsMerged
 				? '/NetworkSetup/ComponentMerge/PerBlock/' + /NetworkSetup/Impl/OrgBlockDomain/name + '/Fence/Generate'
 				: '/NetworkSetup/ConfigurationPerBlock/' + /NetworkSetup/Impl/OrgBlockDomain/name + '/PublicTransport/Generate_Output/Traveltime_ForEachDepTime_Fence/Generate', '\n')
 			, StorageName = "%ConfigDir%/../../batch/log/output_blocks.txt", StorageType = "str"
 			, ExplicitSuppliers = "/NetworkSetup/GenerateOutput/Output_Sig/ForWriting"
 			, Descr = "De opvragingen per herkomstblok, een per regel, voor batch/WriteOutputBlocks.ps1 (sinds 2026-10-07): de uitvoer per blok, of bij MergeOutput het samenvoegen per blok (ComponentMerge/PerBlock; in een opvraging groeide dat met ongeveer 7 GB per blok). Via Output_Sig/ForWriting schrijft of controleert dit eerst de handtekening van de uitvoermap en het langste pad.";
 			
-			parameter<string> OutputBlocks_PerPortion := string(/ModelParameters/Impl/BlokkenPerPortie)
+			parameter<string> OutputBlocks_PerPortion := string(/ModelParameters/Impl/BlocksPerPortion)
 			, StorageName = "%ConfigDir%/../../batch/log/output_blocks_per_portion.txt", StorageType = "str"
-			, Descr = "Herkomstblokken per GeoDmsRun voor batch/WriteOutputBlocks.ps1: ModelParameters/Advanced/Componenten/BlokkenPerPortie van de component, 0 = alle blokken in een portie.";
+			, Descr = "Herkomstblokken per GeoDmsRun voor batch/WriteOutputBlocks.ps1: ModelParameters/Advanced/Components/BlocksPerPortion van de component, 0 = alle blokken in een portie.";
 
 			// Tellingen naast de OV-uitvoer (sinds 2026-10-04), in <OutputDir>: od_tellingen.csv met de rijen per soort optie en per
 			// vertrekmoment (en het totaal), en unieke_od_tellingen.csv met de unieke HB-paren per groep en per vertrekmoment (en over de

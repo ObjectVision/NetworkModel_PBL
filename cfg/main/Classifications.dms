@@ -82,7 +82,7 @@ container Classifications: Using = "Units"
 		attribute<string> Name_short     := ConnectionType + '_' + Mode_abbrev;
 		attribute<GTFS_Modes/Selection>  Mode_rel       := rlookup(Mode_Abbrev, GTFS_Modes/Selection/name_abbr);
 		attribute<bool>   IsOVfiets      := lowercase(StopClass) == lowercase('OVf');
-		attribute<bool>   NeedsOwnBike   := Mode_abbrev == 'C' && NOT(IsOVfiets), Descr = "Vraagt dit been een eigen fiets (NetworkModel_PBL#117)? Fietsen wel, ook in het natransport (een eigen fiets bij de laatste halte), behalve met een gehuurde OV-fiets. Sinds 2026-10-19 ook RMT_Stops2Dest_Cycling, dat tot dan met UseOVFietsPriceForAllCyclingPostTransport als OV-fiets telde.";
+		attribute<bool>   NeedsOwnBike   := Mode_abbrev == 'C' && NOT(IsOVfiets), Descr = "Vraagt dit been een eigen fiets (NetworkModel_PBL#117)? Fietsen wel, ook in het PostTransport (een eigen fiets bij de laatste halte), behalve met een gehuurde OV-fiets. Sinds 2026-10-19 ook RMT_Stops2Dest_Cycling, dat tot dan met UseOVFietsPriceForAllCyclingPostTransport als OV-fiets telde.";
 		attribute<min_f>  MaxTime        := ='union_data(.,'+asList('ModelParameters/' + (Mode == 'Walking' && ConnectionType != 'Org2Stops' && ConnectionType != 'Stops2Dest' ? 'Advanced/' : '') + 'Max'+Mode+'Time_'+ConnectionType, ',')+')';
 		
 		
@@ -104,7 +104,7 @@ container Classifications: Using = "Units"
 			'OVF_Stops' , 'Dest'        ,'N', 'OVf', //OVF_Stops=OV-fiets stops
 			'RMT_Stops' , 'Dest'        ,'N', 'RMT', //OVF_Stops=OV-fiets stops
 			'Org'       , 'Ric_Stops'   ,'V', 'Ric', //IC_Stops=IC_station_stops
-			'RM_Stops'  , 'Dest'        ,'N', 'RM'   //RM_Stops=Rail+Metro, natransport RM_C (sinds 2026-10-19); achteraan, zodat de bestaande typen hun nummer houden
+			'RM_Stops'  , 'Dest'        ,'N', 'RM'   //RM_Stops=Rail+Metro, PostTransport RM_C (sinds 2026-10-19); achteraan, zodat de bestaande typen hun nummer houden
 			];
 		}
 		
@@ -142,13 +142,13 @@ container Classifications: Using = "Units"
 			attribute<string> label := values;
 			attribute<bool>   NeedsBike := any(VN_ModeClasses/NeedsBike, VN_ModeClasses/uq_rel), Descr = "Vraagt een voor- of natransportbeen van deze klasse een eigen fiets (NetworkModel_PBL#117)?";
 		}
-		parameter<bool> AnyNeedsBike := any(uq/NeedsBike), Descr = "Vraagt een van de voor- of natransporttypen een eigen fiets? Zo niet, dan heeft geen OV-keten een fiets nodig.";
+		parameter<bool> AnyNeedsBike := any(uq/NeedsBike), Descr = "Vraagt een van de voor- of PostTransportTypes een eigen fiets? Zo niet, dan heeft geen OV-keten een fiets nodig.";
 	}
 
 	// De regels van de tellingen naast de OV-uitvoer (sinds 2026-10-04): <OutputDir>/od_tellingen.csv en unieke_od_tellingen.csv,
 	// zie NetworkSetup/ConfigurationPerBlock/Generate_Output/OD_Tellingen.
 	unit<uint8> OD_Tellingen_Soort : nrofrows = 5
-	, Descr = "Rijen van de OV-uitvoer per soort optie: alle, een OV-keten (met voor- en natransport), en de directe ritten lopen (WW), fiets (CC) en auto (AA)."
+	, Descr = "Rijen van de OV-uitvoer per soort optie: alle, een OV-keten (met voor- en PostTransport), en de directe ritten lopen (WW), fiets (CC) en auto (AA)."
 	{
 		attribute<string> name  : ['alle', 'OV_keten', 'WW', 'CC', 'AA'];
 		attribute<string> label : ['alle', 'OV-keten', 'WW', 'CC', 'AA'];
@@ -209,7 +209,7 @@ container Classifications: Using = "Units"
 		attribute<bool>   IsRO := not(IsNS);
 		attribute<bool>   IsNSInternational := name == 'ns_international' || name == 'ns_int';
 		attribute<bool>   IsLnet := name == 'ns' || (IsNSInternational && ModelParameters/Advanced/IsNSInternationalInLnet)
-		, Descr = "Vervoerders van het NS-net (L-net, NS-tarief): NS, en sinds 2026-10-02 (#3) NS International voor binnenlandse reizen (ModelParameters/Advanced/IsNSInternationalInLnet). Eurostar en Nightjet doen binnenlands toch niet mee: zie ModelParameters/Advanced/TreinenZonderNSKaartje (en pickup_type/drop_off_type in de GTFS). European Sleeper hoort er niet bij (alleen met reservering, geen NS-kaartjes).";
+		, Descr = "Vervoerders van het NS-net (L-net, NS-tarief): NS, en sinds 2026-10-02 (#3) NS International voor binnenlandse reizen (ModelParameters/Advanced/IsNSInternationalInLnet). Eurostar en Nightjet doen binnenlands toch niet mee: zie ModelParameters/Advanced/TrainsWithoutNSTicket (en pickup_type/drop_off_type in de GTFS). European Sleeper hoort er niet bij (alleen met reservering, geen NS-kaartjes).";
 		container V := for_each_nedv(Name, string(id(.)), void, .);
 	}
  
@@ -278,7 +278,7 @@ container Classifications: Using = "Units"
 	unit<uint8> ChainJoinerParetoAttr_Candidates: nrofrows = 6
 	{
 		parameter<bool>   IsPriceFinal   := CandidateParetoAttr/IsFinalParetoSelection[CandidateParetoAttr/V/Price];
-		parameter<bool>   HasTimePenalty := ModelParameters/Advanced/GradeSeparatedTransferPenalty > 0[min_f] || ModelParameters/Impl/FlexHasTimePenalty || ModelParameters/Impl/RitOpslagHasTimePenalty;
+		parameter<bool>   HasTimePenalty := ModelParameters/Advanced/GradeSeparatedTransferPenalty > 0[min_f] || ModelParameters/Impl/FlexHasTimePenalty || ModelParameters/Impl/TripSurchargeHasTimePenalty;
 		attribute<string> Name : [ 'Price', 'Price_augm', 'remaining_time_excl_RO_transfer', 'remaining_time_excl_NS_transfer', 'TravelTime', 'Price_augm' ];
 		attribute<bool>   IsTieBreakOnly : [ FALSE, FALSE, FALSE, FALSE, FALSE, TRUE ];
 		attribute<string> EpsilonExpr : [ '0.0', '0.0', '0.0', '0.0', '/ModelParameters/Advanced/ChainParetoTimeEpsilon', '1.0' ], Descr = "Per criterium de relatieve epsilon voor pareto_optimal_eps (GeoDMS #1282, relatief sinds 2026-10-05). Price of Price_augm staat voorop, en op het eerste criterium werkt een epsilon niet: 0. De resttijden zijn een afstand tot het einde van het analysevenster en geen reisduur, dus exact (tot 2026-10-05 bakken van 60 s); de tiebreak Price_augm 1.0: een criterium dat alleen de volgorde geeft (tot dan bakken van 1e9).";
@@ -303,7 +303,7 @@ container Classifications: Using = "Units"
 		attribute<string> Name               : [ 'Price', 'Price_augm', 'TravelTime']; // kan hier gereguleerd worden; maak dit afhankelijk van MinimiseCriterium
 		attribute<string> FileNameElement    : [ 'Price', 'Price_augm', 'Time'];       // codering voor in een samengestelde file_naam/ 
 		attribute<string> EpsilonExpr        : [ '0.0', '0.0', '/ModelParameters/Advanced/ChainParetoTimeEpsilon' ], Descr = "Per criterium de relatieve epsilon voor pareto_optimal_eps (GeoDMS #1282, relatief sinds 2026-10-05; tot dan een bakbreedte in de eenheid van het criterium). De prijs staat voorop, en op het eerste criterium werkt een epsilon niet: 0.";
-		attribute<bool>   IsCriteriaInLijst  := IsDefined(strpos(lowercase(ModelParameters/Impl/IsSamen ? ModelParameters/MergeCriteria : ModelParameters/Advanced/MinimiseCriteria), lowercase(CandidateParetoAttr/FileNameElement))), Descr = "Sinds 2026-09-25 ongeacht hoofdletters (audit 3.7): tot dan viel 'Price_Augm', zoals de Descr van MinimiseCriteria het schrijft, stil terug op Price."; 
+		attribute<bool>   IsCriteriaInLijst  := IsDefined(strpos(lowercase(ModelParameters/Impl/IsMerged ? ModelParameters/MergeCriteria : ModelParameters/Advanced/MinimiseCriteria), lowercase(CandidateParetoAttr/FileNameElement))), Descr = "Sinds 2026-09-25 ongeacht hoofdletters (audit 3.7): tot dan viel 'Price_Augm', zoals de Descr van MinimiseCriteria het schrijft, stil terug op Price."; 
 		parameter<bool>   IsBothPriceAndAugm := IsCriteriaInLijst[v/Price] && IsCriteriaInLijst[v/Price_augm];
 		
 		attribute<bool>   IsFinalParetoSelection := switch(
@@ -332,9 +332,9 @@ container Classifications: Using = "Units"
 		attribute<string> CriteriaName      : [ 'Car', 'Bike' ], Descr = "Het element in MinimiseCriteria.";
 		attribute<string> FileNameElement   : [ 'A', 'C' ], Descr = "Het element in de handtekening van de uitvoer (PT_Output_ParamTag, tot 2026-10-03 in de uitvoernamen): de letter van auto en fiets in ModeUsed. Kort, want het langste uitvoerpad was toen al 252 van de 259 tekens (NetworkModel_PBL#118).";
 		attribute<string> EpsilonExpr       : [ '', '' ], Descr = "Leeg: een bool-criterium heeft geen epsilon in pareto_optimal_eps.";
-		attribute<bool>   IsCriteriaInLijst := IsDefined(strpos(lowercase(ModelParameters/Impl/IsSamen ? ModelParameters/MergeCriteria : ModelParameters/Advanced/MinimiseCriteria), lowercase(CriteriaName))), Descr = "Noemt MinimiseCriteria het criterium, bij het samenvoegen (MergeOutput) MergeCriteria? Tot 2026-10-20 bij het samenvoegen altijd: daar horen autobezit en fietsbezit bij.";
-		attribute<bool>   IsRelevant        := union_data(., ModelParameters/Impl/AllowDirectCar, ModelParameters/Impl/IsSamen ? any(ModelParameters/Advanced/Componenten/InMerge && ModelParameters/Advanced/Componenten/NeedsBike) : ModelParameters/Impl/AllowDirectCycling || VN_ModeClasses/AnyNeedsBike)
-		,	Descr = "Kan een optie een auto of fiets vragen? Een auto alleen de directe autorit (er is geen P+R-voortransport), een fiets de directe fietsroute en voor- of natransport met een eigen fiets. Een criterium dat voor alle opties gelijk is, verandert het front niet en blijft weg, ook uit de uitvoernamen.";
+		attribute<bool>   IsCriteriaInLijst := IsDefined(strpos(lowercase(ModelParameters/Impl/IsMerged ? ModelParameters/MergeCriteria : ModelParameters/Advanced/MinimiseCriteria), lowercase(CriteriaName))), Descr = "Noemt MinimiseCriteria het criterium, bij het samenvoegen (MergeOutput) MergeCriteria? Tot 2026-10-20 bij het samenvoegen altijd: daar horen autobezit en fietsbezit bij.";
+		attribute<bool>   IsRelevant        := union_data(., ModelParameters/Impl/AllowDirectCar, ModelParameters/Impl/IsMerged ? any(ModelParameters/Advanced/Components/InMerge && ModelParameters/Advanced/Components/NeedsBike) : ModelParameters/Impl/AllowDirectCycling || VN_ModeClasses/AnyNeedsBike)
+		,	Descr = "Kan een optie een auto of fiets vragen? Een auto alleen de directe autorit (er is geen P+R-PreTransport), een fiets de directe fietsroute en voor- of PostTransport met een eigen fiets. Een criterium dat voor alle opties gelijk is, verandert het front niet en blijft weg, ook uit de uitvoernamen.";
 		attribute<bool>   IsSelected        := IsCriteriaInLijst && IsRelevant;
 	}
 	unit<uint8> OwnershipParetoAttr := select_with_attr_by_cond(OwnershipParetoAttr_Candidates, OwnershipParetoAttr_Candidates/IsSelected);

@@ -245,7 +245,7 @@ def main():
 						t.n['5 gedomineerde rijen in B (voorbij epsilon)'] += beyond
 
 	lines = []
-	lines.append(f'# Front-validatie (#53)\n')
+	lines.append(f'# Front-Validation (#53)\n')
 	lines.append(f'- A: `{args.a}` ({len(fa)} bestanden), B: `{args.b}` ({len(fb)} bestanden), gekoppeld: {len(keys)}')
 	lines.append(f'- MinCrit A: {"_".join(crit_a) or "?"}, B: {"_".join(crit_b) or "?"}; frontcheck op reistijd' + (', prijs' if has_price_b else '') + (', NeedsCar' if use_car else '') + (', NeedsBike' if use_bike else ''))
 	lines.append(f'- prijs in A: {"ja" if has_price_a else "nee"}, in B: {"ja" if has_price_b else "nee"}; eps-time {args.eps_time} min, eps-price {args.eps_price} euro')

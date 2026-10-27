@@ -11,8 +11,8 @@
 # dat met ongeveer 7 GB per blok). Is de lijst leeg, dan een opvraging van NetworkSetup/GenerateOutput/Generate_Output.
 #
 # Aanroep (door UpdateAll.cmd output): WriteOutputBlocks.ps1 -Exe <GeoDmsRun.exe> -Cfg <cfg\main.dms> -LogDir <batch\log> -OutDir <uitvoermap>
-#   -BatchSize  blokken per GeoDmsRun; zonder deze parameter die van de component, ModelParameters/Advanced/Componenten/
-#               BlokkenPerPortie (standaard 50; het model schrijft hem naar batch\log\output_blocks_per_portion.txt); 0 = alle
+#   -BatchSize  blokken per GeoDmsRun; zonder deze parameter die van de component, ModelParameters/Advanced/Components/
+#               BlocksPerPortion (standaard 50; het model schrijft hem naar batch\log\output_blocks_per_portion.txt); 0 = alle
 #               blokken in een portie. Elke portie betaalt de opstart opnieuw; tot het eerste blokbestand duurde die voor Y2023,
 #               Buurt2023 naar Buurt2023, 2,5 min bij Auto, 5 bij Fiets en 6 bij Lopen.
 #   -MaxBlocks  hooguit zoveel blokken (0 = alle; om te testen)

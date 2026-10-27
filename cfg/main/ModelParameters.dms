@@ -5,9 +5,9 @@ container ModelParameters : using = "units"
 	// Wat volgt uit andere instellingen, met PBL is afgesproken of de techniek betreft, staat in Advanced. Bij elke aanname staat of hij
 	// alleen de uitvoer verandert, of de tussenresultaten in %LocalDataProjDir%/IntermediateResults, die het model dan opnieuw rekent.
 
-	// 1. WAT: peildatum, dagdeel, herkomsten en bestemmingen, en de uitvoer
+	// 1. WAT: peildatum, PartOfDay, herkomsten en bestemmingen, en de uitvoer
 	parameter<string>   AnalysisMoment                    := 'Y2025'                , Descr = "De peildatum: een jaar uit Advanced/AnalysisMomentPresets (Y2015, Y2023, Y2024, Y2025 of Y2026), met de dag van de analyse (de tweede dinsdag van oktober, #125), de GTFS-feed, OSM, TomTom, de CBS-gebiedsindeling en de BAG.";
-	parameter<string>   Dagdeel                           := 'Ochtendspits'         , Descr = "Het dagdeel van de vertrekmomenten, uit Advanced/Dagdelen (#125): 'Ochtendspits' 07:00-07:45, 'Middag' 12:00-12:45 of 'Avond' 19:00-19:45, elk vier momenten per kwartier. Bepaalt ook het congestiemoment van de directe autorit (Impl/Car_CongestionMoment_ForDirect).", IntegrityCheck = "IsDefined(rlookup(this, Advanced/Dagdelen/name))";
+	parameter<string>   PartOfDay                           := 'Ochtendspits'         , Descr = "Het PartOfDay van de vertrekmomenten, uit Advanced/PartsOfDay (#125): 'Ochtendspits' 07:00-07:45, 'Middag' 12:00-12:45 of 'Avond' 19:00-19:45, elk vier momenten per kwartier. Bepaalt ook het congestiemoment van de directe autorit (Impl/Car_CongestionMoment_ForDirect).", IntegrityCheck = "IsDefined(rlookup(this, Advanced/PartsOfDay/name))";
 	parameter<string>   Orgset                            := 'Buurt2025'            , Descr = "Select the origin set, defined in Advanced/org_domain_list.";
 	parameter<string>   Destset                           := 'Buurt2025'            , Descr = "Select the destination set, defined in Advanced/dest_domain_list.";       
 	parameter<string>   Orgset_EnkeleBuurt_Selection      := 'BU0363AD05'           , Descr = "If you choose 'enkele_buurt' in the OrgSet, which neighbourhood would you like? Use the BU_CODE.";
@@ -20,35 +20,35 @@ container ModelParameters : using = "units"
 	parameter<string>   OutputLabel                       := 'basis'                , Descr = "Korte naam van de variant (#118): de uitvoer staat in %LocalDataProjDir%/Output/<Impl/Analysis_date>_<OutputLabel>_<component> (Impl/OutputDir), met de parameters in signature.txt; een andere parameterset onder hetzelfde label stopt op die handtekening. Letters, cijfers, - en _, hoogstens 20 tekens.", IntegrityCheck = "strlen(this) >= 1 && strlen(this) <= 20 && strcount(this, ' ') == 0 && strcount(this, '/') == 0 && strcount(this, ':') == 0 && strcount(this, '.') == 0";
 	parameter<string>   OutputFormat                      := 'parquet'
 	,	IntegrityCheck = "OutputFormat == 'csv' || OutputFormat == 'parquet'"
-	,	Descr = "Het formaat van de OV-uitvoer per blok en vertrekmoment: 'parquet' (getypt, zstd, per soort component alleen de variërende kolommen, Impl/ExportKlasse) of 'csv' (alle kolommen). De tellingen per blok zijn altijd csv; het samenvoegen leest de parquet van de componenten en schrijft in dit formaat.";
+	,	Descr = "Het formaat van de OV-uitvoer per blok en vertrekmoment: 'parquet' (getypt, zstd, per soort component alleen de variërende kolommen, Impl/ExportClass) of 'csv' (alle kolommen). De tellingen per blok zijn altijd csv; het samenvoegen leest de parquet van de Components en schrijft in dit formaat.";
 	parameter<bool>     Export_TravelledDistance          := TRUE                   , Descr = "Would you like to export the travelled distance along with the other attributes in the case of private and public transport?";
-	parameter<bool>     Export_PriceInformation           := TRUE                   , Descr ="Exporteert de OV-uitvoer ook de prijs, uitgesplitst naar voortransport, OV en natransport (PretransPrice, PTPrice, PosttransPrice) en per modaliteit (WalkingPrice, CyclingPrice, CarPrice)?";
+	parameter<bool>     Export_PriceInformation           := TRUE                   , Descr ="Exporteert de OV-uitvoer ook de prijs, uitgesplitst naar PreTransport, OV en PostTransport (PretransPrice, PTPrice, PosttransPrice) en per modaliteit (WalkingPrice, CyclingPrice, CarPrice)?";
 
 	// 2. DE COMPONENT VAN DEZE RUN (#117): een
-	// directe rit, WW, CC of Car, of een OV-reis, PT, met een voortransport en een natransport. De directe ritten zijn aparte
-	// componenten, want ze gaan anders om met sommige Pareto-attributen en met het front (de auto houdt per HB-paar meer routes).
+	// directe rit, WW, CC of Car, of een OV-reis, PT, met een PreTransport en een PostTransport. De directe ritten zijn aparte
+	// Components, want ze gaan anders om met sommige Pareto-attributen en met het front (de auto houdt per HB-paar meer routes).
 	// Elke component heeft een eigen uitvoermap; samenvoegen doet een run met MergeOutput (hieronder). Alle combinaties staan in
-	// Advanced/Componenten.
-	parameter<string>   Component                         := 'PT'                   , Descr = "Wat deze run rekent: 'WW' (de directe looprit), 'CC' (de directe fietsrit), 'Car' (de directe autorit, met starten en parkeren) of 'PT' (een OV-reis: Voortransport + OV + Natransport). De naam van de component (Impl/ComponentName) staat achter het label in de uitvoermap (#117, #118).", IntegrityCheck = "this == 'WW' || this == 'CC' || this == 'Car' || this == 'PT'";
-	parameter</Classifications/TimeInvariantTypes> Voortransport := /Classifications/TimeInvariantTypes/V/Org2Stops_Walking // W: lopen naar elke halte
+	// Advanced/Components.
+	parameter<string>   Component                         := 'PT'                   , Descr = "Wat deze run rekent: 'WW' (de directe looprit), 'CC' (de directe fietsrit), 'Car' (de directe autorit, met starten en parkeren) of 'PT' (een OV-reis: PreTransport + OV + PostTransport). De naam van de component (Impl/ComponentName) staat achter het label in de uitvoermap (#117, #118).", IntegrityCheck = "this == 'WW' || this == 'CC' || this == 'Car' || this == 'PT'";
+	parameter</Classifications/TimeInvariantTypes> PreTransport := /Classifications/TimeInvariantTypes/V/Org2Stops_Walking // W: lopen naar elke halte
 		// /Classifications/TimeInvariantTypes/V/Org2Stops_Cycling      // C: fietsen naar elke halte
 		// /Classifications/TimeInvariantTypes/V/Org2RM_Stops_Cycling   // C_RM: fietsen naar een trein- of metrohalte
 		// /Classifications/TimeInvariantTypes/V/Org2RMT_Stops_Cycling  // C_RMT: fietsen naar een trein-, metro- of tramhalte
 		// /Classifications/TimeInvariantTypes/V/Org2Ric_Stops_Cycling  // C_Ric: fietsen naar een IC-station
-	, Descr = "Het voortransport van de OV-reis (Component 'PT'): een van Advanced/VoortransportTypen; de alternatieven staan als commentaar eronder."
-	, IntegrityCheck = "Component != 'PT' || IsDefined(rlookup(this, Advanced/VoortransportTypen/TimeInvariantTypes_rel))";
-	parameter</Classifications/TimeInvariantTypes> Natransport := /Classifications/TimeInvariantTypes/V/Stops2Dest_Walking // W: lopen
+	, Descr = "Het PreTransport van de OV-reis (Component 'PT'): een van Advanced/PreTransportTypes; de alternatieven staan als commentaar eronder."
+	, IntegrityCheck = "Component != 'PT' || IsDefined(rlookup(this, Advanced/PreTransportTypes/TimeInvariantTypes_rel))";
+	parameter</Classifications/TimeInvariantTypes> PostTransport := /Classifications/TimeInvariantTypes/V/Stops2Dest_Walking // W: lopen
 		// /Classifications/TimeInvariantTypes/V/Stops2Dest_Cycling     // C: fietsen van elke halte
 		// /Classifications/TimeInvariantTypes/V/RM_Stops2Dest_Cycling  // RM_C: fietsen van een trein- of metrohalte
 		// /Classifications/TimeInvariantTypes/V/RMT_Stops2Dest_Cycling // RMT_C: fietsen van een trein-, metro- of tramhalte
 		// /Classifications/TimeInvariantTypes/V/OVF_Stops2Dest_Cycling // OVf_C: de OV-fiets, alleen van een halte bij een OV-fietslocatie
-	, Descr = "Het natransport van de OV-reis (Component 'PT'): een van Advanced/NatransportTypen. Alleen de OV-fiets (OVf_C) wordt gehuurd; bij de andere fietsnatransporten staat een eigen fiets bij de laatste halte (PostTransport_Cycling_Time_Costs)."
-	, IntegrityCheck = "Component != 'PT' || IsDefined(rlookup(this, Advanced/NatransportTypen/TimeInvariantTypes_rel))";
+	, Descr = "Het PostTransport van de OV-reis (Component 'PT'): een van Advanced/PostTransportTypes. Alleen de OV-fiets (OVf_C) wordt gehuurd; bij de andere fietsnatransporten staat een eigen fiets bij de laatste halte (PostTransport_Cycling_Time_Costs)."
+	, IntegrityCheck = "Component != 'PT' || IsDefined(rlookup(this, Advanced/PostTransportTypes/TimeInvariantTypes_rel))";
 
-	// 3. SAMENVOEGEN van componenten tot een front (MergeOutput, NetworkSetup/ComponentMerge)
-	parameter<bool>     MergeOutput                       := FALSE                  , Descr = "Voegt deze run, in plaats van te rekenen, de uitvoer van de componenten in MergeComponents samen tot een Pareto-front op MergeCriteria (NetworkSetup/ComponentMerge)? Uitvoer in Output/<Impl/Analysis_date>_<OutputLabel>_Merged<MergeRunNr>; Component, Voortransport en Natransport tellen dan niet.";
-	parameter<string>   MergeComponents                   := 'WW,W_PT_W,CC,C_PT_W,C_PT_OVf_C,Car', Descr = "De componenten die MergeOutput samenvoegt, gescheiden door komma's, uit Advanced/Componenten/name; de standaard geeft de opties van de levering van 2023 (#117). Hun uitvoer moet er zijn, met hetzelfde OutputLabel, dezelfde peildatum, hetzelfde dagdeel en dezelfde herkomsten en bestemmingen.";
-	parameter<uint32>   MergeRunNr                        := 1                      , Descr = "Het nummer van de samenvoeging in de naam van de uitvoermap (_Merged<MergeRunNr>); de samengevoegde componenten staan in signature.txt. Geef een andere set MergeComponents of MergeCriteria een ander nummer: onder hetzelfde nummer stopt de run op de handtekening.";
+	// 3. SAMENVOEGEN van Components tot een front (MergeOutput, NetworkSetup/ComponentMerge)
+	parameter<bool>     MergeOutput                       := FALSE                  , Descr = "Voegt deze run, in plaats van te rekenen, de uitvoer van de Components in MergeComponents samen tot een Pareto-front op MergeCriteria (NetworkSetup/ComponentMerge)? Uitvoer in Output/<Impl/Analysis_date>_<OutputLabel>_Merged<MergeRunNr>; Component, PreTransport en PostTransport tellen dan niet.";
+	parameter<string>   MergeComponents                   := 'WW,W_PT_W,CC,C_PT_W,C_PT_OVf_C,Car', Descr = "De Components die MergeOutput samenvoegt, gescheiden door komma's, uit Advanced/Components/name; de standaard geeft de opties van de levering van 2023 (#117). Hun uitvoer moet er zijn, met hetzelfde OutputLabel, dezelfde peildatum, hetzelfde PartOfDay en dezelfde herkomsten en bestemmingen.";
+	parameter<uint32>   MergeRunNr                        := 1                      , Descr = "Het nummer van de samenvoeging in de naam van de uitvoermap (_Merged<MergeRunNr>); de samengevoegde Components staan in signature.txt. Geef een andere set MergeComponents of MergeCriteria een ander nummer: onder hetzelfde nummer stopt de run op de handtekening.";
 	parameter<string>   MergeCriteria                     := 'Price,Time,Car,Bike'  , Descr = "De criteria van het samenvoegen: Price of Price_Augm, Time, Car (NeedsCar) en Bike (NeedsBike). Een duurdere optie blijft alleen als ze meer dan ChainParetoTimeEpsilon sneller is; zonder Car en Bike kan een optie met auto of fiets er een zonder verdringen, en 'Time' of 'Price' alleen geeft een optie per paar.", IntegrityCheck = "IsDefined(strpos(lowercase(this), 'price')) || IsDefined(strpos(lowercase(this), 'time'))";
 
 	// 4. AANNAMES DIE ALLEEN DE UITVOER VERANDEREN: de tussenresultaten blijven geldig
@@ -60,7 +60,7 @@ container ModelParameters : using = "units"
 	parameter<euro_min> Direct_Walking_Time_Costs         := 0.19[euro_min]         , Descr = "To attach a value to walking, the cost thereof (or the time it takes) is incorporated. This is a mechanism to ensure when looking for the cheapest journey the model won't let you walk as much as possible.";
 	parameter<euro_min> Direct_Cycling_Time_Costs         := 0.09[euro_km] * /ModelParameters/CyclingSpeed_kmhr * 1[hr_f] / 60[min_f], Descr = "To attach a value to cycling, the cost thereof (or the time it takes) is incorporated. This is a mechanism to ensure when looking for the cheapest journey the model won't let you cycle as much as possible.";
 	parameter<euro_min> PreTransport_Cycling_Time_Costs   := 0.09[euro_km] * /ModelParameters/CyclingSpeed_kmhr * 1[hr_f] / 60[min_f], Descr = "To attach a value to cycling, the cost thereof (or the time it takes) is incorporated. This is a mechanism to ensure when looking for the cheapest journey the model won't let you cycle as much as possible.";
-	parameter<euro_min> PostTransport_Cycling_Time_Costs  := PreTransport_Cycling_Time_Costs, Descr = "De kosten van fietsen in het natransport (C, RM_C, RMT_C): een eigen fiets bij de laatste halte, met dezelfde kosten als de eigen fiets in het voortransport. De OV-fiets (OVf_C) kost OVFiets_RentalPrice.";
+	parameter<euro_min> PostTransport_Cycling_Time_Costs  := PreTransport_Cycling_Time_Costs, Descr = "De kosten van fietsen in het PostTransport (C, RM_C, RMT_C): een eigen fiets bij de laatste halte, met dezelfde kosten als de eigen fiets in het PreTransport. De OV-fiets (OVf_C) kost OVFiets_RentalPrice.";
 	parameter<euro>     OVFiets_RentalPrice               := 4.45[euro]             , Descr = "Prijs voor de huur van de fiets voor de eerste 24u. 2023=4.45 euro";
 	parameter<Euro_km>  Car_CostPerKm                     := 0.24[Euro_km]          , Descr = "Autokosten per km (#88): de prijs van de directe autorit is zijn afstand maal Car_CostPerKm, plus Car_FixedCosts_PerTrip.";
 	parameter<Euro>     Car_FixedCosts_PerTrip            := 0[Euro]                , Descr = "Vast bedrag per autorit, bijvoorbeeld parkeren; 0 tot daar een waarde voor is.";
@@ -82,13 +82,13 @@ container ModelParameters : using = "units"
 	parameter<min_f>    MaxCyclingTime_Stops2Dest         := 15[min_f]              , Descr = "Maximum cycling time from origin towards first stop";
 	parameter<min_f>    MaxCyclingTime_OVF_Stops2Dest     := 15[min_f]              , Descr = "Maximum cycling time from last stop which is an OV-fiets station towards destination";
 	parameter<min_f>    MaxCyclingTime_RMT_Stops2Dest     := 15[min_f]              , Descr = "Maximum cycling time from last stop which is a RMT station towards destination";
-	parameter<min_f>    MaxCyclingTime_RM_Stops2Dest      := 15[min_f]              , Descr = "Maximum cycling time from last stop which is a rail or metro stop (RM_Stops) towards destination (natransport RM_C)";
+	parameter<min_f>    MaxCyclingTime_RM_Stops2Dest      := 15[min_f]              , Descr = "Maximum cycling time from last stop which is a rail or metro stop (RM_Stops) towards destination (PostTransport RM_C)";
 	parameter<km_hr>    WalkingSpeed_kmhr                 := 4.5[km_hr]             , Descr = "";
 	parameter<km_hr>    CyclingSpeed_kmhr                 := 14[km_hr]              , Descr = "";
-	// de ketenstore (batch/UpdateAll.cmd chains, uren per dagdeel); ook de maximale tijden van het voortransport hierboven, en de start- en
-	// parkeertijd van de fiets: ze bepalen het langste voortransport (Impl/PT_Max_V_Time) en daarmee het laatste instapmoment van de ketens
-	parameter<min_f>    Cycling_StartTime                 := 1[min_f]               , Descr = "Starttijd van elke fietsrit: fiets pakken en wegrijden. Opgeteld bij de reistijd van de directe fietsrit, van elk fietsbeen in het voortransport en van elk fietsbeen in het natransport. Eerste aanname, door PBL te zetten.";
-	parameter<min_f>    Cycling_ParkingTime_IC_Station    := 3[min_f]               , Descr = "Extra parkeertijd, bovenop Cycling_PreTransport_Penalty, voor een fietsbeen in het voortransport dat eindigt op een IC-station (PublicTransport_Prep/Impl/Ric_Stops), bij elk type fietsvoortransport (#117): grote stallingen, langer lopen naar het perron. Eerste aanname, door PBL te zetten.";
+	// de ketenstore (batch/UpdateAll.cmd chains, uren per PartOfDay); ook de maximale tijden van het PreTransport hierboven, en de start- en
+	// parkeertijd van de fiets: ze bepalen het langste PreTransport (Impl/PT_Max_V_Time) en daarmee het laatste instapmoment van de ketens
+	parameter<min_f>    Cycling_StartTime                 := 1[min_f]               , Descr = "Starttijd van elke fietsrit: fiets pakken en wegrijden. Opgeteld bij de reistijd van de directe fietsrit, van elk fietsbeen in het PreTransport en van elk fietsbeen in het PostTransport. Eerste aanname, door PBL te zetten.";
+	parameter<min_f>    Cycling_ParkingTime_IC_Station    := 3[min_f]               , Descr = "Extra parkeertijd, bovenop Cycling_PreTransport_Penalty, voor een fietsbeen in het PreTransport dat eindigt op een IC-station (PublicTransport_Prep/Impl/Ric_Stops), bij elk type fietsvoortransport (#117): grote stallingen, langer lopen naar het perron. Eerste aanname, door PBL te zetten.";
 	parameter<min_f>    MaxPTTime                         := 90[min_f]              , Descr = "Maximum travel time using public transport, including transfers and waiting. Note that limiting this value might result in not being able to reach all destinations.";
 	parameter<uint16>   Max_transfers                     := 3w                     , Descr = "How many transfers are allowed?", IntegrityCheck = "this >= 1w && this <= 4w";
 	parameter<euro_min> Transfer_Walking_Time_Costs       := 0.19[euro_min]         , Descr = "To attach a value to walking, the cost thereof (or the time it takes) is incorporated. This is a mechanism to ensure when looking for the cheapest journey the model won't let you walk as much as possible.";
@@ -97,14 +97,14 @@ container ModelParameters : using = "units"
 	parameter<min_f>    MaxCarTime                        := 90[min_f]              , Descr = "Maximum travel time using car transport. Note that limiting this value might result in not being able to reach all destinations.";
 	parameter<bool>     UseTomTomNetworkForCars           := TRUE                   , Descr = "Would you like to use the TomTom network car analysis? Or if not, the OSM network is used.";
 
-	// 6. EEN HB-PAAR (#129): met OD_Herkomst en OD_Bestemming rekent het hele model, met dezelfde stappen (batch/UpdateAll.cmd
+	// 6. EEN HB-PAAR (#129): met OD_Origin en OD_Destination rekent het hele model, met dezelfde stappen (batch/UpdateAll.cmd
 	// of batch/WriteODResults.ps1), alleen dat paar, en houdt het per optie de links van de route bij. Tussenresultaten staan dan in
-	// %LocalDataProjDir%/IntermediateResults_<O>_<D>, de uitvoer in Output_<O>_<D> (Impl/OD_Tag); /Output/OD_Results toont ze op kaart, in tabel
+	// %LocalDataProjDir%/IntermediateResults_<O>_<D>, de uitvoer in Output_<O>_<D> (Impl/OD_Tag); /Output/OD_PairRoutes toont ze op kaart, in tabel
 	// en grafiek. Leeg: het generieke model, zonder links.
-	parameter<string>   OD_Herkomst                       := ''                     , Descr = "De herkomst van het HB-paar: een naam uit Orgset, zoals OrgName in de uitvoer; bij Buurt2023 en Buurt2025 de CBS-buurtcode, bijvoorbeeld 'BU04020501' (Schilderskwartier, Hilversum, met Laapersweg 1). Leeg = alle herkomsten. Alleen met OD_Bestemming.";
-	parameter<string>   OD_Bestemming                     := ''                     , Descr = "De bestemming van het HB-paar: een naam uit Destset, zoals DestName in de uitvoer, bijvoorbeeld 'BU0363KP03' (VU-kwartier, Amsterdam, met De Boelelaan 1085). Leeg = alle bestemmingen. Alleen met OD_Herkomst.";
-	parameter<string>   OD_Vertrekmoment                  := ''                     , Descr = "Alleen met een HB-paar: een vertrekmoment van Dagdeel als uu:mm, bijvoorbeeld '07:30'; leeg = de vier vertrekmomenten van het dagdeel. Geldt voor elke component, ook de directe ritten (Impl/EenVertrekmoment) en de tijdafhankelijke autorit.", IntegrityCheck = "this == '' || (strlen(this) == 5 && substr(this, 2, 1) == ':')";
-	parameter<uint32>   OD_Optie                          := 0                      , Descr = "De optie die de kaart van /Output/OD_Results apart toont (Kaart/Optie): het nummer in Opties, vanaf 1; 0 = alle opties.";
+	parameter<string>   OD_Origin                       := ''                     , Descr = "De herkomst van het HB-paar: een naam uit Orgset, zoals OrgName in de uitvoer; bij Buurt2023 en Buurt2025 de CBS-buurtcode, bijvoorbeeld 'BU04020501' (Schilderskwartier, Hilversum, met Laapersweg 1). Leeg = alle herkomsten. Alleen met OD_Destination.";
+	parameter<string>   OD_Destination                     := ''                     , Descr = "De bestemming van het HB-paar: een naam uit Destset, zoals DestName in de uitvoer, bijvoorbeeld 'BU0363KP03' (VU-kwartier, Amsterdam, met De Boelelaan 1085). Leeg = alle bestemmingen. Alleen met OD_Origin.";
+	parameter<string>   OD_DepartureTime                  := ''                     , Descr = "Alleen met een HB-paar: een vertrekmoment van PartOfDay als uu:mm, bijvoorbeeld '07:30'; leeg = de vier vertrekmomenten van het PartOfDay. Geldt voor elke component, ook de directe ritten (Impl/SingleDepartureMoment) en de tijdafhankelijke autorit.", IntegrityCheck = "this == '' || (strlen(this) == 5 && substr(this, 2, 1) == ':')";
+	parameter<uint32>   OD_Option                          := 0                      , Descr = "De optie die de kaart van /Output/OD_PairRoutes apart toont (Kaart/Optie): het nummer in Opties, vanaf 1; 0 = alle opties.";
 
 	#include<Advanced.dms>
 	#include<Impl.dms>

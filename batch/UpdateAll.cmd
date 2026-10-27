@@ -18,7 +18,7 @@ REM                                 moment, langer met ParetoLegs_Car
 REM   UpdateAll.cmd chains          de OV-ketenstore per haltenblok (WriteChainBlocks.ps1; met de omgevingsvariabele
 REM                                 CHAINSTORE_SINGLE de ene store van PublicTransport_Prep/ChainGeneration_Single/Write), na de
 REM                                 voorcheck op haltenblokken en prijsdekking; uren, veel geheugen
-REM   UpdateAll.cmd legs            de stores van de benen van het voor- en natransport (sinds 2026-10-19): de vier
+REM   UpdateAll.cmd legs            de stores van de benen van het voor- en PostTransport (sinds 2026-10-19): de vier
 REM                                 basissets, lopen en fietsen naar en van elke halte (PublicTransport_Prep/LegStores_Write);
 REM                                 schrijft alleen iets met ModelParameters/Advanced/LegsDecoupled
 REM   UpdateAll.cmd output          de OV-uitvoer: een csv per herkomstblok en vertrekmoment in
@@ -32,12 +32,12 @@ REM                                 Sinds 2026-10-16 met ModelParameters/OutputF
 REM                                 csv (tt_*.parquet), en de tellingen per blok in Tellingen (tellingen_*.csv).
 REM                                 Sinds 2026-10-07 in porties van blokken (WriteOutputBlocks.ps1, een GeoDmsRun per
 REM                                 portie, daarna de tellingen met OdTellingen.py); blokken per portie per component in
-REM                                 ModelParameters/Advanced/Componenten/BlokkenPerPortie of met OUTPUT_BATCHSIZE; met
+REM                                 ModelParameters/Advanced/Components/BlocksPerPortion of met OUTPUT_BATCHSIZE; met
 REM                                 OUTPUT_SINGLE een opvraging.
 REM Sinds 2026-10-05 (#117) rekent een run een component (ModelParameters/Component): cars slaat de autostores over als
 REM de component geen directe autorit heeft (alles behalve Car), chains de ketenstore als het OV niet meedoet (WW, CC, Car, MergeOutput),
-REM en output voegt bij MergeOutput de uitvoer van de componenten in MergeComponents samen.
-REM Draai de uitvoerstappen (output) van de componenten na elkaar, niet tegelijk: op 2026-10-06/07 (Y2023, Buurt2023 naar
+REM en output voegt bij MergeOutput de uitvoer van de Components in MergeComponents samen.
+REM Draai de uitvoerstappen (output) van de Components na elkaar, niet tegelijk: op 2026-10-06/07 (Y2023, Buurt2023 naar
 REM Buurt2023, 128 GB RAM) groeide het vastgelegde geheugen van de uitvoer van Auto met ongeveer 0,7 GB per herkomstblok tot
 REM 386 GB na blok 450 (779 miljoen autoroutes; tot 2026-10-07 filterde elk blok de hele autotabel, PublicTransport/Direct_OD_all). Naast de
 REM uitvoer van Fiets (ongeveer 110 GB) swapte de machine (109 GB gewijzigde pagina's) en vorderde Fiets nauwelijks; het
@@ -147,8 +147,8 @@ if /I not "%SECTION%"=="all" goto done
 
 :chains
 if "%SKIP_CHAINS%"=="1" goto chains_done
-REM Zonder OV (ModelParameters/Impl/MetOV FALSE: de directe ritten WW, CC en Car en MergeOutput, #117) geen ketenstore.
-call :run chains_check /ModelParameters/Impl/MetOV
+REM Zonder OV (ModelParameters/Impl/WithPT FALSE: de directe ritten WW, CC en Car en MergeOutput, #117) geen ketenstore.
+call :run chains_check /ModelParameters/Impl/WithPT
 if not "!RC!"=="0" goto failed
 findstr /R "^Minimum.0" "%LOGDIR%\UpdateAll_chains_check.txt" >nul
 if not errorlevel 1 (
@@ -179,8 +179,8 @@ if /I not "%SECTION%"=="all" goto done
 
 :legs
 if "%SKIP_LEGS%"=="1" goto legs_done
-REM Zonder OV (ModelParameters/Impl/MetOV FALSE) geen benen nodig.
-call :run legs_check /ModelParameters/Impl/MetOV
+REM Zonder OV (ModelParameters/Impl/WithPT FALSE) geen benen nodig.
+call :run legs_check /ModelParameters/Impl/WithPT
 if not "!RC!"=="0" goto failed
 findstr /R "^Minimum.0" "%LOGDIR%\UpdateAll_legs_check.txt" >nul
 if not errorlevel 1 (
@@ -234,11 +234,11 @@ if exist "!OUTDIR!\" (
   del /q "!OUTDIR!\PerBlock\tt_*.csv" "!OUTDIR!\PerBlock\tt_*.xml" "!OUTDIR!\Mediaan\tt_*.csv" "!OUTDIR!\Mediaan\tt_*.xml" "!OUTDIR!\tt_*.csv" "!OUTDIR!\tt_*.xml" "!OUTDIR!\signature.txt" "!OUTDIR!\signature.xml" "!OUTDIR!\od_tellingen.*" "!OUTDIR!\unieke_od_tellingen.*" "!OUTDIR!\PerBlock\tt_*.parquet" "!OUTDIR!\Mediaan\tt_*.parquet" "!OUTDIR!\Tellingen\tellingen_*.*" 2>nul
 )
 REM Sinds 2026-10-07 in porties van herkomstblokken, elk een eigen GeoDmsRun, en daarna de tellingen met OdTellingen.py
-REM (WriteOutputBlocks.ps1). Blokken per portie: ModelParameters/Advanced/Componenten/BlokkenPerPortie van de component
+REM (WriteOutputBlocks.ps1). Blokken per portie: ModelParameters/Advanced/Components/BlocksPerPortion van de component
 REM (standaard 50), of de omgevingsvariabele OUTPUT_BATCHSIZE; OUTPUT_MAXBLOCKS rekent hooguit zoveel blokken (om te
 REM testen). Met de omgevingsvariabele OUTPUT_SINGLE een
 REM opvraging voor alle blokken, met de tellingen erin (NetworkSetup/GenerateOutput/Generate_Output), zoals tot dan. Bij MergeOutput
-REM (sinds 2026-10-05, #117) het samenvoegen van de componenten, sinds 2026-10-07 ook per blok in porties (ComponentMerge/PerBlock).
+REM (sinds 2026-10-05, #117) het samenvoegen van de Components, sinds 2026-10-07 ook per blok in porties (ComponentMerge/PerBlock).
 if defined OUTPUT_SINGLE goto output_single
 echo === uitvoer: csv per herkomstblok en vertrekmoment, in porties (WriteOutputBlocks.ps1; uren) ===
 set STEP=output
