@@ -1,4 +1,4 @@
-container Infrastructure
+container Infrastructure : Descr = "The train stations of NS, the OV-fiets locations and the transfer time per station from the NS timetable."
 {
 	unit<uint32> Read_NS_Stations_SHP
 	:	StorageName     = "%NetworkModel_dir%/Infrastructuur/NS_treinstations_20230301.shp"
@@ -17,10 +17,10 @@ container Infrastructure
 																? 'ST'
 																: (Type == 'knooppuntstoptreinstation' || Type == 'stoptreinstation')
 																	? 'SPR'
-																	: 'Anders';
+																	: 'Anders', Descr = "The station type in short: 'IC' for (hub) intercity and mega stations, 'ST' for (hub) fast train stations, 'SPR' for (hub) local train stations, else 'Anders'.";
 	}
 	
-	unit<uint32> IC_Stations := select_with_org_rel(Read_NS_Stations_SHP/type_code == 'IC' && Read_NS_Stations_SHP/Land == 'NL')
+	unit<uint32> IC_Stations := select_with_org_rel(Read_NS_Stations_SHP/type_code == 'IC' && Read_NS_Stations_SHP/Land == 'NL'), Descr = "The intercity stations in the Netherlands."
 	{
 		attribute<rdc>       geometry := Read_NS_Stations_SHP/geometry_rd[org_rel];
 		attribute<string>    code     := Read_NS_Stations_SHP/code[org_rel];
@@ -34,7 +34,7 @@ container Infrastructure
 			attribute<string>  code    := ../code[invert(uq_rel)];
 		}
 	}
-	unit<uint32> Trainstations := select_with_org_rel(Read_NS_Stations_SHP/Land == 'NL')
+	unit<uint32> Trainstations := select_with_org_rel(Read_NS_Stations_SHP/Land == 'NL'), Descr = "The train stations in the Netherlands, with IsIC for the intercity stations; GTFS matches its rail stops to them for the NS fares."
 	{
 		attribute<rdc>       geometry := Read_NS_Stations_SHP/geometry_rd[org_rel];
 		attribute<string>    code     := Read_NS_Stations_SHP/code[org_rel];
@@ -72,23 +72,25 @@ container Infrastructure
 	:	StorageName     = "='%NetworkModel_dir%/Infrastructuur/' + ModelParameters/Impl/OVFiets_File"
 	,	StorageType     = "gdal.vect"
 	,	StorageReadOnly = "True"
+	,	Descr           = "The OV-fiets rental locations of the analysis moment, from the file of ModelParameters/Impl/OVFiets_File."
 	{
 		attribute<rdc> geometry := point_yx(float64(y), float64(x), rdc);
 		attribute<string> label := naam;
 		
 	}
-	// De overstaptijd per station uit de IFF-dienstregeling van NS (#123): stations.dat uit ns-latest.zip (NDOV Loket), als csv met
-	// kop naast de zip (code, overstaptijd en max_overstaptijd in minuten, land, x, y, naam). De levering van 13-10-2026 (geldig
-	// 12-10 tot 12-12-2026): 44 stations 5 min (de grote knooppunten, Utrecht Centraal, Amsterdam Centraal, Zwolle), 235 4 min,
-	// 130 2 min, en 390 buitenlandse 0. De code is die van OVprijzen/NS/NS_Stations, dus van GTFS-haltes met NS_Stations_rel.
+	// The transfer time per station from the IFF timetable of NS (#123): stations.dat from ns-latest.zip of NDOV Loket, as a csv with a header
+	// next to the zip (code, overstaptijd and max_overstaptijd in minutes, land, x, y, naam). Its code is that of OVprijzen/NS/NS_Stations,
+	// so it reaches the GTFS stops through their NS_Stations_rel.
 	unit<uint32> IFF_Stations
 	:	StorageName     = "='%NetworkModel_dir%/Infrastructuur/IFF/' + ModelParameters/Advanced/IFF_file_date + '/stations.csv'"
 	,	StorageType     = "gdal.vect"
 	,	StorageReadOnly = "True"
 	,	URL             = "https://data.ndovloket.nl/ns/ns-latest.zip"
+	,	Descr           = "The stations of the IFF timetable of NS with their transfer time."
+	,	Source          = "IFF timetable of NS from NDOV Loket (ns-latest.zip, stations.dat); delivery of 13-10-2026, valid from 12-10-2026 to 12-12-2026."
 	{
 		attribute<string> code_l      := lowercase(code);
-		attribute<Time>   Overstaptijd_rel := value(uint32(overstaptijd) * 60, Time), Descr = "De overstaptijd van het station (changetime in stations.dat).";
+		attribute<Time>   Overstaptijd_rel := value(uint32(overstaptijd) * 60, Time), Descr = "The transfer time of the station (changetime in stations.dat).";
 	}
 		
 }

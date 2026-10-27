@@ -1,11 +1,8 @@
-// OD_L / OD_R zoeken per (vertrekmoment,halte) de benen binnen één tariefgroep. Zonder de
-// pareto-optie levert impedance_matrix per OD-paar precies het SNELSTE been op, met de afgelegde
-// afstand als bijproduct; een langzamer maar korter -- en daarmee in het R-net goedkoper -- been
-// bestaat dan simpelweg niet meer voor de ketenrijger. Dat is ObjectVision/NetworkModel_PBL#19.
-// Met ';pareto' erbij doet dezelfde operator een bi-criteria label-setting zoektocht op
-// (Duration, Length) en levert hij één rij per Pareto-optimale route; de eerste rij per OD-paar
-// draagt gegarandeerd nog steeds de scalaire minimum-reistijd (GeoDMS#856, doc/bicriteria-impedance.md).
-// Zie /ModelParameters/Advanced/ParetoLegs_R en ParetoLegs_L.
+// OD_L and OD_R search per (departure moment, stop) the legs within one fare group. Without the pareto option impedance_matrix gives per OD
+// pair exactly the fastest leg, with the distance travelled as a by-product; a slower but shorter leg, and so a cheaper one in the R network,
+// then no longer exists for the chain joiner (#19). With ';pareto' the same operator does a bi-criteria label-setting search on (Duration,
+// Length) and gives one row per Pareto-optimal route; the first row per OD pair is guaranteed to still carry the scalar minimum travel time
+// (ObjectVision/GeoDMS#856, doc/bicriteria-impedance.md). See /ModelParameters/Advanced/ParetoLegs_R and ParetoLegs_L.
 unit<uint32> OD_L := =
 	'impedance_matrix(''directed;cut(OrgZone_max_imp);alternative(link_imp):alt_imp'
 	+ (ModelParameters/Advanced/ParetoLegs_L ? ';pareto' : '')
@@ -24,12 +21,11 @@ unit<uint32> OD_L := =
 	
 	#include<../OD_extra_attributen.dms>
 	
-	//NS specifiek
-	// Sinds 2026-09-27 (audit 6.6) moet elk NS-been een prijs hebben, niet alleen een start-eindstationpaar: een been met een
-	// paar dat niet in TariffUnitsMatrix staat kreeg Price_L null, en een rij met een null-criterium is in pareto_optimal_eps
-	// nooit optimaal, zodat het been en elke keten erover stil uit de ketens verdween. In de feed van 20241001 geen enkel.
-	// Sinds 2026-10-02 (#3) rijden ook de treinen van NS International in het L-net; hun benen naar of van het buitenland hebben
-	// geen NS-prijs en vallen uit Result (IsBinnenlandsBeen). De check blijft dus voor de benen van NS zelf.
+	// NS specific.
+	// Every NS leg must have a price, not only a pair of start and end station: a leg with a pair that is not in TariffUnitsMatrix would get
+	// Price_L null, and a row with a null criterion is never optimal in pareto_optimal_eps, so that the leg and every chain over it would silently
+	// drop out of the chains. The trains of NS International also run in the L network (#3); their legs to or from abroad have no NS price and
+	// drop out of Result (IsBinnenlandsBeen), so the check applies to the legs of NS itself.
 	attribute<bool>          NS_Station_Price_IntegrityCheck := =ModelParameters/Impl/PriceExportsAndIntegrityChecksNeeded
 																	? 'Agency_rel == Agencies/V/ns ? IsDefined(rjoin(impl/c_NS_start_end_rel, TariffUnitsMatrix/c_NS_start_end_rel, TariffUnitsMatrix/Prijs_Ct)) : TRUE'
 																	: 'const(TRUE, .)';
@@ -37,19 +33,19 @@ unit<uint32> OD_L := =
 																, IntegrityCheck = "all(NS_Station_Price_IntegrityCheck)";
 	attribute<bool>          IsBinnenlandsBeen               := Agency_rel == Agencies/V/ns
 																	|| (IsDefined(Price_L) && NS_Stations/LigtInNL[impl/From_NS_Stations_rel] && NS_Stations/LigtInNL[impl/To_NS_Stations_rel])
-																, Descr = "#3: een been van NS, of een been tussen twee NS-stations in Nederland met een NS-prijs (NS International binnenlands).";
+																, Descr = "Whether the leg counts as domestic: a leg of NS, or a leg between two NS stations in the Netherlands with an NS price, such as NS International within the country (#3).";
 
-	// RIT-OPSLAG (#3, sinds 2026-10-02). De toeslag van een speciale trein (ModelParameters/Advanced/TripSurchargeTrains) hangt van
-	// de rit af, niet van het stationspaar. Een been ligt op een route, en omdat de wachtlinks stilstand binnen een rit zijn, in de
-	// praktijk op een rit: die van de link waarmee het uit zijn beginknoop vertrekt (NodeSet/DepTrip_rel). Een product met een
-	// traject (HSL: Schiphol-Rotterdam) kost de opslag als die rit tussen in- en uitstaptijd beide stations aandoet, ook zonder
-	// daar te stoppen of over te stappen; een product zonder traject (ICE) kost hem op elk been. De opslag staat apart in
-	// Price_S, zodat de ketenrijger hem bij een doorgaand NS-tarief (dat Price_L herberekent) niet kwijtraakt.
+	// TRIP SURCHARGE (#3). The surcharge of a special train (ModelParameters/Advanced/TripSurchargeTrains) depends on the trip, not on the station
+	// pair. A leg lies on a route, and because the waiting links are standstill within a trip, in practice on one trip: that of the link with
+	// which it departs from its begin node (NodeSet/DepTrip_rel). A product with a section (HSL: Schiphol-Rotterdam) costs the surcharge if that
+	// trip passes both stations between boarding and alighting time, also without stopping or transferring there; a product without a section
+	// (ICE) costs it on every leg. The surcharge is kept apart in Price_S, so that the chain joiner does not lose it with a through NS fare (which
+	// recalculates Price_L).
 	unit<uint8>                  TripSurchargeTrains            := ModelParameters/Advanced/TripSurchargeTrains;
 	attribute<TripSurchargeTrains>  RitOpslag_rel               := Routes/RitOpslag_rel[Route_rel];
 	attribute<uint32>            Been_Trip_rel               := ThisSet/NodeSet/DepTrip_rel[OrgZone_rel];
 
-	// De passages van de ritten met een trajectproduct langs de stations van hun traject: per geplande link begin en eind.
+	// The passages of the trips with a section product along the stations of their section: per scheduled link its begin and end.
 	unit<uint32> TrajectLinks := select_with_org_rel(ThisSet/LinkType_rel == LinkTypes/V/Scheduled && MakeDefined(/SourceData/Infrastructure/OVprijzen/NS/RitOpslag/HeeftTraject[Routes/RitOpslag_rel[ThisSet/Route_rel]], false))
 	{
 		attribute<TripSurchargeTrains> RitOpslag_rel := Routes/RitOpslag_rel[ThisSet/Route_rel[org_rel]];
@@ -77,37 +73,37 @@ unit<uint32> OD_L := =
 	}
 	attribute<bool>              BerijdtTraject (TrajectBenen) := any(TrajectParen/IsA, TrajectParen/first_rel) && any(TrajectParen/IsB, TrajectParen/first_rel);
 	attribute<bool>              IsRitOpslagBeen             := IsDefined(RitOpslag_rel) && (not(MakeDefined(/SourceData/Infrastructure/OVprijzen/NS/RitOpslag/HeeftTraject[RitOpslag_rel], false)) || MakeDefined(BerijdtTraject[invert(TrajectBenen/org_rel)], false))
-	, Descr = "Kost dit been de rit-opslag van zijn product?";
+	, Descr = "Does this leg cost the trip surcharge of its product?";
 	attribute<Ct>                Price_S                     := =ModelParameters/Advanced/IncludeTripSurcharge ? 'IsRitOpslagBeen ? rounded_convert(/SourceData/Infrastructure/OVprijzen/NS/RitOpslag/Opslag[RitOpslag_rel], Ct) : 0[Ct]' : 'const(0[Ct], .)'
-	, Descr = "Rit-opslag van dit been (#3); de ketenrijger telt hem op naast het NS-tarief.";
+	, Descr = "Trip surcharge of this leg (#3), which the chain joiner adds next to the NS fare.";
 	attribute<s>                 TripSurcharge_ExtraTime         := =ModelParameters/Impl/TripSurchargeHasTimePenalty ? 'IsRitOpslagBeen ? /SourceData/Infrastructure/OVprijzen/NS/RitOpslag/ExtraTijd[RitOpslag_rel] : 0[s]' : 'const(0[s], .)'
-	, Descr = "Extra reistijd van de rit-opslag (TripSurchargeTrains/ExtraTijd), via Traveltime in OD_extra_attributen.";
+	, Descr = "Extra travel time of the trip surcharge (TripSurchargeTrains/ExtraTijd), added through Traveltime in OD_extra_attributen.";
 	attribute<Ct>                Price                       := Price_L + Price_S;
 
 	unit<uint32> Result := =ModelParameters/Impl/TripSurchargeHasTimePenalty
 		? 'select_with_org_rel_with_attr_by_cond(., !impl/IsStartEndWithinSameStopCluster && IsBoardAlightAllowed && IsBinnenlandsBeen && Traveltime <= convert(ModelParameters/MaxPTTime, s))'
 		: 'select_with_org_rel_with_attr_by_cond(., !impl/IsStartEndWithinSameStopCluster && IsBoardAlightAllowed && IsBinnenlandsBeen)'
 	{
-		parameter<uint32>             ModeFactor                  := 16u, Descr = "16 tot de macht het aantal benen van deze keten (een been): een ketenrijger met deze keten rechts schuift de ModeCode van links met ModeFactor op (ChainJoiner_T).";
+		parameter<uint32>             ModeFactor                  := 16u, Descr = "16 to the power of the number of legs of this chain (one leg): a chain joiner with this chain on the right shifts the ModeCode of the left chain by ModeFactor (ChainJoiner_T).";
 		attribute<Time>               BoardingTime_RO              := const(null_u,.);
 		attribute<Time>               BoardingTime_NS              := From_time_rel;
 		attribute<Ct>                 Price_NonNS                 := const(0, ., Ct);
 		attribute<Ct>                 Price_F                     := const(0[Ct],.), Descr = "Final costs, not subject to subsequent recalculation";
-		attribute<Ct>                 Price_T                     := const(0[Ct],.), Descr = "Augmented costs for tranfers";
+		attribute<Ct>                 Price_T                     := const(0[Ct],.), Descr = "Augmented costs for transfers";
 		attribute<Ct>                 Price_augm                  := Price_L + Price_S;
 		
 		attribute<Stops>              Last_Stop_rel               := ThisSet/NodeSet/Stop_rel[DstZone_rel];
 		attribute<NS_Stations>        First_NS_Station            := impl/From_NS_Stations_rel[org_rel];
 		attribute<NS_Stations>        Last_NS_Station             := impl/To_NS_Stations_rel[org_rel];
 		attribute<Time>               Last_NS_AlightTime     := To_Time_rel;
-		attribute<Time>               Last_RO_AlightTime     := const(null_u,.), Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
+		attribute<Time>               Last_RO_AlightTime     := const(null_u,.), Descr = "The last alighting time from a regional leg, kept through NS legs (K or L), to check whether a following regional leg continues the same fare journey (ChainJoiner_T, RO_continuation_allowed).";
 
 		#include<../OD_traveldist.dms>
 		attribute<uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel  := rlookup(c_FromTime_Stop_rel, uq_c_FromTime_Stop/c_FromTime_Stop_rel);
 		attribute<uq_c_ToTime_Stop>   uq_c_ToTime_Stop_rel    := rlookup(c_ToTime_Stop_rel, uq_c_ToTime_Stop/c_ToTime_Stop_rel);
 	}
-	// Bij een HB-paar (sinds 2026-10-21, #129): de benen naar een halte vanwaar de bestemming te bereiken is (OD_Haltes/IsNStop), het
-	// laatste been van de langste ketens (ChainGeneration_PerBlock_T); org_rel blijft die naar OD_L.
+	// For an OD pair (#129): the legs to a stop from which the destination can be reached (OD_Haltes/IsNStop), as the last leg of the longest
+	// chains (ChainGeneration_PerBlock_T); org_rel still refers to OD_L.
 	unit<uint32> Result_ToD := select_with_attr_by_cond(Result, /NetworkSetup/PublicTransport_Prep/OD_Haltes/IsNStop[Stops/Place_rel[Result/To_Stop_rel]])
 	{
 		parameter<uint32> ModeFactor := Result/ModeFactor;
@@ -130,34 +126,34 @@ unit<uint32> OD_R := =
 {
 	unit<uint32>                 ThisSet                          := Set_R/Set;
 	
-	// R specifiek
+	// R specific
 	attribute<Ct>                Price_I                          := rounded_convert(FareTable/FixedPrice[impl/FareTable_rel], Ct), IntegrityCheck = "all(impl/Price_IntegrityCheck)";
 	attribute<Ct>                Price_O                          := ='rounded_convert(FareTable/VariablePrice[impl/FareTable_rel] * impl/PT_TravelledDistance, Ct)'
 		+ (ModelParameters/Advanced/IncludeFlex && ModelParameters/Advanced/FlexCallCosts > 0[Euro] ? ' + (IsFlexLeg ? rounded_convert(ModelParameters/Advanced/FlexCallCosts, Ct) : 0[Ct])' : '')
-		, IntegrityCheck = "all(impl/Price_IntegrityCheck)", Descr = "Variabel deel van de prijs, plus sinds 2026-09-30 de belkosten per instap op een flexlijn (ModelParameters/Advanced/FlexCallCosts): de ketenrijger telt Price_O bij elke overstap op en maximeert Price_I binnen een reis, dus belkosten horen hier.";
+		, IntegrityCheck = "all(impl/Price_IntegrityCheck)", Descr = "Variable part of the price plus the call costs per boarding on a flex line (ModelParameters/Advanced/FlexCallCosts); the chain joiner adds Price_O at every transfer and takes the maximum of Price_I within a journey, so call costs belong here.";
 	attribute<Ct>                Price_F                          := const(0[Ct],.), Descr = "Final costs, not subject to subsequent recalculation";
-	attribute<Ct>                Price_T                          := const(0[Ct],.), Descr = "Augmented costs for tranfers";
-	attribute<Ct>                Price_S                          := const(0[Ct],.), Descr = "Rit-opslag (#3): alleen in het L-net.";
-	attribute<s>                 TripSurcharge_ExtraTime              := const(0[s],.), Descr = "Extra tijd van de rit-opslag (#3): alleen in het L-net.";
+	attribute<Ct>                Price_T                          := const(0[Ct],.), Descr = "Augmented costs for transfers";
+	attribute<Ct>                Price_S                          := const(0[Ct],.), Descr = "Trip surcharge (#3), only in the L network.";
+	attribute<s>                 TripSurcharge_ExtraTime              := const(0[s],.), Descr = "Extra time of the trip surcharge (#3), only in the L network.";
 	attribute<Ct>                Price                            := Price_I + Price_O;
 	attribute<Ct>                Price_augm                       := Price;
 
 	#include<../OD_extra_attributen.dms>
 
-	// #113: bij extra wachttijd voor flex (ModelParameters/Impl/FlexHasTimePenalty) hier dezelfde grens als IsJourneyLongerThanAllowed in de ketenrijger, want de
-	// cut van impedance_matrix zit op de ruwe impedantie en de enkelvoudige keten R passeert de ketenrijger niet.
-	// Equivalent aan een cut van MaxPTTime-toeslag op alleen de flex-links (Components zijn per route).
-	// #3 (sinds 2026-10-02): alleen benen waar de GTFS in- en uitstappen toestaat (IsBoardAlightAllowed); zo valt onder meer GoVolta
-	// binnenlands af (op zijn NL-haltes alleen instappen, met reservering; uitstappen pas in Duitsland).
+	// #113: with extra waiting time for flex (ModelParameters/Impl/FlexHasTimePenalty) the same limit here as IsJourneyLongerThanAllowed in the
+	// chain joiner, because the cut of impedance_matrix works on the raw impedance and the single chain R does not pass the chain joiner. This is
+	// equivalent to a cut of MaxPTTime minus the penalty on the flex links only (Components are per route).
+	// #3: only legs where the GTFS allows boarding and alighting (IsBoardAlightAllowed); this drops, among others, GoVolta within the Netherlands
+	// (at its Dutch stops boarding only, with reservation; alighting only in Germany).
 	unit<uint32> Result := =ModelParameters/Impl/FlexHasTimePenalty
 		? 'select_with_org_rel_with_attr_by_cond(., !impl/IsOD_completely_foreign && !impl/IsStartEndWithinSameStopCluster && IsBoardAlightAllowed && Traveltime <= convert(ModelParameters/MaxPTTime, s))'
 		: 'select_with_org_rel_with_attr_by_cond(., !impl/IsOD_completely_foreign && !impl/IsStartEndWithinSameStopCluster && IsBoardAlightAllowed)'
 	{
-		parameter<uint32>             ModeFactor                  := 16u, Descr = "16 tot de macht het aantal benen van deze keten (een been): een ketenrijger met deze keten rechts schuift de ModeCode van links met ModeFactor op (ChainJoiner_T).";
+		parameter<uint32>             ModeFactor                  := 16u, Descr = "16 to the power of the number of legs of this chain (one leg): a chain joiner with this chain on the right shifts the ModeCode of the left chain by ModeFactor (ChainJoiner_T).";
 		attribute<Time>               BoardingTime_NS              := const(null_u,.);
 		attribute<Time>               BoardingTime_RO              := From_time_rel;
 		attribute<Time>               Last_NS_AlightTime      := const(null_u,.);
-		attribute<Time>               Last_RO_AlightTime           := To_Time_rel, Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
+		attribute<Time>               Last_RO_AlightTime           := To_Time_rel, Descr = "The last alighting time from a regional leg, kept through NS legs (K or L), to check whether a following regional leg continues the same fare journey (ChainJoiner_T, RO_continuation_allowed).";
 		attribute<NS_Stations>        First_NS_Station             := const(null_u,.);
 		attribute<NS_Stations>        Last_NS_Station              := const(null_u,.);
 
@@ -165,8 +161,8 @@ unit<uint32> OD_R := =
 		attribute<uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel  := rlookup(c_FromTime_Stop_rel, uq_c_FromTime_Stop/c_FromTime_Stop_rel);
 		attribute<uq_c_ToTime_Stop>   uq_c_ToTime_Stop_rel    := rlookup(c_ToTime_Stop_rel, uq_c_ToTime_Stop/c_ToTime_Stop_rel);
 	}
-	// Bij een HB-paar (sinds 2026-10-21, #129): de benen naar een halte vanwaar de bestemming te bereiken is (OD_Haltes/IsNStop), het
-	// laatste been van de langste ketens (ChainGeneration_PerBlock_T); org_rel blijft die naar OD_R.
+	// For an OD pair (#129): the legs to a stop from which the destination can be reached (OD_Haltes/IsNStop), as the last leg of the longest
+	// chains (ChainGeneration_PerBlock_T); org_rel still refers to OD_R.
 	unit<uint32> Result_ToD := select_with_attr_by_cond(Result, /NetworkSetup/PublicTransport_Prep/OD_Haltes/IsNStop[Stops/Place_rel[Result/To_Stop_rel]])
 	{
 		parameter<uint32> ModeFactor := Result/ModeFactor;

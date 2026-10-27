@@ -1,6 +1,6 @@
 unit<uint32> Fietstelweek  
 :	StorageName     = "='%NetworkModel_dir%/Infrastructuur/Fietstelweek/links-met-snelheden-routeerbaar-2015-2016-2017-900913-v2.shp'"
-, 	Descr           = "download via http://opendata.cyclingintelligence.eu/"
+, 	Descr = "The links of the Fietstelweek with the cycling speed measured on them; OSM/Final_Network gives OSM cycle links the speed of the measured links nearby, which the model uses when ModelParameters/Advanced/UseActualCyclingSpeeds is on.", Source = "Fietstelweek 2015, 2016 and 2017: routable links with speeds, version 2, from http://opendata.cyclingintelligence.eu/"
 ,	StorageType     = "gdal.vect"
 ,	StorageReadOnly = "True"
 , 	DialogType      = "map"
@@ -11,11 +11,11 @@ unit<uint32> Fietstelweek
 	attribute<Geography/rdc>                      geometry_rd (arc) := convert(geometry,Geography/rdc);
 	attribute<float64>                             SNEL_ABS;
 	attribute<float64>                             INTENS_MEE;
-	// Sinds 2026-09-25 (audit 4.14) alleen links met gemeten ritten: bij alle 1,68 M links met INTENS_MEE = 0 is SNEL_ABS
-	// geimputeerd (8, 10 of 12 km/u) en was hij toch als meting gebruikt, waardoor gekoppelde links langzamer werden dan de fallback.
+	// Only links with measured trips (INTENS_MEE > 0) get a speed: on the other links SNEL_ABS is an imputed 8, 10 or 12 km/h,
+	// which is no measurement and would make the linked OSM links slower than the fallback speed.
 	attribute<float32>                             bike_speed        := SNEL_ABS[float32] != 0f && INTENS_MEE > 0d ? SNEL_ABS[float32] : 0f/0f;
 	
-	unit<uint32> links_with_speed := select_with_attr_by_cond(.,IsDefined(bike_speed));
+	unit<uint32> links_with_speed := select_with_attr_by_cond(.,IsDefined(bike_speed)), Descr = "The links with a measured cycling speed.";
 
 	unit<uint32> Arc2Segments := arc2segm(links_with_speed/geometry_rd)
 	, DialogData = "point"
@@ -30,7 +30,7 @@ unit<uint32> Fietstelweek
 	{
 		attribute<float32> bike_speed := Arc2Segments/bike_speed[Sequence_rel];
 	}
-	unit<uint32> DynaPoint := TiledUnit(100000[DynaPoint_untiled])
+	unit<uint32> DynaPoint := TiledUnit(100000[DynaPoint_untiled]), Descr = "Points every 25 m along the measured links, each with the speed of its link; OSM cycle links take the mean speed of the points near them."
 	{
 		attribute<float32> bike_speed := DynaPoint_untiled/bike_speed[id(.)[DynaPoint_untiled]];
 		attribute<rdc>     point      := DynaPoint_untiled/point[id(.)[DynaPoint_untiled]];

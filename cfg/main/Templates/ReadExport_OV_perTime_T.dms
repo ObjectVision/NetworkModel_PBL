@@ -1,18 +1,15 @@
-Template ReadExport_OV_perTime_T
+Template ReadExport_OV_perTime_T : Descr = "Reads the public transport output of one origin block, or the output merged over all blocks, for every departure moment (PerTime)."
 {
 	parameter<string> Export_CombinationTypes;
 	parameter<string> Org_str;
 	parameter<string> Dest_str;
 	///
-	// Leest de OV-uitvoer van een herkomstblok (Org_str = blok) of de per vertrekmoment samengevoegde uitvoer (Org_str = 'All').
-	// Sinds 2026-10-03 (NetworkModel_PBL#118) uit ModelParameters/Impl/OutputDir, met alleen datum, vertrekmoment en blok in de
-	// naam, en alleen als de handtekening van die map klopt (NetworkSetup/GenerateOutput/Output_Sig/ForReading).
-	// Sinds 2026-09-25 (audit 6.5) met dezelfde naamopbouw als de schrijver (tot dan
-	// zocht de lezer _ORG-<Orgset> en _MaxOV-, de schrijver schrijft _ORG-<OrgSet_string> en _MaxPT- plus de pareto-tags), met de
-	// kolomnamen van de schrijver (PretransTime/PosttransTime, niet VoortransTime/NatransTime), Price alleen als de kolom er is
-	// (zonder Export_PriceInformation heeft het bestand hem niet), en via GDAL in plaats van het hele bestand als een string: een
-	// vertrekmoment samengevoegd over de 450 blokken is 39 M regels.
-	parameter<bool> IsRegionMerged := Org_str == 'All';
+	// Reads the public transport output of an origin block (Org_str = block) or the output merged per departure moment (Org_str = 'All'),
+	// from ModelParameters/Impl/OutputDir (NetworkModel_PBL#118), with only date, departure moment and block in the name, and only if the
+	// signature of that folder matches (NetworkSetup/GenerateOutput/Output_Sig/ForReading). It uses the file names and column names of the
+	// writer, reads Price only when the file has that column (without Export_PriceInformation it does not), and reads through GDAL instead
+	// of as one string, because a departure moment merged over all blocks has tens of millions of rows.
+	parameter<bool> IsRegionMerged := Org_str == 'All', Descr = "Is this the output merged over all origin blocks (Org_str = 'All')?";
 
 	container PerTime :=
 		for_each_ne(
@@ -26,12 +23,12 @@ Template ReadExport_OV_perTime_T
 		///
 		parameter<string> inTime_str_short := rjoin(Time, ModelParameters/Impl/MeasureMoments/Name , ModelParameters/Impl/MeasureMoments/TemplatableTextShrt);
 		parameter<string> fileNamePrefix   := /NetworkSetup/GenerateOutput/Output_Sig/ForReading + (IsRegionMerged ? '/' : '/PerBlock/');
-		parameter<string> fileNameSuffix   := // per blok sinds 2026-10-20 zonder de datum, zoals PerDepartureMoment_T
+		parameter<string> fileNameSuffix   := // per block without the date, like PerDepartureMoment_T
 			(IsRegionMerged ? '_' + ModelParameters/Impl/Analysis_date : '') +
 			'_' + inTime_str_short +
 			(IsRegionMerged ? '' : '_' + rjoin(Org_str, /NetworkSetup/Impl/OrgBlockDomain/name, /NetworkSetup/Impl/OrgBlockDomain/FileName));
 		parameter<string> filename         := fileNamePrefix + 'tt' + fileNameSuffix + '.csv';
-		parameter<string> ColSuffix        := IsRegionMerged ? '' : '_' + inTime_str_short, Descr = "De uitvoer per blok zet het vertrekmoment in de kolomnamen, de samengevoegde uitvoer in de bestandsnaam.";
+		parameter<string> ColSuffix        := IsRegionMerged ? '' : '_' + inTime_str_short, Descr = "The output per block puts the departure moment in the column names, the merged output puts it in the file name.";
 
 		unit<uint32> domain
 		:	StorageName     = "=filename"
@@ -41,12 +38,10 @@ Template ReadExport_OV_perTime_T
 
 		container data
 		{
-			// Sinds 2026-10-03 de getallen als float64 en de bezitscriteria als uint8, niet meer als tekst: dat scheelt het meeste
-			// geheugen bij het samenvoegen (een vertrekmoment is 39 M regels, de dag vier keer zoveel), en float64 schrijft de tekst
-			// van de uitvoer per blok ongewijzigd terug (7.35 blijft 7.35). Een kolom die het bestand niet heeft, wordt leeg: Price en
-			// de prijsdelen zonder Export_PriceInformation, de afstanden zonder Export_TravelledDistance, en de kolommen van na de
-			// uitvoer die gelezen wordt (NeedsCar en NeedsBike sinds 2026-10-02, de prijsdelen sinds 2026-10-02, TravelDist_PT en de
-			// kolommen per modaliteit sinds 2026-10-03).
+			// The numbers are read as float64 and the ownership criteria as uint8, not as text: that saves most memory when merging, and float64
+			// writes the text of the output per block back unchanged (7.35 stays 7.35). A column the file does not have becomes empty: Price and
+			// the price parts without Export_PriceInformation, the distances without Export_TravelledDistance, and the columns that output of an
+			// older model version lacks.
 			attribute<string>  OrgName            (domain) := domain/OrgName;
 			attribute<string>  DestName           (domain) := domain/DestName;
 			attribute<string>  OrgDestName        (domain) := OrgName + '_' + DestName;

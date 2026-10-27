@@ -1,4 +1,4 @@
-Template CreateTransfers_T
+Template CreateTransfers_T : Descr = "Template for the transfers from the alighting events of FromDomain to the boarding events of ToDomain within MaxTransferDist, of which Result keeps the valid ones with their walking and waiting time and costs."
 {
 	unit<uint32> FromDomain : Descr = "aka uq_c_ToTime_Stop domain of the first domain";
 	unit<uint32> ToDomain   : Descr = "aka uq_c_FromTime_Stop domain of the second domain";
@@ -16,7 +16,7 @@ Template CreateTransfers_T
 		attribute<rdc>           From_Point           := Stops/geometry[From_Stop_rel];
 	}
 
-	unit<uint32> Transfers := join_near_values_uint32(Uq_From/To_Point, Uq_To/From_Point, float64(ModelParameters/Advanced/MaxTransferDist))
+	unit<uint32> Transfers := join_near_values_uint32(Uq_From/To_Point, Uq_To/From_Point, float64(ModelParameters/Advanced/MaxTransferDist)), Descr = "Every pair of an alighting event and a boarding event within MaxTransferDist of each other, valid or not."
 	{
 		attribute<c_Time_Stops>       c_FromTime_Stop_rel      := Uq_From/values[first_rel]; //c_toTime_Stop_rel
 		attribute<uq_c_ToTime_Stop>   uq_c_Exit_rel            := rlookup(c_FromTime_Stop_rel, uq_c_ToTime_Stop/values);
@@ -39,10 +39,9 @@ Template CreateTransfers_T
 		attribute<Time>               Transfer_Time_rel        := sub_or_null(To_Time_rel, from_Time_rel);
 		attribute<s>                  Transfer_time            := Transfer_Time_rel[s];
 		
-		// Sinds 2026-10-13 (#123): tussen twee verschillende treinhaltes (perrons) van hetzelfde NS-station minstens de IFF-overstaptijd van
-		// dat station (Stops/IFF_Overstaptijd_rel, ModelParameters/Advanced/IFF_Overstaptijd), naast de looptijd over de rechte afstand. Op
-		// dezelfde halte en tussen trein en bus, tram of metro blijft het de looptijd. Tot dan alleen de looptijd: in Utrecht Centraal
-		// 0,7 min van perron 1 naar perron 5, waar 9292 tussen 4 en 6 min eist en de IFF 5 min.
+		// #123: between two different train stops (platforms) of the same NS station at least the IFF transfer time of that station
+		// (Stops/IFF_Overstaptijd_rel, ModelParameters/Advanced/IFF_Overstaptijd), next to the walking time over the straight-line distance.
+		// At the same stop and between train and bus, tram or metro it stays the walking time.
 		attribute<bool>               IsTreinOverstapInStation := From_Stop_rel != To_Stop_rel && IsDefined(Stops/IFF_Overstaptijd_rel[From_Stop_rel]) && IsDefined(Stops/IFF_Overstaptijd_rel[To_Stop_rel]) && Stops/NS_Stations_rel[From_Stop_rel] == Stops/NS_Stations_rel[To_Stop_rel];
 		attribute<Time>               MinTransfer_Time_rel     := IsTreinOverstapInStation ? max_elem(Walking_Time_rel, Stops/IFF_Overstaptijd_rel[From_Stop_rel]) : Walking_Time_rel;
 
@@ -55,7 +54,7 @@ Template CreateTransfers_T
 			attribute<uint32>           Ord    := union_data(., const(0,..,uint32), const(1,..,uint32));
 		}
 		
-		unit<uint32> ValidTransfers := select_with_org_rel(IsValidTransfer)
+		unit<uint32> ValidTransfers := select_with_org_rel(IsValidTransfer), Descr = "The transfers that leave time to walk (at a train station at least the IFF transfer time), arrive after they leave and take no longer than MaxPTTime."
 		{
 			attribute<rdc >          From_Point               := org_rel -> From_Point;
 			attribute<Stops>         From_Stop_rel            := org_rel -> From_Stop_rel;

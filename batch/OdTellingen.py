@@ -1,33 +1,37 @@
-# Tellingen naast de OV-uitvoer, uit de csv's per blok: od_tellingen.csv en unieke_od_tellingen.csv in de uitvoermap.
+# Counts next to the public transport output, from the files per block: od_tellingen.csv and unieke_od_tellingen.csv in
+# the output folder.
 #
-#   python batch\OdTellingen.py <uitvoermap> [--force]
+#   python batch\OdTellingen.py <output folder> [--force]
 #
-# <uitvoermap> is Output\<Analysis_date>_<OutputLabel> (met PerBlock\tt_<moment>_<n>of<N>.csv, sinds 2026-10-20; van #118 tot dan tt_<datum>_<moment>_<n>of<N>.csv). Sinds
-# 2026-10-04 maakt de uitvoerstap deze twee bestanden zelf (NetworkSetup/ConfigurationPerBlock/Generate_Output/OD_Tellingen,
-# commit f55636e); dit script doet hetzelfde voor uitvoer van daarvoor, met dezelfde regels en hetzelfde formaat:
-# - od_tellingen.csv: de rijen per soort optie (alle, OV-keten = ModeUsed met een '_', en de directe ritten WW, CC en AA), per
-#   vertrekmoment en in totaal;
-# - unieke_od_tellingen.csv: de unieke HB-paren (OrgName, DestName) met minstens een optie van die soort, of met een optie
-#   zonder auto (NeedsCar 0) of zonder auto en fiets (NeedsCar en NeedsBike 0), per vertrekmoment en over de momenten samen.
-# De herkomstblokken hebben elk hun eigen herkomsten, dus de tellingen per blok worden opgeteld; per blok worden de paren over
-# de momenten verenigd. Bestaat een van de twee bestanden al, dan stopt het script, tenzij --force.
+# <output folder> is Output\<Analysis_date>_<OutputLabel> (with PerBlock\tt_<moment>_<n>of<N>.csv; older output has
+# tt_<date>_<moment>_<n>of<N>.csv). In a single request the output step makes these two files itself
+# (NetworkSetup/ConfigurationPerBlock/Generate_Output/OD_Tellingen); this script does the same for output calculated in
+# portions and for older output, with the same rules and the same format:
+# - od_tellingen.csv: the rows per kind of option (all, public transport chain = ModeUsed with a '_', and the direct trips
+#   WW, CC and AA), per departure moment and in total;
+# - unieke_od_tellingen.csv: the unique OD pairs (OrgName, DestName) with at least one option of that kind, or with an
+#   option without a car (NeedsCar 0) or without car and bike (NeedsCar and NeedsBike 0), per departure moment and over
+#   the moments together.
+# The origin blocks each have their own origins, so the counts per block are added up; per block the pairs are united
+# over the moments. If one of the two files already exists, the script stops, unless --force is given.
 #
-# Sinds 2026-10-16 schrijft het model de tellingen per blok zelf, in dezelfde opvraging als de uitvoer, naar
-# Tellingen\tellingen_<n>of<N>.csv (PublicTransport/Generate_Output/Traveltime_ForEachDepTime/Tellingen/File). Staan die er, dan
-# telt dit script alleen die op en leest het de uitvoer niet: die kan parquet zijn (ModelParameters/OutputFormat), en de
-# csv van Auto voor Buurt2023 is 284 GB. Het optellen gebeurt hier en niet in het model, omdat de blokken in aparte GeoDmsRuns
-# gerekend worden (WriteOutputBlocks.ps1) en een opvraging voor de som de configuratie opnieuw zou laden.
+# The model writes the counts per block itself, in the same request as the output, to Tellingen\tellingen_<n>of<N>.csv
+# (PublicTransport/Generate_Output/Traveltime_ForEachDepTime/Tellingen/File). If those files exist, this script only adds
+# them up and does not read the output, which can be parquet (ModelParameters/OutputFormat) and hundreds of GB. The adding
+# up happens here and not in the model, because the blocks are calculated in separate GeoDmsRuns (WriteOutputBlocks.ps1)
+# and a request for the sum would load the configuration again.
 import argparse, csv, glob, os, re, sys
 from collections import Counter, defaultdict
 from multiprocessing import Pool
 
 SOORTEN = ['alle', 'OV-keten', 'WW', 'CC', 'AA']
 GROEPEN = ['alle', 'OV-keten', 'WW', 'CC', 'AA', 'zonder auto', 'zonder auto en fiets']
-# sinds 2026-10-20 zonder de datum (tt_<moment>_<n>of<N>.csv); leest ook de oude namen met de datum, en die met de component na de datum (tt_<datum>_<component>_<moment>_<n>of<N>.csv), die het model op 2026-10-19 even schreef
+# The file names are tt_<moment>_<n>of<N>.csv; the pattern also reads older names with the date, and with the component
+# after the date (tt_<date>_<component>_<moment>_<n>of<N>.csv).
 NAME_RE = re.compile(r'tt_(?:\d{8}_)?(?:[A-Za-z][A-Za-z0-9_]*?_)?(\d\dh\d\dm)_(\d+)of(\d+)\.csv$')
 
 def blok(files):
-	"""Tellingen van een herkomstblok: rijen per (moment, soort), paren per (moment, groep) en per groep over de momenten."""
+	"""Counts of one origin block: rows per (moment, kind), pairs per (moment, group) and per group over the moments."""
 	rijen, paren, samen = Counter(), Counter(), defaultdict(set)
 	for p in files:
 		m = NAME_RE.search(os.path.basename(p)).group(1)
@@ -58,13 +62,13 @@ def blok(files):
 TELLING_RE = re.compile(r'tellingen_(\d+)of(\d+)\.csv$')
 
 def uit_blokbestanden(uitvoermap, uit_rijen, uit_paren):
-	"""Telt de tellingen per blok van het model op (Tellingen/tellingen_<n>of<N>.csv: tabel;naam;<momenten>;totaal)."""
+	"""Adds up the counts per block of the model (Tellingen/tellingen_<n>of<N>.csv: tabel;naam;<moments>;totaal)."""
 	files = sorted(glob.glob(os.path.join(uitvoermap, 'Tellingen', 'tellingen_*.csv')))
 	namen = [TELLING_RE.search(os.path.basename(p)) for p in files]
 	n_blokken = {int(mt.group(2)) for mt in namen if mt}
 	blokken = {int(mt.group(1)) for mt in namen if mt}
 	if len(n_blokken) != 1 or blokken != set(range(1, next(iter(n_blokken)) + 1)):
-		sys.exit(f'onvolledige tellingen: {len(blokken)} blokken in {uitvoermap}\\Tellingen, verwacht {sorted(n_blokken)}')
+		sys.exit(f'incomplete counts: {len(blokken)} blocks in {uitvoermap}\\Tellingen, expected {sorted(n_blokken)}')
 	som, kop = Counter(), None
 	for p in files:
 		with open(p, newline='', encoding='utf-8') as fh:
@@ -73,7 +77,7 @@ def uit_blokbestanden(uitvoermap, uit_rijen, uit_paren):
 			if kop is None:
 				kop = h
 			elif h != kop:
-				sys.exit(f'{p}: kop {h} wijkt af van {kop}')
+				sys.exit(f'{p}: header {h} differs from {kop}')
 			for row in r:
 				if row:
 					for i, v in enumerate(row[2:]):
@@ -87,18 +91,18 @@ def uit_blokbestanden(uitvoermap, uit_rijen, uit_paren):
 		f.write('groep;' + ';'.join(momenten) + ';samen\n')
 		for k in GROEPEN:
 			f.write(k + ''.join(f";{som[('paren', k, i)]}" for i in range(len(momenten) + 1)) + '\n')
-	print(f'{len(files)} tellingbestanden van het model (Tellingen), momenten {", ".join(momenten)}')
+	print(f'{len(files)} count files of the model (Tellingen), moments {", ".join(momenten)}')
 	print(open(uit_rijen, encoding='utf-8').read() + open(uit_paren, encoding='utf-8').read(), end='')
 
 def main():
 	ap = argparse.ArgumentParser()
-	ap.add_argument('uitvoermap', help=r'Output\<Analysis_date>_<OutputLabel>')
-	ap.add_argument('--force', action='store_true', help='bestaande tellingbestanden overschrijven')
+	ap.add_argument('uitvoermap', help=r'the output folder, Output\<Analysis_date>_<OutputLabel>')
+	ap.add_argument('--force', action='store_true', help='overwrite existing count files')
 	args = ap.parse_args()
 	uit_rijen = os.path.join(args.uitvoermap, 'od_tellingen.csv')
 	uit_paren = os.path.join(args.uitvoermap, 'unieke_od_tellingen.csv')
 	if not args.force and (os.path.exists(uit_rijen) or os.path.exists(uit_paren)):
-		sys.exit(f'{args.uitvoermap} heeft al tellingbestanden; gebruik --force om ze te overschrijven')
+		sys.exit(f'{args.uitvoermap} already has count files; use --force to overwrite them')
 	if glob.glob(os.path.join(args.uitvoermap, 'Tellingen', 'tellingen_*.csv')):
 		return uit_blokbestanden(args.uitvoermap, uit_rijen, uit_paren)
 	files = sorted(glob.glob(os.path.join(args.uitvoermap, 'PerBlock', 'tt_*.csv')))
@@ -111,12 +115,12 @@ def main():
 		momenten.add(mt.group(1))
 		n_blokken.add(mt.group(3))
 	if not per_blok:
-		sys.exit(f'geen bestanden PerBlock/tt_<moment>_<n>of<N>.csv in {args.uitvoermap}')
+		sys.exit(f'no files PerBlock/tt_<moment>_<n>of<N>.csv in {args.uitvoermap}')
 	if len(n_blokken) != 1 or len(per_blok) != int(next(iter(n_blokken))):
-		sys.exit(f'onvolledige uitvoer: {len(per_blok)} blokken gevonden, verwacht {sorted(n_blokken)}')
+		sys.exit(f'incomplete output: {len(per_blok)} blocks found, expected {sorted(n_blokken)}')
 	ontbrekend = [(b, m) for b, fs in per_blok.items() for m in momenten if not any(f'_{m}_' in os.path.basename(f) for f in fs)]
 	if ontbrekend:
-		sys.exit(f'onvolledige uitvoer: {len(ontbrekend)} combinaties van blok en moment ontbreken, bijv. {ontbrekend[:3]}')
+		sys.exit(f'incomplete output: {len(ontbrekend)} combinations of block and moment are missing, for example {ontbrekend[:3]}')
 	momenten = sorted(momenten)
 	R, P, S = Counter(), Counter(), Counter()
 	with Pool(min(8, os.cpu_count() or 1)) as pool:
@@ -130,7 +134,7 @@ def main():
 		f.write('groep;' + ';'.join(momenten) + ';samen\n')
 		for k in GROEPEN:
 			f.write(k + ''.join(f';{P[(m, k)]}' for m in momenten) + f';{S[k]}\n')
-	print(f'{len(files)} bestanden, {len(per_blok)} blokken, momenten {", ".join(momenten)}')
+	print(f'{len(files)} files, {len(per_blok)} blocks, moments {", ".join(momenten)}')
 	print(open(uit_rijen, encoding='utf-8').read() + open(uit_paren, encoding='utf-8').read(), end='')
 
 if __name__ == '__main__':

@@ -67,7 +67,7 @@ container RelevantSelection : using = "LoadFeeds"
 	}
 	
 	unit<uint32> ScheduledLinks := union_unit(protoStopTimes/Yesterday/Links, protoStopTimes/Today/Links, protoStopTimes/Tomorrow/Links)
-	, Descr = "De geplande links van de dienstdagen D-1, D en D+1 op een tijdas (LoadFeeds/ServiceDays). Bij het opbouwen worden de controles van ServiceDays gerekend."
+	, Descr = "The scheduled links of the service days D-1, D and D+1 on one time axis (LoadFeeds/ServiceDays); building them calculates the checks of ServiceDays."
 	, ExplicitSuppliers = "/SourceData/Infrastructure/GTFS/LoadFeeds/ServiceDays/Check_ServiceDaysComplete;/SourceData/Infrastructure/GTFS/LoadFeeds/ServiceDays/Check_WeekdayMatchesCongestionDay;/SourceData/Infrastructure/GTFS/LoadFeeds/ServiceDays/Check_NoDSTChange"
 	{
 		attribute<rdc>                     geometry (arc)  := union_data(., protoStopTimes/Yesterday/Links/geometry, protoStopTimes/Today/Links/geometry, protoStopTimes/Tomorrow/Links/geometry);
@@ -84,7 +84,7 @@ container RelevantSelection : using = "LoadFeeds"
 		attribute<rdc>                     fromPoint       := first_point(geometry);
 		attribute<rdc>                     toPoint         := last_point(geometry);
 		attribute<km>                      Length          := union_data(., protoStopTimes/Yesterday/Links/Length, protoStopTimes/Today/Links/Length, protoStopTimes/Tomorrow/Links/Length);
-		// #3: mag je aan het begin (From) en eind (To) van de link in- of uitstappen (GTFS pickup_type/drop_off_type, zie LoadFeeds/protoStopTimes)?
+		// #3: may one board or alight at the start (From) and the end (To) of the link (GTFS pickup_type/drop_off_type, see LoadFeeds/protoStopTimes)?
 		attribute<bool>                    FromPickupAllowed  := union_data(., protoStopTimes/Yesterday/Links/FromPickupAllowed,  protoStopTimes/Today/Links/FromPickupAllowed,  protoStopTimes/Tomorrow/Links/FromPickupAllowed);
 		attribute<bool>                    FromDropOffAllowed := union_data(., protoStopTimes/Yesterday/Links/FromDropOffAllowed, protoStopTimes/Today/Links/FromDropOffAllowed, protoStopTimes/Tomorrow/Links/FromDropOffAllowed);
 		attribute<bool>                    ToPickupAllowed    := union_data(., protoStopTimes/Yesterday/Links/ToPickupAllowed,    protoStopTimes/Today/Links/ToPickupAllowed,    protoStopTimes/Tomorrow/Links/ToPickupAllowed);
@@ -112,7 +112,7 @@ container RelevantSelection : using = "LoadFeeds"
 		}
 		
 		unit<uint32> SL_Places := unique(findUniqueSpaceTimeEvents/stop_geom_iden)
-		, Descr = "unique scheduled links locations. However duplicate locations with different a stop_rel do exist."
+		, Descr = "The unique locations of the scheduled links; a location can still occur twice with a different Stop_rel."
 		{
 			attribute<Stops>   Stop_rel    := findUniqueSpaceTimeEvents/Stop_rel[invert(findUniqueSpaceTimeEvents/SL_Places_rel)];
 			attribute<string>  Stop_name   := Stops/Name[Stop_rel];
@@ -121,7 +121,7 @@ container RelevantSelection : using = "LoadFeeds"
 		}
 
 		unit<uint32> uq_TimeStop := unique(ScheduledLinks/findUniqueSpaceTimeEvents/c_Time_Stops_rel)
-		, Descr = "aka SSTE aka ScheduledSpaceTimeEvents"
+		, Descr = "The unique combinations of time and stop of the scheduled links (scheduled space-time events, SSTE)."
 		{
 			attribute<c_Time_Stops> c_Time_Stops_rel       := values;
 			attribute<Time>         Time_rel               := value(c_Time_Stops_rel / uint64(#Stops), Time);
@@ -135,7 +135,7 @@ container RelevantSelection : using = "LoadFeeds"
 
 	
 	unit<uint32> Routes := union_unit(Read/Routes/domain, Classifications/TimeInvariantTypes)
-	, Descr = "Transit routes. A route is a group of trips that are displayed to riders as a single service. Plus voor- en PostTransport."
+	, Descr = "Transit routes, a route being a group of trips that riders see as a single service, plus the pseudo-routes of pre- and post-transport."
 	{
 		attribute<string>   agency_id        := union_data(., Read/Routes/data/agency_id, Classifications/TimeInvariantTypes/NetworkType);
 		attribute<string>   agency_name      := rjoin(agency_id, Read/agency/data/agency_id, Read/agency/data/agency_name);
@@ -150,23 +150,22 @@ container RelevantSelection : using = "LoadFeeds"
 		attribute<Modes>    Mode_rel         := rlookup(uint8(route_type), Modes/route_type);
 		attribute<rdc>      geometry   (arc) := Trips/geometry[invert(trips/Route_rel)];
 
-		// #113: flex-/belbuslijnen op naam (zoektermen in ModelParameters/Advanced/FlexRouteTerms). MakeDefined: een
-		// null in een van beide namen zou de zoektekst null maken en de route stil ongemarkeerd laten. lowercase()
-		// omdat de flag-parameter van regex_search in de motor niet doorkomt (Regex.cpp leest args[3] bij een
-		// ternaire operator). regex_search geeft de gematchte term, of null als er geen match is.
+		// #113: flex and on-demand bus lines by name (search terms in ModelParameters/Advanced/FlexRouteTerms). MakeDefined, because a null in one
+		// of the two names would make the search text null and leave the route silently unmarked. lowercase(), because the flag parameter of
+		// regex_search does not reach the engine (Regex.cpp reads args[3] with a ternary operator). regex_search gives the matched term, or null.
 		attribute<string>   flex_zoektekst   := lowercase(MakeDefined(route_short_name, '') + ' ' + MakeDefined(route_long_name, ''));
-		attribute<string>   FlexMatch        := regex_search(flex_zoektekst, ModelParameters/Impl/FlexRoutePattern), Descr = "gematchte flex-term; null = geen match";
-		attribute<string>   FlexNearMiss     := regex_search(flex_zoektekst, ModelParameters/Impl/FlexNearMissPattern), Descr = "gematchte bijna-treffer-term; null = geen match";
-		attribute<bool>     IsPseudoRoute    := union_data(., const(false, Read/Routes/domain, bool), const(true, Classifications/TimeInvariantTypes, bool)), Descr = "voor-/PostTransport-pseudoroutes uit de union_unit";
-		attribute<bool>     IsFlex           := not(IsPseudoRoute) && IsDefined(FlexMatch), Descr = "flex-/belbuslijn: boeken vooraf, geen vaste dienstregeling; zie ModelParameters/Advanced/IncludeFlex en de flexparameters erna";
+		attribute<string>   FlexMatch        := regex_search(flex_zoektekst, ModelParameters/Impl/FlexRoutePattern), Descr = "The matched flex term; null means no match.";
+		attribute<string>   FlexNearMiss     := regex_search(flex_zoektekst, ModelParameters/Impl/FlexNearMissPattern), Descr = "The matched near-miss term; null means no match.";
+		attribute<bool>     IsPseudoRoute    := union_data(., const(false, Read/Routes/domain, bool), const(true, Classifications/TimeInvariantTypes, bool)), Descr = "The pseudo-routes of pre- and post-transport from the union_unit.";
+		attribute<bool>     IsFlex           := not(IsPseudoRoute) && IsDefined(FlexMatch), Descr = "A flex or on-demand bus line: booked in advance, without a fixed timetable; see ModelParameters/Advanced/IncludeFlex and the flex parameters after it.";
 		attribute<bool>     IsFlexNearMiss   := not(IsPseudoRoute) && not(IsFlex) && IsDefined(FlexNearMiss);
 
-		// #3: het product met rit-opslag (ModelParameters/Advanced/TripSurchargeTrains) van een route van het L-net, herkend aan de
-		// route_short_name (TripSurchargeRouteNames); null = geen opslag. Routes buiten het L-net krijgen een lege zoeknaam.
+		// #3: the product with a trip surcharge (ModelParameters/Advanced/TripSurchargeTrains) of a route of the L-net, recognised by its
+		// route_short_name (TripSurchargeRouteNames); null means no surcharge. Routes outside the L-net get an empty search name.
 		attribute<string>   RitOpslag_zoeknaam := not(IsPseudoRoute) && Agencies/IsLnet[agency_rel] ? lowercase(MakeDefined(route_short_name, '')) : '';
 		attribute<ModelParameters/Advanced/TripSurchargeTrains> RitOpslag_rel := ModelParameters/Advanced/TripSurchargeRouteNames/RitOpslag_rel[rlookup(RitOpslag_zoeknaam, ModelParameters/Advanced/TripSurchargeRouteNames/route_short_name)];
 		attribute<bool>     IsZonderNSKaartje := IsDefined(rlookup(lowercase(MakeDefined(route_short_name, '')), ModelParameters/Advanced/TrainsWithoutNSTicket/route_short_name))
-		, Descr = "#3: trein waarop een NS-kaartje nooit geldt (Eurostar, Nightjet, ...); rijdt niet mee in het L-net, zie PublicTransport_Prep/Set_L.";
+		, Descr = "#3: a train on which an NS ticket never applies (Eurostar, Nightjet and others); it is not part of the L-net, see PublicTransport_Prep/Set_L.";
 	}
 	
 }

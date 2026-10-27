@@ -1,36 +1,36 @@
-# RunFrontValidation.ps1: twee runs naast elkaar en de vergelijking van hun fronten (ObjectVision/NetworkModel_PBL#53, stap 2).
+# RunFrontValidation.ps1: two runs side by side and the comparison of their fronts (ObjectVision/NetworkModel_PBL#53, step 2).
 #
 #   powershell -ExecutionPolicy Bypass -File batch\RunFrontValidation.ps1 -Label <label> [-CritA Time,Car,Bike]
-#        [-BaseRun <runkopie>\NetworkModel_PBL]                          B = een bestaande run met uitvoer, alleen A rekenen
+#        [-BaseRun <run copy>\NetworkModel_PBL]                          B = an existing run with output, calculate only A
 #        [-CritB 'Price,Time,Car,Bike'] [-AnalysisMoment Y2026] [-PartOfDay Ochtendspits] [-Component W_PT_W]
-#                                                                          zonder -BaseRun: A en B rekenen
+#                                                                          without -BaseRun: calculate A and B
 #        [-Blocks (1..10)] [-NrOrgBlocks 450] [-WaitFor others|base|none] [-MinFreeRamGB 24] [-Exe <GeoDmsRun.exe>]
 #        [-RunsDir C:\LocalData\NM_PBL_runs] [-OutRoot C:\LocalData\NetworkModel_PBL\Output] [-DryRun]
 #
-# Run A krijgt MinimiseCriteria CritA, run B CritB; verder zijn ze gelijk. De peildatum (AnalysisMoment, met de dag en de feed
-# uit de presettabel) en het PartOfDay (PartOfDay) zijn sinds 2026-10-05 parameters van het model (#125); tot dan zette dit script
-# GTFS_file_date en Analysis_date (-GtfsDate, -AnalysisDate). Ook de component (#117) is een parameter van het model: sinds
-# 2026-10-19 WW, CC, Car of <PreTransport>_PT_<PostTransport>, zoals W_PT_W (Component 'PT' met PreTransport en PostTransport,
-# die dit script uit de naam zet); standaard W_PT_W. Tot dan was de standaard Alles, lopen + OV + lopen naast alle directe ritten. Elke run die gerekend wordt, is een runkopie in
-# <RunsDir>\<Label>\{A,B}\NetworkModel_PBL met OutputLabel <Label>_A of <Label>_B, zodat de uitvoer in
-# <OutRoot>\<Analysis_date>_<Label>_{A,B}<_component> komt (sinds #118 een map per variant, sinds #117 met de component
-# erachter: sinds 2026-10-19 _ en de naam van de component, tot dan _lopen, _fiets, _auto, niets bij All of Alles). Daarna: de ketenstap (batch\UpdateAll.cmd chains
-# in de kopie), de uitvoer voor de herkomstblokken -Blocks en batch\ValidateFronts.py. Voortgang in <RunsDir>\<Label>\status.txt,
-# verslag in <RunsDir>\<Label>\verslag.md.
+# Run A gets MinimiseCriteria CritA, run B CritB; otherwise they are equal. The analysis moment (AnalysisMoment, with the
+# day and the feed from the preset table) and the part of the day (PartOfDay) are parameters of the model (#125). The
+# component (#117) is a parameter of the model too: WW, CC, Car or <PreTransport>_PT_<PostTransport>, such as W_PT_W
+# (Component 'PT' with PreTransport and PostTransport, which this script sets from the name); the default is W_PT_W.
+# Each run that is calculated is a run copy in <RunsDir>\<Label>\{A,B}\NetworkModel_PBL with OutputLabel <Label>_A or
+# <Label>_B, so that its output lands in <OutRoot>\<Analysis_date>_<Label>_{A,B}_<component> (a folder per variant, #118,
+# with the component after it, #117). Then come the chain step (batch\UpdateAll.cmd chains in the copy), the output for the
+# origin blocks -Blocks and batch\ValidateFronts.py. Progress goes to <RunsDir>\<Label>\status.txt, the report to
+# <RunsDir>\<Label>\verslag.md.
 #
-# Met -BaseRun is B een bestaande runkopie waarvan de uitvoer er al is, bijvoorbeeld de basisrun C:\LocalData\NM_PBL_runs\20261006\
-# NetworkModel_PBL. A is dan een kopie van diens cfg, data en batch (dus dezelfde commit, feed, dag en ConfigSettings.dms), met
-# alleen MinimiseCriteria en OutputLabel anders; CritB, AnalysisMoment en PartOfDay tellen dan niet. De uitvoer van B voor -Blocks
-# en zijn signature.txt worden aan het begin gekopieerd naar <RunsDir>\<Label>\B_uitvoer, zodat een latere run onder hetzelfde
-# label de vergelijking niet verstoort. Na de uitvoer van A vergelijkt het de handtekeningen van A en B zonder de criteria: een
-# ander verschil wordt gemeld.
+# With -BaseRun, B is an existing run copy whose output already exists, for example the base run
+# C:\LocalData\NM_PBL_runs\20261006\NetworkModel_PBL. A is then a copy of its cfg, data and batch (so the same commit, feed,
+# day and ConfigSettings.dms), with only MinimiseCriteria and OutputLabel changed; CritB, AnalysisMoment and PartOfDay are
+# then ignored. The output of B for -Blocks and its signature.txt are copied at the start to <RunsDir>\<Label>\B_uitvoer,
+# so that a later run under the same label does not disturb the comparison. After the output of A the script compares the
+# signatures of A and B without the criteria and reports any other difference.
 #
-# Wachten: -WaitFor others (standaard zonder -BaseRun) wacht voor elke zware stap tot er geen GeoDmsRun van een andere
-# NetworkModel_PBL-run loopt; base (standaard met -BaseRun) alleen tot de basisrun klaar is; none niet. Daarnaast wacht het
-# zolang er minder dan -MinFreeRamGB werkgeheugen vrij is, en stopt het als C: onder 15 GB vrij komt.
+# Waiting: -WaitFor others (the default without -BaseRun) waits before every heavy step until no GeoDmsRun of another
+# NetworkModel_PBL run is running; base (the default with -BaseRun) waits only until the base run is finished; none does not
+# wait. Besides that the script waits as long as less than -MinFreeRamGB of memory is free, and stops when C: drops below
+# 15 GB free.
 #
-# Een ketenstap duurt uren (op 2026-10-02/03 voor 500 haltenblokken: 'Time' 4,0 uur, 'Price,Time' 4,2 uur; de uitvoer voor 10
-# herkomstblokken daarna 10 en 13 minuten). Met -DryRun maakt het alleen de runkopieen en toont het de gezette parameters.
+# A chain step takes hours (about 4 hours for 500 stop blocks); the output for 10 origin blocks then takes 10 to 15 minutes.
+# With -DryRun the script only makes the run copies and shows the parameters it set.
 param(
 	[Parameter(Mandatory = $true)][string]$Label,
 	[string]$CritA        = 'Time,Car,Bike',
@@ -49,7 +49,7 @@ param(
 	[switch]$DryRun
 )
 $ErrorActionPreference = 'Stop'
-if ($Label -notmatch '^[A-Za-z0-9_-]{1,18}$') { throw "Label '$Label': alleen letters, cijfers, - en _, hoogstens 18 tekens (OutputLabel <Label>_A)" }
+if ($Label -notmatch '^[A-Za-z0-9_-]{1,18}$') { throw "Label '$Label': only letters, digits, - and _, at most 18 characters (OutputLabel <Label>_A)" }
 if (-not $WaitFor) { $WaitFor = if ($BaseRun) { 'base' } else { 'others' } }
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $base = Join-Path $RunsDir $Label
@@ -58,7 +58,7 @@ New-Item -ItemType Directory -Force $base | Out-Null
 $status = Join-Path $base 'status.txt'
 
 function Say($m) { $l = '{0} {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $m; Add-Content -Path $status -Value $l; $l }
-# Draait er buiten deze Validation een GeoDmsRun, of een UpdateAll.cmd, waarvan de opdrachtregel op $pattern past?
+# Is a GeoDmsRun or an UpdateAll.cmd running outside this validation whose command line matches $pattern?
 function Running($pattern) {
 	$own = "*$base\*"
 	@(Get-CimInstance Win32_Process -Filter "Name='GeoDmsRun.exe' OR Name='cmd.exe'" | Where-Object {
@@ -74,47 +74,47 @@ function Busy {
 	}
 }
 function WaitTurn {
-	# Twee keer na elkaar vrij, 30 s uit elkaar: tussen twee stappen van een andere run draait even geen GeoDmsRun.
+	# Free twice in a row, 30 s apart: between two steps of another run there is briefly no GeoDmsRun.
 	$free = 0
 	while ($free -lt 2) {
-		if (Busy) { $free = 0; Say "wacht: er draait een andere run ($WaitFor)"; Start-Sleep -Seconds 300; continue }
+		if (Busy) { $free = 0; Say "waiting: another run is busy ($WaitFor)"; Start-Sleep -Seconds 300; continue }
 		$ram = (Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1MB
-		if ($ram -lt $MinFreeRamGB) { $free = 0; Say ('wacht: {0:N0} GB werkgeheugen vrij, minder dan {1}' -f $ram, $MinFreeRamGB); Start-Sleep -Seconds 300; continue }
+		if ($ram -lt $MinFreeRamGB) { $free = 0; Say ('waiting: {0:N0} GB of memory free, less than {1}' -f $ram, $MinFreeRamGB); Start-Sleep -Seconds 300; continue }
 		$free++; if ($free -lt 2) { Start-Sleep -Seconds 30 }
 	}
 	$disk = (Get-PSDrive C).Free / 1GB
-	if ($disk -lt 15) { Say ('STOP: C: heeft nog {0:N0} GB vrij' -f $disk); exit 2 }
+	if ($disk -lt 15) { Say ('STOP: C: has only {0:N0} GB free' -f $disk); exit 2 }
 }
 function GetParam($file, $name) {
 	$m = [regex]::Match([IO.File]::ReadAllText($file), "parameter<\w+>\s+$name\s+:=\s+('([^']*)'|TRUE|FALSE)")
-	if (-not $m.Success) { Say "STOP: parameter $name niet gevonden in $file"; exit 3 }
+	if (-not $m.Success) { Say "STOP: parameter $name not found in $file"; exit 3 }
 	if ($m.Groups[2].Success) { return $m.Groups[2].Value } else { return $m.Groups[1].Value }
 }
-# Zet de waarde van een parameter in ModelParameters.dms: "parameter<type>   Naam   := <waarde>", waarde 'tekst', TRUE of FALSE.
+# Sets the value of a parameter in ModelParameters.dms: "parameter<type>   Name   := <value>", with value 'text', TRUE or FALSE.
 function SetParam($file, $name, $value) {
 	$t = [IO.File]::ReadAllText($file)
 	$re = "(parameter<\w+>\s+$name\s+:=\s+)('[^']*'|TRUE|FALSE)"
 	$n = ([regex]::Matches($t, $re)).Count
-	if ($n -ne 1) { Say "STOP: parameter $name komt $n keer voor in $file"; exit 3 }
+	if ($n -ne 1) { Say "STOP: parameter $name occurs $n times in $file"; exit 3 }
 	$t = [regex]::Replace($t, $re, { param($m) $m.Groups[1].Value + $value })
 	[IO.File]::WriteAllText($file, $t)
 }
-# De dag en de feed bij AnalysisMoment $moment in de presettabel van ModelParameters.dms (de tekst $t), sinds 2026-10-05 (#125).
+# The day and the feed of AnalysisMoment $moment in the preset table of ModelParameters.dms (the text $t, #125).
 function PresetDates($t, $moment) {
 	$row = [regex]::Match($t, "(?m)^\s*'$moment'\s*,(.*)$")
-	if (-not $row.Success) { Say "STOP: AnalysisMoment $moment staat niet in de presettabel"; exit 3 }
+	if (-not $row.Success) { Say "STOP: AnalysisMoment $moment is not in the preset table"; exit 3 }
 	# name, OSM date, Regios, OSM_perProv, TomTom, BAG_snapshot, Analysis_date, GTFS_file_date
 	$f = @(("'$moment'," + $row.Groups[1].Value) -split ',' | ForEach-Object { $_.Trim().Trim("'") })
-	if ($f[6] -notmatch '^\d{8}$' -or $f[7] -notmatch '^\d{8}$') { Say "STOP: AnalysisMoment $moment heeft geen peildatum of feed ('$($f[6])', '$($f[7])')"; exit 3 }
+	if ($f[6] -notmatch '^\d{8}$' -or $f[7] -notmatch '^\d{8}$') { Say "STOP: AnalysisMoment $moment has no analysis date or feed ('$($f[6])', '$($f[7])')"; exit 3 }
 	return @($f[6], $f[7])
 }
-# Het achtervoegsel van de uitvoermap bij een component (ModelParameters/Advanced/Components/OutputSuffix, #117).
-# Ook de namen van voor 2026-10-19 (Lopen, Fiets, Auto), voor een basisrun van toen.
-# sinds 2026-10-19 _ en de naam (OutputSuffix); tot dan _lopen, _fiets, _auto; niets bij All en Alles
-# De onderdelen van een OV-component (sinds 2026-10-19): de code in de naam en het type in Classifications/TimeInvariantTypes.
+# The suffix of the output folder of a component (ModelParameters/Advanced/Components/OutputSuffix, #117): _ and the name.
+# For a base run from before 2026-10-19 also the old names: _lopen, _fiets and _auto for Lopen, Fiets and Auto, and nothing
+# for All and Alles.
+# The parts of a public transport component: the code in the name and the type in Classifications/TimeInvariantTypes.
 $VoorTypen = [ordered]@{ 'W' = 'Org2Stops_Walking'; 'C' = 'Org2Stops_Cycling'; 'C_RM' = 'Org2RM_Stops_Cycling'; 'C_RMT' = 'Org2RMT_Stops_Cycling'; 'C_Ric' = 'Org2Ric_Stops_Cycling' }
 $NaTypen = [ordered]@{ 'W' = 'Stops2Dest_Walking'; 'C' = 'Stops2Dest_Cycling'; 'RM_C' = 'RM_Stops2Dest_Cycling'; 'RMT_C' = 'RMT_Stops2Dest_Cycling'; 'OVf_C' = 'OVF_Stops2Dest_Cycling' }
-# Zet de component in een ModelParameters.dms: WW, CC of Car in Component, anders Component 'PT' met PreTransport en PostTransport.
+# Sets the component in a ModelParameters.dms: WW, CC or Car in Component, otherwise Component 'PT' with PreTransport and PostTransport.
 function SetComponent($mp, $name) {
 	if ($name -in 'WW', 'CC', 'Car') { SetParam $mp 'Component' "'$name'"; return }
 	$m = [regex]::Match($name, '^(.+)_PT_(.+)$'); SetParam $mp 'Component' "'PT'"
@@ -123,8 +123,8 @@ function SetComponent($mp, $name) {
 	$t = [regex]::Replace($t, '(PostTransport := /Classifications/TimeInvariantTypes/V/)\w+', { param($x) $x.Groups[1].Value + $NaTypen[$m.Groups[2].Value] })
 	[IO.File]::WriteAllText($mp, $t, (New-Object System.Text.UTF8Encoding($true)))
 }
-# De naam van de component van een runkopie: van voor 2026-10-05 All (geen Component), tot 2026-10-19 Component zelf, daarna bij
-# Component 'PT' de codes van PreTransport en PostTransport.
+# The name of the component of a run copy: All for a copy without Component (from before 2026-10-05), otherwise Component
+# itself, and for Component 'PT' the codes of PreTransport and PostTransport.
 function ComponentName($mpText, $mp) {
 	if ($mpText -notmatch "parameter<\w+>\s+Component\s+:=") { return 'All' }
 	$c = GetParam $mp 'Component'; if ($c -ne 'PT') { return $c }
@@ -133,7 +133,7 @@ function ComponentName($mpText, $mp) {
 }
 function ComponentSuffix($component) { switch ($component) { 'Lopen' { '_lopen' } 'Fiets' { '_fiets' } 'Auto' { '_auto' } 'All' { '' } 'Alles' { '' } default { '_' + $component } } }
 function BlockFiles($dir, $date, $i) { @(Get-ChildItem -Path $dir -Filter "tt_$($date)_*_$($i)of$NrOrgBlocks.csv" -ErrorAction SilentlyContinue) }
-# De handtekening zonder de criteria: MinCrit-..._MaxPT van de uitvoer en _min-..._maxtransf van de ketenstore.
+# The signature without the criteria: MinCrit-..._MaxPT of the output and _min-..._maxtransf of the chain store.
 function SigWithoutCrit($file) { ((Get-Content $file -Raw) -replace 'MinCrit-.*?_MaxPT', 'MinCrit-*_MaxPT' -replace '_min-.*?_maxtransf', '_min-*_maxtransf').Trim() }
 
 $head = (& git -C $repo rev-parse --short HEAD).Trim()
@@ -143,7 +143,7 @@ if ($BaseRun) {
 	$bmp = Join-Path $BaseRun 'cfg\main\ModelParameters.dms'
 	$bmpText = [IO.File]::ReadAllText($bmp)
 	if ($bmpText -match "parameter<\w+>\s+Analysis_date\s+:=\s+'\d{8}'") {
-		# een runkopie van voor 2026-10-05: de dag en de feed staan er letterlijk
+		# A run copy from before 2026-10-05 has the day and the feed as literal values.
 		$AnalysisDate = GetParam $bmp 'Analysis_date'
 		$GtfsDate = GetParam $bmp 'GTFS_file_date'
 	} else {
@@ -151,15 +151,15 @@ if ($BaseRun) {
 	}
 	$CritB = GetParam $bmp 'MinimiseCriteria'
 	$bLabel = GetParam $bmp 'OutputLabel'
-	# een runkopie van voor 2026-10-05 kent Component niet: die rekende alles in een run, zonder achtervoegsel
+	# A run copy from before 2026-10-05 has no Component: it calculated everything in one run, without a suffix.
 	$Component = ComponentName $bmpText $bmp
 	$bOut = Join-Path $OutRoot "$($AnalysisDate)_$bLabel$(ComponentSuffix $Component)"
 	$commit = if (Test-Path (Join-Path $BaseRun 'COMMIT.txt')) { (Get-Content (Join-Path $BaseRun 'COMMIT.txt') -TotalCount 1).Substring(0, 7) } else { '?' }
-	Say "start: B = basisrun $BaseRun (commit $commit, '$CritB', component $Component, uitvoer $bOut), A '$CritA', feed $GtfsDate, dag $AnalysisDate, blokken $($Blocks -join ','), wacht op $WaitFor"
+	Say "start: B = base run $BaseRun (commit $commit, '$CritB', component $Component, output $bOut), A '$CritA', feed $GtfsDate, day $AnalysisDate, blocks $($Blocks -join ','), waiting for $WaitFor"
 	$runs += @{ Name = 'A'; Crit = $CritA; From = $BaseRun }
 } else {
 	$AnalysisDate, $GtfsDate = PresetDates ((& git -C $repo show HEAD:cfg/main/ModelParameters.dms) -join "`n") $AnalysisMoment
-	Say "start: commit $head, A '$CritA', B '$CritB', peildatum $AnalysisMoment (feed $GtfsDate, dag $AnalysisDate), PartOfDay $PartOfDay, component $Component, blokken $($Blocks -join ','), wacht op $WaitFor, engine $Exe"
+	Say "start: commit $head, A '$CritA', B '$CritB', analysis moment $AnalysisMoment (feed $GtfsDate, day $AnalysisDate), PartOfDay $PartOfDay, component $Component, blocks $($Blocks -join ','), waiting for $WaitFor, engine $Exe"
 	$runs += @{ Name = 'A'; Crit = $CritA }, @{ Name = 'B'; Crit = $CritB }
 }
 
@@ -171,7 +171,7 @@ foreach ($r in $runs) {
 		if ($r.From) {
 			foreach ($d in 'cfg', 'data', 'batch') {
 				& robocopy (Join-Path $r.From $d) (Join-Path $dst $d) /E /XD log /NFL /NDL /NJH /NJS /NP | Out-Null
-				if ($LASTEXITCODE -ge 8) { Say "STOP: kopieren van $d uit $($r.From) mislukt (robocopy $LASTEXITCODE)"; exit 6 }
+				if ($LASTEXITCODE -ge 8) { Say "STOP: copying $d from $($r.From) failed (robocopy $LASTEXITCODE)"; exit 6 }
 			}
 			if (Test-Path (Join-Path $r.From 'COMMIT.txt')) { Copy-Item (Join-Path $r.From 'COMMIT.txt') $dst }
 		} else {
@@ -187,7 +187,7 @@ foreach ($r in $runs) {
 		SetParam $mp 'MinimiseCriteria'        "'$($r.Crit)'"
 		SetParam $mp 'OutputLabel'             "'$($Label)_$($r.Name)'"
 		SetParam $mp 'Export_PriceInformation' 'TRUE'
-		Say "runkopie $($r.Name): MinimiseCriteria '$($r.Crit)', uitvoer in $OutRoot\$($AnalysisDate)_$($Label)_$($r.Name)$(ComponentSuffix $Component)"
+		Say "run copy $($r.Name): MinimiseCriteria '$($r.Crit)', output in $OutRoot\$($AnalysisDate)_$($Label)_$($r.Name)$(ComponentSuffix $Component)"
 	}
 	$r.Dst = $dst
 	$r.Out = Join-Path $OutRoot "$($AnalysisDate)_$($Label)_$($r.Name)$(ComponentSuffix $Component)"
@@ -198,31 +198,31 @@ foreach ($r in $runs) {
 }
 
 if ($BaseRun) {
-	# De uitvoer van de basisrun: wachten tot die er is voor alle blokken, dan een kopie, zodat B niet meer kan veranderen.
+	# The output of the base run: wait until it exists for all blocks, then copy it, so that B can no longer change.
 	$bSnap = Join-Path $base 'B_uitvoer'
 	while ($true) {
 		$missing = @($Blocks | Where-Object { (BlockFiles (Join-Path $bOut 'PerBlock') $AnalysisDate $_).Count -eq 0 })
 		$sigOk = Test-Path (Join-Path $bOut 'signature.txt')
 		$baseBusy = Running "*$BaseRun\*"
 		if ($missing.Count -eq 0 -and $sigOk -and -not $baseBusy) { break }
-		if ($DryRun -or -not $baseBusy) { Say "STOP: de basisrun loopt nog ($baseBusy) of zijn uitvoer ontbreekt in $bOut (blokken $($missing -join ','); signature.txt $sigOk)"; exit 7 }
-		Say "wacht tot de basisrun klaar is (uitvoer in $bOut, ontbrekende blokken $($missing -join ','))"; Start-Sleep -Seconds 600
+		if ($DryRun -or -not $baseBusy) { Say "STOP: the base run is still running ($baseBusy) or its output is missing in $bOut (blocks $($missing -join ','); signature.txt $sigOk)"; exit 7 }
+		Say "waiting until the base run is finished (output in $bOut, missing blocks $($missing -join ','))"; Start-Sleep -Seconds 600
 	}
 	if (-not $DryRun) {
 		New-Item -ItemType Directory -Force (Join-Path $bSnap 'PerBlock') | Out-Null
 		Copy-Item (Join-Path $bOut 'signature.*') $bSnap
 		foreach ($i in $Blocks) { BlockFiles (Join-Path $bOut 'PerBlock') $AnalysisDate $i | ForEach-Object { Copy-Item $_.FullName (Join-Path $bSnap 'PerBlock') } }
-		Say "uitvoer van B gekopieerd naar $bSnap"
+		Say "output of B copied to $bSnap"
 	}
 }
-if ($DryRun) { Say 'DryRun: alleen de runkopieen gemaakt'; exit 0 }
+if ($DryRun) { Say 'DryRun: only the run copies were made'; exit 0 }
 
 foreach ($r in $runs) {
 	WaitTurn
-	Say "ketenstap $($r.Name) start"
+	Say "chain step $($r.Name) starts"
 	$p = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', ('"{0}\batch\UpdateAll.cmd" chains' -f $r.Dst) -PassThru -Wait -WindowStyle Hidden
-	Say "ketenstap $($r.Name) klaar, exit $($p.ExitCode)"
-	if ($p.ExitCode -ne 0) { Say "STOP: ketenstap $($r.Name) mislukt, zie $($r.Dst)\batch\log"; exit 4 }
+	Say "chain step $($r.Name) finished, exit $($p.ExitCode)"
+	if ($p.ExitCode -ne 0) { Say "STOP: chain step $($r.Name) failed, see $($r.Dst)\batch\log"; exit 4 }
 }
 
 foreach ($r in $runs) {
@@ -230,17 +230,17 @@ foreach ($r in $runs) {
 	$items = @(); foreach ($i in $Blocks) { $items += '@statistics'; $items += "/NetworkSetup/ConfigurationPerBlock/Block_${i}of$NrOrgBlocks/PublicTransport/Generate_Output/Traveltime_ForEachDepTime_Fence/Generate" }
 	$log = Join-Path $r.Dst 'batch\log'
 	New-Item -ItemType Directory -Force $log | Out-Null
-	Say "uitvoer $($r.Name) start"
+	Say "output $($r.Name) starts"
 	$p = Start-Process -FilePath $Exe -ArgumentList (@("/L$log\frontval_output.log", (Join-Path $r.Dst 'cfg\main.dms')) + $items) -PassThru -Wait -WindowStyle Hidden -RedirectStandardOutput "$log\frontval_output.txt"
-	Say "uitvoer $($r.Name) klaar, exit $($p.ExitCode)"
-	if ($p.ExitCode -ne 0) { Say "STOP: uitvoer $($r.Name) mislukt, zie $log\frontval_output.txt"; exit 5 }
+	Say "output $($r.Name) finished, exit $($p.ExitCode)"
+	if ($p.ExitCode -ne 0) { Say "STOP: output $($r.Name) failed, see $log\frontval_output.txt"; exit 5 }
 }
 
 $aOut = $runs[0].Out
 $bDir = if ($BaseRun) { $bSnap } else { $runs[1].Out }
 $sa = SigWithoutCrit (Join-Path $aOut 'signature.txt'); $sb = SigWithoutCrit (Join-Path $bDir 'signature.txt')
-if ($sa -eq $sb) { Say 'handtekeningen van A en B gelijk op de criteria na' } else { Say "LET OP: handtekeningen van A en B verschillen ook buiten de criteria:`r`n  A $sa`r`n  B $sb" }
+if ($sa -eq $sb) { Say 'the signatures of A and B are equal apart from the criteria' } else { Say "WARNING: the signatures of A and B also differ outside the criteria:`r`n  A $sa`r`n  B $sb" }
 $md = Join-Path $base 'verslag.md'
 & python (Join-Path $repo 'batch\ValidateFronts.py') --a "$aOut\PerBlock\tt_*.csv" --b "$bDir\PerBlock\tt_*.csv" --blocks ($Blocks -join ',') --md $md *> (Join-Path $base 'verslag.txt')
-Say "vergelijking klaar (exit $LASTEXITCODE): $md"
-Say 'KLAAR'
+Say "comparison finished (exit $LASTEXITCODE): $md"
+Say 'DONE'

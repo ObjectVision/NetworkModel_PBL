@@ -1,11 +1,11 @@
-container PostAnalysis : using = "units;Geography;modelparameters;classifications;sourcedata"
+container PostAnalysis : using = "units;Geography;modelparameters;classifications;sourcedata", Descr = "Analyses beside the model run: the network-based UAI for RSopen, travel times and distances to public transport stops for the RuimteScanner, and the median travel time per OD pair (FindMedian)."
 {
 	#include<UAI.dms>
 
-	container Halte_analyse_RuimteScanner
+	container Halte_analyse_RuimteScanner : Descr = "Travel time and distance from every 100 m cell to the nearest public transport stop per mode and class of trips per day, over the OSM networks for walking, cycling and car, as tifs for the RuimteScanner."
 	{
-		parameter<m>     Afstand_Halte_clustering := 100[m];
-		parameter<min_f> MaxReistijd              := 60[min_f];
+		parameter<m>     Afstand_Halte_clustering := 100[m], Descr = "Stops of the same mode within this distance of a stop, in the same province, count in its cluster for the number of trips per day.";
+		parameter<min_f> MaxReistijd              := 60[min_f], Descr = "Search limit of the travel time from the stops; it also sets the search limit of the distance through the speed of the network.";
 		
 		parameter<string> domain_str   := '100m';
 		unit<spoint>      grid_domain  := ='rdc_'+domain_str;
@@ -36,7 +36,7 @@ container PostAnalysis : using = "units;Geography;modelparameters;classification
 			attribute<uint32>           Cluster_Count_Ferry  := MakeDefined(rjoin(geometry, Stop_per_mode/Ferry/Per_mode_subset/geometry, Stop_per_mode/Ferry/Per_mode_subset/Cluster_CountStops),0);
 		}
 		
-		container Generate_tiffs
+		container Generate_tiffs : Descr = "Writes the tifs of the travel time and the distance to the nearest stop of every mode and class, per network (walking, cycling, car)."
 		{
 			parameter<String> Reistijd_Pedestrian := 'Ready',
 			ExplicitSuppliers = "=asList('Dijkstras/Per_ModeVertrekK/'+Mode_X_Vertrekmomenten3K/name+'/CreateODperNetwerkType/pedestrian/OD_reistijd_grid',';')";
@@ -86,7 +86,7 @@ container PostAnalysis : using = "units;Geography;modelparameters;classification
 					unit<uint32>       dest;
 					parameter<string>  netwerk_type;
 					//////
-					container Create_Optimised_Network  := ='Templates/CreateNetwork_Efficient_T(Org, Dest, SourceData/Infrastructure/OSM/Network_'+netwerk_type+', '+quote(netwerk_type)+', FALSE)', Descr = "Network for pre- and post-transport.";
+					container Create_Optimised_Network  := ='Templates/CreateNetwork_Efficient_T(Org, Dest, SourceData/Infrastructure/OSM/Network_'+netwerk_type+', '+quote(netwerk_type)+', FALSE)', Descr = "The OSM network of netwerk_type, with the cells (org) and the stops (dest) connected to it.";
 					
 					unit<uint32>       LinkSet := Create_Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet;
 					unit<uint32>       NodeSet := Create_Optimised_Network/CreateMoreEfficientNetwork/FinalNodeSet
@@ -240,7 +240,7 @@ container PostAnalysis : using = "units;Geography;modelparameters;classification
 			}
 		}
 		
-		unit<uint32> VertrekMomenten_3K : nrofrows = 3
+		unit<uint32> VertrekMomenten_3K : nrofrows = 3, Descr = "Three classes of the number of trips per day of a stop cluster (Weinig, Gemiddeld, Veel), with per mode the class breaks by Jenks-Fisher on Cluster_NrTripsPerDay."
 		{
 			attribute<string> Name           : ['Weinig','Gemiddeld','Veel'];
 			attribute<uint32> Tram_onder     := Stop_per_mode/Tram/Per_mode_subset/classify_ClusterTrips;
@@ -304,15 +304,12 @@ container PostAnalysis : using = "units;Geography;modelparameters;classification
 	
 	container FindMedian
 	{
-		// Mediane reistijd per herkomst en bestemming: per vertrekmoment de snelste frontrij, dan de mediaan over de vertrekmomenten
-		// met een verbinding (NrMoments). Uit de samengevoegde OV-uitvoer (NetworkSetup/ConfigurationPerBlock/Merge_Output/MergeTimes).
-		// Sinds 2026-09-25 (audit 6.5) met de herkomsten en bestemmingen van de run (tot dan buurten), de naamstaart van de schrijver
-		// en via GDAL. Sinds 2026-09-27 (audit 6.7) per vertrekmoment de snelste rij en zonder de modaliteiten in ExcludedModes: tot
-		// dan de mediaan over alle frontrijen van alle vertrekmomenten en modaliteiten samen, dus ook over de tragere goedkope
-		// ketens van het front en over de directe autorit, en alleen over rijen tot SearchLimit.
-		parameter<min_f>  SearchLimit   := 30[min_f], Descr = "Paren met een mediane reistijd tot en met deze waarde komen in Result.";
+		// Median travel time per origin and destination: per departure moment the fastest front row, then the median over the departure
+		// moments with a connection (NrMoments). It reads the merged public transport output (NetworkSetup/ConfigurationPerBlock/Merge_Output/
+		// MergeTimes) through GDAL, for the origins and destinations of the run and without the modes in ExcludedModes.
+		parameter<min_f>  SearchLimit   := 30[min_f], Descr = "Pairs with a median travel time up to and including this value go into Result.";
 		parameter<string> ExcludedModes := 'AA'
-		, Descr = "ModeUsed-waarden, kommagescheiden, die niet meetellen. Standaard de directe autorit (AA), zodat de mediaan de bereikbaarheid zonder auto beschrijft; leeg telt alle rijen mee.";
+		, Descr = "ModeUsed values, separated by commas, that do not count; the default is the direct car trip (AA), so that the median describes accessibility without a car, and an empty value counts all rows.";
 
 		unit<uint32> Dest    := /NetworkSetup/PublicTransport_Prep/Impl/dest;
 		unit<uint32> Org     := /NetworkSetup/PublicTransport_Prep/Impl/org
@@ -341,7 +338,7 @@ container PostAnalysis : using = "units;Geography;modelparameters;classification
 
 		container ReadCSV
 		{
-			parameter<string> filename := /NetworkSetup/GenerateOutput/Output_Sig/ForReading + '/tt_' + ModelParameters/Impl/Analysis_date + '.csv', Descr = "De samengevoegde uitvoer over de vertrekmomenten (Merge_Times), sinds 2026-10-03 in ModelParameters/Impl/OutputDir en alleen als de handtekening van die map klopt (NetworkModel_PBL#118).";
+			parameter<string> filename := /NetworkSetup/GenerateOutput/Output_Sig/ForReading + '/tt_' + ModelParameters/Impl/Analysis_date + '.csv', Descr = "The merged output over the departure moments (Merge_Times) in ModelParameters/Impl/OutputDir, read only when the signature of that folder matches (#118).";
 
 			unit<uint32> domain
 			:	StorageName     = "=filename"
@@ -364,7 +361,7 @@ container PostAnalysis : using = "units;Geography;modelparameters;classification
 				attribute<uint64>     Key            := org_rel -> data/Key;
 				attribute<PerMoment>  PerMoment_rel  := rlookup(Key, PerMoment/values);
 			}
-			unit<uint32> PerMoment := unique_uint32(Rows/Key), Descr = "Een element per herkomst, bestemming en vertrekmoment met een verbinding."
+			unit<uint32> PerMoment := unique_uint32(Rows/Key), Descr = "One element per origin, destination and departure moment with a connection."
 			{
 				attribute<min_f>      MinTT          := min(Rows/Traveltime, Rows/PerMoment_rel);
 				attribute<c_Org_Dest> c_Org_Dest_rel := value(values / uint64(#Moments), c_Org_Dest);

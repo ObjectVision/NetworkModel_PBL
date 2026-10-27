@@ -52,7 +52,7 @@ container Classifications: Using = "Units"
 		{
 			attribute<string> name                 := ='union_data(.,FareGroup/name, '+asList('Generate_Chain_Range/'+Chain_range/name+'/Result/name', ',')+')';
 			attribute<string> label                := name;
-			attribute<uint32> chain_breakpoint_pos := strlen(name) <= 2 ? 1 : sub_or_null(strlen(name),1); // vanaf links
+			attribute<uint32> chain_breakpoint_pos := strlen(name) <= 2 ? 1 : sub_or_null(strlen(name),1); // from the left
 			
 			attribute<string> left                 := left(name, chain_breakpoint_pos);
 			attribute<string> right                := right(name, strlen(name) - chain_breakpoint_pos);
@@ -62,8 +62,8 @@ container Classifications: Using = "Units"
 		}
 		
 		//NOTE: this could later fail due to missing indirect calculated needs. 
-		unit<uint16> ToBeCalculated := Chain, Descr = "Alle Chains die nodig zijn om langere Chains mee te maken of om reizen uit te kiezen.";
-		unit<uint16> Allowed        := Chain, Descr = "Zonder Chains waaruit geen reizen samengesteld kunnen worden";
+		unit<uint16> ToBeCalculated := Chain, Descr = "All chains needed to build longer chains or to choose trips from.";
+		unit<uint16> Allowed        := Chain, Descr = "The chains without those from which no trips can be composed.";
 	}
 	
 	
@@ -82,7 +82,7 @@ container Classifications: Using = "Units"
 		attribute<string> Name_short     := ConnectionType + '_' + Mode_abbrev;
 		attribute<GTFS_Modes/Selection>  Mode_rel       := rlookup(Mode_Abbrev, GTFS_Modes/Selection/name_abbr);
 		attribute<bool>   IsOVfiets      := lowercase(StopClass) == lowercase('OVf');
-		attribute<bool>   NeedsOwnBike   := Mode_abbrev == 'C' && NOT(IsOVfiets), Descr = "Vraagt dit been een eigen fiets (NetworkModel_PBL#117)? Fietsen wel, ook in het PostTransport (een eigen fiets bij de laatste halte), behalve met een gehuurde OV-fiets. Sinds 2026-10-19 ook RMT_Stops2Dest_Cycling, dat tot dan met UseOVFietsPriceForAllCyclingPostTransport als OV-fiets telde.";
+		attribute<bool>   NeedsOwnBike   := Mode_abbrev == 'C' && NOT(IsOVfiets), Descr = "Does this leg need an own bike (NetworkModel_PBL#117): yes for cycling, also in the PostTransport with an own bike at the last stop, except with a rented OV-fiets.";
 		attribute<min_f>  MaxTime        := ='union_data(.,'+asList('ModelParameters/' + (Mode == 'Walking' && ConnectionType != 'Org2Stops' && ConnectionType != 'Stops2Dest' ? 'Advanced/' : '') + 'Max'+Mode+'Time_'+ConnectionType, ',')+')';
 		
 		
@@ -102,9 +102,9 @@ container Classifications: Using = "Units"
 			'Org'       , 'RMT_Stops'   ,'V', 'RMT', //RMT_Stops=Rail+Metro+Tram
 			'Org'       , 'RM_Stops'    ,'V', 'RM',  //RM_Stops=Rail+Metro
 			'OVF_Stops' , 'Dest'        ,'N', 'OVf', //OVF_Stops=OV-fiets stops
-			'RMT_Stops' , 'Dest'        ,'N', 'RMT', //OVF_Stops=OV-fiets stops
+			'RMT_Stops' , 'Dest'        ,'N', 'RMT', //RMT_Stops=Rail+Metro+Tram
 			'Org'       , 'Ric_Stops'   ,'V', 'Ric', //IC_Stops=IC_station_stops
-			'RM_Stops'  , 'Dest'        ,'N', 'RM'   //RM_Stops=Rail+Metro, PostTransport RM_C (sinds 2026-10-19); achteraan, zodat de bestaande typen hun nummer houden
+			'RM_Stops'  , 'Dest'        ,'N', 'RM'   //RM_Stops=Rail+Metro, PostTransport RM_C; last, so that the existing types keep their number
 			];
 		}
 		
@@ -140,21 +140,21 @@ container Classifications: Using = "Units"
 		{
 			attribute<string> name := values;
 			attribute<string> label := values;
-			attribute<bool>   NeedsBike := any(VN_ModeClasses/NeedsBike, VN_ModeClasses/uq_rel), Descr = "Vraagt een voor- of natransportbeen van deze klasse een eigen fiets (NetworkModel_PBL#117)?";
+			attribute<bool>   NeedsBike := any(VN_ModeClasses/NeedsBike, VN_ModeClasses/uq_rel), Descr = "Does a pre- or post-transport leg of this class need an own bike (NetworkModel_PBL#117)?";
 		}
-		parameter<bool> AnyNeedsBike := any(uq/NeedsBike), Descr = "Vraagt een van de voor- of PostTransportTypes een eigen fiets? Zo niet, dan heeft geen OV-keten een fiets nodig.";
+		parameter<bool> AnyNeedsBike := any(uq/NeedsBike), Descr = "Does any of the pre- or post-transport types need an own bike; if not, no public transport chain needs a bike.";
 	}
 
-	// De regels van de tellingen naast de OV-uitvoer (sinds 2026-10-04): <OutputDir>/od_tellingen.csv en unieke_od_tellingen.csv,
-	// zie NetworkSetup/ConfigurationPerBlock/Generate_Output/OD_Tellingen.
+	// The rows of the counts next to the public transport output: <OutputDir>/od_tellingen.csv and unieke_od_tellingen.csv, see
+	// NetworkSetup/ConfigurationPerBlock/Generate_Output/OD_Tellingen.
 	unit<uint8> OD_Tellingen_Soort : nrofrows = 5
-	, Descr = "Rijen van de OV-uitvoer per soort optie: alle, een OV-keten (met voor- en PostTransport), en de directe ritten lopen (WW), fiets (CC) en auto (AA)."
+	, Descr = "Rows of the public transport output per kind of option: all, a public transport chain (with pre- and post-transport), and the direct trips walking (WW), bike (CC) and car (AA)."
 	{
 		attribute<string> name  : ['alle', 'OV_keten', 'WW', 'CC', 'AA'];
 		attribute<string> label : ['alle', 'OV-keten', 'WW', 'CC', 'AA'];
 	}
 	unit<uint8> OD_Tellingen_Groep : nrofrows = 7
-	, Descr = "Unieke HB-paren met minstens een optie van deze soort, of met een optie voor deze groep reizigers: zonder auto (NeedsCar 0), en zonder auto en fiets (NeedsCar en NeedsBike 0)."
+	, Descr = "Unique OD pairs with at least one option of this kind, or with an option for this group of travellers: without a car (NeedsCar 0), and without a car and a bike (NeedsCar and NeedsBike 0)."
 	{
 		attribute<string> name  : ['alle', 'OV_keten', 'WW', 'CC', 'AA', 'zonder_auto', 'zonder_auto_en_fiets'];
 		attribute<string> label : ['alle', 'OV-keten', 'WW', 'CC', 'AA', 'zonder auto', 'zonder auto en fiets'];
@@ -202,14 +202,15 @@ container Classifications: Using = "Units"
 		attribute<string> label := values;
 		
 		attribute<bool>   IsForeign := name == 'de_lijn' || name == 'db'  || name == 'eurobahn' || name == 'niag' || name == 'nmbs' || name == 'vias' || name == 'ns_international' || name == 'ns_int' || name == 'eu_sleeper' || name == 'european_sleeper' || name == 'tcs_ov' || name == 'govolta';
-						//vervoerders die wel in GTFS zitten maar niet in deze lijst zijn niet opgenomen omdat ze in het buitenland opereren (De Lijn, DB, Eurobahn, NIAG, NMBS, VIAS, TCS OV, GoVolta)
-						//let op feed-drift: 'NS International' heet vanaf feed 20251008 'NS Int'; 'Eu Sleeper' heet vanaf feed 20260316 'European Sleeper'. Beide varianten staan er daarom in.
+						// agencies that are in the GTFS but operate abroad (De Lijn, DB, Eurobahn, NIAG, NMBS, VIAS, TCS OV, GoVolta)
+						// mind feed drift: 'NS International' is called 'NS Int' from feed 20251008 on, and 'Eu Sleeper' is called 'European Sleeper' from feed
+						// 20260316 on; both variants are therefore listed.
 
-		attribute<bool>   IsNS := name == 'ns' || name == 'ns_international' || name == 'ns_int' || name == 'eu_sleeper' || name == 'european_sleeper'; // deze Agencies niet als Regionaal vervoer selecteren (L-net of uitgesloten). DB en Eurobahn (regionale grens-stoptreinen Enschede-Dortmund / Hengelo-Bielefeld / Venlo-Hamm) horen hier bewust NIET in: die routeren als VIAS/NMBS via het R-net en prijzen via de FareTable; in IsNS zouden hun legs volledig uit het netwerk vallen.
+		attribute<bool>   IsNS := name == 'ns' || name == 'ns_international' || name == 'ns_int' || name == 'eu_sleeper' || name == 'european_sleeper'; // do not select these agencies as regional transport (L-net or excluded). DB and Eurobahn (regional cross-border stopping trains Enschede-Dortmund / Hengelo-Bielefeld / Venlo-Hamm) deliberately do NOT belong here: they route like VIAS/NMBS over the R-net and are priced through the FareTable; in IsNS their legs would drop out of the network entirely.
 		attribute<bool>   IsRO := not(IsNS);
 		attribute<bool>   IsNSInternational := name == 'ns_international' || name == 'ns_int';
 		attribute<bool>   IsLnet := name == 'ns' || (IsNSInternational && ModelParameters/Advanced/IsNSInternationalInLnet)
-		, Descr = "Vervoerders van het NS-net (L-net, NS-tarief): NS, en sinds 2026-10-02 (#3) NS International voor binnenlandse reizen (ModelParameters/Advanced/IsNSInternationalInLnet). Eurostar en Nightjet doen binnenlands toch niet mee: zie ModelParameters/Advanced/TrainsWithoutNSTicket (en pickup_type/drop_off_type in de GTFS). European Sleeper hoort er niet bij (alleen met reservering, geen NS-kaartjes).";
+		, Descr = "Agencies of the NS network (L-net, NS fare): NS and, for domestic trips, NS International (#3, ModelParameters/Advanced/IsNSInternationalInLnet); Eurostar and Nightjet still do not run domestically (ModelParameters/Advanced/TrainsWithoutNSTicket, and pickup_type/drop_off_type in the GTFS), and European Sleeper is left out because it takes reservations only and no NS tickets.";
 		container V := for_each_nedv(Name, string(id(.)), void, .);
 	}
  
@@ -261,27 +262,23 @@ container Classifications: Using = "Units"
 		
 		container V := for_each_nedv(name, String(ID(.))+'[..]', void, .);
 	}
-	// De criteria van de ketenrijger. Een groep van de ketenrijger heeft dezelfde instap- en uitstaptijdhalte en, sinds audit 6.3,
-	// hetzelfde eerste NS-station van de lopende NS-reis (ChainJoiner_T, Part_rel). De ketenrijger kiest op de prijs van het
-	// eindfront (Price, of Price_augm als MinimiseCriteria die noemt) en op de resttijden die bepalen of een keten nog tegen een
-	// doorgaand tarief verlengd kan worden. Bij een eindfront op Price beslist Price_augm (prijs plus tijdkosten van
-	// overstappen) alleen tussen ketens die verder gelijk zijn (relatieve epsilon 1, tot 2026-10-05 bakken van 1e9: geen extra frontrijen); dat kan
-	// alleen pareto_optimal_eps. De reistijd is binnen een groep gelijk, behalve met een tijdpenalty
-	// (GradeSeparatedTransferPenalty, of FlexExtraWaitingTime voor flexbenen): dan is TravelTime ook een criterium (audit 6.2).
-	// De volgorde: prijs eerst (het rapportagethema is bereikbaarheidsarmoede). Met de relatieve epsilon van pareto_optimal_eps
-	// (GeoDMS #1282, sinds 2026-10-05) geeft het eerste criterium de volgorde en blijft de goedkoopste keten van een groep altijd
-	// staan; een duurdere blijft alleen als ze op een ander criterium beter is dan elke goedkopere die blijft, op de reistijd met
-	// meer dan ChainParetoTimeEpsilon. Een epsilon op de prijs werkt daardoor niet en is 0.
-	// Geschiedenis: tot 2026-09-25 alleen Price_augm, zodat de goedkoopste keten van een groep kon sneuvelen tegen een duurdere
-	// met minder overstaptijd (audit 6.1); op 2026-09-25 Price_augm en Price samen (_r3), wat de ketenrijging ruim twee keer zo
-	// traag maakte zonder het eindfront te verbeteren; sinds 2026-09-26 (_r4) deze opzet.
+	// The criteria of the chain joiner. A group of the chain joiner has the same boarding and alighting time stop and the same first NS
+	// station of the ongoing NS journey (ChainJoiner_T, Part_rel). The chain joiner chooses on the price of the final front (Price, or
+	// Price_augm when MinimiseCriteria names it) and on the remaining times that determine whether a chain can still be extended at a
+	// through fare. With a final front on Price, Price_augm (price plus time costs of transfers) only decides between chains that are
+	// otherwise equal (relative epsilon 1, no extra front rows); only pareto_optimal_eps can do that. The travel time is equal within a group,
+	// except with a time penalty (GradeSeparatedTransferPenalty, or FlexExtraWaitingTime for flex legs): then TravelTime is also a criterion.
+	// The order: price first (the reporting theme is accessibility poverty). With the relative epsilon of pareto_optimal_eps (GeoDMS #1282)
+	// the first criterion sets the order and the cheapest chain of a group always stays; a more expensive one stays only if it is better
+	// on another criterion than every cheaper one that stays, on the travel time by more than ChainParetoTimeEpsilon. An epsilon on the
+	// price therefore has no effect and is 0.
 	unit<uint8> ChainJoinerParetoAttr_Candidates: nrofrows = 6
 	{
 		parameter<bool>   IsPriceFinal   := CandidateParetoAttr/IsFinalParetoSelection[CandidateParetoAttr/V/Price];
 		parameter<bool>   HasTimePenalty := ModelParameters/Advanced/GradeSeparatedTransferPenalty > 0[min_f] || ModelParameters/Impl/FlexHasTimePenalty || ModelParameters/Impl/TripSurchargeHasTimePenalty;
 		attribute<string> Name : [ 'Price', 'Price_augm', 'remaining_time_excl_RO_transfer', 'remaining_time_excl_NS_transfer', 'TravelTime', 'Price_augm' ];
 		attribute<bool>   IsTieBreakOnly : [ FALSE, FALSE, FALSE, FALSE, FALSE, TRUE ];
-		attribute<string> EpsilonExpr : [ '0.0', '0.0', '0.0', '0.0', '/ModelParameters/Advanced/ChainParetoTimeEpsilon', '1.0' ], Descr = "Per criterium de relatieve epsilon voor pareto_optimal_eps (GeoDMS #1282, relatief sinds 2026-10-05). Price of Price_augm staat voorop, en op het eerste criterium werkt een epsilon niet: 0. De resttijden zijn een afstand tot het einde van het analysevenster en geen reisduur, dus exact (tot 2026-10-05 bakken van 60 s); de tiebreak Price_augm 1.0: een criterium dat alleen de volgorde geeft (tot dan bakken van 1e9).";
+		attribute<string> EpsilonExpr : [ '0.0', '0.0', '0.0', '0.0', '/ModelParameters/Advanced/ChainParetoTimeEpsilon', '1.0' ], Descr = "Per criterion the relative epsilon for pareto_optimal_eps (GeoDMS #1282): 0 for the first criterion, where it has no effect, and for the remaining times, which are exact; 1.0 for the tie-break Price_augm, which only sets the order.";
 		attribute<bool>   IsSelected  := switch(
 			  case(id(.) == 0b, IsPriceFinal)
 			, case(id(.) == 1b, NOT(IsPriceFinal))
@@ -291,19 +288,19 @@ container Classifications: Using = "Units"
 	}
 	unit<uint8> ChainJoinerParetoAttr := select_with_attr_by_cond(ChainJoinerParetoAttr_Candidates, ChainJoinerParetoAttr_Candidates/IsSelected)
 	{
-		attribute<string> ParetoArgs := Name + (id(.) > 0b && EpsilonExpr != '' ? ', ' + EpsilonExpr : ''), Descr = "De argumenten van dit criterium voor pareto_optimal_eps(part, crit1, crit2, eps2, ...): het eerste criterium geeft alleen de volgorde en krijgt geen epsilon, een bool ook niet (GeoDMS #1282, dcba9d9e0; tot dan een epsilon na elk getal, ook het eerste, waar hij niet werkte).";
+		attribute<string> ParetoArgs := Name + (id(.) > 0b && EpsilonExpr != '' ? ', ' + EpsilonExpr : ''), Descr = "The arguments of this criterion for pareto_optimal_eps(part, crit1, crit2, eps2, ...): the first criterion only sets the order and gets no epsilon, and neither does a bool (GeoDMS #1282).";
 	}
 
 	unit<uint8> CandidateParetoAttr: nrofrows = 3
 	{
-		// Prijs eerst, dan de reistijd (bereikbaarheidsarmoede): met de relatieve epsilon (GeoDMS #1282, sinds 2026-10-05) blijft de
-		// goedkoopste optie van een HB-paar altijd staan, en een duurdere alleen als ze meer dan ChainParetoTimeEpsilon sneller is
-		// dan de snelste goedkopere optie die blijft. Elke optie die afvalt, heeft zo een goedkopere die blijft en hoogstens
-		// ChainParetoTimeEpsilon trager is. Daarna de bezitscriteria (OwnershipParetoAttr), exact.
-		attribute<string> Name               : [ 'Price', 'Price_augm', 'TravelTime']; // kan hier gereguleerd worden; maak dit afhankelijk van MinimiseCriterium
-		attribute<string> FileNameElement    : [ 'Price', 'Price_augm', 'Time'];       // codering voor in een samengestelde file_naam/ 
-		attribute<string> EpsilonExpr        : [ '0.0', '0.0', '/ModelParameters/Advanced/ChainParetoTimeEpsilon' ], Descr = "Per criterium de relatieve epsilon voor pareto_optimal_eps (GeoDMS #1282, relatief sinds 2026-10-05; tot dan een bakbreedte in de eenheid van het criterium). De prijs staat voorop, en op het eerste criterium werkt een epsilon niet: 0.";
-		attribute<bool>   IsCriteriaInLijst  := IsDefined(strpos(lowercase(ModelParameters/Impl/IsMerged ? ModelParameters/MergeCriteria : ModelParameters/Advanced/MinimiseCriteria), lowercase(CandidateParetoAttr/FileNameElement))), Descr = "Sinds 2026-09-25 ongeacht hoofdletters (audit 3.7): tot dan viel 'Price_Augm', zoals de Descr van MinimiseCriteria het schrijft, stil terug op Price."; 
+		// Price first, then the travel time (accessibility poverty): with the relative epsilon (GeoDMS #1282) the cheapest option of an OD pair
+		// always stays, and a more expensive one only if it is more than ChainParetoTimeEpsilon faster than the fastest cheaper option that
+		// stays. Every option that drops out thus has a cheaper one that stays and is at most ChainParetoTimeEpsilon slower. Then the ownership
+		// criteria (OwnershipParetoAttr), exact.
+		attribute<string> Name               : [ 'Price', 'Price_augm', 'TravelTime']; // can be regulated here; the selection depends on MinimiseCriteria (IsCriteriaInLijst)
+		attribute<string> FileNameElement    : [ 'Price', 'Price_augm', 'Time'];       // code for use in a composed file name 
+		attribute<string> EpsilonExpr        : [ '0.0', '0.0', '/ModelParameters/Advanced/ChainParetoTimeEpsilon' ], Descr = "Per criterion the relative epsilon for pareto_optimal_eps (GeoDMS #1282); the price comes first, and on the first criterion an epsilon has no effect, so 0.";
+		attribute<bool>   IsCriteriaInLijst  := IsDefined(strpos(lowercase(ModelParameters/Impl/IsMerged ? ModelParameters/MergeCriteria : ModelParameters/Advanced/MinimiseCriteria), lowercase(CandidateParetoAttr/FileNameElement))), Descr = "Does MinimiseCriteria, or MergeCriteria when merging, name this criterion, regardless of upper or lower case?"; 
 		parameter<bool>   IsBothPriceAndAugm := IsCriteriaInLijst[v/Price] && IsCriteriaInLijst[v/Price_augm];
 		
 		attribute<bool>   IsFinalParetoSelection := switch(
@@ -319,32 +316,32 @@ container Classifications: Using = "Units"
 	
 	unit<uint8> FinalParetoAttr := select_with_attr_by_cond(CandidateParetoAttr, CandidateParetoAttr/IsFinalParetoSelection)
 	{
-		attribute<string> ParetoArgs := Name + (id(.) > 0b && EpsilonExpr != '' ? ', ' + EpsilonExpr : ''), Descr = "De argumenten van dit criterium voor pareto_optimal_eps(part, crit1, crit2, eps2, ...): het eerste criterium geeft alleen de volgorde en krijgt geen epsilon, een bool ook niet (GeoDMS #1282, dcba9d9e0; tot dan een epsilon na elk getal, ook het eerste, waar hij niet werkte).";
+		attribute<string> ParetoArgs := Name + (id(.) > 0b && EpsilonExpr != '' ? ', ' + EpsilonExpr : ''), Descr = "The arguments of this criterion for pareto_optimal_eps(part, crit1, crit2, eps2, ...): the first criterion only sets the order and gets no epsilon, and neither does a bool (GeoDMS #1282).";
 	}
 
-	// Autobezit en fietsbezit als criteria in de eindafweging (NetworkModel_PBL#117, sinds 2026-10-01): een optie die geen auto
-	// of fiets vraagt, blijft naast een goedkopere en snellere optie die dat wel doet. Alleen in de condensaties per vertrekmoment
-	// (NetworkSetup/PublicTransport/PerDepartureMoment_T); de ketenrijger rekent alleen OV en houdt FinalParetoAttr, zodat de
-	// ketenstore dezelfde blijft. Bool-criteria, geminimaliseerd (false voor true) en zonder epsilon: GeoDMS #1287, vanaf e04ad20f0.
+	// Car ownership and bike ownership as criteria in the final Pareto selection (NetworkModel_PBL#117): an option that needs no car or
+	// bike stays next to a cheaper and faster option that does. Only in the condensations per departure moment
+	// (NetworkSetup/PublicTransport/PerDepartureMoment_T); the chain joiner only calculates public transport and keeps FinalParetoAttr,
+	// so that the chain store stays the same. Bool criteria, minimised (false before true) and without epsilon: GeoDMS #1287.
 	unit<uint8> OwnershipParetoAttr_Candidates : nrofrows = 2
 	{
 		attribute<string> Name              : [ 'NeedsCar', 'NeedsBike' ];
-		attribute<string> CriteriaName      : [ 'Car', 'Bike' ], Descr = "Het element in MinimiseCriteria.";
-		attribute<string> FileNameElement   : [ 'A', 'C' ], Descr = "Het element in de handtekening van de uitvoer (PT_Output_ParamTag, tot 2026-10-03 in de uitvoernamen): de letter van auto en fiets in ModeUsed. Kort, want het langste uitvoerpad was toen al 252 van de 259 tekens (NetworkModel_PBL#118).";
-		attribute<string> EpsilonExpr       : [ '', '' ], Descr = "Leeg: een bool-criterium heeft geen epsilon in pareto_optimal_eps.";
-		attribute<bool>   IsCriteriaInLijst := IsDefined(strpos(lowercase(ModelParameters/Impl/IsMerged ? ModelParameters/MergeCriteria : ModelParameters/Advanced/MinimiseCriteria), lowercase(CriteriaName))), Descr = "Noemt MinimiseCriteria het criterium, bij het samenvoegen (MergeOutput) MergeCriteria? Tot 2026-10-20 bij het samenvoegen altijd: daar horen autobezit en fietsbezit bij.";
+		attribute<string> CriteriaName      : [ 'Car', 'Bike' ], Descr = "The element in MinimiseCriteria.";
+		attribute<string> FileNameElement   : [ 'A', 'C' ], Descr = "The element in the signature of the output (PT_Output_ParamTag): the letter of car or bike in ModeUsed (NetworkModel_PBL#118).";
+		attribute<string> EpsilonExpr       : [ '', '' ], Descr = "Empty: a bool criterion has no epsilon in pareto_optimal_eps.";
+		attribute<bool>   IsCriteriaInLijst := IsDefined(strpos(lowercase(ModelParameters/Impl/IsMerged ? ModelParameters/MergeCriteria : ModelParameters/Advanced/MinimiseCriteria), lowercase(CriteriaName))), Descr = "Does MinimiseCriteria, or MergeCriteria when merging (MergeOutput), name the criterion?";
 		attribute<bool>   IsRelevant        := union_data(., ModelParameters/Impl/AllowDirectCar, ModelParameters/Impl/IsMerged ? any(ModelParameters/Advanced/Components/InMerge && ModelParameters/Advanced/Components/NeedsBike) : ModelParameters/Impl/AllowDirectCycling || VN_ModeClasses/AnyNeedsBike)
-		,	Descr = "Kan een optie een auto of fiets vragen? Een auto alleen de directe autorit (er is geen P+R-PreTransport), een fiets de directe fietsroute en voor- of PostTransport met een eigen fiets. Een criterium dat voor alle opties gelijk is, verandert het front niet en blijft weg, ook uit de uitvoernamen.";
+		,	Descr = "Can an option need a car or a bike: a car only for the direct car trip (there is no P+R pre-transport), a bike for the direct cycling route and for pre- or post-transport with an own bike; a criterion that is equal for all options does not change the front and is left out.";
 		attribute<bool>   IsSelected        := IsCriteriaInLijst && IsRelevant;
 	}
 	unit<uint8> OwnershipParetoAttr := select_with_attr_by_cond(OwnershipParetoAttr_Candidates, OwnershipParetoAttr_Candidates/IsSelected);
 
 	unit<uint8> OutputParetoAttr := union_unit_uint8(FinalParetoAttr, OwnershipParetoAttr)
-	, Descr = "De criteria van de eindafweging per vertrekmoment: FinalParetoAttr plus de geselecteerde bezitscriteria."
+	, Descr = "The criteria of the final Pareto selection per departure moment: FinalParetoAttr plus the selected ownership criteria."
 	{
 		attribute<string> Name            := union_data(., FinalParetoAttr/Name, OwnershipParetoAttr/Name);
 		attribute<string> FileNameElement := union_data(., FinalParetoAttr/FileNameElement, OwnershipParetoAttr/FileNameElement);
 		attribute<string> EpsilonExpr     := union_data(., FinalParetoAttr/EpsilonExpr, OwnershipParetoAttr/EpsilonExpr);
-		attribute<string> ParetoArgs      := Name + (id(.) > 0b && EpsilonExpr != '' ? ', ' + EpsilonExpr : ''), Descr = "De argumenten van dit criterium voor pareto_optimal_eps(part, crit1, crit2, eps2, ...): het eerste criterium geeft alleen de volgorde en krijgt geen epsilon, een bool ook niet (GeoDMS #1282, dcba9d9e0; tot dan een epsilon na elk getal, ook het eerste, waar hij niet werkte).";
+		attribute<string> ParetoArgs      := Name + (id(.) > 0b && EpsilonExpr != '' ? ', ' + EpsilonExpr : ''), Descr = "The arguments of this criterion for pareto_optimal_eps(part, crit1, crit2, eps2, ...): the first criterion only sets the order and gets no epsilon, and neither does a bool (GeoDMS #1282).";
 	}
 }

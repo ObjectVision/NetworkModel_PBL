@@ -1,22 +1,22 @@
-container TomTom
+container TomTom : Descr = "The TomTom MultiNet road network with its historical speed profiles, of the edition that the analysis moment sets, for the car network."
 { 
-	parameter<string> file_date := rjoin(ModelParameters/AnalysisMoment, ModelParameters/Advanced/AnalysisMomentPresets/name, ModelParameters/Advanced/AnalysisMomentPresets/CarCongestionSpeed_date);
+	parameter<string> file_date := rjoin(ModelParameters/AnalysisMoment, ModelParameters/Advanced/AnalysisMomentPresets/name, ModelParameters/Advanced/AnalysisMomentPresets/CarCongestionSpeed_date), Descr = "The folder name of the TomTom edition of the analysis moment.";
 	
-	unit<uint8> Moments : nrofrows = 11
+	unit<uint8> Moments : nrofrows = 11, Descr = "The moments of the TomTom speeds: the speed moments weekday, weekend, week and freeflow, and the seven days of the week."
 	{
 		attribute<string> name : ['weekday','weekend','week','freeflow','sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
 	}
 		
-	container Impl
+	container Impl : Descr = "Makes the four TomTom stores (Roads, Junctions, Speednetworks, Speedprofiles) of the edition from its raw MultiNet files or from an old fss."
 	{
 		parameter<string> dir       := '%NetworkModel_PrivDir%/TomTom/'+file_date+''; //must have forward slashes!
 		
 		parameter<string> Generate_FileList_CSVs := 'Ready', ExplicitSuppliers = "GetFileNames_Network/WriteFilesCSV;GetFileNames_Speedprofiles/WriteFilesCSV";
 		parameter<string> Generate_Stores        := 'Ready', ExplicitSuppliers = "Write_Roads;Write_Junctions;Write_Speednetworks;Write_Speedprofiles";
 
-		// De vier stores uit het ruwe materiaal (Merge_*, map multinet/ van de editie) of, voor een editie die alleen als oude fss
-		// bestaat, uit die fss (FromFss; sinds 2026-10-08). UpdateAll.cmd sources roept deze vier aan.
-		parameter<bool>   HasRawMaterial         := ExistingFile('', expand(., dir + '/multinet')) != '', Descr = "Heeft de editie het ruwe materiaal (multinet/)? Zo niet, dan komen de stores uit de fss (FromFss).";
+		// The four stores come from the raw material (Merge_*, folder multinet/ of the edition) or, for an edition that only exists as an old fss,
+		// from that fss (FromFss). UpdateAll.cmd sources calls these four.
+		parameter<bool>   HasRawMaterial         := ExistingFile('', expand(., dir + '/multinet')) != '', Descr = "True when the edition has the raw material (multinet/); otherwise the stores come from the fss (FromFss).";
 		parameter<string> Write_Roads            := 'Ready', ExplicitSuppliers = "=HasRawMaterial ? 'Merge_Roads' : 'FromFss/Roads'";
 		parameter<string> Write_Junctions        := 'Ready', ExplicitSuppliers = "=HasRawMaterial ? 'Merge_Junctions' : 'FromFss/Junctions'";
 		parameter<string> Write_Speednetworks    := 'Ready', ExplicitSuppliers = "=HasRawMaterial ? 'Merge_Speednetworks' : 'FromFss/Speednetworks'";
@@ -95,7 +95,7 @@ container TomTom
 		, StorageName = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Speednetworks.mmd'"
 		{
 			attribute<uint64> NW_ID                        := ='union_data(., '+asList('Read_TomTom_Files_SP_network/'+FileNames_Speedprofiles_network/name+'/Read/network_id[uint64]', ',')+')', Descr = "network id";
-			attribute<uint8>  VAL_DIR                      := ='union_data(., '+asList('Read_TomTom_Files_SP_network/'+FileNames_Speedprofiles_network/name+'/Read/val_dir[uint8]', ',')+')', Descr = "validity direction: 2 = positieve richting (van F_JNCTID naar T_JNCTID van het wegelement), 3 = negatieve richting";
+			attribute<uint8>  VAL_DIR                      := ='union_data(., '+asList('Read_TomTom_Files_SP_network/'+FileNames_Speedprofiles_network/name+'/Read/val_dir[uint8]', ',')+')', Descr = "Validity direction: 2 = positive direction (from F_JNCTID to T_JNCTID of the road element), 3 = negative direction.";
 			attribute<string> region_code                  := ='union_data(., '+asList('const('+quote(FileNames_Speedprofiles_network/SP_regioncode)+', Read_TomTom_Files_SP_network/'+FileNames_Speedprofiles_network/name+'/Read)', ',')+')', Descr = "file region code";
 			attribute<uint16> SP_freeflow                  := ='union_data(., '+asList('Read_TomTom_Files_SP_network/'+FileNames_Speedprofiles_network/name+'/Read/spfreeflow[uint16]', ',')+')', Descr = "speedprofile freeflow";
 			attribute<uint16> SP_weekday                   := ='union_data(., '+asList('Read_TomTom_Files_SP_network/'+FileNames_Speedprofiles_network/name+'/Read/spweekday[uint16]', ',')+')', Descr = "speedprofile weekday";
@@ -116,19 +116,14 @@ container TomTom
 		{
 			attribute<int32>   profile_id                   := ='union_data(., '+asList('Read_TomTom_Files_SP_profiles/'+FileNames_Speedprofiles_profile/name+'/Read/profile_id', ',')+')', Descr = "profile id";
 			attribute<string>  region_code                  := ='union_data(., '+asList('const('+quote(FileNames_Speedprofiles_profile/SP_regioncode)+', Read_TomTom_Files_SP_profiles/'+FileNames_Speedprofiles_profile/name+'/Read)', ',')+')', Descr = "file region code";
-			attribute<int32>   time_slot                    := ='union_data(., '+asList('Read_TomTom_Files_SP_profiles/'+FileNames_Speedprofiles_profile/name+'/Read/time_slot', ',')+')', Descr = "";
+			attribute<int32>   time_slot                    := ='union_data(., '+asList('Read_TomTom_Files_SP_profiles/'+FileNames_Speedprofiles_profile/name+'/Read/time_slot', ',')+')', Descr = "The start of the time slot, in seconds since 00:00.";
 			attribute<float32> rel_sp                       := ='union_data(., '+asList('Read_TomTom_Files_SP_profiles/'+FileNames_Speedprofiles_profile/name+'/Read/rel_sp[float32]', ',')+')', Descr = "relative speed";
 		}
 
-		// Omzetter voor de edities die alleen als fss van Jip bestaan, yr2022_12 en yr2023_12 (sinds 2026-10-08). Die fss zijn
-		// geschreven toen rdc fpoint was, dragen geen waardetypen en hebben geen ruw materiaal meer naast zich, dus Merge_* kan ze niet
-		// maken. FromFss leest ze met de waardetypen van toen (de geometrie als Geography/rdc_f32, daarna [rdc]) en
-		// schrijft dezelfde vier mmd-stores als Merge_*, in dezelfde map. De fss blijven staan.
-		// Toets van yr2023_12 tegen yr2025_12 (2026-10-08): dezelfde kolommen, behalve VAL_DIR in Speednetworks; de lengte van de lijnen
-		// is METERS (mediaan 1,0000); de knopen liggen op 0,9 cm (mediaan) van dezelfde JNCTID in 2025; per wegtype 0,6 tot 4,0% minder
-		// wegen en 0,1 tot 1,5% minder km (de selectie van het model: 3.711.669 wegen en 349.938 km, tegen 3.796.881 en 352.642); de
-		// profiel-id's van de weekdagen worden even vaak gevonden (65%).
-		container FromFss
+		// Converter for the editions that only exist as fss, yr2022_12 and yr2023_12. Those fss were written when rdc was fpoint, carry no value types
+		// and have no raw material next to them any more, so Merge_* cannot make them. FromFss reads them with the value types of that time (the
+		// geometry as Geography/rdc_f32, then [rdc]) and writes the same four mmd stores as Merge_*, in the same folder. The fss stay in place.
+		container FromFss : Descr = "Makes the four stores of an edition that only exists as fss, reading the fss with the value types of that time."
 		{
 			unit<uint32> Roads_fss
 			:	StorageName     = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Roads_FSS.fss'"
@@ -209,16 +204,10 @@ container TomTom
 				attribute<uint16> SP_Saturday;
 			}
 
-			// VAL_DIR uit de rijvolgorde. Het ruwe materiaal geeft per wegelement eerst de positieve richting (2), dan de negatieve (3);
-			// de vier rijen van een element dat in het NL- en het BE-bestand staat zijn twee zulke paren. Een element met een rij heeft
-			// alleen de rijrichting: 3 bij ONEWAY 'TF', anders 2. Getoetst op yr2025_12, waar VAL_DIR er is: 6.323.310 van 6.331.226
-			// rijen goed (99,87%). Fout zijn 7.259 rijen van elementen met twee rijen (0,13%), vrijwel alle met de volgorde omgekeerd, zodat
-			// de twee richtingen elkaars profiel krijgen, en 657 enkele rijen van wegen die voor auto's gesloten zijn (ONEWAY 'N'), waar het
-			// om en om is. Met de afstand tot de eerste rij van het element in plaats van de rang waren de elementen met vier rijen (NL en BE)
-			// voor 75% goed in plaats van alle. In de ochtendspits (dinsdag 07:30, plafond 100 km/u) krijgen daardoor op yr2025_12 315 van
-			// de 3.519.862 wegen van de selectie een andere linktijd, samen 129 van de 1.227.696 linkminuten (0,010%); zonder richting
-			// (beide richtingen de eerste rij, zoals voor audit 4.2) waren dat 1.772.531 wegen en 7,4% van de linkminuten. De Speedprofiles
-			// (relatieve snelheid per profiel en kwartier) van yr2023_12 zijn gelijk aan die van yr2025_12, alle 421.920 rijen.
+			// VAL_DIR from the row order. The raw material gives for each road element first the positive direction (2), then the negative one (3); the
+			// four rows of an element that is in both the NL and the BE file are two such pairs. An element with one row only has its direction of travel:
+			// 3 with ONEWAY 'TF', else 2. The rule is not exact: for a small share of the elements with two rows the order is reversed, so that the two
+			// directions get each other's profile, and the single rows of roads closed to cars (ONEWAY 'N') alternate.
 			container ValDir
 			{
 				unit<uint32> Element := unique(Speednetworks_fss/NW_ID)
@@ -226,7 +215,7 @@ container TomTom
 					attribute<uint32> NrRows := pcount(../Element_rel);
 				}
 				attribute<Element> Element_rel (Speednetworks_fss) := rlookup(Speednetworks_fss/NW_ID, Element/values);
-				attribute<uint32>  Rank        (Speednetworks_fss) := cumulate(const(1, Speednetworks_fss, uint32), Element_rel) - 1, Descr = "De hoeveelste rij van zijn wegelement, vanaf 0.";
+				attribute<uint32>  Rank        (Speednetworks_fss) := cumulate(const(1, Speednetworks_fss, uint32), Element_rel) - 1, Descr = "The rank of the row within its road element, from 0.";
 				attribute<string>  ONEWAY      (Speednetworks_fss) := Roads_fss/ONEWAY[rlookup(Speednetworks_fss/NW_ID, Roads_fss/NW_ID)];
 				attribute<uint8>   VAL_DIR     (Speednetworks_fss) := Element/NrRows[Element_rel] == 1
 					? (ONEWAY == 'TF' ? 3b : 2b)
@@ -236,7 +225,7 @@ container TomTom
 			,	StorageName = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Speednetworks.mmd'"
 			{
 				attribute<uint64> NW_ID        := Speednetworks_fss/NW_ID, Descr = "network id";
-				attribute<uint8>  VAL_DIR      := ValDir/VAL_DIR, Descr = "validity direction: 2 = positieve richting (van F_JNCTID naar T_JNCTID van het wegelement), 3 = negatieve richting; afgeleid uit de rijvolgorde (FromFss/ValDir)";
+				attribute<uint8>  VAL_DIR      := ValDir/VAL_DIR, Descr = "Validity direction: 2 = positive direction (from F_JNCTID to T_JNCTID of the road element), 3 = negative direction; derived from the row order (FromFss/ValDir).";
 				attribute<string> region_code  := Speednetworks_fss/region_code, Descr = "file region code";
 				attribute<uint16> SP_freeflow  := Speednetworks_fss/SP_freeflow, Descr = "speedprofile freeflow";
 				attribute<uint16> SP_weekday   := Speednetworks_fss/SP_weekday, Descr = "speedprofile weekday";
@@ -283,22 +272,22 @@ container TomTom
 			parameter<string> slash          : ['\\'];
 			
 			parameter<bool> WriteFilesCSV := GetFolderInfo/writeObjectList == 0 ? TRUE : FALSE;
-			//faalt dit? work-around; cmd op multinet map en dan 
+			// If this fails, a work-around: open a cmd window in the multinet folder and run
 			//Dir "C:\GeoDMS\SourceData\NetworkModel_PBL_Priv\TomTom\yr2023_09\multinet
-			//dan
+			// then
 			// Dir "*.shp" >> C:/GeoDMS/LocalData/networkmodel_pbl_v2024/TomTom/dirinfo_yr2023_09_multinet.csv /B /S
 			// Dir "*.shp" >> C:/GeoDMS/LocalData/networkmodel_pbl_v2024/TomTom/dirinfo_yr2024_09_multinet.csv /B /S
 			// Dir "*.shp" >> C:/GeoDMS/LocalData/networkmodel_pbl_v2024/TomTom/dirinfo_yr2024_12_multinet.csv /B /S
 			// Dir "*.shp" >> C:/GeoDMS/LocalData/networkmodel_pbl_v2024/TomTom/dirinfo_yr2025_12_multinet.csv /B /S
-			// bovenaan een regel toeveogen met 'path'
+			// and add a line 'path' at the top
 			
-			//voor profiles:
+			// for the profiles:
 			//Dir "C:\GeoDMS\SourceData\NetworkModel_PBL_Priv\TomTom\yr2023_09\speedprofiles
 			//Dir "*.dbf" >> C:/GeoDMS/LocalData/networkmodel_pbl_v2024/TomTom/dirinfo_yr2023_09_speedprofiles.csv /B /S
 			//Dir "*.dbf" >> C:/GeoDMS/LocalData/networkmodel_pbl_v2024/TomTom/dirinfo_yr2024_09_speedprofiles.csv /B /S
 			//Dir "*.dbf" >> C:/GeoDMS/LocalData/networkmodel_pbl_v2024/TomTom/dirinfo_yr2024_12_speedprofiles.csv /B /S
 			//Dir "*.dbf" >> C:/GeoDMS/LocalData/networkmodel_pbl_v2024/TomTom/dirinfo_yr2025_12_speedprofiles.csv /B /S
-			// bovenaan een regel toeveogen met 'path'
+			// and add a line 'path' at the top
 
 			container GetFolderInfo
 			{
@@ -378,14 +367,14 @@ container TomTom
 					attribute<string> path            := ../path[org_rel];
 				}
 				unit<uint32> Files_HSNP := select_with_org_rel(IsHSNP)
-				, Descr = "Historical Speed Network Profile: Gemiddelde snelheden per segment, gebaseerd op historische metingen op een bepaald tijdstip of per tijdvak. Wordt per link gedefinieerd."
+				, Descr = "Historical Speed Network Profile: the average speeds per segment, based on historical measurements at a given time or per time period, defined per link."
 				{
 					attribute<string> name            := ../name[org_rel];
 					attribute<string> path            := ../path[org_rel];
 					attribute<string> SP_regioncode   := ../SP_regioncode[org_rel];
 				}
 				unit<uint32> Files_HSPR := select_with_org_rel(IsHSPR)
-				, Descr = "Historical Speed Profile: Gedetailleerd snelheidsprofiel, vaak met snelheidswaarden per 5 of 15 minuten voor typische dagen (bijv. dinsdag vs. zaterdag)."
+				, Descr = "Historical Speed Profile: a detailed speed profile, often with a speed value per 5 or 15 minutes for typical days (for example Tuesday versus Saturday)."
 				{
 					attribute<string> name            := ../name[org_rel];
 					attribute<string> path            := ../path[org_rel];
@@ -395,15 +384,13 @@ container TomTom
 		}
 	}
 
-	// Een read-only MMD-lezer mag sinds GeoDMS 20.19.0 (issue #1245) zelf geen sub-items declareren:
-	// de dictionary van de store bepaalt ze en controleert bij het lezen de waardetypen (0Dictionary.dms
-	// in de mmd). Daarom per store een kale lezer <naam>_store, met daarnaast de unit die de config al
-	// gebruikte: die geeft de opgeslagen kolommen door en houdt de afgeleiden. Alle paden buiten dit
-	// bestand blijven zo gelijk.
+	// A read-only mmd reader may not declare sub-items (ObjectVision/GeoDMS#1245): the dictionary of the store (0Dictionary.dms in the mmd)
+	// defines them and checks their value types on reading. So each store has a bare reader Read_<name>, and next to it the unit that the
+	// configuration uses, which passes on the stored columns and holds the derived ones; all paths outside this file stay the same.
 	unit<uint32>  Read_Junctions
 	: StorageName = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Junctions.mmd'"
 	, StorageReadOnly = "true"
-	, Descr = "Kale lezer van de Junctions-store; declareert niets, de dictionary levert de kolommen."
+	, Descr = "Bare reader of the Junctions store; it declares nothing, the dictionary supplies the columns."
 	;
 
 	unit<uint32>  Junctions0 := Read_Junctions
@@ -417,7 +404,7 @@ container TomTom
 		attribute<Junctions> Junctions_rel := rlookup(JNCTID, junctions/values);
 	}
 	
-	unit<uint32>  Junctions := unique(Junctions0/JNCTID)
+	unit<uint32>  Junctions := unique(Junctions0/JNCTID), Descr = "The TomTom junctions, one per JNCTID."
 	{
 		attribute<rdc>            geometry         := first(Junctions0/geometry, Junctions0/Junctions_rel);
 		attribute<int32>          FeatureType      := first(Junctions0/FeatureType, Junctions0/Junctions_rel);
@@ -427,7 +414,7 @@ container TomTom
 		attribute<bool>           Connectable      := rjoin(JNCTID, Roads/F_JNCTID, Roads/Connectable) || rjoin(JNCTID, Roads/T_JNCTID, Roads/Connectable);
 	}
 	
-	unit<uint32> TexelHack : nrofrows = 1, Using = "units"
+	unit<uint32> TexelHack : nrofrows = 1, Using = "units", Descr = "A polygon around the ferry port on Texel, in which Roads makes the roads two-way."
 	{
 		parameter<rdc> top_left     := point_xy(113790d, 557996d, rdc); // X=113790.89; Y=557996.776; ZL=0.297619048
 		parameter<rdc> top_right    := point_xy(114661d, 557946d, rdc); // X=114661.13; Y=557946.376; ZL=0.297619048
@@ -445,15 +432,15 @@ container TomTom
 		attribute<rdc> polygon (poly)      := points2sequence(point_set/point, point_set/sequence_rel, point_set/ordinal);
 	}
 	
-	// Kale lezer, zie de toelichting bij Read_Junctions: onder een read-only MMD-lezer mag niets
-	// gedeclareerd worden (#1245), dus staan de doorgeefkolommen en de afgeleiden een niveau hoger.
+	// Bare reader, see the explanation at Read_Junctions: nothing may be declared under a read-only mmd reader (ObjectVision/GeoDMS#1245),
+	// so the pass-through columns and the derived ones are one level up.
 	unit<uint32>  Read_Roads
 	: StorageName = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Roads.mmd'"
 	, StorageReadOnly = "true"
-	, Descr = "Kale lezer van de Roads-store; declareert niets, de dictionary levert de kolommen."
+	, Descr = "Bare reader of the Roads store; it declares nothing, the dictionary supplies the columns."
 	;
 
-	unit<uint32>  Roads := Read_Roads
+	unit<uint32>  Roads := Read_Roads, Descr = "The TomTom road elements of the store, with their direction of travel, their junctions and the flags for the selection."
 	{
 		attribute<rdc>                     geometry (arc)         := Read_Roads/geometry;
 		attribute<uint64>                  NW_ID                  := Read_Roads/NW_ID;
@@ -476,9 +463,8 @@ container TomTom
 		attribute<min_f>          MINUTES := Read_Roads/MINUTES;
 		attribute<string>         ONEWAY := Read_Roads/ONEWAY;
 		attribute<bool>           IsInTexelHack         := IsDefined(point_in_polygon(first_point(geometry), TexelHack/polygon)) || IsDefined(point_in_polygon(last_point(geometry), TexelHack/polygon));
-		attribute<Directions_TomTom> Direction0            := MakeDefined(rlookup(Oneway, Directions_TomTom/code), 0[Directions_TomTom]); // relevant voor latere routen (bij direction = 3 moet je f_ en t_ swappen, bij 3 & 4 geldt oneWayTraffic)
-		// De Texel-hack maakt de wegen bij de veerhaven tweerichting, maar sinds 2026-09-25 niet een weg die voor auto's gesloten is
-		// (ONEWAY 'N'; audit 4.4). In editie 2025.12 ligt er geen zo'n weg in de polygoon, dus de uitkomst verandert niet.
+		attribute<Directions_TomTom> Direction0            := MakeDefined(rlookup(Oneway, Directions_TomTom/code), 0[Directions_TomTom]); // relevant for routing later: with direction = 3, f_ and t_ must be swapped, and with 3 and 4 the traffic is one-way
+		// The Texel hack makes the roads near the ferry port two-way, but not a road that is closed to cars (ONEWAY 'N').
 		attribute<Directions_TomTom> Direction             := IsInTexelHack && Direction0 != Directions_TomTom/v/nocars ? Directions_TomTom/v/dual : Direction0;
 		attribute<bool>           IsOneDirection        := Direction == Directions_TomTom/v/backwards || Direction == Directions_TomTom/v/forwards;
 		attribute<km_hr>          KPH := Read_Roads/KPH;
@@ -486,21 +472,18 @@ container TomTom
 		attribute<int8>           T_ELEV := Read_Roads/T_ELEV;
 		attribute<bool>           IsFerry               := FerryType == 1b;
 		attribute<bool>           IsStreetTypeSelection  := ='FRC_rel <= '+ModelParameters/Advanced/TomTom_StreetTypeSelection;
-		// Sinds 2026-09-25 (audit 4.4 en 4.5): alleen wegelementen (FEATTYP 4110) en veerverbindingen (4130), niet de 375
-		// adresgebiedgrenzen (4165, FRC -1) die tot dan alleen via een overloop in FRC_rel wegvielen; en elk NW_ID een keer: de
-		// 4.078 NW_ID's die zowel in het NL- als het BE-bestand staan (exact gelijk) gaven een dubbele link, waardoor een gewoon
-		// wegpunt als kruispunt een penalty kreeg.
+		// Only road elements (FEATTYP 4110) and ferry connections (4130), not the address area boundaries (4165, FRC -1); and each NW_ID once,
+		// because an NW_ID that is in both the NL and the BE file would give a double link and make an ordinary road point a junction with a penalty.
 		attribute<bool>           IsRoadOrFerry         := FeatureType == 4110i || FeatureType == 4130i;
 		attribute<bool>           IsFirstOfNW_ID        := rlookup(NW_ID, NW_ID) == id(.);
 		attribute<bool>           Connectable           := FRC_rel != Classifications/FuncRoadClass/V/Motorway_Freeway_or_Other_Major_Road;
 	}
 	
-	unit<uint32> Roads_selection := select_with_attr_by_cond(Roads, Roads/IsStreetTypeSelection && Roads/IsRoadOrFerry && Roads/IsFirstOfNW_ID)
+	unit<uint32> Roads_selection := select_with_attr_by_cond(Roads, Roads/IsStreetTypeSelection && Roads/IsRoadOrFerry && Roads/IsFirstOfNW_ID), Descr = "The road elements of the car network: the street types up to ModelParameters/Advanced/TomTom_StreetTypeSelection, only roads and ferries, and each NW_ID once."
 	{
-		// Het speedprofile heeft per wegelement een rij per richting (VAL_DIR 2 = positief, van F_JNCTID naar T_JNCTID;
-		// 3 = negatief), met eigen profielen en een eigen freeflowsnelheid. 'fwd' is de rijrichting van het wegelement
-		// zoals het autonet hem gebruikt (F_JNCTID_directed naar T_JNCTID_directed; bij TF de negatieve richting), 'bwd'
-		// de tegenrichting van een tweerichtingsweg. Tot 2026-09-25 kregen beide richtingen de eerste rij (audit 4.2).
+		// The speed profile has one row per direction for each road element (VAL_DIR 2 = positive, from F_JNCTID to T_JNCTID; 3 = negative),
+		// each with its own profiles and its own free-flow speed. 'fwd' is the direction of travel of the road element as the car network uses it
+		// (F_JNCTID_directed to T_JNCTID_directed; with TF the negative direction), 'bwd' the opposite direction of a two-way road.
 		attribute<Speednetworks>  Speednetworks_pos_rel  := rlookup(NW_ID * 4u64 + 2u64, Speednetworks/NW_DIR_key);
 		attribute<Speednetworks>  Speednetworks_neg_rel  := rlookup(NW_ID * 4u64 + 3u64, Speednetworks/NW_DIR_key);
 		attribute<Speednetworks>  Speednetworks_fwd_rel  := Direction == Directions_TomTom/v/backwards ? Speednetworks_neg_rel : Speednetworks_pos_rel;
@@ -542,8 +525,7 @@ container TomTom
 		{ 
 			parameter<string> Time;
 			///
-			// Plafond op de autosnelheid van dit congestiemoment (ModelParameters/Advanced/CongestionTimes/MaxSpeed; 0 = geen):
-			// 100 km/u overdag. Freeflow valt er niet onder. Sinds 2026-09-25.
+			// Cap on the car speed of this congestion moment (ModelParameters/Advanced/CongestionTimes/MaxSpeed; 0 means none); freeflow is never capped.
 			parameter<km_hr> MaxSpeed := MakeDefined(rjoin(Time, ModelParameters/Advanced/CongestionTimes/name, ModelParameters/Advanced/CongestionTimes/MaxSpeed), 0[km_hr]);
 			
 			container PerMoment :=
@@ -556,10 +538,10 @@ container TomTom
 			{
 				parameter<string> Moment;
 				//
-				// Reistijd per rijrichting: lengte gedeeld door de TomTom-snelheid van die richting op dit moment
-				// (Speednetworks/CalcTimes/<tijd>/PerMoment/<moment>/Speed); zonder speedprofile-rij de reistijd van het
-				// wegennet (MINUTES van MultiNet). Minutes en kph zijn de rijrichting van het autonet (fwd), Minutes_bwd en
-				// kph_bwd de tegenrichting van een tweerichtingsweg (audit 4.1, 4.2 en 4.3, 2026-09-25).
+				// Travel time per direction: the length divided by the TomTom speed of that direction at this moment
+				// (Speednetworks/CalcTimes/<time>/PerMoment/<moment>/Speed); without a speed profile row it is the travel time of the road network
+				// (MINUTES of MultiNet). Minutes and kph are the direction of travel of the car network (fwd), Minutes_bwd and kph_bwd the opposite
+				// direction of a two-way road.
 				parameter<bool>  IsCapped                         := MaxSpeed > 0[km_hr] && lowercase(Moment) != 'freeflow';
 				attribute<min_f> Minutes_uncapped     (Roads_selection) := ='MakeDefined(convert(convert(Roads_selection/meters, km) / Speednetworks/CalcTimes/'+Time+'/PerMoment/'+Moment+'/Speed[Speednetworks_fwd_rel], min_f), Roads_selection/Minutes)';
 				attribute<min_f> Minutes_bwd_uncapped (Roads_selection) := ='MakeDefined(convert(convert(Roads_selection/meters, km) / Speednetworks/CalcTimes/'+Time+'/PerMoment/'+Moment+'/Speed[Speednetworks_bwd_rel], min_f), Roads_selection/Minutes)';
@@ -578,19 +560,19 @@ container TomTom
 		, DialogType = "map";
 	}
 	
-	// Kale lezer, zie de toelichting bij Read_Junctions (#1245).
+	// Bare reader, see the explanation at Read_Junctions (ObjectVision/GeoDMS#1245).
 	unit<uint32>  Read_Speednetworks
 	: StorageName = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Speednetworks.mmd'"
 	, StorageReadOnly = "true"
-	, Descr = "Kale lezer van de Speednetworks-store; declareert niets, de dictionary levert de kolommen."
+	, Descr = "Bare reader of the Speednetworks store; it declares nothing, the dictionary supplies the columns."
 	;
 
-	unit<uint32>  Speednetworks := Read_Speednetworks
+	unit<uint32>  Speednetworks := Read_Speednetworks, Descr = "The speed rows of the edition, one per direction of a road element, with their speeds and their profile ids per day of the week."
 	{
 		attribute<uint64> NW_ID := Read_Speednetworks/NW_ID;
 		attribute<string> region_code := Read_Speednetworks/region_code;
 		attribute<uint8>  VAL_DIR := Read_Speednetworks/VAL_DIR;
-		attribute<uint64> NW_DIR_key := NW_ID * 4u64 + uint64(VAL_DIR), Descr = "Sleutel (wegelement, richting); een wegelement heeft een rij per richting (audit 4.2).";
+		attribute<uint64> NW_DIR_key := NW_ID * 4u64 + uint64(VAL_DIR), Descr = "Key of road element and direction; a road element has one row per direction.";
 		
 		attribute<uint16> SP_freeflow := Read_Speednetworks/SP_freeflow;
 		attribute<uint16> SP_weekday := Read_Speednetworks/SP_weekday;
@@ -607,7 +589,7 @@ container TomTom
 		
 		attribute<Roads>  Roads_rel    := rlookup(NW_ID, Roads/NW_ID);
 		attribute<SpeedProfileKeys> DayProfile_rel := ='rlookup(region_code + ''_'' + string(SP_' + ModelParameters/Advanced/CongestionSpeed_DaySelection + '), SpeedProfileKeys/values)'
-		, Descr = "Het profiel van de dag CongestionSpeed_DaySelection (een weekdag; SP_<dag> draagt dan een profiel-id) in SpeedProfileKeys, voor de tijdafhankelijke autorit (ModelParameters/Impl/CarTimeDependent, sinds 2026-10-09); null zonder profiel, zoals de momentopname dan MINUTES neemt.";
+		, Descr = "The profile of the day CongestionSpeed_DaySelection (a weekday, whose SP_<day> holds a profile id) in SpeedProfileKeys, for the time-dependent car trip (ModelParameters/Impl/CarTimeDependent, #132); null without a profile, and the snapshot then takes MINUTES as well.";
 		
 		container CalcTimes :=
 			for_each_ne(
@@ -635,32 +617,29 @@ container TomTom
 				parameter<string> Moment;
 				//
 				
-				// De weekdagen dragen in SP_<dag> een profiel-id (profile_1..7), met per kwartier een relatieve snelheid in
-				// procenten van SPFREEFLOW; freeflow, weekday, weekend en week dragen in SP_<moment> zelf een snelheid in km/u.
-				// Speed is daarom SP_<moment> voor een snelheidsmoment en SP_freeflow x relatieve snelheid voor een weekdag.
-				// Tot 2026-09-25 werd een snelheid als profiel-id opgezocht (audit 4.1, gemiddeld factor 0,90 van een willekeurig
-				// profiel) en werd de relatieve snelheid op de MultiNet-reistijd gezet (audit 4.3), die op 64% van de links
-				// sneller is dan SPFREEFLOW; Freeflow was daardoor het langzaamste moment.
-				parameter<bool>    IsSpeedMoment                 := lowercase(Moment) == 'freeflow' || lowercase(Moment) == 'weekday' || lowercase(Moment) == 'weekend' || lowercase(Moment) == 'week', Descr = "TRUE als SP_<moment> een snelheid is in plaats van een profiel-id.";
+				// The weekdays hold a profile id in SP_<day> (profile_1..7), with a relative speed per quarter of an hour in percent of SPFREEFLOW; freeflow,
+				// weekday, weekend and week hold a speed in km/h in SP_<moment> itself. Speed is therefore SP_<moment> for a speed moment and
+				// SP_freeflow x relative speed for a weekday.
+				parameter<bool>    IsSpeedMoment                 := lowercase(Moment) == 'freeflow' || lowercase(Moment) == 'weekday' || lowercase(Moment) == 'weekend' || lowercase(Moment) == 'week', Descr = "True when SP_<moment> is a speed instead of a profile id.";
 				attribute<uint16>  SP            (Speednetworks) := ='SP_'+Moment;
 				attribute<km_hr>   Speed         (Speednetworks) := = IsSpeedMoment
 					? 'SP > 0w ? value(float32(SP), km_hr) : value(null_f, km_hr)'
 					: 'SP_freeflow > 0w ? value(float32(SP_freeflow), km_hr) * factor : value(null_f, km_hr)'
-				,	Descr = "De snelheid van deze rij (een richting van een wegelement) op dit moment; null zonder snelheid of profiel.";
+				,	Descr = "The speed of this row (one direction of a road element) at this moment; null without a speed or profile.";
 				attribute<string>  Region_SP_key (Speednetworks) := region_code + '_' + string(SP) + '_' + string(Time_in_seconds);
-				attribute<float32> factor        (Speednetworks) := = IsSpeedMoment ? 'const(null_f, Speednetworks, float32)' : 'rjoin(Region_SP_key, Speedprofiles/Region_Profile_TimeSlot_key, Speedprofiles/rel_sp / 100f)', Descr = "De relatieve snelheid van het profiel op dit tijdstip; null voor een snelheidsmoment.";
+				attribute<float32> factor        (Speednetworks) := = IsSpeedMoment ? 'const(null_f, Speednetworks, float32)' : 'rjoin(Region_SP_key, Speedprofiles/Region_Profile_TimeSlot_key, Speedprofiles/rel_sp / 100f)', Descr = "The relative speed of the profile at this time; null for a speed moment.";
 			}
 		}
 	}
 	
-	// Kale lezer, zie de toelichting bij Read_Junctions (#1245).
+	// Bare reader, see the explanation at Read_Junctions (ObjectVision/GeoDMS#1245).
 	unit<uint32>  Read_Speedprofiles
 	: StorageName = "='%NetworkModel_PrivDir%/TomTom/'+file_date+'/Speedprofiles.mmd'"
 	, StorageReadOnly = "true"
-	, Descr = "Kale lezer van de Speedprofiles-store; declareert niets, de dictionary levert de kolommen."
+	, Descr = "Bare reader of the Speedprofiles store; it declares nothing, the dictionary supplies the columns."
 	;
 
-	unit<uint32>  Speedprofiles := Read_Speedprofiles
+	unit<uint32>  Speedprofiles := Read_Speedprofiles, Descr = "The relative speed per speed profile and time slot."
 	{
 		attribute<int32>   profile_id := Read_Speedprofiles/profile_id;
 		attribute<string>  region_code := Read_Speedprofiles/region_code;
@@ -674,25 +653,25 @@ container TomTom
 		attribute<int32>   minutes       := (time_slot - (hour * 60i * 60i)) / 60i;
 		attribute<upoint>  unipt         := point(uint32(profile_id), uint32(time_slot), upoint);
 		attribute<SpeedProfileKeys> Profile_rel  := rlookup(SP_profile_ID, SpeedProfileKeys/values);
-		attribute<uint32>  ProfileDaySlot_key    := uint32(Profile_rel) * 288 + uint32(time_slot) / 300, Descr = "De plaats in ProfileDaySlot: profiel na profiel, per profiel de tijdvakken van 300 s vanaf 00:00.";
+		attribute<uint32>  ProfileDaySlot_key    := uint32(Profile_rel) * 288 + uint32(time_slot) / 300, Descr = "The position in ProfileDaySlot: profile after profile, and per profile the time slots of 300 s from 00:00.";
 	}
 
-	// Tijdafhankelijke autorit (ModelParameters/Impl/CarTimeDependent, sinds 2026-10-09, NetworkModel_PBL#132): de relatieve snelheid per profiel en
-	// tijdvak als tabel, en welke profielen in het venster van de vertrekmomenten (CarTD_WindowStart, CarTD_NrSlots) veranderen. De linktijden
-	// per tijdvak en de factoren voor de zoektocht staan in Templates/CreateNetwork_TomTom_T, TimeDependent.
+	// Time-dependent car trip (ModelParameters/Impl/CarTimeDependent, #132): the relative speed per profile and time slot as a table, and which
+	// profiles change in the window of the departure moments (CarTD_WindowStart, CarTD_NrSlots). The link times per time slot and the factors
+	// for the search are in Templates/CreateNetwork_TomTom_T, TimeDependent.
 	unit<uint32> SpeedProfileKeys := unique(Speedprofiles/SP_profile_ID)
-	, Descr = "De snelheidsprofielen: regio en profiel-id (Speedprofiles/SP_profile_ID), 1.465 voor NL en BE in de edities 2023.12 en 2025.12."
+	, Descr = "The speed profiles: region and profile id (Speedprofiles/SP_profile_ID)."
 	{
 		attribute<bool> VariesInWindow := max(WindowSlot/rel_speed, WindowSlot/Profile_rel) > min(WindowSlot/rel_speed, WindowSlot/Profile_rel) || any(not(IsDefined(WindowSlot/rel_speed)), WindowSlot/Profile_rel)
-		, Descr = "Verandert de relatieve snelheid van dit profiel in het venster (of ontbreekt hij in een tijdvak)? Zo niet, dan is de linktijd daar constant en krijgt de link geen eigen profiel.";
+		, Descr = "True when the relative speed of this profile changes within the window or is missing in a time slot; otherwise the link time is constant there and the link gets no profile of its own.";
 	}
 	unit<uint32> ProfileDaySlot := range(uint32, 0, #SpeedProfileKeys * 288)
-	, Descr = "Per profiel de 288 tijdvakken van 300 s van een dag, profiel na profiel."
+	, Descr = "The 288 time slots of 300 s of a day for each profile, profile after profile."
 	{
-		attribute<float32> rel_speed := rjoin(uint32(id(.)), Speedprofiles/ProfileDaySlot_key, Speedprofiles/rel_sp) / 100f, Descr = "De snelheid ten opzichte van SP_freeflow (rel_sp is in procenten).";
+		attribute<float32> rel_speed := rjoin(uint32(id(.)), Speedprofiles/ProfileDaySlot_key, Speedprofiles/rel_sp) / 100f, Descr = "The speed relative to SP_freeflow (rel_sp is in percent).";
 	}
 	unit<uint32> WindowSlot := range(uint32, 0, #SpeedProfileKeys * ModelParameters/Advanced/CarTD_NrSlots)
-	, Descr = "Per profiel de tijdvakken van het venster, profiel na profiel."
+	, Descr = "The time slots of the window for each profile, profile after profile."
 	{
 		attribute<SpeedProfileKeys> Profile_rel := value(uint32(id(.)) / ModelParameters/Advanced/CarTD_NrSlots, SpeedProfileKeys);
 		attribute<float32>          rel_speed   := ProfileDaySlot/rel_speed[value(uint32(Profile_rel) * 288 + ModelParameters/Advanced/CarTD_WindowStart / 300 + uint32(id(.)) % ModelParameters/Advanced/CarTD_NrSlots, ProfileDaySlot)];

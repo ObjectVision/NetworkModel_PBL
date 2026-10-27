@@ -7,7 +7,7 @@ container LoadFeeds
 	{
 		attribute<string> Name: ['agency','calendar','calendar_dates','routes','shapes','stop_times','stops','trips'];
 		attribute<string> StoreName: ['agency','Calendar','Calendar_dates','Routes','Shapes','Stop_times','Stops','Trips']
-		,	Descr = "Naam van de tabel IN de mmd-store, in de schrijfwijze waarmee de rest van de config hem leest (Read/Stop_times, Read/Shapes, ...). Name is de bestandsnaam van de csv en blijft kleine letters.";
+		,	Descr = "The name of the table in the mmd store, in the spelling with which the rest of the configuration reads it (Read/Stop_times, Read/Shapes and so on); Name is the file name of the csv and stays lower case.";
 	}
 	
 	unit<uint32>                 Attribute_Structure   : NrOfRows = 32
@@ -35,20 +35,13 @@ container LoadFeeds
 		unit<uint32> CSV_attributes := SubItem_PropValues(ReadCSV,'name');
 	}
 
-	// De store-holder bevat per tabel alleen domain en data. Dat is geen stijlkeuze: sinds GeoDMS
-	// 20.19.0 (issue #1245) weigert de MMD-writer elk item met DisableStorage onder zijn holder, en
-	// een template kan zijn case-parameters niet buiten de instantiatie houden. Het oude
-	// LoadDataForWriting_T stond WEL onder de holder, met DisableStorage op inFile en op
-	// CSV_attributes; van inFile ging die vlag voor de #1245-fix verloren bij instantiatie, waardoor
-	// hij in 20241001.mmd als parameter meegeschreven is (zie 0Dictionary.dms daar), en
-	// CSV_attributes werd stil overgeslagen. Met een actuele engine is dat een harde fout.
-	// Het inlezen gebeurt dus in Load (buiten de holder) en de tabellen verwijzen daar rechtstreeks
-	// naar; een template onder de holder is niet meer nodig.
+	// The store holder holds only domain and data per table. That is no style choice: the mmd writer refuses every item with DisableStorage
+	// under its holder (ObjectVision/GeoDMS#1245), and a template cannot keep its case parameters outside the instantiation. So the reading
+	// happens in Load, outside the holder, and the tables refer to it directly.
 	//
-	// of een meta-gescripte verwijzing per tabelnaam) schrijft NIETS en meldt dat niet: de sub-items
-	// van een verwezen container zijn engine-schaduwen, die de writer overslaat, en de run eindigt
-	// met exit 0 zonder store. Vandaar de acht expliciete blokken; de tabelnamen staan als
-	// File_Structure/StoreName ook in de lijst hierboven.
+	// A holder that refers to a container outside itself (container Write := <other container>, or a meta-scripted reference per table name)
+	// writes nothing and does not report it: the sub-items of a referenced container are engine shadows, which the writer skips, and the run
+	// ends with exit 0 without a store. Hence the eight explicit blocks; the table names are also in File_Structure/StoreName above.
 	container Write
 	:	StorageName = "= '%NetworkModel_dir%/Infrastructuur/GTFS/'+ModelParameters/Impl/GTFS_file_date+'.mmd'"
 	{
@@ -160,8 +153,7 @@ container LoadFeeds
 		attribute<uint32>   nDate       := uint32(Read/Calendar_dates/data/date), Descr = "Date when service exception occurs";
 		attribute<uint32>   nType       := uint32(Read/Calendar_dates/data/exception_type), Descr = "exception_type = 1 -> Service has been added for the specified date; exception_type = 2 -> Service has been removed for the specified date.";
 		attribute<Services> Services_rel := rlookup(Read/Calendar_dates/data/service_id, Services/Values), Descr = "Identifies a set of dates when a service exception occurs for one or more routes.";
-		// Sinds 2026-09-25 (audit 3.5) via ServiceDays: tot dan was gisteren uint32(Analysis_date) - 1, op de eerste van
-		// een maand een datum die niet bestaat (20241001 - 1 = 20241000), zodat geen enkele rit van de vorige dag meedeed.
+		// The service days come from ServiceDays, which derives them from a day number, so that the day before the first of a month is a real date.
 		attribute<uint32>   Today       := uint32(ServiceDays/Today_date     = nDate);
 		attribute<uint32>   Yesterday   := uint32(ServiceDays/Yesterday_date = nDate);
 		attribute<uint32>   Tomorrow    := uint32(ServiceDays/Tomorrow_date  = nDate);
@@ -169,17 +161,17 @@ container LoadFeeds
 	}
 
 	unit<uint32> CalendarDates := unique(Calendar_dates/nDate)
-	, Descr = "De datums in calendar_dates, met het aantal ritten per datum en de drukste datum per weekdag, voor de controle in ServiceDays."
+	, Descr = "The dates in calendar_dates, with the number of trips per date and the busiest date per weekday, for the check in ServiceDays."
 	{
 		attribute<uint32>   yyyymmdd              := values;
 		container           Day                   := /Templates/DayNr_T(., yyyymmdd);
 		attribute<Weekdays> Weekday_rel           := value(Day/Weekday, Weekdays);
-		attribute<uint32>   NrTrips               := sum(Calendar_dates/nType == 1 ? Services/NrTrips[Calendar_dates/Services_rel] : 0, Calendar_dates/CalendarDate_rel), Descr = "Ritten van de diensten die op deze datum worden toegevoegd (exception_type 1).";
+		attribute<uint32>   NrTrips               := sum(Calendar_dates/nType == 1 ? Services/NrTrips[Calendar_dates/Services_rel] : 0, Calendar_dates/CalendarDate_rel), Descr = "Trips of the services that are added on this date (exception_type 1).";
 		attribute<uint32>   MaxTrips_PerWeekday (Weekdays) := max(NrTrips, Weekday_rel);
 	}
 
 	container ServiceDays
-	: Descr = "De dienstdagen rond Analysis_date (D): D-1, D en D+1. Het netwerk legt ze op een tijdas in seconden sinds 00:00 van D: van D alle ritten met hun GTFS-tijd (ook 24:00 en later), van D-1 de ritten na middernacht (GTFS-tijd 24:00 en later, min 24 uur), van D+1 de ritten die beginnen voor het einde van het analysevenster (plus 24 uur). De datums volgen uit een dagnummer, niet uit rekenen op de cijfers."
+	: Descr = "The service days around Analysis_date (D): D-1, D and D+1, which the network lays on one time axis in seconds since 00:00 of D, with all trips of D at their GTFS time (also 24:00 and later), the trips of D-1 after midnight (GTFS time 24:00 and later, minus 24 hours) and the trips of D+1 that start before the end of the analysis window (plus 24 hours); the dates follow from a day number, not from arithmetic on the digits."
 	{
 		unit<uint32> AnalysisDay : nrofrows = 1
 		{
@@ -195,11 +187,11 @@ container LoadFeeds
 			container                Civil                := /Templates/CivilDate_T(., DayNr);
 			attribute<uint32>        yyyymmdd             := Civil/yyyymmdd;
 			attribute<Weekdays>      Weekday_rel          := value((DayNr + 3) % 7, Weekdays);
-			attribute<bool>          IsDSTChange          := Weekday_rel == Weekdays/V/sunday && (Civil/M == 3 || Civil/M == 10) && Civil/D >= 25, Descr = "Laatste zondag van maart of oktober: de GTFS-tijden van die dag tellen vanaf 12:00 min 12 uur, en dat is dan geen middernacht.";
+			attribute<bool>          IsDSTChange          := Weekday_rel == Weekdays/V/sunday && (Civil/M == 3 || Civil/M == 10) && Civil/D >= 25, Descr = "The last Sunday of March or October: the GTFS times of that day count from 12:00 minus 12 hours, which is then not midnight.";
 			attribute<bool>          IsNeeded             := id(.) == 1
 			                                                 || (id(.) == 0 && ModelParameters/Impl/PT_FirstDepartureMoment < ModelParameters/Impl/PrevServiceDayTailEnd)
 			                                                 || (id(.) == 2 && uint32(ModelParameters/Impl/PT_LastArrivalMoment) > 86400)
-			, Descr = "D altijd; D-1 als het venster voor PrevServiceDayTailEnd begint; D+1 als het venster na middernacht doorloopt.";
+			, Descr = "D always; D-1 when the window starts before PrevServiceDayTailEnd; D+1 when the window runs on past midnight.";
 			attribute<CalendarDates> CalendarDate_rel     := rlookup(yyyymmdd, CalendarDates/yyyymmdd);
 			attribute<uint32>        NrTrips              := MakeDefined(CalendarDates/NrTrips[CalendarDate_rel], 0);
 			attribute<uint32>        MaxTrips_SameWeekday := MakeDefined(CalendarDates/MaxTrips_PerWeekday[Weekday_rel], 0);
@@ -215,10 +207,10 @@ container LoadFeeds
 		parameter<uint32> Tomorrow_date  := Days/yyyymmdd[value(2, Days)];
 		parameter<string> Report         := asList(Days/Report, '; ');
 
-		// De drie controles worden gerekend zodra het OV-netwerk wordt opgebouwd (ExplicitSuppliers van RelevantSelection/ScheduledLinks).
+		// The three checks are calculated as soon as the public transport network is built (ExplicitSuppliers of RelevantSelection/ScheduledLinks).
 		parameter<bool> Check_ServiceDaysComplete := all(!Days/IsNeeded || Days/IsComplete)
 		, IntegrityCheck = "Check_ServiceDaysComplete == True"
-		, Descr = "Elke dienstdag die het analysevenster nodig heeft staat in de feed met minstens MinServiceDayTripShare van de ritten van de drukste dag van dezelfde weekdag. Zie Report voor de aantallen.";
+		, Descr = "Every service day that the analysis window needs is in the feed with at least MinServiceDayTripShare of the trips of the busiest day of the same weekday; Report gives the numbers.";
 		parameter<string>   CongestionDay := lowercase(ModelParameters/Advanced/CongestionSpeed_DaySelection);
 		parameter<Weekdays> Today_Weekday := Days/Weekday_rel[value(1, Days)];
 		parameter<bool> Check_WeekdayMatchesCongestionDay :=
@@ -227,13 +219,13 @@ container LoadFeeds
 			|| (CongestionDay == 'weekend' && Today_Weekday >= Weekdays/V/saturday)
 			|| CongestionDay == Weekdays/name[Today_Weekday]
 		, IntegrityCheck = "Check_WeekdayMatchesCongestionDay == True"
-		, Descr = "De weekdag van Analysis_date past bij Advanced/CongestionSpeed_DaySelection, de dag van de TomTom-snelheden voor de auto.";
+		, Descr = "The weekday of Analysis_date matches Advanced/CongestionSpeed_DaySelection, the day of the TomTom speeds for the car.";
 		parameter<bool> Check_NoDSTChange := all(!(Days/IsDSTChange && Days/IsNeeded && id(Days) >= 1))
 		, IntegrityCheck = "Check_NoDSTChange == True"
-		, Descr = "D, en D+1 als het venster na middernacht doorloopt, is geen dag van een zomertijdwissel (de ritten van D-1 na middernacht komen ook dan goed uit).";
+		, Descr = "Neither D nor, when the window runs on past midnight, D+1 is a day with a change to or from daylight saving time (the trips of D-1 after midnight come out right even then).";
 	}
 	
-	unit<uint32> protoStops := Read/Stops/domain
+	unit<uint32> protoStops := Read/Stops/domain, Descr = "The stops of the feed, with their point in RD and whether a selected trip uses them."
 	{
 		attribute<float64>           stop_lat            := float64(Read/Stops/data/stop_lat);
 		attribute<float64>           stop_lon            := float64(Read/Stops/data/stop_lon);
@@ -241,11 +233,9 @@ container LoadFeeds
 		attribute<string>            stop_name           := Read/Stops/data/stop_name;
 		attribute<dpoint>            point_wgs           := point_xy(float64(stop_lon), float64(stop_lat), wgs84_base);
 		attribute<rdc>               geometry_feed       := LatLongWgs842RD(point_wgs, rdc);
-		// Sinds 2026-10-21: een halte met de coordinaten (0, 0) in de feed krijgt het punt van zijn parent_station. In de feed van
-		// 20260925 zijn het er 187, waarvan 45 met stop_times: Duitse perrons van de ICE Amsterdam-Berlijn/Hamburg en van DB
-		// (Muenster, Dortmund, Luenen), alle met een parent met een punt. Tot dan lagen ze samen in de Golf van Guinee: een
-		// stopcluster, overstappen op afstand 0, en in de PT_NetworkExport (#57) segmenten van 6000 km. Zonder parent met een
-		// punt blijft het punt uit de feed.
+		// A stop with the coordinates (0, 0) in the feed gets the point of its parent_station; without a parent with a point it keeps the point
+		// from the feed. Otherwise such stops (for example foreign platforms of international trains) would lie together in the Gulf of Guinea,
+		// as one stop cluster with transfers at distance 0.
 		attribute<bool>              IsZonderPunt        := stop_lat == 0d || stop_lon == 0d;
 		attribute<.>                 Parent_rel          := rlookup(Read/Stops/data/parent_station, stop_id);
 		attribute<rdc>               geometry            := IsZonderPunt ? MakeDefined(geometry_feed[Parent_rel], geometry_feed) : geometry_feed;
@@ -253,7 +243,7 @@ container LoadFeeds
 		attribute<bool>              StopUsed            := any(protoStopTimes/SelToday, protoStopTimes/protoStop_rel) || any(protoStopTimes/SelYesterday, protoStopTimes/protoStop_rel) || any(protoStopTimes/SelTomorrow, protoStopTimes/protoStop_rel);
 	}
 	
-	unit<uint32> protoTrips  := Read/Trips/domain
+	unit<uint32> protoTrips  := Read/Trips/domain, Descr = "The trips of the feed, with the service days on which they run and whether they join the public transport network."
 	{
 		attribute<string>                  trip_id         := Read/Trips/data/trip_id;
 		attribute<uint32>                  shape_id        := uint32(Read/Trips/data/shape_id);
@@ -263,17 +253,17 @@ container LoadFeeds
 		attribute<bool>                    sel_yesterday   := Services/Yesterday_exc[Services_rel] = 1;
 		attribute<bool>                    sel_tomorrow    := Services/Tomorrow_exc[Services_rel] = 1;
 		attribute<Time>                    StartTime       := min(protoStopTimes/departureTime/TimesVector/Time_rel, protoStopTimes/protoTrip_rel);
-		attribute<bool>                    sel_tomorrow_window := sel_tomorrow && uint32(StartTime) + 86400 < uint32(ModelParameters/Impl/PT_LastArrivalMoment), Descr = "Ritten van D+1 die beginnen voor het einde van het analysevenster; bij een venster voor middernacht geen enkele.";
+		attribute<bool>                    sel_tomorrow_window := sel_tomorrow && uint32(StartTime) + 86400 < uint32(ModelParameters/Impl/PT_LastArrivalMoment), Descr = "Trips of D+1 that start before the end of the analysis window; none when the window ends before midnight.";
 		attribute<Trips_x_order_uq>        first_txo       := min_index(Trips_x_order_uq/ord, Trips_x_order_uq/protoTrip_rel);
 		attribute<shapes>                  shape_rel       := rlookup(shape_id, shapes/shape_id);
-		// Flexvervoer (sinds 2026-09-30): een rit van een flexlijn die in hetzelfde blok van ModelParameters/Advanced/FlexMinInterval
-		// vertrekt als een eerdere rit van hetzelfde ritpatroon, doet niet mee in het OV-net (FlexOptions, protoStopTimes/Sel*Net).
-		// De OV-knooppunten tellen alle ritten (StopTimes/SelToday), zodat de bestemmingen niet van de flexparameters afhangen.
+		// Flexible transport: a trip of a flex line that departs in the same block of ModelParameters/Advanced/FlexMinInterval as an earlier trip
+		// of the same trip pattern does not join the public transport network (FlexOptions, protoStopTimes/Sel*Net). The public transport hubs count
+		// all trips (StopTimes/SelToday), so that the destinations do not depend on the flex parameters.
 		attribute<bool>                    IsFlex          := MakeDefined(RelevantSelection/Routes/IsFlex[RelevantSelection/Trips/Route_rel], false);
 		attribute<bool>                    KeepFlexOption  := = ModelParameters/Advanced/IncludeFlex && ModelParameters/Impl/FlexMinInterval_sec > 0
 			? 'not(IsFlex) || MakeDefined(FlexOptions/Keep[invert(FlexOptions/org_rel)], true)'
 			: 'const(true, ., bool)'
-			, Descr = "Doet de rit mee in het OV-net? Alleen ritten van flexlijnen kunnen afvallen, zie FlexOptions.";
+			, Descr = "True when the trip joins the public transport network; only trips of flex lines can drop out, see FlexOptions.";
 	}
 	
 	unit<uint32> protoStopTimes := Read/Stop_times/domain //StopTimes
@@ -282,18 +272,18 @@ container LoadFeeds
 		attribute<protoTrips>              protoTrip_rel            := rlookup(Read/Stop_times/data/trip_id, protoTrips/trip_id);
 		attribute<bool>                    SelToday                 := protoTrips/sel_today[protoTrip_rel];
 		attribute<bool>                    SelYesterday             := protoTrips/sel_yesterday[protoTrip_rel] && (Time/Day[departureTime/TimesVector/Time_rel] > 0);
-		attribute<bool>                    SelTomorrow              := protoTrips/sel_tomorrow_window[protoTrip_rel] && (Time/Day[departureTime/TimesVector/Time_rel] == 0) && (Time/Day[arrivalTime/TimesVector/Time_rel] == 0), Descr = "Hele ritten van D+1 die voor het einde van het venster beginnen; GTFS-tijd onder 24:00, zodat ze plus 24 uur binnen de tijdas van 48 uur vallen.";
-		attribute<bool>                    SelYesterdayNet          := SelYesterday && protoTrips/KeepFlexOption[protoTrip_rel], Descr = "SelYesterday zonder de gedunde flexopties (protoTrips/KeepFlexOption): de ritten van het OV-net.";
-		attribute<bool>                    SelTodayNet              := SelToday     && protoTrips/KeepFlexOption[protoTrip_rel], Descr = "SelToday zonder de gedunde flexopties (protoTrips/KeepFlexOption): de ritten van het OV-net.";
-		attribute<bool>                    SelTomorrowNet           := SelTomorrow  && protoTrips/KeepFlexOption[protoTrip_rel], Descr = "SelTomorrow zonder de gedunde flexopties (protoTrips/KeepFlexOption): de ritten van het OV-net.";
+		attribute<bool>                    SelTomorrow              := protoTrips/sel_tomorrow_window[protoTrip_rel] && (Time/Day[departureTime/TimesVector/Time_rel] == 0) && (Time/Day[arrivalTime/TimesVector/Time_rel] == 0), Descr = "Whole trips of D+1 that start before the end of the window, with a GTFS time below 24:00, so that plus 24 hours they fall within the time axis of 48 hours.";
+		attribute<bool>                    SelYesterdayNet          := SelYesterday && protoTrips/KeepFlexOption[protoTrip_rel], Descr = "SelYesterday without the thinned flex options (protoTrips/KeepFlexOption): the trips of the public transport network.";
+		attribute<bool>                    SelTodayNet              := SelToday     && protoTrips/KeepFlexOption[protoTrip_rel], Descr = "SelToday without the thinned flex options (protoTrips/KeepFlexOption): the trips of the public transport network.";
+		attribute<bool>                    SelTomorrowNet           := SelTomorrow  && protoTrips/KeepFlexOption[protoTrip_rel], Descr = "SelTomorrow without the thinned flex options (protoTrips/KeepFlexOption): the trips of the public transport network.";
 		attribute<protoStops>              protoStop_rel            := rlookup(Read/Stop_times/data/stop_id, protoStops/stop_id);
 		attribute<protoStops>              NextprotoStop_rel        := protoStop_rel[NextStopId];
 		attribute<uint32>                  Stop_Sequence            := uint32(Read/Stop_times/data/stop_sequence);
 		attribute<uint32>                  shape_dist_traveled      := uint32(Read/Stop_times/data/shape_dist_traveled);
 		attribute<uint32>                  next_shape_dist_traveled := shape_dist_traveled[NextStopId];
-		// #3 (sinds 2026-10-02): GTFS pickup_type en drop_off_type 1 = hier geen in- of uitstappen; 2 en 3 (bellen, afspreken met
-		// de chauffeur) gelden als toegestaan, zoals bij flexlijnen. Leeg = 0. Zo vallen Eurostar, Nightjet, European Sleeper en
-		// GoVolta binnenlands af: op hun NL-haltes staat instappen (2) of uitstappen (1) toe, nooit allebei.
+		// #3: GTFS pickup_type and drop_off_type 1 mean no boarding or alighting here; 2 and 3 (phone the agency, arrange with the driver) count as
+		// allowed, as with flex lines, and empty counts as 0. This keeps Eurostar, Nightjet, European Sleeper and GoVolta out of domestic trips:
+		// at their Dutch stops they allow boarding or alighting, never both.
 		attribute<bool>                    PickupAllowed            := MakeDefined(uint32(Read/Stop_times/data/pickup_type), 0) != 1;
 		attribute<bool>                    DropOffAllowed           := MakeDefined(uint32(Read/Stop_times/data/drop_off_type), 0) != 1;
 
@@ -308,18 +298,16 @@ container LoadFeeds
 		container departureTime := Templates/GTFS_getTimes_T(.,Read/Stop_times/data/departure_time);
 		container arrivalTime   := Templates/GTFS_getTimes_T(.,Read/Stop_times/data/arrival_time);
 	
-		// De links per dienstdag, op de tijdas in seconden sinds 00:00 van Analysis_date (D). Sinds 2026-09-25 (audit 3.5) uit een
-		// template: D+1 is erbij gekomen, en de lengte van een link van D-1 zonder bruikbare shape_dist_traveled valt terug op
-		// de hemelsbrede afstand zoals bij D (tot dan 0).
-		container Yesterday := DayLinks_T(SelYesterdayNet, 0, 24 * 60 * 60), Descr = "Ritten van D-1 na middernacht (GTFS-tijd 24:00 en later), min 24 uur.";
-		container Today     := DayLinks_T(SelTodayNet,     0, 0),            Descr = "Ritten van D met hun GTFS-tijd, ook na middernacht (24:00 en later).";
-		container Tomorrow  := DayLinks_T(SelTomorrowNet,  24 * 60 * 60, 0), Descr = "Ritten van D+1 die voor het einde van het analysevenster beginnen, plus 24 uur.";
+		// The links per service day, on the time axis in seconds since 00:00 of Analysis_date (D). The length of a link without a usable
+		// shape_dist_traveled falls back to the straight-line distance.
+		container Yesterday := DayLinks_T(SelYesterdayNet, 0, 24 * 60 * 60), Descr = "Trips of D-1 after midnight (GTFS time 24:00 and later), minus 24 hours.";
+		container Today     := DayLinks_T(SelTodayNet,     0, 0),            Descr = "Trips of D at their GTFS time, also after midnight (24:00 and later).";
+		container Tomorrow  := DayLinks_T(SelTomorrowNet,  24 * 60 * 60, 0), Descr = "Trips of D+1 that start before the end of the analysis window, plus 24 hours.";
 	}
 
-	// Dunnen van de flexopties (ModelParameters/Advanced/FlexMinInterval, sinds 2026-09-30). De feeds van 2026 roosteren een deel
-	// van het gebiedsvervoer op afroep als rit per minuut in (U-flex Maarssen/Utrecht-Noordwest en Houten-Schalkwijk: 296 tot 728
-	// ritten per richting per dag), wat ~550 OV-benen per vertrek en haltenblokken van 150-200 GB gaf. Per ritpatroon (route,
-	// eerste en laatste halte, aantal haltes) blijft per blok van FlexMinInterval, geteld vanaf 00:00 van de GTFS-dag, de eerste rit.
+	// Thinning of the flex options (ModelParameters/Advanced/FlexMinInterval). Some feeds schedule on-demand area transport as a trip every
+	// minute, which gives very many public transport legs per departure and very large stop blocks. Per trip pattern (route, first and last
+	// stop, number of stops) only the first trip of each block of FlexMinInterval, counted from 00:00 of the GTFS day, stays.
 	unit<uint32> FlexOptions := select_with_org_rel(protoTrips/IsFlex)
 	{
 		attribute<protoStopTimes> First_st      := min_index(protoStopTimes/Stop_Sequence, protoStopTimes/protoTrip_rel)[org_rel];
@@ -332,7 +320,7 @@ container LoadFeeds
 		attribute<uint64>         GroupKey      := uint64(Pattern_rel) * uint64(65536) + uint64(StartSec / ModelParameters/Impl/FlexMinInterval_sec);
 		unit<uint32>              Group         := unique_uint32(GroupKey);
 		attribute<Group>          Group_rel     := rlookup(GroupKey, Group/values);
-		attribute<.>              First (Group) := min_index(StartSec, Group_rel), Descr = "de eerste rit van elk blok; bij gelijke starttijd de eerste in de feed";
+		attribute<.>              First (Group) := min_index(StartSec, Group_rel), Descr = "The first trip of each block; with equal start times the first in the feed.";
 		attribute<bool>           Keep          := First[Group_rel] == ID(.);
 	}
 
@@ -376,7 +364,7 @@ container LoadFeeds
 	}
 	
 	unit<uint32> Services := unique(protoTrips/service_id)
-	, Descr = ""
+	, Descr = "The services of the trips (service_id), with their exception type on D-1, D and D+1 from calendar_dates and their number of trips."
 	{
 		attribute<uint32>  Today_exc     := sum(Calendar_dates/Today * Calendar_dates/nType, Calendar_dates/Services_rel);
 		attribute<uint32>  Yesterday_exc := sum(Calendar_dates/Yesterday * Calendar_dates/nType, Calendar_dates/Services_rel);
@@ -421,6 +409,4 @@ container LoadFeeds
 }
 
 
-//shape 25637
-//dist 6831
 

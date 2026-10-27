@@ -8,18 +8,18 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 20.2402" // 20.24.
 	// 4. To merge components into one front, set MergeOutput in ModelParameters and run batch\UpdateAll.cmd output again.
 	// Outside the GUI, batch\UpdateAll.cmd sources, legs, chains and cars make the same stores as step 2.
 
-	container ChecksBeforeRunning
+	container ChecksBeforeRunning : Descr = "Checks to run before the chain and output steps; each gives PASS or FAIL with what to change."
 	{
 		parameter<string> PT_CheckBlocks         := uint64(ModelParameters/Advanced/MaxStopBlockSize) * uint64(ModelParameters/Advanced/NumberOfStopBlocks) > uint64(#/NetworkSetup/PublicTransport_Prep/Impl/BlockSelections) 
 																																? 'PASS: block numbers and size are adequate. It needs to be at least '+string(#/NetworkSetup/PublicTransport_Prep/Impl/BlockSelections)+' and now it is '+string(ModelParameters/Advanced/MaxStopBlockSize)+' * '+string(ModelParameters/Advanced/NumberOfStopBlocks)+' = '+string(uint64(ModelParameters/Advanced/MaxStopBlockSize) * uint64(ModelParameters/Advanced/NumberOfStopBlocks)) 
 																																: 'FAIL: you need more or larger blocks to accomodate all stops. It needs to be at least '+string(#/NetworkSetup/PublicTransport_Prep/Impl/BlockSelections)+' and now it is '+string(ModelParameters/Advanced/MaxStopBlockSize)+' * '+string(ModelParameters/Advanced/NumberOfStopBlocks)+' = '+string(uint64(ModelParameters/Advanced/MaxStopBlockSize) * uint64(ModelParameters/Advanced/NumberOfStopBlocks))+''
-																															, Descr = "Passen alle haltes in de haltenblokken (MaxStopBlockSize x NumberOfStopBlocks)? Zo niet, maak de blokken groter of talrijker.";
-		parameter<string> PT_CheckPrices         := all(NetworkSetup/PublicTransport_Prep/Impl/OD_R/Impl/Price_IntegrityCheck) && all(/NetworkSetup/PublicTransport_Prep/Impl/OD_L/NS_Station_Price_IntegrityCheck)  ? 'PASS: all links have a valid price (or no prices are needed)' : 'FAIL: you need to check the prices (or turn of prices)', Descr = "Heeft elk OV-been een geldige prijs (een FareTable-rij met prijzen), als de instellingen prijzen vragen? Rekent na de netwerkbouw; de ongeprijsde combinaties staan in NetworkSetup/PublicTransport_Prep/Impl/OD_R/impl/Ongeprijsd/uniek, de goedkope voorcheck is PT_CheckPriceCoverage.";
+																															, Descr = "Do all stops fit in the stop blocks (MaxStopBlockSize x NumberOfStopBlocks)? If not, make the blocks larger or more numerous.";
+		parameter<string> PT_CheckPrices         := all(NetworkSetup/PublicTransport_Prep/Impl/OD_R/Impl/Price_IntegrityCheck) && all(/NetworkSetup/PublicTransport_Prep/Impl/OD_L/NS_Station_Price_IntegrityCheck)  ? 'PASS: all links have a valid price (or no prices are needed)' : 'FAIL: you need to check the prices (or turn of prices)', Descr = "Does every public transport leg have a valid price when the settings need prices? It runs after the network is built; the unpriced combinations are in NetworkSetup/PublicTransport_Prep/Impl/OD_R/impl/Ongeprijsd/uniek.";
 		parameter<string> PT_CheckPriceCoverage  := SourceData/Infrastructure/OVprijzen/PrijsDekking/Status_gated
-													, Descr = "Goedkope voorcheck, te draaien VOOR de (uren durende) netwerkbouw en blokruns, bij elke nieuwe feed of nieuw prijsjaar: dekt de actieve prijstabel alle (mode,agency)-combinaties van de geladen GTFS-feed, en zijn alle tabelprijzen gevuld en plausibel? PT_CheckPrices blijft de sluitende check op OD-niveau (na netwerkbouw); diagnose bij FAIL daarvan: NetworkSetup/PublicTransport_Prep/Impl/OD_R/impl/Ongeprijsd/uniek.";
+													, Descr = "Quick check to run before the chain step for every new feed or fare year: does the fare table cover all combinations of mode and agency in the feed, with plausible prices?";
 		parameter<string> Check_OriginBlocks      := ModelParameters/Advanced/NumberOfOrgBlocks * ModelParameters/Advanced/MaxOrgBlockSize >= #/NetworkSetup/Impl/OrgBlockSelections 
 																												? 'PASS: block numbers and size are adequate.' 
-																												: 'FAIL: you need more or larger blocks to accomodate all origins. It needs to be at least '+string(#/NetworkSetup/Impl/OrgBlockSelections )+' and now it is '+string(ModelParameters/Advanced/MaxOrgBlockSize)+' * '+string(ModelParameters/Advanced/NumberOfOrgBlocks)+' = '+string(uint64(ModelParameters/Advanced/MaxOrgBlockSize) * uint64(ModelParameters/Advanced/NumberOfOrgBlocks))+'';
+																												: 'FAIL: you need more or larger blocks to accomodate all origins. It needs to be at least '+string(#/NetworkSetup/Impl/OrgBlockSelections )+' and now it is '+string(ModelParameters/Advanced/MaxOrgBlockSize)+' * '+string(ModelParameters/Advanced/NumberOfOrgBlocks)+' = '+string(uint64(ModelParameters/Advanced/MaxOrgBlockSize) * uint64(ModelParameters/Advanced/NumberOfOrgBlocks))+'', Descr = "Do all origins fit in the origin blocks (MaxOrgBlockSize x NumberOfOrgBlocks)? If not, make the blocks larger or more numerous.";
 	}
 
 	container MakeUnlinkedData
@@ -28,36 +28,36 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 20.2402" // 20.24.
 		container Step1_Sources
 		:	Descr = "Once per edition of the source data: the OSM network, the TomTom networks (only needed for the component Car) and the GTFS store."
 		{
-			parameter<String> OSM_Network      := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/OSM/Make_Final_Network";
+			parameter<String> OSM_Network      := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/OSM/Make_Final_Network", Descr = "Makes the OSM network store, for walking and for cycling over OSM.";
 			parameter<String> TomTom_FileLists := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/TomTom/impl/GetFileNames_Network/WriteFilesCSV;/SourceData/Infrastructure/TomTom/impl/GetFileNames_Speedprofiles/WriteFilesCSV", Descr = "Lists the files of the raw TomTom delivery, which TomTom_Networks reads.";
-			parameter<String> TomTom_Networks  := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/TomTom/impl/Generate_Stores";
-			parameter<String> GTFS_Feed        := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/GTFS/LoadFeeds/store";
+			parameter<String> TomTom_Networks  := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/TomTom/impl/Generate_Stores", Descr = "Makes the four TomTom stores of the edition of the analysis moment.";
+			parameter<String> GTFS_Feed        := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/GTFS/LoadFeeds/store", Descr = "Makes the GTFS store of the feed of the analysis moment.";
 		}
 
 		container Step2_Legs
 		:	Descr = "The legs of pre- and post-transport as a parquet store per base set in IntermediateResults, which the runs read with ModelParameters/Advanced/LegsDecoupled; Generate_All writes nothing without it."
 		{
 			parameter<String> Generate_All       := 'Ready', ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/LegStores_Write"
-			,	Descr = "Alle basissets in een keer, zoals UpdateAll.cmd legs: de drie hieronder, en Stops2Dest_Walking als herkomsten en bestemmingen verschillen (anders is lopen van de halte naar de bestemming het spiegelbeeld van Org2Stops_Walking).";
+			,	Descr = "Writes all base sets at once, as batch/UpdateAll.cmd legs does: the three below, and Stops2Dest_Walking when origins and destinations differ.";
 			parameter<String> Org2Stops_Walking  := 'Ready', ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/LegStores/Org2Stops_Walking/Write_Legs/legs"
-			,	Descr = "Lopen van elke herkomst naar elke halte, over OSM: Legs_<set>toStops_Walking_<hash>.parquet.";
+			,	Descr = "Writes walking from every origin to every stop, over OSM.";
 			parameter<String> Org2Stops_Cycling  := 'Ready', ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/LegStores/Org2Stops_Cycling/Write_Legs/legs"
-			,	Descr = "Fietsen van elke herkomst naar elke halte, over het net van ModelParameters/Advanced/CyclingNetwork: Legs_<set>toStops_Cycling_<hash>.parquet.";
+			,	Descr = "Writes cycling from every origin to every stop, over the network of ModelParameters/Advanced/CyclingNetwork.";
 			parameter<String> Stops2Dest_Cycling := 'Ready', ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/LegStores/Stops2Dest_Cycling/Write_Legs/legs"
-			,	Descr = "Fietsen van elke halte naar elke bestemming: Legs_Stops2<set>_Cycling_<hash>.parquet. Een eigen store, want het Fietsersbond-net heeft eenrichtingsfietspaden.";
+			,	Descr = "Writes cycling from every stop to every destination; a store of its own, because the Fietsersbond network has one-way cycle paths.";
 		}
 
 		container Step3_PT_Chains
-		:	Descr = "De OV-ketenstore van het PartOfDay: een store per haltenblok in %LocalDataProjDir%/IntermediateResults/PT_Chains_<datum>_<venster>_<hash>, dezelfde als UpdateAll.cmd chains maakt."
+		:	Descr = "The chain store of the part of the day: a store per stop block in %LocalDataProjDir%/IntermediateResults/PT_Chains_<date>_<window>_<hash>, the same as batch/UpdateAll.cmd chains makes."
 		{
-			parameter<String> Check_Blocks             := /ChecksBeforeRunning/PT_CheckBlocks, Descr = "Passen alle haltes in de haltenblokken (MaxStopBlockSize x NumberOfStopBlocks)?";
-			parameter<String> Check_PriceCoverage      := /ChecksBeforeRunning/PT_CheckPriceCoverage, Descr = "Dekt de prijstabel alle combinaties van modaliteit en vervoerder in de feed? Seconden; draai hem voor de ketens.";
+			parameter<String> Check_Blocks             := /ChecksBeforeRunning/PT_CheckBlocks, Descr = "Do all stops fit in the stop blocks?";
+			parameter<String> Check_PriceCoverage      := /ChecksBeforeRunning/PT_CheckPriceCoverage, Descr = "Does the fare table cover all combinations of mode and agency in the feed? It takes seconds; run it before the chains.";
 			parameter<String> BlocksWritten            := string(/NetworkSetup/PublicTransport_Prep/PT_Chains_Blocks/NrWritten) + ' van ' + string(/NetworkSetup/PublicTransport_Prep/PT_Chains_Blocks/NrBlocks) + ' haltenblokken hebben een store'
-			,	Descr = "Hoeveel blokken van de ketenstore met de huidige handtekening er al zijn (een blok telt als zijn 0Dictionary.dms bestaat).";
+			,	Descr = "How many blocks of the chain store with the current signature exist already.";
 			parameter<String> Generate_ToDo            := 'Ready', ExplicitSuppliers = "=AsList(/NetworkSetup/PublicTransport_Prep/PT_Chains_Blocks/ToDo/Item, ';')"
-			,	Descr = "Rekent en schrijft de blokken zonder store in een opvraging; UpdateAll.cmd chains rekent ze in porties, elk in een eigen GeoDmsRun, zodat het geheugen tussen de porties vrijkomt.";
+			,	Descr = "Calculates and writes the blocks without a store in one process; batch/UpdateAll.cmd chains does it in portions, each in its own GeoDmsRun, so that memory is freed in between.";
 			container PerBlock := for_each_ne(/NetworkSetup/PublicTransport_Prep/impl/BlockDomain/name, 'WriteBlock_T(' + quote(/NetworkSetup/PublicTransport_Prep/impl/BlockDomain/name) + ')')
-			,	Descr = "Per haltenblok: Write rekent en schrijft de store van dat blok, bijvoorbeeld om een blok te proberen.";
+			,	Descr = "Per stop block: Write calculates and writes the store of that block, for example to try one block.";
 
 			Template WriteBlock_T
 			{
@@ -73,7 +73,7 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 20.2402" // 20.24.
 			parameter<string> Moments := /ModelParameters/Impl/CarTimeDependent ? AsList('TD' + /ModelParameters/Impl/MeasureMoments/TemplatableTextShrt, ' ') : /ModelParameters/Impl/Car_CongestionMoment_ForDirect
 			,	StorageName = "%ConfigDir%/../../batch/log/car_moments.txt", StorageType = "str"
 			,	Descr = "The moments whose car store the model reads; batch/UpdateAll.cmd cars makes these when it is given no moments.";
-			parameter<string> Writers := '/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/' + replace(Moments, ' ', '/Write_Car;/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/') + '/Write_Car';
+			parameter<string> Writers := '/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/' + replace(Moments, ' ', '/Write_Car;/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/') + '/Write_Car', Descr = "The writers of the car stores of Moments, separated by semicolons.";
 			parameter<String> Generate_All := 'Ready', ExplicitSuppliers = "=/ModelParameters/Impl/AllowDirectCar ? Writers : ''"
 			,	Descr = "Makes the car stores of all Moments, in one process; batch/UpdateAll.cmd cars makes them one by one.";
 		}

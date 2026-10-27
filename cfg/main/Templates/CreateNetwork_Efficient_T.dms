@@ -1,5 +1,5 @@
 Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
-: using = "Classifications/OSM"
+: using = "Classifications/OSM", Descr = "Builds a network of type NetworkType from RoadDomain, connected to the origins, the destinations and, for pre- and post-transport, the stops, and simplifies it by collapsing junction-free sections into single links and removing dead ends."
 {
 	// begin case parameters
 	unit<uint32> OrgDomain;
@@ -74,10 +74,10 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 			container Speed_per_ImpedanceType :=
 				for_each_nedv(
 					ImpedanceTypes/name
-					// lowercase: de autonetten worden met 'car' aangeroepen; zonder lowercase viel de terugval op CarSpeed_kmhr (130 km/u) in plaats van CarDefaultSpeed_low (audit 3.3/4.7)
+					// lowercase: the car networks are called with 'car'; without lowercase the fallback would be CarSpeed_kmhr (130 km/h) instead of CarDefaultSpeed_low
 					, lowercase(NetworkType) == 'car'
 						? 'MakeDefined(arc_rel->Speed_per_ImpedanceType/'+ImpedanceTypes/name+', ModelParameters/Advanced/'+NetworkType+'DefaultSpeed_low)'
-						: 'MakeDefined(arc_rel->Speed_per_ImpedanceType/'+ImpedanceTypes/name+', ModelParameters/'+(lowercase(NetworkType) == 'walking' || lowercase(NetworkType) == 'cycling' ? '' : 'Advanced/')+NetworkType+'Speed_kmhr)' // WalkingSpeed_kmhr en CyclingSpeed_kmhr staan sinds 2026-10-20 bovenaan
+						: 'MakeDefined(arc_rel->Speed_per_ImpedanceType/'+ImpedanceTypes/name+', ModelParameters/'+(lowercase(NetworkType) == 'walking' || lowercase(NetworkType) == 'cycling' ? '' : 'Advanced/')+NetworkType+'Speed_kmhr)' // WalkingSpeed_kmhr and CyclingSpeed_kmhr are at the top level of ModelParameters
 					, .
 					, km_hr
 				);
@@ -114,8 +114,8 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 		unit<uint32> NodeSet := unique(union_data(LinkSet/PointSet, LinkSet/first_point, LinkSet/last_point))
 		{
 			attribute<rdc>    geometry         := values;
-			// De knoopgraad telt de weglinks, niet de OD-koppellinks: die splitsen een weg op het aanhechtpunt en maakten
-			// daar een kruispunt van drie links met penalty voor het doorgaande verkeer (audit 5, 2026-09-25).
+			// The node degree counts the road links, not the OD connection links: those split a road at the attachment point and would turn it into
+			// a junction of three links with a penalty for through traffic.
 			attribute<uint32> NrConnectedLinks := pcount(LinkSet/IsOD_connection_road ? null_u : LinkSet/F1) + pcount(LinkSet/IsOD_connection_road ? null_u : LinkSet/F2);
 			attribute<uint32> NrConnectedLinks_withSlowTrafficRoad := pcount(LinkSet/IsSlowTrafficRoad && !LinkSet/IsOD_connection_road ? LinkSet/F1 : null_u) + pcount(LinkSet/IsSlowTrafficRoad && !LinkSet/IsOD_connection_road ? LinkSet/F2 : null_u);
 			
@@ -123,13 +123,12 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 		}
 					
 		container CorrectImpedanceForCrossroads
-		// hiermee wordt voor ieder begin en eind node het aantal geconnecte links bepaald
-		// dit bepaalt of het een bocht (2 links), zijweg (3 links), kruising (4 links) of complexe kruising (meer dan 4 links) is
-		// afhankelijk van dit aantal wordt een aantal seconden opgeteld bij de totale impedance
+		// Determines for every begin and end node the number of connected links, which tells whether it is a bend (2 links), a side road
+		// (3 links), a crossing (4 links) or a complex crossing (more than 4 links); depending on this number some seconds are added to the
+		// total impedance.
 		{
-			// Een route die een knoop passeert, rijdt over een link die er eindigt en een die er begint; elke link krijgt
-			// daarom de helft van de penalty van zijn begin- en eindknoop, zodat een gepasseerd kruispunt zijn waarde een
-			// keer kost. Tot 2026-09-25 telde de volle waarde aan beide uiteinden, dus dubbel (audit 5).
+			// A route that passes a node drives over a link that ends there and one that starts there; each link therefore gets half of the penalty
+			// of its begin and end node, so that a junction passed costs its value once.
 			parameter<s>       Impedance2Links               := ='ModelParameters/Advanced/Junction_Penalties/with_2Links_'+NetworkType;
 			parameter<s>       Impedance3Links               := ='ModelParameters/Advanced/Junction_Penalties/with_3Links_'+NetworkType;
 			parameter<s>       Impedance4Links               := ='ModelParameters/Advanced/Junction_Penalties/with_4Links_'+NetworkType;
@@ -362,8 +361,8 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 			unit<uint32> JunctionFreeSection_wC := select_with_org_rel(ConnectedParts/IsJunctionFreeSection)
 			, Descr = "wC = withCycles"
 			{
-				attribute<ConnectorLink>                   First_ConnectorLink_rel        := first(id(ConnectorLink), ConnectorLink/JunctionFreeSection_wC_rel); //todo sneller
-				attribute<ConnectorLink>                   Last_ConnectorLink_rel         := last(id(ConnectorLink), ConnectorLink/JunctionFreeSection_wC_rel); //todo sneller
+				attribute<ConnectorLink>                   First_ConnectorLink_rel        := first(id(ConnectorLink), ConnectorLink/JunctionFreeSection_wC_rel); //todo faster
+				attribute<ConnectorLink>                   Last_ConnectorLink_rel         := last(id(ConnectorLink), ConnectorLink/JunctionFreeSection_wC_rel); //todo faster
 				attribute<bool>                            IsNonCyclic_JFS                := IsDefined(First_ConnectorLink_rel) && IsDefined(Last_ConnectorLink_rel);
 				
 				attribute<NodeSet>                         Fa                             := ConnectorLink/NodeSet_rel[First_ConnectorLink_rel];
@@ -438,7 +437,7 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 					);
 			}
 			
-			unit<uint32> UnchangedLinkSet := select_with_org_rel(LinkSet/IsFinalLink) //todo sneller zonder org_rel
+			unit<uint32> UnchangedLinkSet := select_with_org_rel(LinkSet/IsFinalLink) //todo faster without org_rel
 			, Descr = "Those links that can be used without changes, i.e. no nodes need to be removed"
 			{
 				attribute<NodeSet>                         F1                             := LinkSet/F1[org_rel];
@@ -519,7 +518,7 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 				attribute<bool>                            ToBeOmitted                    := IsLinkWithDeadEnd || IsLinkConnectedWithItself || IsDuplicateLink;
 				attribute<bool>                            IsOD_connection_road           := union_data(., UnchangedLinkSet/IsOD_connection_road, JunctionFreeSection/IsOD_connection_road);
 				
-				attribute<Nodeset_x_NodeSet>               Nodeset_x_NodeSet_rel          := combine_data(Nodeset_x_NodeSet, min_elem(F1, F2), max_elem(F1,F2)); //TO DO let op direction
+				attribute<Nodeset_x_NodeSet>               Nodeset_x_NodeSet_rel          := combine_data(Nodeset_x_NodeSet, min_elem(F1, F2), max_elem(F1,F2)); //TO DO mind the direction
 				attribute<Find_DuplicateLinks>             Find_DuplicateLinks_rel        := rlookup(Nodeset_x_NodeSet_rel, Find_DuplicateLinks/values);
 
 				//After clean up, the reduced road could collapse into a road which is duplicate.
@@ -567,7 +566,7 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 				}
 			}
 			
-			//Verwijder links naar dead ends (if F1 or F2 occurs only once in all F1/F2, and not being OD-location)
+			// Remove links to dead ends (if F1 or F2 occurs only once in all F1/F2, and is not an OD location)
 			unit<uint32> IntermediateLinkSet := select(!LinkSet_cleanedforJFS/ToBeOmitted)
 			{
 				attribute<NodeSet> F1             := collect_by_cond(., !LinkSet_cleanedforJFS/ToBeOmitted, LinkSet_cleanedforJFS/F1);

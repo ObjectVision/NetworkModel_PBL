@@ -4,22 +4,22 @@ container Generate_Output
 	{ 
 		parameter<string>   Generate  := ='add('+asList('PerVertrekmoment/'+ModelParameters/Impl/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Generate',',')+(Advanced/MakeMedian ? ', Mediaan/Generate' : '')+', Tellingen/Generate)';
 
-		// Tellingen van dit blok voor <OutputDir>/od_tellingen.csv en unieke_od_tellingen.csv (sinds 2026-10-04), uit de kleine
-		// resultaten achter het hek van elk vertrekmoment (PerDepartureMoment_T, LongFormat/Results_Traveltime/Tellingen). De blokken
-		// hebben elk hun eigen herkomsten, dus NetworkSetup/ConfigurationPerBlock/Generate_Output/OD_Tellingen telt ze op.
+		// The counts of this block for <OutputDir>/od_tellingen.csv and unieke_od_tellingen.csv, from the small results behind the fence of
+		// each departure moment (PerDepartureMoment_T, LongFormat/Results_Traveltime/Tellingen). Each block has its own origins, so
+		// NetworkSetup/ConfigurationPerBlock/Generate_Output/OD_Tellingen adds them up.
 		container Tellingen
 		{
 			container Rijen := for_each_nedv(ModelParameters/Impl/MeasureMoments/Name
 				, 'PerVertrekmoment/'+ModelParameters/Impl/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Tellingen/Rijen'
 				, Classifications/OD_Tellingen_Soort, uint64)
-			, Descr = "Per vertrekmoment de rijen per soort optie.";
+			, Descr = "Per departure moment, the number of rows per kind of option.";
 			container Paren := for_each_nedv(ModelParameters/Impl/MeasureMoments/Name
 				, 'PerVertrekmoment/'+ModelParameters/Impl/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Tellingen/Paren_Telling'
 				, Classifications/OD_Tellingen_Groep, uint64)
-			, Descr = "Per vertrekmoment de unieke HB-paren per groep.";
+			, Descr = "Per departure moment, the number of unique OD pairs per group.";
 
-			// De unieke paren over alle vertrekmomenten samen: de paren van de momenten onder elkaar, dan per paar of een van de
-			// momenten het paar in de groep heeft.
+			// The unique pairs over all departure moments together: the pairs of the moments stacked, then per pair whether any of the moments
+			// has the pair in the group.
 			unit<uint64> AlleParen := ='union_unit_uint64('+asList('PerVertrekmoment/'+ModelParameters/Impl/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Tellingen/Paren', ',')+')'
 			{
 				attribute<OD_code> OD_key              := ='union_data(., '+asList('PerVertrekmoment/'+ModelParameters/Impl/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Tellingen/Paren/values', ',')+')';
@@ -29,7 +29,7 @@ container Generate_Output
 				attribute<bool>   AA                   := ='union_data(., '+asList('PerVertrekmoment/'+ModelParameters/Impl/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Tellingen/Paren/AA', ',')+')';
 				attribute<bool>   zonder_auto          := ='union_data(., '+asList('PerVertrekmoment/'+ModelParameters/Impl/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Tellingen/Paren/zonder_auto', ',')+')';
 				attribute<bool>   zonder_auto_en_fiets := ='union_data(., '+asList('PerVertrekmoment/'+ModelParameters/Impl/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Tellingen/Paren/zonder_auto_en_fiets', ',')+')';
-				attribute<min_f>  Traveltime           := ='union_data(., '+asList('PerVertrekmoment/'+ModelParameters/Impl/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Tellingen/Paren/Traveltime', ',')+')', Descr = "De reistijd van de snelste optie van het paar op dit vertrekmoment.";
+				attribute<min_f>  Traveltime           := ='union_data(., '+asList('PerVertrekmoment/'+ModelParameters/Impl/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Tellingen/Paren/Traveltime', ',')+')', Descr = "The travel time of the cheapest option of the pair at this departure moment (the lowest price, at equal price the lowest travel time).";
 				attribute<m>      TravelDist           := ='union_data(., '+asList('PerVertrekmoment/'+ModelParameters/Impl/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Tellingen/Paren/TravelDist', ',')+')';
 				attribute<Euro>   Price                := ='union_data(., '+asList('PerVertrekmoment/'+ModelParameters/Impl/MeasureMoments/Name+'/CreateExports/LongFormat/Results_Traveltime_Fence/Tellingen/Paren/Price', ',')+')';
 				attribute<UniekeParen> Uniek_rel       := rlookup(OD_key, UniekeParen/values);
@@ -43,16 +43,16 @@ container Generate_Output
 				attribute<bool> zonder_auto          := any(AlleParen/zonder_auto, AlleParen/Uniek_rel);
 				attribute<bool> zonder_auto_en_fiets := any(AlleParen/zonder_auto_en_fiets, AlleParen/Uniek_rel);
 
-				// De goedkoopste optie van elk vertrekmoment over de momenten met een optie (sinds 2026-10-19; van 2026-10-08 tot
-				// 2026-10-19 de snelste, #53), voor Mediaan/File: de mediaan van de reistijd (rth_element interpoleert, dus bij een even
-				// aantal het gemiddelde van de twee middelste), de snelste en de traagste reistijd, en de afstand en de prijs, elk apart.
+				// Of the cheapest option of each departure moment, over the moments with an option, for Mediaan/File (#53): the median travel time
+				// (rth_element interpolates, so with an even count it is the mean of the two middle values), the fastest and the slowest travel
+				// time, and the distance and the price, each with its own median.
 				attribute<min_f>  Traveltime_median  := rth_element(AlleParen/Traveltime, 0.5f, AlleParen/Uniek_rel);
 				attribute<min_f>  Traveltime_min     := min(AlleParen/Traveltime, AlleParen/Uniek_rel);
 				attribute<min_f>  Traveltime_max     := max(AlleParen/Traveltime, AlleParen/Uniek_rel);
 				attribute<m>      TravelDist_median  := rth_element(AlleParen/TravelDist, 0.5f, AlleParen/Uniek_rel);
 				attribute<Euro>   Price_median       := rth_element(AlleParen/Price, 0.5f, AlleParen/Uniek_rel);
-				attribute<uint32> NrMoments          := uint32(pcount(AlleParen/Uniek_rel)), Descr = "pcount over een uint64-domein levert uint64, vandaar de conversie.";
-				// OD_code is combine_unit_uint64(Places, Places): de eerste factor, de herkomst, varieert het langzaamst.
+				attribute<uint32> NrMoments          := uint32(pcount(AlleParen/Uniek_rel)), Descr = "The number of departure moments with an option for this pair; converted because pcount over a uint64 domain gives uint64.";
+				// OD_code is combine_unit_uint64(Places, Places): the first factor, the origin, varies slowest.
 				attribute<Places> From_Place_rel     := value(uint64(values) / uint64(#Places), Places);
 				attribute<Places> To_Place_rel       := value(uint64(values) % uint64(#Places), Places);
 			}
@@ -64,12 +64,12 @@ container Generate_Output
 				, sum_uint64(UniekeParen/AA)
 				, sum_uint64(UniekeParen/zonder_auto)
 				, sum_uint64(UniekeParen/zonder_auto_en_fiets))
-			, Descr = "De unieke HB-paren per groep over alle vertrekmomenten samen.";
+			, Descr = "The number of unique OD pairs per group over all departure moments together.";
 
-			// De tellingen van dit blok in een klein bestand (sinds 2026-10-16), Tellingen/tellingen_<n>of<N>.csv: batch/OdTellingen.py
-			// telt die van de blokken op tot od_tellingen.csv en unieke_od_tellingen.csv, zonder de uitvoer opnieuw te lezen (die kan
-			// parquet zijn, ModelParameters/OutputFormat). Per regel de tabel (rijen of paren), de soort of groep, de tellingen per
-			// vertrekmoment en het totaal: bij rijen de som, bij paren de unieke paren over de momenten samen.
+			// The counts of this block in a small file, Tellingen/tellingen_<n>of<N>.csv: batch/OdTellingen.py adds those of the blocks up to
+			// od_tellingen.csv and unieke_od_tellingen.csv without reading the output again (which can be parquet, ModelParameters/OutputFormat).
+			// Each line holds the table (rows or pairs), the kind or group, the counts per departure moment and the total: for rows the sum, for
+			// pairs the unique pairs over the moments together.
 			attribute<uint64> Rijen_Totaal (Classifications/OD_Tellingen_Soort) := =asList('Rijen/' + ModelParameters/Impl/MeasureMoments/Name, ' + ');
 			attribute<string> RijenRegel   (Classifications/OD_Tellingen_Soort) := ='''rijen;'' + Classifications/OD_Tellingen_Soort/label + ' + asList(''';'' + string(Rijen/' + ModelParameters/Impl/MeasureMoments/Name + ')', ' + ') + ' + '';'' + string(Rijen_Totaal)';
 			attribute<string> ParenRegel   (Classifications/OD_Tellingen_Groep) := ='''paren;'' + Classifications/OD_Tellingen_Groep/label + ' + asList(''';'' + string(Paren/' + ModelParameters/Impl/MeasureMoments/Name + ')', ' + ') + ' + '';'' + string(Paren_Samen)';
@@ -79,12 +79,10 @@ container Generate_Output
 			parameter<string> Generate := 'Ready', ExplicitSuppliers = "File";
 		}
 
-		// De mediaan per HB-paar over de vertrekmomenten (sinds 2026-10-08, #53), alleen met ModelParameters/Advanced/MakeMedian
-		// (sinds 2026-10-19 standaard uit; de medianen worden niet opgeleverd). Per vertrekmoment de goedkoopste optie (de laagste
-		// prijs, bij gelijke prijs de laagste reistijd; Tellingen/Paren achter het hek van het moment; tot 2026-10-19 de snelste, zoals
-		// geleverd voor Y2023), dan per paar de mediaan over de momenten met een optie (Tellingen/UniekeParen). Een bestand per blok,
-		// Mediaan/tt_<datum>_mediaan_<n>of<N>.csv (sinds 2026-10-09 in een eigen map; tot dan in PerBlock), in dezelfde opvraging als
-		// de uitvoer. Tot 2026-10-08 las een Python-script (75a0884) daarvoor de csv's opnieuw (Auto, Buurt2023: 284 GB).
+		// The median per OD pair over the departure moments (#53), only with ModelParameters/Advanced/MakeMedian, which is off by default;
+		// the medians are not part of the delivered output. Per departure moment the cheapest option (the lowest price, at equal price the
+		// lowest travel time; Tellingen/Paren behind the fence of the moment), then per pair the median over the moments with an option
+		// (Tellingen/UniekeParen). One file per block, Mediaan/tt_<date>_mediaan_<n>of<N>.csv, in the same request as the output.
 		container Mediaan
 		{
 			unit<uint64>      P                 := Tellingen/UniekeParen;
@@ -94,10 +92,9 @@ container Generate_Output
 			parameter<string> File              := 'OrgName;DestName;Traveltime_median;Traveltime_min;Traveltime_max;TravelDist_median;Price_median;NrMoments\n' + asList(Line, '\n')
 			,	StorageName = "=ModelParameters/Impl/OutputDir + '/Mediaan/tt_' + ModelParameters/Impl/Analysis_date + '_mediaan_' + NetworkSetup/Impl/OrgBlockDomain/FileName[BlockDomain_id] + '.csv'", StorageType = "str"
 			,	ExplicitSuppliers = "/NetworkSetup/GenerateOutput/Output_Sig/ForWriting"
-			,	Descr = "Per HB-paar: herkomst en bestemming, van de goedkoopste optie van elk vertrekmoment de mediane, snelste en traagste reistijd (min), de mediane afstand (m) en prijs (euro), en het aantal vertrekmomenten met een optie.";
+			,	Descr = "Per OD pair the origin and destination and, of the cheapest option of each departure moment, the median, fastest and slowest travel time (min), the median distance (m) and price (euro), and the number of departure moments with an option.";
 
-			// Hetzelfde als parquet (sinds 2026-10-16, ModelParameters/OutputFormat 'parquet'), met zstd; zie
-			// PerDepartureMoment_T, CreateExports/LongFormat/Parquet.
+			// The same as parquet (ModelParameters/OutputFormat 'parquet'), with zstd; see PerDepartureMoment_T, CreateExports/LongFormat/Parquet.
 			parameter<string> GDAL_LayerCreationOptions := 'COMPRESSION=ZSTD';
 			container Parquet
 			:	StorageName = "=ModelParameters/Impl/OutputDir + '/Mediaan/tt_' + ModelParameters/Impl/Analysis_date + '_mediaan_' + NetworkSetup/Impl/OrgBlockDomain/FileName[BlockDomain_id] + '.parquet'", StorageType = "gdalwrite.vect"
@@ -122,26 +119,24 @@ container Generate_Output
 
 unit<uint8>         Modes             := GTFS_Modes/Selection;
 
-unit<uint32>        Places            := PublicTransport_Prep/Impl/Places, Descr = "Alle plaatsen (haltes, herkomsten, bestemmingen). Tot 2026-10-07 met origin_sub_rel, de herkomst in het blok, waarop V en Direct_OD hun rijen kozen; nu kiezen die op het herkomstblok (NetworkSetup/impl/OrgBlockSelections/OrgBlock_rel).";
-unit<uint64>        OD_code           := combine_unit_uint64(Places, Places), Descr = "Een element per paar (herkomst, bestemming) van Places; voor de unieke HB-paren van de tellingen.";
+unit<uint32>        Places            := PublicTransport_Prep/Impl/Places, Descr = "All places: stops, origins and destinations.";
+unit<uint64>        OD_code           := combine_unit_uint64(Places, Places), Descr = "One element per pair (origin, destination) of Places, for the unique OD pairs of the counts.";
 
 
 unit<uint16>        Allowed_ChainsK := /Classifications/Chains/Allowed;
 
-// Het voor- en PostTransport van dit blok (sinds 2026-10-07): de voortransportbenen van NetworkSetup/impl/V_org met dit herkomstblok,
-// met de tekst OrgName alleen voor die benen, en alle natransportbenen (NetworkSetup/impl/N). Tot dan verenigde elk blok alle benen
-// opnieuw en koos het de voortransportbenen waarvan de herkomst in het blok lag (IsRelevantForOrgSubset): dezelfde benen, in
-// dezelfde volgorde.
+// The pre-transport of this block: the pre-transport legs of NetworkSetup/impl/V_org with this origin block, with the text OrgName
+// only for those legs; the post-transport (N) takes all post-transport legs of NetworkSetup/impl/N.
 unit<uint64> V := select_with_attr_by_cond(/NetworkSetup/impl/V_org, /NetworkSetup/impl/V_org/OrgBlock_rel == BlockDomain_id)
-, Descr = "PreTransport"
+, Descr = "The pre-transport legs of the origins of this block."
 {
 	attribute<string>            OrgName                   := Places/label[From_Place_rel]; //debug
 }
 
-// De OV-ketens van dit blok (sinds 2026-10-20): die van PublicTransport_Prep/PT_V die instappen bij een halte waar een voortransportbeen
-// van dit blok eindigt, met de relaties die de vertrekmomenten lezen; elk vertrekmoment kiest hieruit zijn venster
-// (PerDepartureMoment_T/Within_VW_Window). Andere ketens koppelt Add_V_to_PT aan geen enkel been, dus het front verandert niet. Een halte
-// die meer herkomsten van het blok bereiken, telt een keer; de koppeling per herkomst komt pas in Add_V_to_PT.
+// The public transport chains of this block: those of PublicTransport_Prep/PT_V that board at a stop where a pre-transport leg of
+// this block ends, with the relations the departure moments read; each departure moment picks its window from these
+// (PerDepartureMoment_T/Within_VW_Window). Add_V_to_PT links other chains to no leg at all, so the front does not change. A stop
+// that several origins of the block reach counts once; the link per origin comes only in Add_V_to_PT.
 attribute<bool> IsBlockVStop    (Places)                                := pcount(V/To_Place_rel) > 0u64;
 attribute<bool> IsBlockBoarding (PublicTransport_Prep/uq_c_FromTime_Stop) := IsBlockVStop[PublicTransport_Prep/uq_c_FromTime_Stop/From_Place_rel];
 attribute<bool> IsInBlock       (PublicTransport_Prep/PT_V)              := IsBlockBoarding[PublicTransport_Prep/PT_V/uq_c_FromTime_Stop_rel];
@@ -162,15 +157,13 @@ unit<uint64> PT_InBlock := select(IsInBlock)
 	attribute<Time>                                      From_Time_rel          := PublicTransport_Prep/uq_c_FromTime_Stop/From_Time_rel[uq_c_FromTime_Stop_rel];
 	attribute<PublicTransport_Prep/impl/c_Time_Places>   c_FromTime_Place_rel   := PublicTransport_Prep/uq_c_FromTime_Stop/c_FromTime_Place_rel[uq_c_FromTime_Stop_rel];
 	attribute<PublicTransport_Prep/impl/c_Time_Places>   c_ToTime_Place_rel     := PublicTransport_Prep/uq_c_ToTime_Stop/c_ToTime_Place_rel[uq_c_ToTime_Stop_rel];
-	attribute<PublicTransport_Prep/PT_V>                 PT_V_rel               := collect_by_cond(., IsInBlock, id(PublicTransport_Prep/PT_V)), Descr = "De keten in PT_V, om een optie terug te leiden (sinds 2026-10-21, #129; alleen gevraagd in de HB-paarmodus).";
+	attribute<PublicTransport_Prep/PT_V>                 PT_V_rel               := collect_by_cond(., IsInBlock, id(PublicTransport_Prep/PT_V)), Descr = "The chain in PT_V, to trace an option back to its chain (#129); only requested in the OD pair mode.";
 }
 
-unit<uint64> N := /NetworkSetup/impl/N, Descr = "PostTransport";
+unit<uint64> N := /NetworkSetup/impl/N, Descr = "All post-transport legs (NetworkSetup/impl/N), the same for every origin block.";
 
-// De directe ritten van de herkomsten van dit blok: de rijen van NetworkSetup/impl/Direct_OD met dit herkomstblok, met de tekst
-// ModeUsed alleen voor die rijen. Tot 2026-10-07 rekende elk blok de plaatsen, het bezit en de tekst over de hele tabel
-// (Direct_OD_all) en koos het daarna de rijen waarvan de herkomst in het blok lag (IsRelevantForOrgSubset): dezelfde rijen, in
-// dezelfde volgorde, want elke herkomst is een plaats en het blok kiest zijn herkomsten op OrgBlockSelections/OrgBlock_rel.
+// The direct trips of the origins of this block: the rows of NetworkSetup/impl/Direct_OD with this origin block, with the text
+// ModeUsed only for those rows.
 unit<uint64> Direct_OD := select_with_attr_by_cond(/NetworkSetup/impl/Direct_OD, /NetworkSetup/impl/Direct_OD/OrgBlock_rel == BlockDomain_id)
 {
 	attribute<string>  ModeUsed                         := Modes/name_abbr[Mode_rel] + Modes/name_abbr[Mode_rel];
@@ -182,7 +175,7 @@ container PerVertrekmoment :=
 	for_each_ne(
 		ModelParameters/Impl/MeasureMoments/Name
 		, 'PerDepartureMoment_T('+string(ModelParameters/Impl/MeasureMoments/Moment)+', '+quote(ModelParameters/Impl/MeasureMoments/name)+')'
-	), using = "impl";
+	), using = "impl", Descr = "The results per departure moment of ModelParameters/Impl/MeasureMoments, each an instance of PerDepartureMoment_T.";
 
 #include<PerDepartureMoment_T.dms>
 

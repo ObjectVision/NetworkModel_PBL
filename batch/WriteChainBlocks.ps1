@@ -1,17 +1,17 @@
-# WriteChainBlocks.ps1: de ketenstap per haltenblok, met hervatten (sinds 2026-09-29).
+# WriteChainBlocks.ps1: the chain step per stop block, with resume.
 #
-# Vraagt eerst de lijst op van de blokken waarvan de store nog ontbreekt (PublicTransport_Prep/PT_Chains_Blocks/ToDo_List,
-# geschreven naar batch\log\chain_blocks_todo.txt; een blok telt als klaar als zijn 0Dictionary.dms bestaat, dat de MMD-writer
-# als laatste schrijft) en rekent die dan in porties van BatchSize blokken per GeoDmsRun. Elke portie is een eigen proces,
-# zodat het geheugen tussen de porties vrijkomt; een onderbroken of mislukte ketenstap gaat bij een volgende aanroep verder
-# bij het eerste blok zonder store.
+# First requests the list of the blocks whose store is still missing (PublicTransport_Prep/PT_Chains_Blocks/ToDo_List,
+# written to batch\log\chain_blocks_todo.txt; a block counts as done when its 0Dictionary.dms exists, which the MMD writer
+# writes last) and then calculates them in portions of BatchSize blocks per GeoDmsRun. Each portion is a separate process,
+# so that memory is freed between the portions; an interrupted or failed chain step continues at the next call with the
+# first block without a store.
 #
-# Aanroep (door UpdateAll.cmd chains): WriteChainBlocks.ps1 -Exe <GeoDmsRun.exe> -Cfg <cfg\main.dms> -LogDir <batch\log>
-#   -BatchSize  blokken per GeoDmsRun (standaard 20, tot 2026-09-29 40). Een portie deelt alleen de opstart van ~25 s, dus de
-#               grootte maakt voor de rekentijd weinig uit. De trage blokken (~2%, 3 tot 7 minuten) hebben zelf 150-200 GB aan
-#               levende data nodig en pagineren daardoor op een machine met 128 GB, ook in een vers proces.
-#   -MaxBlocks  hooguit zoveel blokken in deze aanroep (0 = alle; om te testen)
-# Exitcode 0 als alle blokken een store hebben (of MaxBlocks bereikt is), anders 1.
+# Call (by UpdateAll.cmd chains): WriteChainBlocks.ps1 -Exe <GeoDmsRun.exe> -Cfg <cfg\main.dms> -LogDir <batch\log>
+#   -BatchSize  blocks per GeoDmsRun (default 20). The blocks of a portion share only the start-up of about half a
+#               minute, so the size makes little difference to the calculation time. A few slow blocks need 150 to 200 GB
+#               of live data and page on a machine with 128 GB, whatever the portion size.
+#   -MaxBlocks  at most this many blocks in this call (0 = all; for testing)
+# Exit code 0 when all blocks have a store (or MaxBlocks is reached), otherwise 1.
 param(
 	[Parameter(Mandatory=$true)][string]$Exe,
 	[Parameter(Mandatory=$true)][string]$Cfg,
@@ -27,12 +27,12 @@ function Say($m) { "{0} {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $m }
 function Get-ToDo {
 	if (Test-Path $todoFile) { Remove-Item $todoFile }
 	$p = Start-Process -FilePath $Exe -ArgumentList @("/L$LogDir\UpdateAll_chains_todo.log", $Cfg, '@statistics', $todoItem) -PassThru -Wait -WindowStyle Hidden -RedirectStandardOutput "$LogDir\UpdateAll_chains_todo.txt"
-	if ($p.ExitCode -ne 0 -or -not (Test-Path $todoFile)) { throw "de lijst van ontbrekende blokken is niet gemaakt (exit $($p.ExitCode)), zie $LogDir\UpdateAll_chains_todo.log" }
+	if ($p.ExitCode -ne 0 -or -not (Test-Path $todoFile)) { throw "the list of missing blocks was not made (exit $($p.ExitCode)), see $LogDir\UpdateAll_chains_todo.log" }
 	return @(Get-Content $todoFile | Where-Object { $_.Trim() -ne '' })
 }
 
-$todo = @(Get-ToDo)   # @(): een lijst met een regel (de HB-paarmodus, #129) wordt anders een string, en $todo[0..0] zijn eerste teken
-Say ("ketenstap per blok: {0} blokken zonder store" -f $todo.Count)
+$todo = @(Get-ToDo)   # @(): otherwise a list with one line (the OD pair mode, #129) becomes a string, and $todo[0..0] its first character
+Say ("chain step per block: {0} blocks without a store" -f $todo.Count)
 if ($MaxBlocks -gt 0 -and $todo.Count -gt $MaxBlocks) { $todo = $todo[0..($MaxBlocks - 1)] }
 $nb = [Math]::Ceiling($todo.Count / [double]$BatchSize)
 for ($b = 0; $b -lt $nb; $b++) {
@@ -41,9 +41,9 @@ for ($b = 0; $b -lt $nb; $b++) {
 	$sw = [Diagnostics.Stopwatch]::StartNew()
 	$out = Join-Path $LogDir ('UpdateAll_chains_b{0:000}.txt' -f ($b + 1))
 	$p = Start-Process -FilePath $Exe -ArgumentList (@("/L$LogDir\UpdateAll_chains.log", $Cfg) + $items) -PassThru -Wait -WindowStyle Hidden -RedirectStandardOutput $out
-	Say ("portie {0}/{1}: {2} blokken, exit {3}, {4:N0} s" -f ($b + 1), $nb, $part.Count, $p.ExitCode, $sw.Elapsed.TotalSeconds)
-	if ($p.ExitCode -ne 0) { Say "MISLUKT, zie $out en $LogDir\UpdateAll_chains.log"; exit 1 }
+	Say ("portion {0}/{1}: {2} blocks, exit {3}, {4:N0} s" -f ($b + 1), $nb, $part.Count, $p.ExitCode, $sw.Elapsed.TotalSeconds)
+	if ($p.ExitCode -ne 0) { Say "FAILED, see $out and $LogDir\UpdateAll_chains.log"; exit 1 }
 }
 $rest = @(Get-ToDo)
-Say ("klaar: {0} blokken nog zonder store" -f $rest.Count)
+Say ("done: {0} blocks still without a store" -f $rest.Count)
 if ($rest.Count -eq 0 -or $MaxBlocks -gt 0) { exit 0 } else { exit 1 }

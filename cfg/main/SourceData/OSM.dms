@@ -1,12 +1,12 @@
-container OSM : using = "classifications/OSM"
+container OSM : using = "classifications/OSM", Descr = "The OpenStreetMap road network of the analysis moment: read per region, merged per country, prepared and stored, with the car, cycling and walking networks derived from it."
 {  
 	parameter<string> file_date   := rjoin(ModelParameters/AnalysisMoment, ModelParameters/Advanced/AnalysisMomentPresets/name, ModelParameters/Advanced/AnalysisMomentPresets/OSM_file_date);
 	parameter<string> dir         := '%NetworkModel_Dir%/Infrastructuur/OSM/'+file_date;
 	parameter<string> date        := file_date == '20221201' ? '-221201' : file_date == '20240101' ? '-240101' : '-latest';
-	parameter<bool>   OSM_NL_prov := rjoin(ModelParameters/AnalysisMoment, ModelParameters/Advanced/AnalysisMomentPresets/name,ModelParameters/Advanced/AnalysisMomentPresets/OSM_NL_prov), Descr = "";     
+	parameter<bool>   OSM_NL_prov := rjoin(ModelParameters/AnalysisMoment, ModelParameters/Advanced/AnalysisMomentPresets/name,ModelParameters/Advanced/AnalysisMomentPresets/OSM_NL_prov), Descr = "True when the OSM edition of the analysis moment is read per Dutch province instead of from one file.";     
 	
 	unit<uint32>      OSM_Regios  := =OSM_NL_prov ? 'ModelParameters/Advanced/OSM_impl/InProvincies' : 'ModelParameters/Advanced/OSM_impl/InEenBestand'
-	, Descr = ""
+	, Descr = "The OSM regions to read, the Dutch provinces or one file, each with its country."
 	{
 		attribute<string>        label          := =OSM_NL_prov ? 'ModelParameters/Advanced/OSM_impl/InProvincies/label' : 'ModelParameters/Advanced/OSM_impl/InEenBestand/label';
 		attribute<string>        name           := =OSM_NL_prov ? 'ModelParameters/Advanced/OSM_impl/InProvincies/name' : 'ModelParameters/Advanced/OSM_impl/InEenBestand/name';
@@ -64,22 +64,20 @@ container OSM : using = "classifications/OSM"
 		{
 			attribute<wgs84_base>        geometry    (arc);
 			attribute<rdc>               geometry_rd_src (arc) := LatLongWgs842RD(geometry, dpoint)[rdc];
-			// Sinds 2026-09-25 (audit 4.9) liggen de punten van een eenrichtingsweg met oneway 'T' (rijrichting tegen de digitaliseerrichting in)
-			// omgekeerd, zodat de rijrichting van elke eenrichtingsweg van het eerste naar het laatste punt loopt: het netwerk gebruikt een
-			// eenrichtingslink alleen van F1 naar F2. Daarvoor waren deze wegen (512, 53 km in OSM 20260601) alleen tegen de rijrichting in berijdbaar.
+			// The points of a one-way road with oneway 'T' (direction of travel against the digitising direction) are reversed, so that the direction
+			// of travel of every one-way road runs from the first to the last point: the network uses a one-way link only from F1 to F2.
 			unit<uint32> Points_rd := sequence2points(geometry_rd_src)
 			{
 				attribute<uint32> NrPoints (..) := pcount(Sequence_rel);
 				attribute<uint32> Ordinal_dir   := ../Direction[Sequence_rel] == Directions_OSM/v/backwards ? NrPoints[Sequence_rel] - 1 - Ordinal : Ordinal;
 			}
-			attribute<rdc>               geometry_rd (arc)   := points2sequence(Points_rd/Point, Points_rd/Sequence_rel, Points_rd/Ordinal_dir), Descr = "Geometrie in RD, in de rijrichting als de weg eenrichting is.";
+			attribute<rdc>               geometry_rd (arc)   := points2sequence(Points_rd/Point, Points_rd/Sequence_rel, Points_rd/Ordinal_dir), Descr = "Geometry in RD, in the direction of travel when the road is one-way.";
 			attribute<string>            fclass;
 			attribute<string>            oneway;
 			attribute<int32>             maxspeed;
 			attribute<Directions_OSM>    Direction      := MakeDefined(rlookup(Oneway, Directions_OSM/code), Directions_OSM/v/dual); 
 			attribute<bool>              IsOneDirection := Direction == Directions_OSM/v/backwards || Direction == Directions_OSM/v/forwards;
-			// Een fclass die niet in Classifications/OSM/roadType staat wordt 'unknown' (alleen beloopbaar); tot 2026-09-25 werd hij
-			// null en daarna connectlink, ook in het autonet (audit 4.8). NrUnmappedFclass telt ze, om nieuwe fclasses op te merken.
+			// An fclass that is not in Classifications/OSM/roadType becomes 'unknown' (walkable only); NrUnmappedFclass counts them, to notice new fclasses.
 			attribute<roadType>          roadType_rel    := MakeDefined(rlookup(fclass, roadType/name), roadType/V/unknown);
 			parameter<uint32>            NrUnmappedFclass := sum(uint32(IsNull(rlookup(fclass, roadType/name))));
 		}
@@ -107,7 +105,7 @@ container OSM : using = "classifications/OSM"
 				attribute<string>                       OSM_id                           := ='union_data(., '+asList('Prepare_SourceData/'+Country_regios/name+'/Read_Roads_shp/OSM_id', ',')+')';
 				attribute<bool>                         IsOneDirection                   := ='union_data(., '+asList('Prepare_SourceData/'+Country_regios/name+'/Read_Roads_shp/IsOneDirection', ',')+')';
 				
-				attribute<km_hr>                        rth_maxspeed_per_roadType         (classifications/OSM/roadType) := rth_element(maxspeed_src > 0[km_hr] && maxspeed_src < 140[km_hr] ? maxspeed_src : (0f/0f)[km_hr], ModelParameters/Advanced/OSM_MaxSpeedQuantile, roadType_rel), Descr = "Kwantiel van de getagde maxspeed per wegtype (audit 4.10).";
+				attribute<km_hr>                        rth_maxspeed_per_roadType         (classifications/OSM/roadType) := rth_element(maxspeed_src > 0[km_hr] && maxspeed_src < 140[km_hr] ? maxspeed_src : (0f/0f)[km_hr], ModelParameters/Advanced/OSM_MaxSpeedQuantile, roadType_rel), Descr = "Quantile of the tagged maxspeed per road type.";
 				attribute<km_hr>                        rth_maxspeed_per_roadType_Defined (classifications/OSM/roadType) := rth_maxspeed_per_roadType == 0[km_hr] ? ModelParameters/Advanced/CarDefaultSpeed_low : MakeDefined(rth_maxspeed_per_roadType, ModelParameters/Advanced/CarDefaultSpeed_low);
 			
 				attribute<km_hr>                        maxspeed_edit00                                                := maxspeed_src != 0[km_hr] && IsDefined(maxspeed_src) && maxspeed_src < 140[km_hr]  ? maxspeed_src : rjoin(roadType_rel, id(classifications/OSM/roadType), rth_maxspeed_per_roadType_Defined);
@@ -131,16 +129,12 @@ container OSM : using = "classifications/OSM"
 	
 	#include <NetworkPreperation.dms>
 
-	// De rekenkant van het netwerk staat BUITEN de store: sinds GeoDMS 20.19.0 (issue #1245) weigert de
-	// MMD-writer elk item met DisableStorage onder zijn holder, want alles onder de holder hoort bij de
-	// store ("Move this item outside the holder or drop the property"). ConnectedNetwork_rel, values en
-	// AddBikeCongestionSpeeds waren met de oude fss-store nog als DisableStorage uit te sluiten; opslaan
-	// is geen alternatief (values is een tweede exemplaar van de geometrie en AddBikeCongestionSpeeds/Impl
-	// is de connect_info met alle Fietstelweek-dynapunten). Make_Final_Network houdt de naam en de store,
-	// zodat /MakeUnlinkedData/OSM/Step1_Generate_roads_Final_Network en Final_Network ongewijzigd
-	// blijven werken.
+	// The calculation side of the network lies outside the store: the mmd writer refuses every item with DisableStorage under its holder, because
+	// everything under the holder belongs to the store (ObjectVision/GeoDMS#1245). Storing these items is no alternative: values is a second copy
+	// of the geometry, and AddBikeCongestionSpeeds/Impl is the connect_info with all Fietstelweek dynapoints. Make_Final_Network keeps the name
+	// and the store, so that /MakeUnlinkedData/Step1_Sources/OSM_Network and Final_Network keep working unchanged.
 	unit<uint32> Final_Network_src := unique(NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/geometry)
-	,	Descr = "Rekenkant van het uiteindelijke OSM-netwerk (niet opgeslagen); Make_Final_Network schrijft hiervan de te bewaren attributen naar de mmd."
+	,	Descr = "The calculation side of the final OSM network (not stored); Make_Final_Network writes the attributes to keep from it to the mmd."
 	{
 		attribute<NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork> ConnectedNetwork_rel    := rlookup(geometry, NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/geometry);
 		attribute<rdc>                          geometry (arc) := values;
@@ -167,9 +161,9 @@ container OSM : using = "classifications/OSM"
 	}
 
 	parameter<string> StoreRevision := '_r3'
-	,   Descr = "Revisie van de netwerkopbouw in de naam van de OSM-netwerkstore; verhoog hem bij elke wijziging die de inhoud van de store verandert, anders wordt de oude store gelezen. _r2 (2026-09-25): expliciete klassen voor track_grade1-5, busway en unknown (audit 4.8) en omgedraaide oneway-'T'-wegen (audit 4.9). _r3 (2026-09-25): maxspeed-kwantiel over getagde wegen (4.10), handmatige verbindingen zonder lege reeksen en veren op Ferry_Speed (4.11), Fietstelweek zonder geimputeerde snelheden (4.14).";
+	,   Descr = "Revision of the network building in the name of the OSM network store; raise it with every change that alters the content of the store, or else the old store is read.";
 
-	unit<uint32> Make_Final_Network := Final_Network_src
+	unit<uint32> Make_Final_Network := Final_Network_src, Descr = "Writes the final OSM network to the mmd store, whose name holds the OSM date and StoreRevision."
 	,   StorageName = "='%LocalDataProjDir%/OSM/Final_Network_'+file_date+StoreRevision+'.mmd'"
 	{
 		attribute<rdc>                          geometry (arc)        := Final_Network_src/geometry;
@@ -180,17 +174,16 @@ container OSM : using = "classifications/OSM"
 		attribute<km_hr>                        congestion_speed_bike := Final_Network_src/congestion_speed_bike;
 	}
 
-	// Een read-only MMD-lezer mag sinds GeoDMS 20.19.0 (issue #1245) zelf geen sub-items declareren:
-	// de dictionary van de store bepaalt ze (en controleert bij het lezen de waardetypen, zie
-	// 0Dictionary.dms in de mmd). Read_Final_Network is daarom de kale lezer; Final_Network
-	// geeft de zes opgeslagen attributen door en voegt de afgeleiden toe, onder dezelfde naam en paden
-	// als voorheen, zodat Network_Car/Network_Cycling/Network_Walking en de templates onveranderd zijn.
+	// A read-only mmd reader may not declare sub-items (ObjectVision/GeoDMS#1245): the dictionary of the store defines them (and checks their
+	// value types on reading, see 0Dictionary.dms in the mmd). So Read_Final_Network is the bare reader; Final_Network passes on the six stored
+	// attributes and adds the derived ones, under the same name and paths, so that Network_Car, Network_Cycling, Network_Walking and the
+	// templates stay unchanged.
 	unit<uint32> Read_Final_Network
 	:   StorageName = "=PropValue(Make_Final_Network, 'StorageName')"
 	,   StorageReadOnly = "true"
-	,   Descr = "Kale lezer van de OSM-netwerkstore; declareert niets, de dictionary van de mmd levert geometry, roadType_rel, maxspeed, OSM_id, IsOneDirection en congestion_speed_bike.";
+	,   Descr = "Bare reader of the OSM network store; it declares nothing, the dictionary of the mmd supplies geometry, roadType_rel, maxspeed, OSM_id, IsOneDirection and congestion_speed_bike.";
 
-	unit<uint32> Final_Network := Read_Final_Network
+	unit<uint32> Final_Network := Read_Final_Network, Descr = "The final OSM network as read from the store, with the derived speeds and the flags for the car, cycling and walking networks."
 	{
 		attribute<rdc>                          geometry (arc)                   := Read_Final_Network/geometry;
 		attribute<roadType>                     roadType_rel                     := Read_Final_Network/roadType_rel;
@@ -201,9 +194,9 @@ container OSM : using = "classifications/OSM"
 		attribute<string>                       roadType_label                    := roadType/label[roadType_rel];
 		attribute<km_hr>                        freeflow_speed_cycling           := const(ModelParameters/CyclingSpeed_kmhr,.);
 		attribute<km_hr>                        freeflow_speed_walking           := const(ModelParameters/WalkingSpeed_kmhr,.);
-		attribute<km_hr>                        congestion_speed_MorningRush     := const(null_f, ., km_hr); //congestion in OSM gebruiken we niet, maar om alle templates te laten werken wel deze placeholder.
-		attribute<km_hr>                        congestion_speed_NoonRush        := const(null_f, ., km_hr); //congestion in OSM gebruiken we niet, maar om alle templates te laten werken wel deze placeholder.
-		attribute<km_hr>                        congestion_speed_LateEveningRush := const(null_f, ., km_hr); //congestion in OSM gebruiken we niet, maar om alle templates te laten werken wel deze placeholder.
+		attribute<km_hr>                        congestion_speed_MorningRush     := const(null_f, ., km_hr); // OSM congestion is not used, but this placeholder keeps all templates working.
+		attribute<km_hr>                        congestion_speed_NoonRush        := const(null_f, ., km_hr); // OSM congestion is not used, but this placeholder keeps all templates working.
+		attribute<km_hr>                        congestion_speed_LateEveningRush := const(null_f, ., km_hr); // OSM congestion is not used, but this placeholder keeps all templates working.
 		
 		attribute<bool>                         isPartOfCarNetwork        := roadType/IsPartOfCarNetwork[roadType_rel];
 		attribute<bool>                         isPartOfCyclingNetwork    := roadType/isPartOfBikeNetwork[roadType_rel];
@@ -232,11 +225,11 @@ container OSM : using = "classifications/OSM"
 			attribute<NodeSet> F1 (src) := rlookup(point,     NodeSet/Values);
 			attribute<NodeSet> F2 (src) := rlookup(nextpoint, NodeSet/Values);
 		
-			unit<uint32> networks:= connected_parts(F1, F2) // Verzameling van alle netwerken, inclusief de subnetwerken.
+			unit<uint32> networks:= connected_parts(F1, F2) // All networks, including the subnetworks.
 			{
 				attribute<uint32>   nr_nodes   := sum(const(1, NodeSet, uint32), part_rel);
 				parameter<uint32>   MaxNrNodes := max(networks/nr_nodes);
-				parameter<networks> main       := rlookup(MaxNrNodes, nr_nodes); // uitgangspunt: het netwerk met de meeste nodes is het relevante netwerk
+				parameter<networks> main       := rlookup(MaxNrNodes, nr_nodes); // assumption: the network with the most nodes is the relevant network
 			}
 
 			unit<uint32> NodesNotConnected := select_with_org_rel(networks/part_rel <> networks/main)
@@ -247,7 +240,7 @@ container OSM : using = "classifications/OSM"
 		}
 	}
 
-	unit<uint32> Network_Car := select_with_org_rel(Final_Network/isPartOfCarNetwork)
+	unit<uint32> Network_Car := select_with_org_rel(Final_Network/isPartOfCarNetwork), Descr = "The OSM links that cars may use, with the attributes that the network templates expect."
 	{
 		attribute<rdc>                          geometry (arc)                   := Final_Network/geometry[org_rel];
 		attribute<roadType>                      roadType_rel                      := Final_Network/roadType_rel[org_rel];
@@ -263,9 +256,8 @@ container OSM : using = "classifications/OSM"
 		attribute<km_hr>                        speed_max_walking                := const((0/0)[km_hr],.);
 		attribute<km_hr>                        speed_congested_cycling          := const((0/0)[km_hr],.);
 		attribute<km_hr>                        speed_congested_e_bike           := const((0/0)[km_hr],.);
-		// OSM heeft geen congestie; de spitssnelheid is de maximumsnelheid van de weg met het plafond van het moment
-		// (ModelParameters/Advanced/CongestionTimes/MaxSpeed: 100 km/u overdag). Tot 2026-09-25 waren deze null en viel
-		// het autonet door een hoofdlettergevoelige vergelijking terug op 130 km/u (audit 3.3 en 4.7).
+		// OSM has no congestion: the rush hour speed is the speed limit of the road, capped at the maximum speed of the moment
+		// (ModelParameters/Advanced/CongestionTimes/MaxSpeed).
 		parameter<km_hr>                        MaxSpeed_MorningRush             := MakeDefined(rjoin('MorningRush', ModelParameters/Advanced/CongestionTimes/name, ModelParameters/Advanced/CongestionTimes/MaxSpeed), 0[km_hr]);
 		parameter<km_hr>                        MaxSpeed_NoonRush                := MakeDefined(rjoin('NoonRush', ModelParameters/Advanced/CongestionTimes/name, ModelParameters/Advanced/CongestionTimes/MaxSpeed), 0[km_hr]);
 		parameter<km_hr>                        MaxSpeed_LateEveningRush         := MakeDefined(rjoin('LateEveningRush', ModelParameters/Advanced/CongestionTimes/name, ModelParameters/Advanced/CongestionTimes/MaxSpeed), 0[km_hr]);
@@ -298,11 +290,11 @@ container OSM : using = "classifications/OSM"
 			attribute<NodeSet> F1 (src) := rlookup(point,     NodeSet/Values);
 			attribute<NodeSet> F2 (src) := rlookup(nextpoint, NodeSet/Values);
 		
-			unit<uint32> networks:= connected_parts(F1, F2) // Verzameling van alle netwerken, inclusief de subnetwerken.
+			unit<uint32> networks:= connected_parts(F1, F2) // All networks, including the subnetworks.
 			{
 				attribute<uint32>   nr_nodes   := sum(const(1, NodeSet, uint32), part_rel);
 				parameter<uint32>   MaxNrNodes := max(networks/nr_nodes);
-				parameter<networks> main       := rlookup(MaxNrNodes, nr_nodes); // uitgangspunt: het netwerk met de meeste nodes is het relevante netwerk
+				parameter<networks> main       := rlookup(MaxNrNodes, nr_nodes); // assumption: the network with the most nodes is the relevant network
 			}
 
 			unit<uint32> NodesNotConnected := select_with_org_rel(networks/part_rel <> networks/main)
@@ -312,7 +304,7 @@ container OSM : using = "classifications/OSM"
 			attribute<bool> isVerbonden (src) := all(pointset/isVerbonden, pointset/ArcNr);
 		}
 	}
-	unit<uint32> Network_Cycling := select_with_org_rel(Final_Network/isPartOfCyclingNetwork)
+	unit<uint32> Network_Cycling := select_with_org_rel(Final_Network/isPartOfCyclingNetwork), Descr = "The OSM links that cyclists may use, with the Fietstelweek speed as the congested cycling speed."
 	{
 		attribute<rdc>                          geometry (arc)                   := Final_Network/geometry[org_rel];
 		attribute<classifications/OSM/roadType>  roadType_rel                      := Final_Network/roadType_rel[org_rel];
@@ -357,11 +349,11 @@ container OSM : using = "classifications/OSM"
 			attribute<NodeSet> F1 (src) := rlookup(point,     NodeSet/Values);
 			attribute<NodeSet> F2 (src) := rlookup(nextpoint, NodeSet/Values);
 		
-			unit<uint32> networks:= connected_parts(F1, F2) // Verzameling van alle netwerken, inclusief de subnetwerken.
+			unit<uint32> networks:= connected_parts(F1, F2) // All networks, including the subnetworks.
 			{
 				attribute<uint32>   nr_nodes   := sum(const(1, NodeSet, uint32), part_rel);
 				parameter<uint32>   MaxNrNodes := max(networks/nr_nodes);
-				parameter<networks> main       := rlookup(MaxNrNodes, nr_nodes); // uitgangspunt: het netwerk met de meeste nodes is het relevante netwerk
+				parameter<networks> main       := rlookup(MaxNrNodes, nr_nodes); // assumption: the network with the most nodes is the relevant network
 			}
 
 			unit<uint32> NodesNotConnected := select_with_org_rel(networks/part_rel <> networks/main)
@@ -371,7 +363,7 @@ container OSM : using = "classifications/OSM"
 			attribute<bool> isVerbonden (src) := all(pointset/isVerbonden, pointset/ArcNr);
 		}
 	}
-	unit<uint32> Network_Walking := select_with_org_rel(Final_Network/isPartOfWalkingNetwork)
+	unit<uint32> Network_Walking := select_with_org_rel(Final_Network/isPartOfWalkingNetwork), Descr = "The OSM links that pedestrians may use."
 	{
 		attribute<rdc>                          geometry (arc)                   := Final_Network/geometry[org_rel];
 		attribute<classifications/OSM/roadType> roadType_rel                     := Final_Network/roadType_rel[org_rel];
@@ -417,11 +409,11 @@ container OSM : using = "classifications/OSM"
 			attribute<NodeSet> F1 (src) := rlookup(point,     NodeSet/Values);
 			attribute<NodeSet> F2 (src) := rlookup(nextpoint, NodeSet/Values);
 		
-			unit<uint32> networks:= connected_parts(F1, F2) // Verzameling van alle netwerken, inclusief de subnetwerken.
+			unit<uint32> networks:= connected_parts(F1, F2) // All networks, including the subnetworks.
 			{
 				attribute<uint32>   nr_nodes   := sum(const(1, NodeSet, uint32), part_rel);
 				parameter<uint32>   MaxNrNodes := max(networks/nr_nodes);
-				parameter<networks> main       := rlookup(MaxNrNodes, nr_nodes); // uitgangspunt: het netwerk met de meeste nodes is het relevante netwerk
+				parameter<networks> main       := rlookup(MaxNrNodes, nr_nodes); // assumption: the network with the most nodes is the relevant network
 			}
 
 			unit<uint32> NodesNotConnected := select_with_org_rel(networks/part_rel <> networks/main)

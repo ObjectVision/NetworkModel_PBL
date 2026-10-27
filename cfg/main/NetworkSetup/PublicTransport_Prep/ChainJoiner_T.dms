@@ -1,4 +1,4 @@
-Template ChainJoiner_T
+Template ChainJoiner_T : Descr = "Joins the chains of type LeftStr through a transfer to the legs (or chains) of type RightStr into chains of type LeftStr+RightStr, with their price, and keeps the Pareto front per OD pair and first NS station."
 {
 	unit<uint32> Left; 
 	unit<uint32> Right;
@@ -25,11 +25,10 @@ Template ChainJoiner_T
 	container StartCalc0{parameter<string> ChainName := Leftstr+RightStr;}
 	container StartCalc := PhaseContainer(StartCalc0, 'Start calculating '+string(StartCalc0/ChainName)+' for '+BlockDomain/name[BlockDomain_id]);
 	
-	// Sinds 2026-09-29 vallen de combinaties van linkerketen en overstap die met het kortste rechterbeen al boven MaxPTTime
-	// komen weg voor de tweede koppeling: bij RRRR van haltenblok 1 gaat Join_LeftT_Right van 268 naar 166 miljoen rijen,
-	// met dezelfde geldige ketens (IsJourneyLongerThanAllowed toetst dezelfde som plus een eventuele penalty).
+	// The combinations of left chain and transfer that already exceed MaxPTTime with the shortest right leg are dropped before the second join,
+	// with the same valid chains as a result (IsJourneyLongerThanAllowed tests the same sum plus a possible penalty).
 	unit<uint64> Join_Left_Transf0  := join_equal_values_uint64(Left/uq_c_ToTime_Stop_rel, Transfers/uq_c_Exit_rel)
-	, Descr = "join left To_rel met de de transfer from_rel"
+	, Descr = "Joins every left chain to the transfers that start at its arrival (time and stop)."
 	{
 		attribute<Left>      Left_rel      := first_rel;
 		attribute<Transfers> Transfers_rel := second_rel;
@@ -42,8 +41,7 @@ Template ChainJoiner_T
 		attribute<Transfers> Transfers_rel := org_rel -> Transfers_rel;
 	}
 
-	unit<uint64> Join_LeftT_Right   := join_equal_values_uint64(Join_Left_Transf/transfers_rel->uq_c_Reboard_rel, Right/uq_c_FromTime_Stop_rel), Descr = "join Left+Transfer To_rel met de de Right from_rel"
-	, Descr = "deze set bevat alle mogelijke 'paden' en kan dus later geaggregeerd worden door group-by OD. En dus per OD-pair het kortste/goedkoopste pad te kiezen."
+	unit<uint64> Join_LeftT_Right   := join_equal_values_uint64(Join_Left_Transf/transfers_rel->uq_c_Reboard_rel, Right/uq_c_FromTime_Stop_rel), Descr = "Joins every left chain plus transfer to the right legs that board where the transfer ends; this set holds all possible paths, from which Valid1 keeps the Pareto front per OD pair."
 	{
 		attribute<Left>               Left_rel                        := first_rel -> Left_rel;
 		attribute<Transfers>          Transfers_rel                   := first_rel -> Transfers_rel;
@@ -60,13 +58,13 @@ Template ChainJoiner_T
 		attribute<Modes>              Mode_rel                        := to_Mode_rel, Descr = "Last mode_rel";
 		attribute<uint32>             ModeCode                        := Left_rel -> ModeCode * Right/ModeFactor + Right_rel -> ModeCode;
 		
-		attribute<bool>               NeedsTranferTimePenalty         := Modes/IsGelijkvloers[from_Mode_rel] == 1b && Modes/IsGelijkvloers[to_Mode_rel] == 1b //van: bus, tram, walk    to bus, tram, walk  --> niks
+		attribute<bool>               NeedsTranferTimePenalty         := Modes/IsGelijkvloers[from_Mode_rel] == 1b && Modes/IsGelijkvloers[to_Mode_rel] == 1b // from: bus, tram, walk to bus, tram, walk --> no penalty
 																			? False
-																			: Modes/IsGelijkvloers[from_Mode_rel] == 1b && Modes/IsGelijkvloers[to_Mode_rel] == 0b //van: bus, tram, walk to metro, rail, ferry --> penalty
+																			: Modes/IsGelijkvloers[from_Mode_rel] == 1b && Modes/IsGelijkvloers[to_Mode_rel] == 0b // from: bus, tram, walk to metro, rail, ferry --> penalty
 																				? TRUE
-																				: Modes/IsGelijkvloers[from_Mode_rel] == 0b && Modes/IsGelijkvloers[to_Mode_rel] == 0b //van: metro, rail, ferry to metro, rail, ferry --> penalty
+																				: Modes/IsGelijkvloers[from_Mode_rel] == 0b && Modes/IsGelijkvloers[to_Mode_rel] == 0b // from: metro, rail, ferry to metro, rail, ferry --> penalty
 																					? TRUE
-																					: Modes/IsGelijkvloers[from_Mode_rel] == 0b && Modes/IsGelijkvloers[to_Mode_rel] == 1b //van: metro, rail, ferry to bus, tram, walk --> penalty
+																					: Modes/IsGelijkvloers[from_Mode_rel] == 0b && Modes/IsGelijkvloers[to_Mode_rel] == 1b // from: metro, rail, ferry to bus, tram, walk --> penalty
 																						? TRUE
 																						: (0/0)[bool];
 		attribute<s>                  Traveltime                      := NeedsTranferTimePenalty 
@@ -97,9 +95,9 @@ Template ChainJoiner_T
 					: HasRight_RO ? 'Right_rel->Price_O' 
 					: 'const(9999[Ct], .)';
 			attribute<Ct>               Price_T                         := Left_rel->Price_T + Transfers_rel->Time_cost + Right_rel->Price_T;
-			attribute<Ct>               Price_S                         := Left_rel->Price_S + Right_rel->Price_S, Descr = "Rit-opslag van de speciale treinen in de keten (#3, MakeODs/OD_L/Price_S): per been, dus los van het doorgaande NS-tarief in Price_L.";
+			attribute<Ct>               Price_S                         := Left_rel->Price_S + Right_rel->Price_S, Descr = "Trip surcharge of the special trains in the chain (#3, MakeODs/OD_L/Price_S), per leg and so apart from the through NS fare in Price_L.";
 			
-			// deze tussenstapppen zijn alleen nodig indien NS_transfer_possible t.b.v. herberekeking van het treinkaartje		
+			// These intermediate steps are only needed with NS_transfer_possible, to recalculate the train ticket.
 			attribute<c_NS_start_end>   c_NS_start_end_rel              := =NS_transfer_possible  ? 'combine_data(c_NS_start_end, left_rel ->First_NS_Station, right_rel-> Last_NS_Station)' : 'const(null_u, .)';
 					
 			attribute<Ct>               Price_NS                        := =NS_transfer_possible  ? 'rjoin(c_NS_start_end_rel, TariffUnitsMatrix/c_NS_start_end_rel, TariffUnitsMatrix/Prijs_Ct)' : 'const(9999[Ct], .)' ;
@@ -109,7 +107,7 @@ Template ChainJoiner_T
 			attribute<Ct>               Price_L                         := =NS_through_fare_certain ? 'Price_NS' : NS_transfer_possible ? 'NS_through_fare_cheaper ? Price_NS : Right_rel->Price_L' : HasLeft_NS ? 'Left_rel->price_L' : HasRight_NS ? 'Right_rel->price_L' : 'const(0[Ct], .)';
 			attribute<Ct>               Price_F_inherited               := ='Left_rel->Price_F' + (strlen(RightStr) > 1 ? '+ Right_rel->Price_F' : ''), Descr = "Final costs inherited from left and right sources";
 			attribute<Ct>               Price_F                         := =NS_through_fare_certain or not(NS_transfer_possible) ? 'Price_F_inherited' : 'NS_through_fare_cheaper ? Price_F_inherited : Price_F_inherited + Left_rel->Price_L', Descr = "Final costs, not subject to subsequent recalculation";
-			attribute<Ct>               Price                           := = (Has_RO ? 'Price_O + Price_I ':'')+(HasBoth?'+':'')+(Has_NS?'Price_L':'')+(HasLeft_NS?' + Price_F':'')+(Has_NS?' + Price_S':''), Descr = "te betalen prijs";
+			attribute<Ct>               Price                           := = (Has_RO ? 'Price_O + Price_I ':'')+(HasBoth?'+':'')+(Has_NS?'Price_L':'')+(HasLeft_NS?' + Price_F':'')+(Has_NS?' + Price_S':''), Descr = "The price to pay.";
 			attribute<Ct>               Price_augm                      := Price + Price_T;
 					
 			attribute<Time> remaining_time_excl_NS_transfer := 
@@ -127,20 +125,16 @@ Template ChainJoiner_T
 			attribute<c_FromTS_ToTS>        OD_pair_key                 := combine_data(c_FromTS_ToTS, uq_c_FromTime_Stop_rel, uq_c_ToTime_Stop_rel);
 
 
-			// De eerste NS-station van de lopende NS-reis; de NS-prijs van een verlenging tegen doorgaand tarief hangt ervan af.
+			// The first NS station of the current NS journey; the NS price of an extension at a through fare depends on it.
 			attribute<NS_Stations> First_NS_Station :=
 				= NS_through_fare_certain ? 'left_rel ->First_NS_Station'
 				: NS_transfer_possible    ? 'NS_through_fare_cheaper ? left_rel ->First_NS_Station : Right_rel->First_NS_Station'
 				: HasRight_NS             ? 'right_rel->First_NS_Station'
 				: HasLeft_NS              ? 'left_rel->First_NS_Station'
 				: 'const(null_u,.)';
-			// De groep van de paretoselectie: het OD-paar en het eerste NS-station (sinds 2026-09-26, audit 6.3). Twee ketens met een
-			// ander eerste station kunnen na verlenging met NS van volgorde in prijs wisselen, omdat het doorgaande tarief degressief
-			// is; gemeten op haltenblok 1 van 1 oktober 2024 gaf de groepering alleen op het OD-paar in 218 van 754.029 groepen een
-			// blokfront dat gemiddeld 33 ct (hoogstens 1,61 euro) te duur was. Een keten zonder NS-station telt als eigen station.
-			// Sinds 2026-09-29 is de groepering een 64-bits sleutel die pareto_optimal_eps rechtstreeks gebruikt; tot dan nummerden
-			// twee unique_uint32 over alle geldige combinaties (bij RRRR van haltenblok 1: 112 miljoen) eerst het OD-paar en dan de
-			// groep.
+			// The group of the Pareto selection: the OD pair and the first NS station. Two chains with a different first station can swap order in price
+			// after an extension with NS, because the through fare is degressive, so grouping on the OD pair alone would keep block fronts that are too
+			// expensive. A chain without NS station counts as a station of its own. The grouping is a 64-bit key that pareto_optimal_eps uses directly.
 			attribute<uint64>     Part_key                         := uint64(OD_pair_key) * uint64(#NS_Stations + 1) + uint64(MakeDefined(uint32(First_NS_Station), #NS_Stations))
 			, IntegrityCheck = "float64(#uq_c_FromTime_Stop) * float64(#uq_c_ToTime_Stop) * float64(#NS_Stations + 1) < 1.8e19";
 
@@ -153,24 +147,24 @@ Template ChainJoiner_T
 	}
 
 	container x
-	: Descr = "hack om deadlock te omzeilen"
+	: Descr = "Workaround for a deadlock (ObjectVision/GeoDMS#965)."
 	, URL = "https://github.com/ObjectVision/GeoDMS/issues/965"
 	{
 		unit<uint32> Result := select_uint32(Join_LeftT_Right/valid_pareto_optimal)
-		, Descr = "Geaggregeerde set naar 'OD-paren' om minimalisatie criterium op toe te passen"
+		, Descr = "The valid chains of this type that are Pareto-optimal per OD pair and first NS station."
 		{
 			attribute<Left>                    Left_rel                        := collect_by_cond(., Join_LeftT_Right/Left_rel);
 			attribute<Right>                   Right_rel                       := collect_by_cond(., Join_LeftT_Right/Right_rel);
 			attribute<Join_LeftT_Right/Valid1> Valid1_rel                      := collect_by_cond(., Join_LeftT_Right/Valid1_rel);
 			
-			parameter<uint32>                  ModeFactor                      := Left/ModeFactor * Right/ModeFactor, Descr = "16 tot de macht het aantal benen van deze keten: het product van links en rechts (16 bij een been, OD_R/Result en OD_L/Result). Een volgende ketenrijger met deze keten rechts schuift de ModeCode van links met ModeFactor op.";
-			attribute<uint32>                  ModeCode                        := Left_rel -> ModeCode * Right/ModeFactor + Right_rel -> ModeCode, Descr = "De modes van de benen (Classifications/GTFS_Modes/CodeDigits), sinds 2026-10-06 een uint32 in plaats van de string ModeUsed; links opgeschoven met de ModeFactor van rechts. Sinds 2026-09-29 alleen voor de overgebleven ketens samengesteld; tot dan voor elke combinatie van Join_LeftT_Right (bij RRRR van haltenblok 1: 268 miljoen voor 1 miljoen ketens), ruim een derde van de rekentijd van de ketenstap.";
+			parameter<uint32>                  ModeFactor                      := Left/ModeFactor * Right/ModeFactor, Descr = "16 to the power of the number of legs of this chain, the product of left and right (16 for one leg, OD_R/Result and OD_L/Result); a next chain joiner with this chain on the right shifts the ModeCode of the left chain by ModeFactor.";
+			attribute<uint32>                  ModeCode                        := Left_rel -> ModeCode * Right/ModeFactor + Right_rel -> ModeCode, Descr = "The modes of the legs (Classifications/GTFS_Modes/CodeDigits) as a uint32, the left part shifted by the ModeFactor of the right, composed only for the remaining chains to save calculation time.";
 			attribute<Modes>                   Mode_rel                        := Right_rel -> Mode_rel;
 			attribute<bool>                    NS_through_fare_cheaper           := Valid1_rel->NS_through_fare_cheaper;
 
-			attribute<NS_Stations>             First_NS_Station                : Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden van de eerste en laaste ns-stations zijn.",
+			attribute<NS_Stations>             First_NS_Station                : Descr = "The first NS station of the chain, kept to recalculate the NS fare afterwards.",
 				= Valid1_rel->First_NS_Station;
-			attribute<NS_Stations>             Last_NS_Station                 : Descr = "om achteraf de NS-kosten te herberekenen moeten we bijhouden van de eerste en laaste ns-stations zijn.",
+			attribute<NS_Stations>             Last_NS_Station                 : Descr = "The last NS station of the chain, kept to recalculate the NS fare afterwards.",
 				=	= HasRight_NS ? 'Right_rel->Last_NS_Station' 
 					: HasLeft_NS ? 'Left_rel->Last_NS_Station' 
 					: 'const(null_u,.)';
@@ -188,15 +182,15 @@ Template ChainJoiner_T
 			attribute<Ct>                      Price_S                         := Valid1_rel->Price_S;
 			attribute<Ct>                      Price                           := Valid1_rel->Price  ;
 			
-			attribute<Ct>                      Price_augm                      := Price + Price_T, Descr = "te betalen prijs, plus kosten voor tijd van vervoer/wachten die niet beprijst zijn. "; 
+			attribute<Ct>                      Price_augm                      := Price + Price_T, Descr = "The price to pay plus the costs of travel and waiting time that has no price."; 
 			attribute<dam>                     TravelDist_Bus                  := Left_rel -> TravelDist_Bus   + Right_rel -> TravelDist_Bus;
 			attribute<dam>                     TravelDist_Metro                := Left_rel -> Traveldist_Metro + Right_rel -> Traveldist_Metro;
 			attribute<dam>                     TravelDist_Tram                 := Left_rel -> Traveldist_Tram  + Right_rel -> Traveldist_Tram;
 			attribute<dam>                     TravelDist_Rail                 := Left_rel -> Traveldist_Rail  + Right_rel -> Traveldist_Rail;
 			attribute<dam>                     TravelDist_Ferry                := Left_rel -> Traveldist_Ferry + Right_rel -> Traveldist_Ferry;
 					
-			attribute<Time>                    Last_NS_AlightTime         := =HasRight_NS ? 'Right_rel->Last_NS_AlightTime' : 'Left_rel->Last_NS_AlightTime', Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";
-			attribute<Time>                    Last_RO_AlightTime         := =HasRight_RO ? 'Right_rel->Last_RO_AlightTime' : 'Left_rel->Last_RO_AlightTime', Descr = "om te kijken of een volgende regionale rit R of O moet zijn na een K of L, moeten we de laatste uitstaptijd bijhouden";			
+			attribute<Time>                    Last_NS_AlightTime         := =HasRight_NS ? 'Right_rel->Last_NS_AlightTime' : 'Left_rel->Last_NS_AlightTime', Descr = "The last alighting time from an NS leg, kept through regional legs, to check whether a following NS leg continues the same fare journey (NS_transfer_allowed).";
+			attribute<Time>                    Last_RO_AlightTime         := =HasRight_RO ? 'Right_rel->Last_RO_AlightTime' : 'Left_rel->Last_RO_AlightTime', Descr = "The last alighting time from a regional leg, kept through NS legs (K or L), to check whether a following regional leg continues the same fare journey (RO_continuation_allowed).";			
 		}
 	}
 	

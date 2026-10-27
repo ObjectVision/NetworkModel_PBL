@@ -1,4 +1,4 @@
-Template PrivateTransport_Car_T
+Template PrivateTransport_Car_T : Descr = "Calculates the car travel times from org to dest on the OSM or the TomTom network, per congestion moment, and exports them as csv."
 {
 	unit<uint32>       org;
 	unit<uint32>       dest;
@@ -27,7 +27,7 @@ Template PrivateTransport_Car_T
 	unit<uint32> JunctionDomain_TomTom := /SourceData/Infrastructure/TomTom/Junctions;
 	
 	container Create_Optimised_Network_OSM  := Templates/CreateNetwork_Efficient_T(org, dest, RoadDomain_OSM, netwerk_type_OSM, FALSE); //instantiated for OSM
-	container Create_Network_TomTom     := Templates/CreateNetwork_TomTom_T(org, dest, RoadDomain_TomTom, JunctionDomain_TomTom); // tot 2026-09-25 met een vijfde argument FALSE, dat het item root verving (audit 4.6) //instantiated for TomTom
+	container Create_Network_TomTom     := Templates/CreateNetwork_TomTom_T(org, dest, RoadDomain_TomTom, JunctionDomain_TomTom); //instantiated for TomTom
 
 	unit<uint32> OSM_LinkSet                      := Create_Optimised_Network_OSM/CreateMoreEfficientNetwork/FinalLinkSet;
 	unit<uint32> OSM_NodeSet                      := Create_Optimised_Network_OSM/CreateMoreEfficientNetwork/FinalNodeSet;
@@ -68,11 +68,9 @@ Template PrivateTransport_Car_T
 		unit<uint64> LateEveningRush_TomTom_w_AltImp  := ImpedanceMatrix_with_AltImp_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/LateEveningRush, TomTom_LinkSet/LengthKm);
 		unit<uint64> Freeflow_TomTom_w_AltImp         := ImpedanceMatrix_with_AltImp_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/Freeflow, TomTom_LinkSet/LengthKm);
 
-		// Het front van de directe autorit (PublicTransport_Prep/Direct/Car; sinds 2026-10-05 op reistijd en afstand, #88). De
-		// scalaire variant is _w_AltImp hierboven (per HB-paar de snelste route met haar afstand, ook voor de exports),
-		// _w_AltImp_pareto is het (reistijd, afstand)-front per HB-paar (Advanced/ParetoLegs_Car). De prijs volgt pas bij het
-		// lezen: afstand x Car_CostPerKm. Tot 2026-10-05 waren dit _w_Cost en _w_Cost_pareto, met als tweede criterium de
-		// linkkosten (kilometerprijs per wegklasse en optrekkosten; op het OSM-net lengte x kilometerprijs).
+		// The front of the direct car trip (PublicTransport_Prep/Direct/Car; on travel time and distance, #88). The scalar variant is _w_AltImp
+		// above (per OD pair the fastest route with its distance, also for the exports); _w_AltImp_pareto is the (travel time, distance) front
+		// per OD pair (Advanced/ParetoLegs_Car). The price follows only when reading: distance x Car_CostPerKm.
 		unit<uint64> MorningRush_OSM_w_AltImp_pareto        := ImpedanceMatrix_with_AltImp_pareto_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Morning_car, OSM_LinkSet/Distance_per_ImpedanceType/congested_Morning_car);
 		unit<uint64> NoonRush_OSM_w_AltImp_pareto           := ImpedanceMatrix_with_AltImp_pareto_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Noon_car, OSM_LinkSet/Distance_per_ImpedanceType/congested_Noon_car);
 		unit<uint64> LateEveningRush_OSM_w_AltImp_pareto    := ImpedanceMatrix_with_AltImp_pareto_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Late_car, OSM_LinkSet/Distance_per_ImpedanceType/congested_Late_car);
@@ -83,7 +81,7 @@ Template PrivateTransport_Car_T
 		unit<uint64> LateEveningRush_TomTom_w_AltImp_pareto := ImpedanceMatrix_with_AltImp_pareto_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/LateEveningRush, TomTom_LinkSet/LengthKm);
 		unit<uint64> Freeflow_TomTom_w_AltImp_pareto        := ImpedanceMatrix_with_AltImp_pareto_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/Freeflow, TomTom_LinkSet/LengthKm);
 
-		Template ImpedanceMatrix_T
+		Template ImpedanceMatrix_T : Descr = "The fastest car route per OD pair on the given link impedance."
 		{
 			unit<uint32>      LinkSet_dom;
 			unit<uint32>      NodeSet_dom;
@@ -113,7 +111,7 @@ Template PrivateTransport_Car_T
 			}
 		}
 		
-		Template ImpedanceMatrix_with_AltImp_T
+		Template ImpedanceMatrix_with_AltImp_T : Descr = "The fastest car route per OD pair, with its distance."
 		{
 			unit<uint32>      LinkSet_dom;
 			unit<uint32>      NodeSet_dom;
@@ -142,39 +140,39 @@ Template PrivateTransport_Car_T
 							, Distance
 						)'
 			{
-				attribute<s_f>    Car_Time     := impedance, Descr = "De reistijd van de route, onder dezelfde naam als in ImpedanceMatrix_with_AltImp_pareto_T.";
-				attribute<km>     Car_Distance := alt_imp, Descr = "De afstand van de route, onder dezelfde naam als in ImpedanceMatrix_with_AltImp_pareto_T.";
+				attribute<s_f>    Car_Time     := impedance, Descr = "The travel time of the route, under the same name as in ImpedanceMatrix_with_AltImp_pareto_T.";
+				attribute<km>     Car_Distance := alt_imp, Descr = "The distance of the route, under the same name as in ImpedanceMatrix_with_AltImp_pareto_T.";
 				attribute<string> Org_Dest := string(OrgZone_rel)+'_'+string(DstZone_rel);
 			}
 		}
 		
-		// Tijdafhankelijke autorit (ModelParameters/Impl/CarTimeDependent, sinds 2026-10-09, NetworkModel_PBL#132, GeoDMS#1304): per vertrekmoment een
-		// zoektocht op het TomTom-netwerk, met de linktijden van Create_Network_TomTom/TimeDependent: de vaste linktijd T_ref (de momentopname van
-		// het congestiemoment) en per link met een profiel de factor per tijdvak. De vertrektijd telt vanaf het begin van het venster
-		// (CarTD_WindowStart), plus Car_StartTime: de rit op het netwerk begint na het starten.
+		// Time-dependent car trip (ModelParameters/Impl/CarTimeDependent, NetworkModel_PBL#132, GeoDMS#1304): per departure moment a search on the
+		// TomTom network, with the link times of Create_Network_TomTom/TimeDependent: the fixed link time T_ref (the snapshot of the congestion
+		// moment) and, per link with a profile, the factor per time slot. The departure time counts from the start of the window (CarTD_WindowStart),
+		// plus Car_StartTime: the trip on the network begins after starting the car.
 		container TD :=
 			for_each_ne(
 				'TD' + ModelParameters/Impl/MeasureMoments/TemplatableTextShrt
 				, 'TD_ImpedanceMatrix_T(' + string(uint32(ModelParameters/Impl/MeasureMoments/Moment)) + ')'
 			);
 
-		Template TD_ImpedanceMatrix_T
+		Template TD_ImpedanceMatrix_T : Descr = "The time-dependent car search for one departure moment (DepartureSecond)."
 		{
 			parameter<uint32> DepartureSecond;
 			//
-			// 'pareto_alt' (ModelParameters/Advanced/CarTD_Search): afstand eerst, zoals ImpedanceMatrix_with_AltImp_pareto_T met de relatieve
-			// CarFrontEpsilon, en het tijdprofiel op het tweede criterium, de reistijd (timedependent_alt). 'scalar': alleen de snelste route,
-			// met het tijdprofiel op het enige criterium (timedependent), voor toetsen op een engine zonder timedependent_alt.
+			// 'pareto_alt' (ModelParameters/Advanced/CarTD_Search): distance first, like ImpedanceMatrix_with_AltImp_pareto_T with the relative
+			// CarFrontEpsilon, and the time profile on the second criterion, the travel time (timedependent_alt). 'scalar': only the fastest route,
+			// with the time profile on the only criterion (timedependent), for tests on an engine without timedependent_alt.
 			unit<uint32>      LinkSet_dom := TomTom_LinkSet;
 			unit<uint32>      NodeSet_dom := TomTom_NodeSet;
 			parameter<s_f>    Departure   := value(float32(DepartureSecond - ModelParameters/Advanced/CarTD_WindowStart), s_f) + convert(ModelParameters/Car_StartTime, s_f)
-			,	Descr = "departure_time van de zoektocht: het vertrekmoment plus Car_StartTime, vanaf het begin van het venster.";
+			,	Descr = "departure_time of the search: the departure moment plus Car_StartTime, counted from the start of the window.";
 			parameter<bool>   IsPareto    := ModelParameters/Advanced/CarTD_Search == 'pareto_alt';
 			parameter<string> BidirSpec   := ModelParameters/Advanced/InterpretAllRoadsAsBidirectional ? 'bidirectional' : 'bidirectional(link_flag)';
 			parameter<string> BidirArg    := ModelParameters/Advanced/InterpretAllRoadsAsBidirectional ? '' : ', not(LinkSet_dom/IsOneDirection)';
 			parameter<string> TDArgs      := ', Create_Network_TomTom/TimeDependent/Profile_rel, Create_Network_TomTom/TimeDependent/ProfileSlot/factor, ModelParameters/Advanced/CarTD_SlotDuration, Departure';
-			// In de HB-paarmodus (sinds 2026-10-21, #129) ook de links van elke route (pareto met LinkSet: GeoDMS#1325).
-			parameter<bool>   MetLinks    := ModelParameters/Impl/IsOD;
+			// In the OD pair mode (#129) also the links of each route (pareto with LinkSet: GeoDMS#1325).
+			parameter<bool>   MetLinks    := ModelParameters/Impl/IsOD, Descr = "Are the links of each route kept? Only in the OD pair mode.";
 			parameter<string> OdSpec      := 'od:impedance,OrgZone_rel,DstZone_rel' + (MetLinks ? ',LinkSet' : '');
 			unit<uint64> impedanceMatrix := = IsPareto
 				? 'impedance_matrix_od64(''' + BidirSpec + ';startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;pareto(OrgZone_max_imp2,imp2_epsilon);timedependent_alt(link_profile_rel,profile_slot_factor,slot_duration,departure_time);' + OdSpec + '''
@@ -198,42 +196,41 @@ Template PrivateTransport_Car_T
 						, LinkSet_dom/LengthKm' + TDArgs + '
 					)'
 			{
-				attribute<s_f>    Car_Time     := = IsPareto ? 'alt_imp' : 'impedance', Descr = "De reistijd van de route, aankomst min vertrek op het netwerk.";
-				attribute<km>     Car_Distance := = IsPareto ? 'impedance' : 'alt_imp', Descr = "De afstand van de route.";
+				attribute<s_f>    Car_Time     := = IsPareto ? 'alt_imp' : 'impedance', Descr = "The travel time of the route, arrival minus departure on the network.";
+				attribute<km>     Car_Distance := = IsPareto ? 'impedance' : 'alt_imp', Descr = "The distance of the route.";
 				attribute<string> Org_Dest     := string(OrgZone_rel)+'_'+string(DstZone_rel);
 			}
 			container Links := = MetLinks
 				? 'Templates/RouteLinks_T(impedanceMatrix, impedanceMatrix/LinkSet, LinkSet_dom, NodeSet_dom, LinkSet_dom/F1, LinkSet_dom/F2, NodeSet_dom/geometry, NodeSet_dom/DestNode_rel[impedanceMatrix/DstZone_rel])'
 				: 'Templates/GeenRouteLinks_T()'
-			, Descr = "De links van elke route, alleen in de HB-paarmodus (MetLinks).";
-			attribute<rdc> LinkGeometrie (arc, Links/Rows) := = MetLinks ? 'LinkSet_dom/geometry[Links/Rows/Link_rel]' : 'const(value(null_u, rdc), Links/Rows)', Descr = "De vorm van de weg van elke link, uit TomTom.";
+			, Descr = "The links of each route, only in the OD pair mode (MetLinks).";
+			attribute<rdc> LinkGeometrie (arc, Links/Rows) := = MetLinks ? 'LinkSet_dom/geometry[Links/Rows/Link_rel]' : 'const(value(null_u, rdc), Links/Rows)', Descr = "The shape of the road of each link, from TomTom.";
 		}
 
-		Template ImpedanceMatrix_with_AltImp_pareto_T
+		Template ImpedanceMatrix_with_AltImp_pareto_T : Descr = "The Pareto front of car routes per OD pair on travel time and distance."
 		{
 			unit<uint32>      LinkSet_dom;
 			unit<uint32>      NodeSet_dom;
 			attribute<s_f>    Impedance (LinkSet_dom);
 			attribute<km>     Distance  (LinkSet_dom);
 			//
-			// Een bi-criteria label-setting zoektocht met per HB-paar een rij per Pareto-optimale route (GeoDMS#856,
-			// doc/bicriteria-impedance.md). Car_Time en Car_Distance geven reistijd en afstand, in welke volgorde ook gezocht is.
+			// A bi-criteria label-setting search with per OD pair a row per Pareto-optimal route (GeoDMS#856, doc/bicriteria-impedance.md). Car_Time
+			// and Car_Distance give travel time and distance, whichever order the search used.
 			//
-			// Sinds 2026-10-05 (CarFrontEpsilon > 0, GeoDMS #1282): AFSTAND EERST, want de prijs is afstand x
-			// Car_CostPerKm en het rapportagethema is bereikbaarheidsarmoede. De engine neemt per bestemmingszone de routes aan in
-			// volgorde van afstand, de kortste (goedkoopste) eerst, en een langere route alleen als haar reistijd meer dan de fractie
-			// CarFrontEpsilon onder de snelste al aangenomen reistijd ligt (pareto(imp2_epsilon), relatief). De grens van MaxCarTime is
-			// die op het tweede criterium (pareto(OrgZone_max_imp2)), en met zo'n grens zoekt de engine exact en dunt hij alleen per zone
-			// uit (GeoDMS c1d0aacbb): per knoop kon een deelroute die minder dan 1% sneller is, de enige zijn die binnen de grens blijft.
-			// De eerste rij per paar is de kortste route, exact; de snelste blijft als ze meer dan CarFrontEpsilon sneller is dan elke
-			// kortere route die blijft. De verplichte grens op het eerste criterium is CarFrontMaxDistance, ruim genoeg om niets af te snijden.
+			// With CarFrontEpsilon > 0 (GeoDMS #1282): DISTANCE FIRST, because the price is distance x Car_CostPerKm and the reporting theme is
+			// accessibility poverty. Per destination zone the engine accepts the routes in order of distance, the shortest (cheapest) first, and a
+			// longer route only if its travel time is more than the fraction CarFrontEpsilon below the fastest travel time accepted so far
+			// (pareto(imp2_epsilon), relative). The limit of MaxCarTime is the one on the second criterion (pareto(OrgZone_max_imp2)), and with such
+			// a limit the engine searches exactly and thins out per zone only: per node, a partial route that is less than 1% faster could be the
+			// only one that stays within the limit. The first row per pair is the shortest route, exactly; the fastest stays if it is more than
+			// CarFrontEpsilon faster than every shorter route that stays. The required limit on the first criterion is CarFrontMaxDistance, wide
+			// enough to cut nothing off.
 			//
-			// Op een engine voor 20.21.0, of met CarFrontEpsilon 0: reistijd eerst, met de afstand per link gekwantiseerd (AltImp_q).
-			// Afronden naar het dichtstbijzijnde veelvoud laat elke link onder een half kwantum wegvallen, en de meeste TomTom-links zijn
-			// korter dan het kwantum. Daarom dithering: per link een vaste pseudo-toevallige drempel u in [0,1) uit het link-id, en
-			// AltImp_q = rounddown(Distance/q + u) * q. De verwachting over u is Distance, dus de som over een route is onvertekend.
-			// (in uint64, want GeoDMS meldt een overflow bij uint32-vermenigvuldiging in plaats van te wikkelen)
-			// Tot 2026-10-05 ook met de epsilon reistijd eerst, met afstandsbakken van 400 m (CarFrontDistanceEpsilon).
+			// On an engine before 20.21.0, or with CarFrontEpsilon 0: travel time first, with the distance per link quantised (AltImp_q). Rounding
+			// to the nearest multiple drops every link below half a quantum, and most TomTom links are shorter than the quantum. Hence dithering:
+			// per link a fixed pseudo-random threshold u in [0,1) from the link id, and AltImp_q = rounddown(Distance/q + u) * q. The expectation
+			// over u is Distance, so the sum over a route is unbiased. The threshold is calculated in uint64, because GeoDMS reports an overflow on
+			// a uint32 multiplication instead of wrapping around.
 			attribute<float32> dither (LinkSet_dom) := float32(mod(uint64(id(LinkSet_dom)) * uint64(7919), uint64(1000))) / 1000f;
 			parameter<bool>   UseEngineEpsilon := ModelParameters/Advanced/CarFrontEpsilon > 0f;
 			attribute<km>     AltImp_q (LinkSet_dom) := not(UseEngineEpsilon) && ModelParameters/Advanced/CarLegDistanceQuantum > 0[km]
@@ -263,13 +260,13 @@ Template PrivateTransport_Car_T
 						, AltImp_q
 					)'
 			{
-				attribute<s_f>    Car_Time     := = UseEngineEpsilon ? 'alt_imp' : 'impedance', Descr = "De reistijd van de route: het tweede criterium als op afstand eerst gezocht is, anders het eerste.";
-				attribute<km>     Car_Distance := = UseEngineEpsilon ? 'impedance' : 'alt_imp', Descr = "De afstand van de route: het eerste criterium als op afstand eerst gezocht is, anders het tweede.";
+				attribute<s_f>    Car_Time     := = UseEngineEpsilon ? 'alt_imp' : 'impedance', Descr = "The travel time of the route: the second criterion when the search went on distance first, otherwise the first.";
+				attribute<km>     Car_Distance := = UseEngineEpsilon ? 'impedance' : 'alt_imp', Descr = "The distance of the route: the first criterion when the search went on distance first, otherwise the second.";
 				attribute<string> Org_Dest := string(OrgZone_rel)+'_'+string(DstZone_rel);
 			}
 		}
 
-		Template ImpedanceMatrix_with_Linkset_T
+		Template ImpedanceMatrix_with_Linkset_T : Descr = "The fastest car route per OD pair, with the links it uses."
 		{
 			unit<uint32>      LinkSet_dom;
 			unit<uint32>      NodeSet_dom;
@@ -297,7 +294,7 @@ Template PrivateTransport_Car_T
 			{
 				attribute<string> Org_Dest := string(OrgZone_rel)+'_'+string(DstZone_rel);
 				
-				unit<uint32> TravelledJourney := sequence2points(LinkSet) //vertaling van LinkSet attribute (afgelegde route in OD), naar onderdelen van de reis
+				unit<uint32> TravelledJourney := sequence2points(LinkSet) //translates the LinkSet attribute (the route travelled per OD pair) into the parts of the trip
 				{
 					attribute<rdc>         Route (arc)    := points2sequence(LinkPoints/Point, LinkPoints/Sequence_rel, LinkPoints/Ordinal);
 					attribute<rdc>         FromPoint      := LinkSet_dom/FromPoint[point];

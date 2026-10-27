@@ -1,57 +1,49 @@
 @echo off
 setlocal EnableDelayedExpansion
 REM ---------------------------------------------------------------------------------------------
-REM UpdateAll.cmd: werkt de stores van NetworkModel_PBL bij met GeoDmsRun, in de volgorde waarin
-REM ze elkaar nodig hebben. Elke stap is een eigen GeoDmsRun-aanroep, zodat het geheugen tussen
-REM de stappen vrijkomt, en stopt bij een fout. Logs in batch\log\UpdateAll_<stap>.log.
+REM UpdateAll.cmd: updates the stores of NetworkModel_PBL with GeoDmsRun, in the order in which they depend on
+REM each other. Each step is a separate GeoDmsRun call, so that memory is freed between the steps, and the script
+REM stops at an error. Logs in batch\log\UpdateAll_<step>.log.
 REM
-REM   UpdateAll.cmd                 alle secties (bronnen, autoritten, ketens, uitvoer); reken op meer dan een nacht
-REM   UpdateAll.cmd all -nosources  alles behalve de genoemde secties: -nosources, -nocars, -nochains, -nolegs, -nooutput
-REM   UpdateAll.cmd sources         OSM-netwerk, TomTom-stores, GTFS-store (alleen bij een
-REM                                 nieuwe editie nodig; ca. 15 min)
-REM   UpdateAll.cmd cars [moment..] de stores van de directe autorit per vertrekmoment
-REM                                 (PublicTransport_Prep/Direct/CarPerMoment/<moment>/Write_Car);
-REM                                 zonder momenten die het model leest (MakeUnlinkedData/Step4_CarStores/Moments);
-REM                                 met momenten bijvoorbeeld MorningRush NoonRush LateEveningRush
-REM                                 en Freeflow (TomTom) of MaxSpeed (OSM); 40 min scalair per
-REM                                 moment, langer met ParetoLegs_Car
-REM   UpdateAll.cmd chains          de OV-ketenstore per haltenblok (WriteChainBlocks.ps1; met de omgevingsvariabele
-REM                                 CHAINSTORE_SINGLE de ene store van PublicTransport_Prep/ChainGeneration_Single/Write), na de
-REM                                 voorcheck op haltenblokken en prijsdekking; uren, veel geheugen
-REM   UpdateAll.cmd legs            de stores van de benen van het voor- en PostTransport (sinds 2026-10-19): de vier
-REM                                 basissets, lopen en fietsen naar en van elke halte (PublicTransport_Prep/LegStores_Write);
-REM                                 schrijft alleen iets met ModelParameters/Advanced/LegsDecoupled
-REM   UpdateAll.cmd output          de OV-uitvoer: een csv per herkomstblok en vertrekmoment in
+REM   UpdateAll.cmd                 all sections (sources, cars, chains, legs, output); expect more than a night
+REM   UpdateAll.cmd all -nosources  everything except the named sections: -nosources, -nocars, -nochains, -nolegs, -nooutput
+REM   UpdateAll.cmd sources         the OSM network, TomTom and GTFS stores (only needed for a new edition; about 15 min)
+REM   UpdateAll.cmd cars [moment..] the stores of the direct car trip per departure moment
+REM                                 (PublicTransport_Prep/Direct/CarPerMoment/<moment>/Write_Car); without moments the
+REM                                 moments the model reads (MakeUnlinkedData/Step4_CarStores/Moments); with moments, for
+REM                                 example MorningRush NoonRush LateEveningRush and Freeflow (TomTom) or MaxSpeed (OSM);
+REM                                 about 40 min per moment with a scalar search, longer with ParetoLegs_Car
+REM   UpdateAll.cmd chains          the public transport chain store per stop block (WriteChainBlocks.ps1; with the
+REM                                 environment variable CHAINSTORE_SINGLE the single store of
+REM                                 PublicTransport_Prep/ChainGeneration_Single/Write), after the pre-check of the stop
+REM                                 blocks and the price coverage; takes hours and much memory
+REM   UpdateAll.cmd legs            the stores of the legs of pre- and post-transport: the four base sets, walking and
+REM                                 cycling to and from every stop (PublicTransport_Prep/LegStores_Write); writes only
+REM                                 with ModelParameters/Advanced/LegsDecoupled
+REM   UpdateAll.cmd output          the public transport output: a file per origin block and departure moment in
 REM                                 %LocalDataProjDir%\Output\<Analysis_date>_<OutputLabel><_component>[_fb]\PerBlock
-REM                                 (_fb: een component over het fietsnet met CyclingNetwork 'Fietsersbond')
-REM                                 (ConfigurationPerBlock/Generate_Output), met de ketenstore van de vertrekmomenten in
-REM                                 PT_DepartureHours/Minutes. Maakt die map eerst leeg (sinds 2026-10-03, #118): alleen de
-REM                                 bestanden van het model (tt_*.csv, tt_*.xml, signature.txt/.xml), ook de samengevoegde,
-REM                                 en sinds 2026-10-04 de tellingen od_tellingen.csv en unieke_od_tellingen.csv (met .xml).
-REM                                 Sinds 2026-10-16 met ModelParameters/OutputFormat 'parquet' parquet in plaats van
-REM                                 csv (tt_*.parquet), en de tellingen per blok in Tellingen (tellingen_*.csv).
-REM                                 Sinds 2026-10-07 in porties van blokken (WriteOutputBlocks.ps1, een GeoDmsRun per
-REM                                 portie, daarna de tellingen met OdTellingen.py); blokken per portie per component in
-REM                                 ModelParameters/Advanced/Components/BlocksPerPortion of met OUTPUT_BATCHSIZE; met
-REM                                 OUTPUT_SINGLE een opvraging.
-REM Sinds 2026-10-05 (#117) rekent een run een component (ModelParameters/Component): cars slaat de autostores over als
-REM de component geen directe autorit heeft (alles behalve Car), chains de ketenstore als het OV niet meedoet (WW, CC, Car, MergeOutput),
-REM en output voegt bij MergeOutput de uitvoer van de Components in MergeComponents samen.
-REM Draai de uitvoerstappen (output) van de Components na elkaar, niet tegelijk: op 2026-10-06/07 (Y2023, Buurt2023 naar
-REM Buurt2023, 128 GB RAM) groeide het vastgelegde geheugen van de uitvoer van Auto met ongeveer 0,7 GB per herkomstblok tot
-REM 386 GB na blok 450 (779 miljoen autoroutes; tot 2026-10-07 filterde elk blok de hele autotabel, PublicTransport/Direct_OD_all). Naast de
-REM uitvoer van Fiets (ongeveer 110 GB) swapte de machine (109 GB gewijzigde pagina's) en vorderde Fiets nauwelijks; het
-REM afsluiten van Auto na het laatste bestand duurde zo meer dan een uur. Lopen en Fiets blijven alleen rond 100 GB.
-REM Sindsdien rekent output in porties (WriteOutputBlocks.ps1), zodat het geheugen tussen de porties vrijkomt.
-REM
-REM De oude RunAll.cmd, RunKetens*.cmd, RunPrepare.cmd, RunDayGroups.cmd en RunCongestionSpeeds.cmd
-REM wezen naar itempaden van voor 2025 en zijn op 2026-09-23 verwijderd.
+REM                                 (_fb: a component on the cycling network with CyclingNetwork 'Fietsersbond')
+REM                                 (ConfigurationPerBlock/Generate_Output), with the chain store of the departure moments
+REM                                 in PT_DepartureHours/Minutes. The step first empties that folder (#118), removing only
+REM                                 the files of the model: tt_*.csv, tt_*.parquet and tt_*.xml, also the merged ones,
+REM                                 signature.txt/.xml, the counts od_tellingen.csv and unieke_od_tellingen.csv (with .xml)
+REM                                 and Tellingen\tellingen_*.*. With ModelParameters/OutputFormat 'parquet' the output is
+REM                                 parquet instead of csv; the counts per block go to Tellingen (tellingen_*.csv).
+REM                                 The step runs in portions of blocks (WriteOutputBlocks.ps1, a GeoDmsRun per portion,
+REM                                 then the counts with OdTellingen.py); blocks per portion per component in
+REM                                 ModelParameters/Advanced/Components/BlocksPerPortion, or set with OUTPUT_BATCHSIZE;
+REM                                 with OUTPUT_SINGLE in one request.
+REM A run calculates one component (ModelParameters/Component, #117): cars skips the car stores when the component has
+REM no direct car trip (everything except Car), chains skips the chain store when public transport is not part of it
+REM (WW, CC, Car, MergeOutput), and with MergeOutput, output merges the output of the Components in MergeComponents.
+REM Run the output steps of the components one after the other, not at the same time: each needs up to about 100 GB of
+REM memory, and two at once make the machine page.
 REM ---------------------------------------------------------------------------------------------
-REM Engine. Het model vraagt de pareto-epsilon en de bool-criteria van pareto_optimal_eps, die oudere versies van
-REM GeoDMS niet kennen; GEODMS_VERSION is de versie waarmee het getoetst is. GeoDmsRun.exe komt uit, in deze volgorde:
-REM de omgevingsvariabele GEODMS_EXE (een andere engine, bijvoorbeeld een proefbuild); de lokale build in
-REM C:\dev\GeoDMS_2026; de geinstalleerde GEODMS_VERSION, flavor m of c, in de map die de installer in het register
-REM zet (standaard C:\Program Files\ObjectVision\GeoDms<versie>.<flavor>).
+REM Engine. The model asks for the pareto epsilon and the bool criteria of pareto_optimal_eps, which older versions of
+REM GeoDMS do not know; GEODMS_VERSION is the version it was tested with. GeoDmsRun.exe comes from, in this order:
+REM the environment variable GEODMS_EXE (another engine, for example a test build); the local build in
+REM C:\dev\GeoDMS_2026; the installed GEODMS_VERSION, flavor m or c, in the folder that the installer writes to the
+REM registry (by default C:\Program Files\ObjectVision\GeoDms<version>.<flavor>).
 set GEODMS_VERSION=20.26.0
 set "EXE="
 if defined GEODMS_EXE set "EXE=%GEODMS_EXE%"
@@ -61,13 +53,13 @@ if not defined EXE for %%F in (m c) do if not defined EXE (
   if not defined EXE if exist "%ProgramW6432%\ObjectVision\GeoDms%GEODMS_VERSION%.%%F\GeoDmsRun.exe" set "EXE=%ProgramW6432%\ObjectVision\GeoDms%GEODMS_VERSION%.%%F\GeoDmsRun.exe"
 )
 if not defined EXE (
-  echo ABORT: geen GeoDmsRun.exe gevonden. Installeer GeoDMS %GEODMS_VERSION%, of zet GEODMS_EXE op het volledige pad van GeoDmsRun.exe.
+  echo ABORT: no GeoDmsRun.exe found. Install GeoDMS %GEODMS_VERSION%, or set GEODMS_EXE to the full path of GeoDmsRun.exe.
   exit /b 1
 )
-REM De volledige padnaam zonder "..": GeoDMS leidt %LocalDataProjDir% af uit de naam van de map boven cfg, en
-REM met batch\..\cfg\main.dms werd dat "..", zodat de stores in c:\LocalData\..\IntermediateResults (= C:\) kwamen.
+REM The full path name without "..": GeoDMS derives %LocalDataProjDir% from the name of the folder above cfg, and
+REM with batch\..\cfg\main.dms that name is "..", which puts the stores in C:\LocalData\..\IntermediateResults, that is C:\.
 for %%I in ("%~dp0..\cfg\main.dms") do set CFG=%%~fI
-REM De batchmap vastleggen voor het argumentenlusje: na shift wijst %~dp0 niet meer naar deze map.
+REM Store the batch folder for the argument loop: after shift, %~dp0 no longer points to this folder.
 set "BATCHDIR=%~dp0"
 set LOGDIR=%~dp0log
 if not exist "%LOGDIR%" mkdir "%LOGDIR%"
@@ -75,8 +67,8 @@ set PREP=/NetworkSetup/PublicTransport_Prep
 
 set SECTION=%~1
 if "%SECTION%"=="" set SECTION=all
-REM De argumenten na de sectie: -no<sectie> slaat een sectie over, de rest zijn momenten voor cars.
-REM (shift laat %* ongemoeid, dus zelf verzamelen.)
+REM The arguments after the section: -no<section> skips a section, the others are moments for cars.
+REM (shift leaves %* unchanged, so the script collects them itself.)
 set MOMENTS=
 set SKIP_SOURCES=0
 set SKIP_CARS=0
@@ -90,7 +82,7 @@ if /I "%~1"=="-nosources" (set SKIP_SOURCES=1) else if /I "%~1"=="-nocars" (set 
 goto args
 :argsdone
 
-echo UpdateAll %SECTION%%MOMENTS% gestart %DATE% %TIME%
+echo UpdateAll %SECTION%%MOMENTS% started %DATE% %TIME%
 echo engine: %EXE%
 
 if /I "%SECTION%"=="all"     goto sources
@@ -99,15 +91,15 @@ if /I "%SECTION%"=="cars"    goto cars
 if /I "%SECTION%"=="chains"  goto chains
 if /I "%SECTION%"=="legs"    goto legs
 if /I "%SECTION%"=="output"  goto output
-echo Onbekende sectie "%SECTION%": kies all, sources, cars, chains, legs of output.
+echo Unknown section "%SECTION%": choose all, sources, cars, chains, legs or output.
 exit /b 1
 
 :sources
 if "%SKIP_SOURCES%"=="1" goto sources_done
-echo === bronnen: OSM-netwerkstore ===
+echo === sources: OSM network store ===
 call :run osm_network /SourceData/Infrastructure/OSM/Make_Final_Network
 if not "!RC!"=="0" goto failed
-echo === bronnen: TomTom-stores (wegen, knopen, speedprofile-net, speedprofiles) ===
+echo === sources: TomTom stores (roads, junctions, speed profile network, speed profiles) ===
 call :run tomtom_roads         /SourceData/Infrastructure/TomTom/Impl/Write_Roads
 if not "!RC!"=="0" goto failed
 call :run tomtom_junctions     /SourceData/Infrastructure/TomTom/Impl/Write_Junctions
@@ -116,7 +108,7 @@ call :run tomtom_speednetworks /SourceData/Infrastructure/TomTom/Impl/Write_Spee
 if not "!RC!"=="0" goto failed
 call :run tomtom_speedprofiles /SourceData/Infrastructure/TomTom/Impl/Write_Speedprofiles
 if not "!RC!"=="0" goto failed
-echo === bronnen: GTFS-store van de feed GTFS_file_date ===
+echo === sources: GTFS store of the feed GTFS_file_date ===
 call :run gtfs /SourceData/Infrastructure/GTFS/LoadFeeds/Write
 if not "!RC!"=="0" goto failed
 :sources_done
@@ -124,12 +116,12 @@ if /I not "%SECTION%"=="all" goto done
 
 :cars
 if "%SKIP_CARS%"=="1" goto cars_done
-REM Zonder directe autorit (AllowDirectCar FALSE: elke component behalve Car, #117) geen autostores.
+REM Without a direct car trip (AllowDirectCar FALSE: every component except Car, #117) there are no car stores.
 call :run cars_check /ModelParameters/Impl/AllowDirectCar
 if not "!RC!"=="0" goto failed
 findstr /R "^Minimum.0" "%LOGDIR%\UpdateAll_cars_check.txt" >nul
 if not errorlevel 1 (
-  echo === directe autorit: AllowDirectCar is FALSE voor deze component, geen autostores ===
+  echo === direct car trip: AllowDirectCar is FALSE for this component, no car stores ===
   goto cars_done
 )
 if "%MOMENTS%"=="" (
@@ -138,7 +130,7 @@ if "%MOMENTS%"=="" (
   set /p MOMENTS=<"%LOGDIR%\car_moments.txt"
 )
 for %%M in (%MOMENTS%) do (
-  echo === directe autorit: store voor %%M ===
+  echo === direct car trip: store for %%M ===
   call :run car_%%M %PREP%/Direct/CarPerMoment/%%M/Write_Car
   if not "!RC!"=="0" goto failed
 )
@@ -147,31 +139,31 @@ if /I not "%SECTION%"=="all" goto done
 
 :chains
 if "%SKIP_CHAINS%"=="1" goto chains_done
-REM Zonder OV (ModelParameters/Impl/WithPT FALSE: de directe ritten WW, CC en Car en MergeOutput, #117) geen ketenstore.
+REM Without public transport (ModelParameters/Impl/WithPT FALSE: the direct trips WW, CC and Car, and MergeOutput, #117) there is no chain store.
 call :run chains_check /ModelParameters/Impl/WithPT
 if not "!RC!"=="0" goto failed
 findstr /R "^Minimum.0" "%LOGDIR%\UpdateAll_chains_check.txt" >nul
 if not errorlevel 1 (
-  echo === ketens: het OV doet niet mee in deze component, geen ketenstore ===
+  echo === chains: public transport is not part of this component, no chain store ===
   goto chains_done
 )
-echo === ketens: voorcheck haltenblokken en prijsdekking ===
+echo === chains: pre-check of the stop blocks and the price coverage ===
 call :run chains_precheck /ChecksBeforeRunning/PT_CheckBlocks /SourceData/Infrastructure/OVprijzen/PrijsDekking/Tabel_OK_DOVA
 if not "!RC!"=="0" goto failed
 findstr /R "^Minimum.1" "%LOGDIR%\UpdateAll_chains_precheck.txt" >nul
 if errorlevel 1 (
-  echo ABORT: de prijsdekking is niet OK, zie %LOGDIR%\UpdateAll_chains_precheck.txt
+  echo ABORT: the price coverage is not OK, see %LOGDIR%\UpdateAll_chains_precheck.txt
   goto failed
 )
 if defined CHAINSTORE_SINGLE goto chains_single
-echo === ketens: de haltenblokken zonder store, in porties (WriteChainBlocks.ps1) ===
+echo === chains: the stop blocks without a store, in portions (WriteChainBlocks.ps1) ===
 set STEP=chains
 powershell -NoProfile -ExecutionPolicy Bypass -File "%BATCHDIR%WriteChainBlocks.ps1" -Exe "%EXE%" -Cfg "%CFG%" -LogDir "%LOGDIR%"
 set RC=!ERRORLEVEL!
 if not "!RC!"=="0" goto failed
 goto chains_done
 :chains_single
-echo === ketens: ChainGeneration_Single/Write, de ene store van voor 2026-09-29 (CHAINSTORE_SINGLE; zet ook PT_Chains_PerBlock op FALSE) ===
+echo === chains: ChainGeneration_Single/Write, one store for all blocks (CHAINSTORE_SINGLE; also set PT_Chains_PerBlock to FALSE) ===
 call :run chains %PREP%/ChainGeneration_Single/Write
 if not "!RC!"=="0" goto failed
 :chains_done
@@ -179,15 +171,15 @@ if /I not "%SECTION%"=="all" goto done
 
 :legs
 if "%SKIP_LEGS%"=="1" goto legs_done
-REM Zonder OV (ModelParameters/Impl/WithPT FALSE) geen benen nodig.
+REM Without public transport (ModelParameters/Impl/WithPT FALSE) no legs are needed.
 call :run legs_check /ModelParameters/Impl/WithPT
 if not "!RC!"=="0" goto failed
 findstr /R "^Minimum.0" "%LOGDIR%\UpdateAll_legs_check.txt" >nul
 if not errorlevel 1 (
-  echo === benen: het OV doet niet mee in deze component, geen stores van de benen ===
+  echo === legs: public transport is not part of this component, no leg stores ===
   goto legs_done
 )
-echo === benen: de stores (parquet in IntermediateResults) ===
+echo === legs: the stores (parquet in IntermediateResults) ===
 call :run legs %PREP%/LegStores_Write
 if not "!RC!"=="0" goto failed
 :legs_done
@@ -195,52 +187,52 @@ if /I not "%SECTION%"=="all" goto done
 
 :output
 if "%SKIP_OUTPUT%"=="1" goto done
-REM Pauze voor de uitvoerstap (sinds 2026-09-29): zolang batch\pause_before_output.flag bestaat, wacht de uitvoerstap
-REM zonder rekenproces, bijvoorbeeld om de machine vrij te geven voor prestatietests; weghalen van de vlag laat hem starten.
+REM Pause before the output step: as long as batch\pause_before_output.flag exists, the output step waits without a
+REM calculation process, for example to free the machine for performance tests; removing the flag lets it start.
 set "PAUSEFLAG=%BATCHDIR%pause_before_output.flag"
 if not exist "%PAUSEFLAG%" goto output_go
-echo %DATE% %TIME% pauze voor de uitvoerstap: wacht tot %PAUSEFLAG% weg is
+echo %DATE% %TIME% pause before the output step: waiting until %PAUSEFLAG% is gone
 :output_wait
 ping -n 61 127.0.0.1 >nul
 if exist "%PAUSEFLAG%" goto output_wait
-echo %DATE% %TIME% pauze voorbij, de uitvoerstap start
+echo %DATE% %TIME% pause over, the output step starts
 :output_go
-REM De uitvoermap leegmaken (sinds 2026-10-03, NetworkModel_PBL#118): de bestandsnamen dragen alleen datum, moment en blok, de
-REM parameters staan in signature.txt in de map. Zonder leegmaken zou een run na een codewijziging zijn blokken naast die van de
-REM vorige run zetten. Het model geeft de map (NetworkSetup/GenerateOutput/OutputDir_ForBatch, naar batch\log\output_dir.txt); alleen de
-REM bestanden die het model daar schrijft gaan weg, en alleen als de map onder een map Output ligt. Output_Sig/PathGate faalt
-REM vooraf als het langste uitvoerpad te lang is.
+REM Empty the output folder (NetworkModel_PBL#118): the file names carry only the moment and the block, and the parameters
+REM are in signature.txt in the folder, so without emptying a run after a code change would put its blocks next to those
+REM of the previous run. The model gives the folder (NetworkSetup/GenerateOutput/OutputDir_ForBatch, written to
+REM batch\log\output_dir.txt); only the files the model writes there are removed, and only if the folder lies under a
+REM folder Output. Output_Sig/PathGate fails beforehand if the longest output path is too long.
 call :run output_dir /NetworkSetup/GenerateOutput/OutputDir_ForBatch /NetworkSetup/GenerateOutput/Output_Sig/PathGate
 if not "!RC!"=="0" goto failed
 set OUTDIR=
 set /p OUTDIR=<"%LOGDIR%\output_dir.txt"
 if not defined OUTDIR (
-  echo ABORT: geen uitvoermap in %LOGDIR%\output_dir.txt
+  echo ABORT: no output folder in %LOGDIR%\output_dir.txt
   set STEP=output_dir
   goto failed
 )
-REM Bevat het pad \Output\, of \Output_ van een HB-paar (Output_<O>_<D>, sinds 2026-10-21, #129)? (vervangen door niets laat het
-REM dan korter; cmd vervangt hoofdletterongevoelig)
+REM Does the path contain \Output\, or \Output_ of an OD pair (Output_<O>_<D>, #129)? Replacing it by nothing then makes
+REM the string shorter; cmd replaces case-insensitively.
 set OUTOK=
 if not "!OUTDIR:\Output\=!"=="!OUTDIR!" set OUTOK=1
 if not "!OUTDIR:\Output_=!"=="!OUTDIR!" set OUTOK=1
 if not defined OUTOK (
-  echo ABORT: de uitvoermap !OUTDIR! ligt niet onder een map Output of Output_^<O^>_^<D^>
+  echo ABORT: the output folder !OUTDIR! is not under a folder Output or Output_^<O^>_^<D^>
   set STEP=output_dir
   goto failed
 )
 if exist "!OUTDIR!\" (
-  echo %DATE% %TIME% uitvoermap leegmaken: !OUTDIR!
+  echo %DATE% %TIME% emptying the output folder: !OUTDIR!
   del /q "!OUTDIR!\PerBlock\tt_*.csv" "!OUTDIR!\PerBlock\tt_*.xml" "!OUTDIR!\Mediaan\tt_*.csv" "!OUTDIR!\Mediaan\tt_*.xml" "!OUTDIR!\tt_*.csv" "!OUTDIR!\tt_*.xml" "!OUTDIR!\signature.txt" "!OUTDIR!\signature.xml" "!OUTDIR!\od_tellingen.*" "!OUTDIR!\unieke_od_tellingen.*" "!OUTDIR!\PerBlock\tt_*.parquet" "!OUTDIR!\Mediaan\tt_*.parquet" "!OUTDIR!\Tellingen\tellingen_*.*" 2>nul
 )
-REM Sinds 2026-10-07 in porties van herkomstblokken, elk een eigen GeoDmsRun, en daarna de tellingen met OdTellingen.py
-REM (WriteOutputBlocks.ps1). Blokken per portie: ModelParameters/Advanced/Components/BlocksPerPortion van de component
-REM (standaard 50), of de omgevingsvariabele OUTPUT_BATCHSIZE; OUTPUT_MAXBLOCKS rekent hooguit zoveel blokken (om te
-REM testen). Met de omgevingsvariabele OUTPUT_SINGLE een
-REM opvraging voor alle blokken, met de tellingen erin (NetworkSetup/GenerateOutput/Generate_Output), zoals tot dan. Bij MergeOutput
-REM (sinds 2026-10-05, #117) het samenvoegen van de Components, sinds 2026-10-07 ook per blok in porties (ComponentMerge/PerBlock).
+REM The output runs in portions of origin blocks, each in its own GeoDmsRun, followed by the counts with OdTellingen.py
+REM (WriteOutputBlocks.ps1). Blocks per portion: ModelParameters/Advanced/Components/BlocksPerPortion of the component,
+REM or the environment variable OUTPUT_BATCHSIZE; OUTPUT_MAXBLOCKS calculates at most that many blocks (for testing).
+REM The environment variable OUTPUT_SINGLE runs one request for all blocks, with the counts included
+REM (NetworkSetup/GenerateOutput/Generate_Output). With MergeOutput (#117) the merging of the Components also runs per
+REM block in portions (ComponentMerge/PerBlock).
 if defined OUTPUT_SINGLE goto output_single
-echo === uitvoer: csv per herkomstblok en vertrekmoment, in porties (WriteOutputBlocks.ps1; uren) ===
+echo === output: a file per origin block and departure moment, in portions (WriteOutputBlocks.ps1; hours) ===
 set STEP=output
 set "OUTBS="
 if defined OUTPUT_BATCHSIZE set "OUTBS=-BatchSize %OUTPUT_BATCHSIZE%"
@@ -250,15 +242,15 @@ set RC=!ERRORLEVEL!
 if not "!RC!"=="0" goto failed
 goto done
 :output_single
-echo === uitvoer: csv per herkomstblok en vertrekmoment, een opvraging (OUTPUT_SINGLE; uren) ===
+echo === output: a file per origin block and departure moment, one request (OUTPUT_SINGLE; hours) ===
 call :run output /NetworkSetup/GenerateOutput/Generate_Output
 if not "!RC!"=="0" goto failed
 goto done
 
 :run
-REM %1 = stapnaam, %2.. = items; elke GeoDmsRun-aanroep vraagt de items op via @statistics, wat
-REM voor een store-holder de hele store schrijft. RC houdt de exitcode (ook negatief, bij een
-REM afgebroken proces; "if errorlevel 1" ziet die niet).
+REM %1 = step name, %2.. = items; each GeoDmsRun call requests the items with @statistics, which
+REM for a store holder writes the whole store. RC holds the exit code (also a negative one, for an
+REM aborted process; "if errorlevel 1" does not see that).
 set STEP=%1
 set ITEMS=
 :runargs
@@ -274,9 +266,9 @@ echo %DATE% %TIME% %STEP%: exit %RC%
 exit /b %RC%
 
 :failed
-echo UpdateAll %SECTION% MISLUKT bij stap %STEP% (exit %RC%) %DATE% %TIME%
+echo UpdateAll %SECTION% FAILED at step %STEP% (exit %RC%) %DATE% %TIME%
 exit /b 1
 
 :done
-echo UpdateAll %SECTION% klaar %DATE% %TIME%
+echo UpdateAll %SECTION% done %DATE% %TIME%
 exit /b 0

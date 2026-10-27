@@ -1,15 +1,15 @@
-# ReportUpdateAll.py [--localdata <map>] [stap ...]
+# ReportUpdateAll.py [--localdata <folder>] [step ...]
 #
-# Overzicht per stap van batch\UpdateAll.cmd: begin, einde, duur, omvang van het resultaat, piekgeheugen en fouten.
-# Leest batch\log\UpdateAll_<stap>.log (alleen de laatste sessie, want GeoDmsRun voegt aan een log toe) en kijkt naar
-# de store of de uitvoerbestanden op schijf. Zonder stappen: de vier autostores, de ketenstore en de uitvoer.
+# Overview per step of batch\UpdateAll.cmd: start, end, duration, size of the result, peak memory and errors.
+# Reads batch\log\UpdateAll_<step>.log (only the last session, because GeoDmsRun appends to a log) and looks at
+# the store or the output files on disk. Without steps: the four car stores, the chain store and the output.
 #
-#   stap        car_<moment>, chains_precheck, chains, output, osm_network, tomtom_roads, ... (zie UpdateAll.cmd)
-#   --localdata de LocalDataProjDir van het model (default: C:\LocalData\NetworkModel_PBL, of NM_PBL_LOCALDATA)
+#   step        car_<moment>, chains_precheck, chains, output, osm_network, tomtom_roads, ... (see UpdateAll.cmd)
+#   --localdata the LocalDataProjDir of the model (default: C:\LocalData\NetworkModel_PBL, or NM_PBL_LOCALDATA)
 #
-# Kolommen: min = duur van de GeoDmsRun-aanroep; rijen = "Filling all ... resulted in N pareto od-pairs" van de laatste
-# pareto-matrix (autostores), of het aantal klaar gemelde herkomstblokken (uitvoer); commit MB = "Highest CommitCharge"
-# en live MB = "PeakLiveLarge" uit de geheugensamenvatting aan het eind van het log; store MB = de store of de csv's.
+# Columns: min = duration of the GeoDmsRun call; rows = "Filling all ... resulted in N pareto od-pairs" of the last
+# pareto matrix (car stores), or the number of origin blocks reported as finished (output); commit MB = "Highest CommitCharge"
+# and live MB = "PeakLiveLarge" from the memory summary at the end of the log; store MB = the store or the csv files.
 import re, os, glob, sys, datetime
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -41,15 +41,14 @@ def parse(step):
     r["count_first"] = cnt[0] if cnt else None; r["count_last"] = cnt[-1] if cnt else None; r["fill_last"] = fil[-1] if fil else None
     m = re.search(r"Highest CommitCharge: (\d+)\[MB\]", s); r["commit_mb"] = int(m.group(1)) if m else None
     m = re.search(r"PeakLiveLarge: (\d+)\[MB\]", s); r["live_mb"] = int(m.group(1)) if m else None
-    # Het ontbrekende bevolkingsraster (SourceData/Locaties/Inwoners, cbs_vk100_<jaar>.gpkg) meldt zich in elke run maar
-    # raakt de stores niet; die regels tellen niet als fout.
+    # The missing population grid (SourceData/Locaties/Inwoners, cbs_vk100_<year>.gpkg) reports an error in every run but
+    # does not affect the stores; those lines do not count as errors.
     errs = [l for l in s.splitlines() if "[E]" in l and not any(x in l for x in ("Inwoners", "aantal_inwoners", "cbs_vk100"))]
     r["errors"] = len(errs); r["first_error"] = errs[0][:200] if errs else None
     m = re.search(r"GeoDmsRun failed with code (\d+)", s); r["failed"] = m.group(1) if m else None
-    # Sinds 2026-10-03 (#118) PT_Chains_<datum>_<venster>_<hash> (een map met een store per blok) en
-    # DirectCar_<net>_<moment>_<herkomst>_<bestemming>_<hash>.mmd (sinds 2026-10-21 met het net, TT2025-12; tot dan zonder), met de
-    # handtekening in signature.txt in de map (tot 2026-10-06
-    # <naam>.signature.txt ernaast).
+    # The stores are PT_Chains_<date>_<window>_<hash> (a folder with a store per block, #118) and
+    # DirectCar_<network>_<moment>_<origin>_<destination>_<hash>.mmd (the network as in TT2025-12), each with its signature
+    # in signature.txt in the folder.
     pat = "PT_Chains_*" if step == "chains" else ("DirectCar_*%s_*.mmd" % step.split("_", 1)[1] if step.startswith("car_") else None)
     stores = sorted([d for d in glob.glob(os.path.join(STORES, pat)) if os.path.isdir(d)], key=os.path.getmtime) if pat else []
     if stores:
@@ -59,30 +58,30 @@ def parse(step):
         r["store_time"] = datetime.datetime.fromtimestamp(os.path.getmtime(d)).strftime(TS)
     if step == "output" and r["start"]:
         t0 = datetime.datetime.strptime(r["start"], TS).timestamp()
-        # De uitvoermap (Output/<datum>_<label>, sinds #118) staat in batch\log\output_dir.txt, die UpdateAll.cmd output schrijft.
+        # The output folder (Output/<date>_<label>, #118) is in batch\log\output_dir.txt, which UpdateAll.cmd output writes.
         od = os.path.join(LOG, "output_dir.txt")
         outdir = open(od).read().strip() if os.path.exists(od) else os.path.join(LOCAL, "Output", "*")
         csv = [f for f in glob.glob(os.path.join(outdir, "PerBlock", "*.csv")) if os.path.getmtime(f) >= t0]
-        r["store"] = "%d csv-bestanden in %s sinds de start" % (len(csv), os.path.join(outdir, "PerBlock"))
+        r["store"] = "%d csv files in %s since the start" % (len(csv), os.path.join(outdir, "PerBlock"))
         r["store_mb"] = sum(os.path.getsize(f) for f in csv) / 1e6
         r["store_time"] = datetime.datetime.fromtimestamp(max(os.path.getmtime(f) for f in csv)).strftime(TS) if csv else "-"
-        r["rows"] = "%d blokken" % len(re.findall(r"Results for all departure times in Block_\d+of\d+ are finished", s))
+        r["rows"] = "%d blocks" % len(re.findall(r"Results for all departure times in Block_\d+of\d+ are finished", s))
     return r
 
 def fmt(v, f="%s"):
     return "-" if v is None else (f % v)
 
-print("%-20s %-19s %-19s %8s %14s %10s %10s %10s %8s" % ("stap", "start", "einde", "min", "rijen", "commit MB", "live MB", "store MB", "fouten"))
+print("%-20s %-19s %-19s %8s %14s %10s %10s %10s %8s" % ("step", "start", "end", "min", "rows", "commit MB", "live MB", "store MB", "errors"))
 for st in steps:
     r = parse(st)
     if r is None:
-        print("%-20s (geen log)" % st)
+        print("%-20s (no log)" % st)
         continue
     print("%-20s %-19s %-19s %8s %14s %10s %10s %10s %8s" % (st, fmt(r["start"]), fmt(r["end"]), fmt(r.get("dur_min"), "%.1f"), fmt(r["rows"]),
           fmt(r["commit_mb"]), fmt(r["live_mb"]), fmt(r.get("store_mb"), "%.0f"), r["errors"]))
     if r.get("count_first"):
-        print("%-20s   telpas %s .. %s, vulpas tot %s" % ("", r["count_first"], fmt(r["count_last"]), fmt(r["fill_last"])))
+        print("%-20s   counting pass %s .. %s, filling pass until %s" % ("", r["count_first"], fmt(r["count_last"]), fmt(r["fill_last"])))
     if r.get("store"):
         print("%-20s   %s (%s)" % ("", r["store"], r["store_time"]))
     if r["failed"] or r["first_error"]:
-        print("%-20s   FOUT exit %s: %s" % ("", r["failed"], r["first_error"]))
+        print("%-20s   ERROR exit %s: %s" % ("", r["failed"], r["first_error"]))

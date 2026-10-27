@@ -5,64 +5,61 @@ container NetworkSetup : using = "units;Geography;SourceData;Classifications;Mod
 
 	container impl
 	{
-		parameter<string> Org_str           := PublicTransport_Prep/impl/Org_unit, Descr = "De herkomsten: Orgset, of bij een HB-paar de ene herkomst (sinds 2026-10-21, #129).";
+		parameter<string> Org_str           := PublicTransport_Prep/impl/Org_unit, Descr = "The path of the origins: Orgset, or for an OD pair its one origin (#129).";
 
 		unit<uint32> OrgBlockSelections := =Org_str
 		{
 			attribute<.>              rnd_rel       := rnd_permutation(0, .);
-			attribute<OrgBlockDomain> OrgBlock_rel  := value(rnd_rel / ModelParameters/Advanced/MaxOrgBlockSize, OrgBlockDomain), Descr = "Het herkomstblok van deze herkomst: ConfigurationPerOrgBlock_T/org en de directe ritten per blok (PublicTransport/Direct_OD) kiezen hierop.";
+			attribute<OrgBlockDomain> OrgBlock_rel  := value(rnd_rel / ModelParameters/Advanced/MaxOrgBlockSize, OrgBlockDomain), Descr = "The origin block of this origin, on which ConfigurationPerOrgBlock_T/org and the direct trips per block (PublicTransport/Direct_OD) select.";
 		}
 
-		// De directe ritten van alle herkomsten (PublicTransport_Prep/Direct_OD) met wat niet van het blok afhangt, een keer gerekend:
-		// de plaatsen van herkomst en bestemming, het bezit dat de rit vraagt en het herkomstblok; elk blok kiest daaruit zijn rijen
-		// (PublicTransport/Direct_OD). Tot 2026-10-07 rekende elk blok dat over de hele tabel (PublicTransport/Direct_OD_all), met
-		// twee rlookups en een tekst per rij: voor Auto met Buurt2023 naar Buurt2023 779 miljoen rijen, 450 keer.
+		// The direct trips of all origins (PublicTransport_Prep/Direct_OD) with what does not depend on the block, calculated once: the places of
+		// origin and destination, the ownership the trip needs and the origin block; every block selects its rows from it (PublicTransport/Direct_OD).
 		unit<uint64> Direct_OD := PublicTransport_Prep/Direct_OD
 		{
 			attribute<s>                                    Duration_seconds := PublicTransport_Prep/Direct_OD/Duration_seconds;
 			attribute<dam>                                  Distance         := PublicTransport_Prep/Direct_OD/Distance;
 			attribute<ct>                                   Price            := PublicTransport_Prep/Direct_OD/Price;
 			attribute<ct>                                   Price_Augm       := PublicTransport_Prep/Direct_OD/Price_Augm;
-			attribute<OrgBlockSelections>                   OrgZone_rel      := PublicTransport_Prep/Direct_OD/OrgZone_rel, Descr = "De herkomst in de volledige herkomstenset, zoals PublicTransport_Prep/Impl/Places/Origin_rel.";
+			attribute<OrgBlockSelections>                   OrgZone_rel      := PublicTransport_Prep/Direct_OD/OrgZone_rel, Descr = "The origin in the full set of origins, as PublicTransport_Prep/Impl/Places/Origin_rel.";
 			attribute<PublicTransport_Prep/impl/dest>       DstZone_rel      := PublicTransport_Prep/Direct_OD/DstZone_rel;
 			attribute<PublicTransport_Prep/impl/Modes>      Mode_rel         := PublicTransport_Prep/Direct_OD/Mode_rel;
-			attribute<bool>                                 NeedsCar         := Mode_rel == PublicTransport_Prep/impl/Modes/V/Car, Descr = "Criterium van de eindafweging (Classifications/OwnershipParetoAttr, NetworkModel_PBL#117).";
-			attribute<bool>                                 NeedsBike        := Mode_rel == PublicTransport_Prep/impl/Modes/V/Cycling, Descr = "Idem.";
+			attribute<bool>                                 NeedsCar         := Mode_rel == PublicTransport_Prep/impl/Modes/V/Car, Descr = "Criterion of the final front: the trip needs a car (Classifications/OwnershipParetoAttr, #117).";
+			attribute<bool>                                 NeedsBike        := Mode_rel == PublicTransport_Prep/impl/Modes/V/Cycling, Descr = "Criterion of the final front: the trip needs a bike (Classifications/OwnershipParetoAttr, #117).";
 			attribute<PublicTransport_Prep/impl/Places>     From_Place_rel   := rlookup(OrgZone_rel, PublicTransport_Prep/impl/Places/Origin_rel);
 			attribute<PublicTransport_Prep/impl/Places>     To_Place_rel     := rlookup(DstZone_rel, PublicTransport_Prep/impl/Places/Dest_rel);
 			attribute<OrgBlockDomain>                       OrgBlock_rel     := OrgBlockSelections/OrgBlock_rel[OrgZone_rel];
 		}
 
-		// Het voor- en PostTransport van alle herkomsten (sinds 2026-10-19 uit de stores van de benen, PublicTransport_Prep/Legs), een keer verenigd over de typen van de component (OV_PreTransport_Typen,
-		// OV_PostTransport_Typen); elk blok kiest zijn voortransportbenen op het herkomstblok (PublicTransport/V) en gebruikt alle
-		// natransportbenen (PublicTransport/N). Tot 2026-10-07 verenigde elk blok alle benen opnieuw, met voor elk voortransportbeen
-		// de tekst OrgName en de keuze IsRelevantForOrgSubset.
+		// The pre-transport and post-transport of all origins, from the stores of the legs (PublicTransport_Prep/Legs), united once over the types of
+		// the component (OV_PreTransport_Typen, OV_PostTransport_Typen); every block selects its pre-transport legs on the origin block
+		// (PublicTransport/V) and uses all post-transport legs (PublicTransport/N).
 		unit<uint64> V_org := ='union_unit_uint64('+asList('PublicTransport_Prep/Legs/'+ModelParameters/Impl/OV_PreTransport_Typen/name+'/ODMatrix', ',')+')'
-		, Descr = "PreTransport"
+		, Descr = "The pre-transport legs of all origins, over the pre-transport types of the component."
 		{
 			attribute<PublicTransport_Prep/impl/Places> From_Place_rel   := ='union_data(., '+asList('PublicTransport_Prep/Legs/'+ModelParameters/Impl/OV_PreTransport_Typen/name+'/ODMatrix/From_Place_rel', ',')+')';
 			attribute<PublicTransport_Prep/impl/Places> To_Place_rel     := ='union_data(., '+asList('PublicTransport_Prep/Legs/'+ModelParameters/Impl/OV_PreTransport_Typen/name+'/ODMatrix/To_Place_rel', ',')+')';
 			attribute<PublicTransport_Prep/impl/Modes>  Mode_rel         := ='union_data(., '+asList('PublicTransport_Prep/Legs/'+ModelParameters/Impl/OV_PreTransport_Typen/name+'/ODMatrix/Mode_rel', ',')+')';
 			attribute<VN_ModeClasses/Uq>                ModeClass_rel    := ='union_data(., '+asList('const('+string(rlookup(ModelParameters/Impl/OV_PreTransport_Typen/ExportName, /classifications/VN_ModeClasses/Uq/name))+'[VN_ModeClasses/Uq], PublicTransport_Prep/Legs/'+ModelParameters/Impl/OV_PreTransport_Typen/name+'/ODMatrix)', ',')+')';
 			attribute<s>                                impedance        := ='union_data(., '+asList('PublicTransport_Prep/Legs/'+ModelParameters/Impl/OV_PreTransport_Typen/name+'/ODMatrix/Duration_seconds_ext[s]', ',')+')';
-			attribute<s>                                impedance_net    := ='union_data(., '+asList('PublicTransport_Prep/Legs/'+ModelParameters/Impl/OV_PreTransport_Typen/name+'/ODMatrix/impedance[s]', ',')+')', Descr = "Netwerkreistijd van het been, zonder start- en parkeertijd; hierop toetsen de Max*Time-grenzen, net als de cut van de Dijkstra.";
+			attribute<s>                                impedance_net    := ='union_data(., '+asList('PublicTransport_Prep/Legs/'+ModelParameters/Impl/OV_PreTransport_Typen/name+'/ODMatrix/impedance[s]', ',')+')', Descr = "Network travel time of the leg without start and parking time, which the Max*Time limits test, as does the cut of the Dijkstra search.";
 			attribute<dam>                              Distance         := ='union_data(., '+asList('PublicTransport_Prep/Legs/'+ModelParameters/Impl/OV_PreTransport_Typen/name+'/ODMatrix/Distance', ',')+')';
 			attribute<ct>                               Price            := ='union_data(., '+asList('PublicTransport_Prep/Legs/'+ModelParameters/Impl/OV_PreTransport_Typen/name+'/ODMatrix/Price', ',')+')';
-			attribute<OrgBlockSelections>               OrgZone_rel      := PublicTransport_Prep/impl/Places/Origin_rel[From_Place_rel], Descr = "De herkomst van het been in de volledige herkomstenset; leeg als het been niet bij een herkomst begint.";
+			attribute<OrgBlockSelections>               OrgZone_rel      := PublicTransport_Prep/impl/Places/Origin_rel[From_Place_rel], Descr = "The origin of the leg in the full set of origins, empty if the leg does not start at an origin.";
 			attribute<OrgBlockDomain>                   OrgBlock_rel     := OrgBlockSelections/OrgBlock_rel[OrgZone_rel];
 		}
 		attribute<bool> IsVStop (PublicTransport_Prep/impl/Places) := pcount(V_org/To_Place_rel) > 0u64
-		, Descr = "Eindigt hier een voortransportbeen van de component (sinds 2026-10-20)? Alleen ketens die bij zo'n halte instappen, leest de uitvoer uit de ketenstore (PublicTransport_Prep/PT_V).";
+		, Descr = "Whether a pre-transport leg of the component ends at this place, because the output reads from the chain store only the chains that board at such a stop (PublicTransport_Prep/PT_V).";
 		
 		unit<uint64> N :=='union_unit_uint64('+asList('PublicTransport_Prep/Legs/'+ModelParameters/Impl/OV_PostTransport_Typen/name+'/ODMatrix', ',')+')'
-		, Descr = "PostTransport"
+		, Descr = "The post-transport legs to all destinations, over the post-transport types of the component."
 		{
 			attribute<PublicTransport_Prep/impl/Places> From_Place_rel   := ='union_data(., '+asList('PublicTransport_Prep/Legs/'+ModelParameters/Impl/OV_PostTransport_Typen/name+'/ODMatrix/From_Place_rel', ',')+')';
 			attribute<PublicTransport_Prep/impl/Places> To_Place_rel     := ='union_data(., '+asList('PublicTransport_Prep/Legs/'+ModelParameters/Impl/OV_PostTransport_Typen/name+'/ODMatrix/To_Place_rel', ',')+')';
 			attribute<PublicTransport_Prep/impl/Modes>  Mode_rel         := ='union_data(., '+asList('PublicTransport_Prep/Legs/'+ModelParameters/Impl/OV_PostTransport_Typen/name+'/ODMatrix/Mode_rel', ',')+')';
 			attribute<VN_ModeClasses/Uq>                ModeClass_rel    := ='union_data(., '+asList('const('+string(rlookup(ModelParameters/Impl/OV_PostTransport_Typen/ExportName, /classifications/VN_ModeClasses/Uq/name))+'[VN_ModeClasses/Uq], PublicTransport_Prep/Legs/'+ModelParameters/Impl/OV_PostTransport_Typen/name+'/ODMatrix)', ',')+')';
 			attribute<s>                                impedance        := ='union_data(., '+asList('PublicTransport_Prep/Legs/'+ModelParameters/Impl/OV_PostTransport_Typen/name+'/ODMatrix/Duration_seconds_ext[s]', ',')+')';
-			attribute<s>                                impedance_net    := ='union_data(., '+asList('PublicTransport_Prep/Legs/'+ModelParameters/Impl/OV_PostTransport_Typen/name+'/ODMatrix/impedance[s]', ',')+')', Descr = "Netwerkreistijd van het been, zonder start- en parkeertijd; hierop toetsen de Max*Time-grenzen, net als de cut van de Dijkstra.";
+			attribute<s>                                impedance_net    := ='union_data(., '+asList('PublicTransport_Prep/Legs/'+ModelParameters/Impl/OV_PostTransport_Typen/name+'/ODMatrix/impedance[s]', ',')+')', Descr = "Network travel time of the leg without start and parking time, which the Max*Time limits test, as does the cut of the Dijkstra search.";
 			attribute<dam>                              Distance         := ='union_data(., '+asList('PublicTransport_Prep/Legs/'+ModelParameters/Impl/OV_PostTransport_Typen/name+'/ODMatrix/Distance', ',')+')';
 			attribute<ct>                               Price            := ='union_data(., '+asList('PublicTransport_Prep/Legs/'+ModelParameters/Impl/OV_PostTransport_Typen/name+'/ODMatrix/Price', ',')+')';
 			attribute<string>                           DestName         := PublicTransport_Prep/impl/Places/label[To_Place_rel]; //debug
@@ -70,7 +67,7 @@ container NetworkSetup : using = "units;Geography;SourceData;Classifications;Mod
 		unit<uint32> OrgBlockDomain   := range(0, ModelParameters/Advanced/NumberOfOrgBlocks)
 		{
 			attribute<string> name          := 'Block_'+string(id(.)+1)+'of'+string(max(id(.))+1);
-			attribute<string> FileName      := string(id(.)+1)+'of'+string(max(id(.))+1), Descr = "Het blok in de naam van de uitvoer per blok, PerBlock/tt_<moment>_<n>of<N>.csv (sinds 2026-10-20 zonder de datum, sinds 2026-10-03 zonder 'Block_', NetworkModel_PBL#118).";
+			attribute<string> FileName      := string(id(.)+1)+'of'+string(max(id(.))+1), Descr = "The block in the name of the output per block, PerBlock/tt_<moment>_<n>of<N>.csv (#118).";
 			attribute<uint64> BlockOffset   := min_elem(uint64(id(.)) * uint64(ModelParameters/Advanced/MaxOrgBlockSize), uint64(#OrgBlockSelections));
 			attribute<uint64> BlockEnd      := min_elem(BlockOffset + uint64(ModelParameters/Advanced/MaxOrgBlockSize), uint64(#OrgBlockSelections));
 			attribute<uint32> BlockSize     := uint32(BlockEnd - BlockOffset);
@@ -79,17 +76,16 @@ container NetworkSetup : using = "units;Geography;SourceData;Classifications;Mod
 
 	container GenerateOutput
 	{	
-		// De handtekening van de OV-uitvoer (sinds 2026-10-03, NetworkModel_PBL#118). De uitvoer staat in ModelParameters/Impl/OutputDir
-		// (Output/<Analysis_date>_<OutputLabel>), met in de bestandsnamen alleen datum, vertrekmoment en blok; alle parameters staan in
-		// <OutputDir>/signature.txt. De schrijver per blok (PublicTransport/PerDepartureMoment_T, LongFormat/File) schrijft hem en weigert
-		// een map met een andere handtekening; de lezers en samenvoegers (ReadExport_OV_perTime_T, Merge_Regions_OV_T, Merge_Times,
-		// PostAnalysis/FindMedian) weigeren te lezen als hij ontbreekt of afwijkt. De ketenstore en de autostore horen erbij, want de
-		// uitvoer is uit hun inhoud gerekend.
+		// The signature of the public transport output (#118). The output is in ModelParameters/Impl/OutputDir (Output/<Analysis_date>_<OutputLabel>),
+		// with only departure moment and block in the file names; all parameters are in <OutputDir>/signature.txt. The writer per block
+		// (PublicTransport/PerDepartureMoment_T, LongFormat/File) writes it and refuses a folder with a different signature; the readers and mergers
+		// (ReadExport_OV_perTime_T, Merge_Regions_OV_T, Merge_Times, PostAnalysis/FindMedian) refuse to read when it is missing or differs. The chain
+		// store and the car store belong to it, because the output is calculated from their content.
 		parameter<string> Output_CarSignature := = /ModelParameters/Impl/AllowDirectCar
 				? (/ModelParameters/Impl/CarTimeDependent
 					? '''_''+/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/TD' + first(/ModelParameters/Impl/MeasureMoments/TemplatableTextShrt) + '/Signature'
 					: '''_''+/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/' + /ModelParameters/Impl/Car_CongestionMoment_ForDirect + '/Signature')
-				: '''''', Descr = "De handtekening van de autostore van de directe autorit (Car_CongestionMoment_ForDirect) met een _ ervoor, leeg zonder AllowDirectCar. Met CarTimeDependent die van de store van het eerste vertrekmoment, die de tijdafhankelijke zoektocht in TD_Tag draagt (sinds 2026-10-09).";
+				: '''''', Descr = "The signature of the car store of the direct car trip (Car_CongestionMoment_ForDirect) with a _ in front, empty without AllowDirectCar; with CarTimeDependent that of the store of the first departure moment, which carries the time-dependent search in TD_Tag.";
 		
 		parameter<string> Output_Signature_Run :=
 			'tt_' + /ModelParameters/Impl/Analysis_date + '_ORG-' + /ModelParameters/Impl/OrgSet_string + /ModelParameters/Impl/PT_Output_ParamTag
@@ -97,9 +93,9 @@ container NetworkSetup : using = "units;Geography;SourceData;Classifications;Mod
 			+ (/ModelParameters/Impl/WithPT ? '_' + /NetworkSetup/PublicTransport_Prep/PT_Chains_Signature : '')
 			+ Output_CarSignature
 			+ (/ModelParameters/OutputFormat == 'parquet' ? '_parquet-' + /ModelParameters/Impl/ExportClass : '')
-		, Descr = "Handtekening van de OV-uitvoer: datum, herkomstenset en PT_Output_ParamTag (tot 2026-10-03 de bestandsnaam zonder vertrekmoment en blok), de kolommen (Export_TravelledDistance, Export_PriceInformation), de handtekeningen van de ketenstore (alleen als het OV meedoet, ModelParameters/Impl/WithPT) en van de autostore, en sinds 2026-10-16 _parquet bij OutputFormat 'parquet' (de lezers en samenvoegers lezen csv), sinds 2026-10-19 met de soort component erachter (_parquet-PT, -Car of -Direct: de kolommen, ModelParameters/Impl/ExportClass).";
+		, Descr = "The signature of the public transport output: date, set of origins and PT_Output_ParamTag, the exported columns, the signatures of the chain store (with WithPT) and of the car store, and with OutputFormat 'parquet' _parquet- plus the kind of component (ModelParameters/Impl/ExportClass), which sets the columns.";
 		
-		parameter<string> Output_Signature := =/ModelParameters/Impl/IsMerged ? 'ComponentMerge_Def/Signature' : 'Output_Signature_Run', Descr = "De handtekening van de uitvoermap: Output_Signature_Run van een run, of bij MergeOutput (#117) die van ComponentMerge, met de handtekeningen van de samengevoegde Components.";
+		parameter<string> Output_Signature := =/ModelParameters/Impl/IsMerged ? 'ComponentMerge_Def/Signature' : 'Output_Signature_Run', Descr = "The signature of the output folder: Output_Signature_Run of a run, or with MergeOutput (#117) that of ComponentMerge, with the signatures of the merged Components.";
 		
 		container Output_Sig := /Templates/StoreSignature_T(
 			/ModelParameters/Impl/OutputDir
@@ -107,12 +103,12 @@ container NetworkSetup : using = "units;Geography;SourceData;Classifications;Mod
 			, Output_Signature
 			, strlen('/PerBlock/tt_') + max_elem(max(strlen(/ModelParameters/Impl/MeasureMoments/TemplatableTextShrt)), strlen('mediaan')) + 1 + max(strlen(impl/OrgBlockDomain/FileName)) + strlen(/ModelParameters/Impl/OutputExt)
 			)
-		, Descr = "De handtekening in de uitvoermap: de schrijver per blok schrijft hem (en controleert het langste pad, PerBlock/tt_<moment>_<n>of<N>.csv of .parquet; tot 2026-10-20 met de datum na tt_), de lezers en samenvoegers controleren hem.";
+		, Descr = "The signature in the output folder, which the writer per block writes (checking also the longest path, PerBlock/tt_<moment>_<n>of<N>.csv or .parquet) and the readers and mergers check.";
 	
 		parameter<string> OutputDir_ForBatch := replace(expand(., /ModelParameters/Impl/OutputDir), '/', '\\'), StorageName = "%ConfigDir%/../../batch/log/output_dir.txt", StorageType = "str"
-		, Descr = "De uitvoermap voor batch/UpdateAll.cmd output, dat er voor de uitvoerstap de bestanden van het model uit weghaalt (tt_*.csv, tt_*.xml en de handtekening).";
+		, Descr = "The output folder for batch/UpdateAll.cmd output, which removes the files of the model from it before the output step (tt_*.csv, tt_*.xml and the signature).";
 		parameter<string> Generate_Output := =/ModelParameters/Impl/IsMerged ? 'ComponentMerge/Generate' : 'ConfigurationPerBlock/Generate_Output/OUTPUT_Generate_PublicTransport_fullOD_long_CSVFiles'
-		, Descr = "De uitvoerstap (batch/UpdateAll.cmd output): de uitvoer per blok en vertrekmoment, met de tellingen, of bij MergeOutput het samenvoegen van de Components (ComponentMerge; sinds 2026-10-05, #117). Bij Samen maakt batch/OdTellingen.py de tellingen.";
+		, Descr = "The output step (batch/UpdateAll.cmd output): the output per block and departure moment with the counts, or with MergeOutput the merge of the Components (ComponentMerge, #117), for which batch/OdTellingen.py makes the counts.";
 	}
 	
 
@@ -124,27 +120,27 @@ container NetworkSetup : using = "units;Geography;SourceData;Classifications;Mod
 	{
 		container Generate_Output
 		{
-			// Sinds 2026-10-04 ook de tellingen (OD_Tellingen), in dezelfde opvraging: die gebruiken de resultaten achter de hekken van
-			// de blokken, en die zijn er alleen in de fase waarin de blokken gerekend worden.
+			// The counts as well (OD_Tellingen), in the same request: they use the results behind the fences of the blocks, which exist only in the
+			// phase in which the blocks are calculated.
 			parameter<string> OUTPUT_Generate_PublicTransport_fullOD_long_CSVFiles  := =asList(NetworkSetup/Impl/OrgBlockDomain/name+'/PublicTransport/Generate_Output/Traveltime_ForEachDepTime_Fence/Generate',' + ') + ' + OD_Tellingen/Generate';
 
-			// Sinds 2026-10-07 rekent batch/WriteOutputBlocks.ps1 de uitvoer in porties van blokken, een GeoDmsRun per portie, zoals
-			// WriteChainBlocks.ps1 de ketenstap: in een opvraging voor alle blokken (hierboven) groeide het geheugen van de uitvoer van
-			// Auto voor Buurt2023 naar Buurt2023 met ongeveer 0,7 GB per blok tot 386 GB. De tellingen maakt dan batch/OdTellingen.py.
+			// batch/WriteOutputBlocks.ps1 calculates the output in portions of blocks, one GeoDmsRun per portion, as WriteChainBlocks.ps1 does for the
+			// chain step, because in one request for all blocks (above) the memory grows with every block. The counts are then made by
+			// batch/OdTellingen.py.
 			parameter<string> OutputBlocks_List := AsList(/ModelParameters/Impl/IsMerged
 				? '/NetworkSetup/ComponentMerge/PerBlock/' + /NetworkSetup/Impl/OrgBlockDomain/name + '/Fence/Generate'
 				: '/NetworkSetup/ConfigurationPerBlock/' + /NetworkSetup/Impl/OrgBlockDomain/name + '/PublicTransport/Generate_Output/Traveltime_ForEachDepTime_Fence/Generate', '\n')
 			, StorageName = "%ConfigDir%/../../batch/log/output_blocks.txt", StorageType = "str"
 			, ExplicitSuppliers = "/NetworkSetup/GenerateOutput/Output_Sig/ForWriting"
-			, Descr = "De opvragingen per herkomstblok, een per regel, voor batch/WriteOutputBlocks.ps1 (sinds 2026-10-07): de uitvoer per blok, of bij MergeOutput het samenvoegen per blok (ComponentMerge/PerBlock; in een opvraging groeide dat met ongeveer 7 GB per blok). Via Output_Sig/ForWriting schrijft of controleert dit eerst de handtekening van de uitvoermap en het langste pad.";
+			, Descr = "The requests per origin block, one per line, for batch/WriteOutputBlocks.ps1: the output per block, or with MergeOutput the merge per block (ComponentMerge/PerBlock); through Output_Sig/ForWriting it first writes or checks the signature of the output folder and the longest path.";
 			
 			parameter<string> OutputBlocks_PerPortion := string(/ModelParameters/Impl/BlocksPerPortion)
 			, StorageName = "%ConfigDir%/../../batch/log/output_blocks_per_portion.txt", StorageType = "str"
-			, Descr = "Herkomstblokken per GeoDmsRun voor batch/WriteOutputBlocks.ps1: ModelParameters/Advanced/Components/BlocksPerPortion van de component, 0 = alle blokken in een portie.";
+			, Descr = "Origin blocks per GeoDmsRun for batch/WriteOutputBlocks.ps1: ModelParameters/Advanced/Components/BlocksPerPortion of the component, 0 = all blocks in one portion.";
 
-			// Tellingen naast de OV-uitvoer (sinds 2026-10-04), in <OutputDir>: od_tellingen.csv met de rijen per soort optie en per
-			// vertrekmoment (en het totaal), en unieke_od_tellingen.csv met de unieke HB-paren per groep en per vertrekmoment (en over de
-			// momenten samen). De blokken hebben elk hun eigen herkomsten, dus de tellingen per blok worden opgeteld.
+			// Counts next to the public transport output, in <OutputDir>: od_tellingen.csv with the rows per kind of option and per departure moment
+			// (and the total), and unieke_od_tellingen.csv with the unique OD pairs per group and per departure moment (and over all moments together).
+			// The blocks each have their own origins, so the counts per block are added up.
 			container OD_Tellingen
 			{
 				unit<uint8>  Soort   := Classifications/OD_Tellingen_Soort;
@@ -167,10 +163,10 @@ container NetworkSetup : using = "units;Geography;SourceData;Classifications;Mod
 				attribute<string> ParenRegel (Groep) := ='Groep/label + ' + asList(''';'' + string(PerMoment/' + Moments/Name + '/Paren)', ' + ') + ' + '';'' + string(Paren_Samen)';
 				parameter<string> File_Rijen := 'soort;' + MomentKop + ';totaal\n' + asList(RijenRegel, '\n') + '\n'
 				,	StorageName = "=/ModelParameters/Impl/OutputDir + '/od_tellingen.csv'", StorageType = "str"
-				,	Descr = "Rijen van de OV-uitvoer per soort optie (Classifications/OD_Tellingen_Soort), per vertrekmoment en in totaal.";
+				,	Descr = "Rows of the public transport output per kind of option (Classifications/OD_Tellingen_Soort), per departure moment and in total.";
 				parameter<string> File_Paren := 'groep;' + MomentKop + ';samen\n' + asList(ParenRegel, '\n') + '\n'
 				,	StorageName = "=/ModelParameters/Impl/OutputDir + '/unieke_od_tellingen.csv'", StorageType = "str"
-				,	Descr = "Unieke HB-paren per groep (Classifications/OD_Tellingen_Groep), per vertrekmoment en over de momenten samen.";
+				,	Descr = "Unique OD pairs per group (Classifications/OD_Tellingen_Groep), per departure moment and over all moments together.";
 				parameter<string> Generate := File_Rijen + File_Paren;
 			}
 			
@@ -188,7 +184,7 @@ container NetworkSetup : using = "units;Geography;SourceData;Classifications;Mod
 				parameter<string> OUTPUT_Merge_PublicTransport_Times_fullOD_long_CSVFiles     := ReadMergeExports_PublicTransport/OUTPUT_Merge_Times;
 			}
 		
-			parameter<string> Direct_str := ModelParameters/Impl/Direct_str; // WW, CC en/of AA; sinds 2026-09-23 uit DirectModes
+			parameter<string> Direct_str := ModelParameters/Impl/Direct_str; // WW, CC and/or AA, from DirectModes
 			parameter<string> V_typen := (Direct_str != '' ? Direct_str + ',' : '') + asList(ModelParameters/Impl/OV_PreTransport_Typen/ExportName, ',');
 			parameter<string> N_typen := asList(ModelParameters/Impl/OV_PostTransport_Typen/ExportName, ',');
 			parameter<string> CombinationType := ModelParameters/Impl/PT_CombinationType;
@@ -343,8 +339,8 @@ container NetworkSetup : using = "units;Geography;SourceData;Classifications;Mod
 			parameter<min_f> MaxTraveltime_min;
 			///
 			
-			// In de HB-paarmodus (ModelParameters/Impl/IsOD, sinds 2026-10-21, #129) vraagt de zoektocht ook de LinkSet, en geeft Links per
-			// rit de links van zijn route (Templates/RouteLinks_T); de reistijden zijn dezelfde.
+			// In the OD pair mode (ModelParameters/Impl/IsOD, #129) the search also requests the LinkSet, and Links gives per trip the links of its route
+			// (Templates/RouteLinks_T); the travel times are the same.
 			unit<uint64> Traveltimes := ='impedance_matrix_od64(''bidirectional(link_flag);startPoint(Node_rel):max_imp;endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel'
 				+ (ModelParameters/Impl/IsOD ? ',LinkSet' : '') + '''
 					, convert(impedance, min_f)
@@ -359,14 +355,13 @@ container NetworkSetup : using = "units;Geography;SourceData;Classifications;Mod
 			{
 				attribute<string> Org_Dest    := string(OrgZone_rel)+'_'+string(DstZone_rel);
 			}
-			// sinds 2026-10-13 (#124) met eenrichtingsfietspaden van de Fietsersbond (not(IsOneDirection)); OSM-lopen en -fietsen hebben geen eenrichting
+			// The searches use the one-way cycle paths of the Fietsersbond (not(IsOneDirection), #124); OSM walking and cycling have no one-way links.
 			container Links := =ModelParameters/Impl/IsOD
 				? 'Templates/RouteLinks_T(Traveltimes, Traveltimes/LinkSet, LinkSet_dom, NodeSet_dom, LinkSet_dom/F1, LinkSet_dom/F2, NodeSet_dom/geometry, NodeSet_dom/DestNode_rel[Traveltimes/DstZone_rel])'
 				: 'Templates/GeenRouteLinks_T()'
-			, Descr = "De links van de route van elke rit, alleen in de HB-paarmodus (IsOD).";
+			, Descr = "The links of the route of every trip, only in the OD pair mode (IsOD).";
 			
-			// De routes van alle ritten, ook buiten de HB-paarmodus, om te bekijken. Sinds 2026-10-21 de lijn per route uit RouteLinks_T; tot
-			// dan was geometry de rechte lijn van een link per rit (TravelledJourney/Route[invert(Sequence_rel)]).
+			// The routes of all trips, also outside the OD pair mode, for inspection, with the line per route from RouteLinks_T.
 			unit<uint64> Traveltimes_with_Linkset :=
 				impedance_matrix_od64('bidirectional(link_flag);startPoint(Node_rel):max_imp;endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel,LinkSet'
 					, convert(impedance, min_f)

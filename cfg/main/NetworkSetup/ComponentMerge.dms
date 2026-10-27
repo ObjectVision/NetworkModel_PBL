@@ -1,56 +1,55 @@
 container ComponentMerge_Def
-: Descr = "De Components en de handtekening van het samenvoegen (MergeOutput, #117); apart van ComponentMerge, want de schrijvers daar vragen via NetworkSetup/GenerateOutput/Output_Sig deze handtekening op."
+: Descr = "The Components and the signature of the merge (MergeOutput, #117), kept apart from ComponentMerge because the writers there request this signature through NetworkSetup/GenerateOutput/Output_Sig."
 {
 	unit<uint8> Comps := select_with_attr_by_cond(/ModelParameters/Advanced/Components, /ModelParameters/Advanced/Components/InMerge)
-	,	Descr = "De Components die samengevoegd worden, in de volgorde van Advanced/Components.";
+	,	Descr = "The Components that are merged, in the order of Advanced/Components.";
 	parameter<bool>   MergeComponents_OK := sum_uint32(/ModelParameters/Advanced/Components/InMerge) == strcount(/ModelParameters/MergeComponents, ',') + 1
-	,	Descr = "Noemt MergeComponents alleen namen uit Advanced/Components, elk een keer? Gecontroleerd bij het schrijven (de IntegrityCheck van ComponentMerge/PerBlock/../Write); de handtekening heeft anders _samen?-.";
+	,	Descr = "Does MergeComponents name only names from Advanced/Components, each once (checked by the IntegrityCheck of ComponentMerge/PerBlock/../Write; otherwise the signature has _samen?-)?";
 	parameter<string> BaseDir := '%LocalDataProjDir%/Output' + /ModelParameters/Impl/OD_Tag + '/' + /ModelParameters/Impl/Analysis_date + '_' + /ModelParameters/OutputLabel
-	,	Descr = "De uitvoermap van de variant zonder het achtervoegsel van de component.";
+	,	Descr = "The output folder of the variant without the suffix of the component.";
 
-	// De handtekening van elke component, zoals zijn uitvoer hem heeft geschreven.
+	// The signature of every component, as its output wrote it.
 	container PerComp := for_each_ne(Comps/name, 'CompSignature_T(' + quote(Comps/OutputSuffix) + ')');
-	Template CompSignature_T
+	Template CompSignature_T : Descr = "Reads the signature that the output of one component wrote."
 	{
 		parameter<string> Suffix;
 		///
 		parameter<string> Stored : StorageName = "=BaseDir + Suffix + '/signature.txt'", StorageType = "str", StorageReadOnly = "true"
-		,	Descr = "De handtekening van de uitvoer van deze component; ontbreekt hij, dan is de component (nog) niet gerekend.";
+		,	Descr = "The signature of the output of this component; if it is missing, the component has not been calculated (yet).";
 	}
 
 	parameter<string> CompSignatures := =asList('''['' + PerComp/' + Comps/name + '/Stored + '']''', ' + ')
-	,	Descr = "De handtekeningen van de Components achter elkaar, elk tussen [ en ].";
+	,	Descr = "The signatures of the Components in a row, each between [ and ].";
 	parameter<string> Signature :=
 		  'tt_' + /ModelParameters/Impl/Analysis_date + '_ORG-' + /ModelParameters/Impl/OrgSet_string
 		+ (MergeComponents_OK ? '_samen-' : '_samen?-') + asList(Comps/name, ',')
 		+ '_MinCrit-' + asList(/Classifications/OutputParetoAttr/FileNameElement, '_') + /ModelParameters/Impl/ChainPareto_FileTag
 		+ '_' + /ModelParameters/OutputFormat + '-m2'
 		+ '_' + CompSignatures
-	,	Descr = "De handtekening van de samengevoegde uitvoer: datum, herkomstenset, de Components, de criteria (MergeCriteria) en epsilons, het formaat (sinds 2026-10-20, -m2: uit de parquet van de Components), en de handtekeningen van de Components zelf. Is een component opnieuw gerekend met andere parameters, dan klopt de samengevoegde uitvoer niet meer.";
+	,	Descr = "The signature of the merged output: date, set of origins, Components, criteria (MergeCriteria) and epsilons, format (-m2: read from the parquet of the Components) and the signatures of the Components, so that it changes when a component is recalculated with other parameters.";
 }
 
-// HET SAMENVOEGEN VAN DE Components (MergeOutput; overleg PBL 5-10-2026, #117; sinds 2026-10-20 uit parquet). Per herkomstblok en
-// vertrekmoment leest het de parquet van de Components in MergeComponents (Output/<Analysis_date>_<OutputLabel>_<component>/PerBlock),
-// elk met de kolommen van zijn soort (Advanced/Components/ExportClass), en vult het aan wat daar constant is of uit de kolommen volgt:
-// - WW en CC: de prijs uit de reistijd (Direct_Walking_Time_Costs, Direct_Cycling_Time_Costs, zoals PublicTransport_Prep/Direct),
-//   ModeUsed WW of CC, PretransTime = Traveltime; ze gelden voor elk vertrekmoment (SingleDepartureMoment);
-// - Car: de prijs uit de afstand (Car_FixedCosts_PerTrip + Car_CostPerKm), ModeUsed AA, PretransTime = Traveltime;
-// - een OV-component: alles staat in het bestand.
-// Dan per HB-paar de rijen die niet gedomineerd worden op de criteria van het samenvoegen (Classifications/OutputParetoAttr, uit
-// ModelParameters/MergeCriteria), met dezelfde epsilons en operator (pareto_optimal_eps) als in een run, met prijs en tijd in Ct en s;
-// NeedsCar en NeedsBike volgen uit de component (Advanced/Components). Het resultaat in ModelParameters/OutputFormat, csv of
-// parquet, in Output/<Analysis_date>_<OutputLabel>_Merged<MergeRunNr>/PerBlock, met de kolom Component (waar de regel vandaan komt),
-// en de tellingen per blok in Tellingen (batch/OdTellingen.py telt ze op). Tot 2026-10-20 las het de csv van de Components en schreef
-// het de regels ongewijzigd door; dat vroeg dezelfde kolommen in alle Components.
+// MERGING THE Components (MergeOutput, #117). Per origin block and departure moment it reads the parquet of the Components in MergeComponents
+// (Output/<Analysis_date>_<OutputLabel>_<component>/PerBlock), each with the columns of its kind (Advanced/Components/ExportClass), and fills
+// in what is constant there or follows from the columns:
+// - WW and CC: the price from the travel time (Direct_Walking_Time_Costs, Direct_Cycling_Time_Costs, as in PublicTransport_Prep/Direct),
+//   ModeUsed WW or CC, PretransTime = Traveltime; they apply to every departure moment (SingleDepartureMoment);
+// - Car: the price from the distance (Car_FixedCosts_PerTrip + Car_CostPerKm), ModeUsed AA, PretransTime = Traveltime;
+// - a public transport component: everything is in the file.
+// Then per OD pair the rows that are not dominated on the criteria of the merge (Classifications/OutputParetoAttr, from
+// ModelParameters/MergeCriteria), with the same epsilons and operator (pareto_optimal_eps) as in a run, with price and time in Ct and s;
+// NeedsCar and NeedsBike follow from the component (Advanced/Components). The result is written in ModelParameters/OutputFormat, csv or
+// parquet, to Output/<Analysis_date>_<OutputLabel>_Merged<MergeRunNr>/PerBlock, with the column Component (where the row comes from), and
+// the counts per block to Tellingen (batch/OdTellingen.py adds them up).
 container ComponentMerge
-: Descr = "Het samenvoegen van de Components tot een Pareto-front (MergeOutput), uit de parquet van de Components; zie het commentaar hierboven. Bereken Generate, of batch/UpdateAll.cmd output met MergeOutput."
+: Descr = "Merges the Components into one Pareto front (MergeOutput) from their parquet, as the comment above describes; Generate or batch/UpdateAll.cmd output with MergeOutput runs it."
 {
 	container PerBlock := for_each_ne(/NetworkSetup/impl/OrgBlockDomain/name, 'MergeBlock_T(' + string(id(/NetworkSetup/impl/OrgBlockDomain)) + ')');
 	parameter<string> Generate := =asList('PerBlock/' + /NetworkSetup/impl/OrgBlockDomain/name + '/Fence/Generate', ' + ')
-	,	Descr = "Voegt alle blokken en vertrekmomenten samen; een blok per fase, zodat zijn tussenresultaten daarna vrijkomen.";
+	,	Descr = "Merges all blocks and departure moments, one block per phase, so that its intermediate results are freed afterwards.";
 	parameter<string> GDAL_LayerCreationOptions := 'COMPRESSION=ZSTD';
 
-	Template MergeBlock_T
+	Template MergeBlock_T : Descr = "The merge of one origin block over all departure moments, with the counts of the block."
 	{
 		parameter</NetworkSetup/impl/OrgBlockDomain> BlockDomain_id;
 		///
@@ -59,9 +58,8 @@ container ComponentMerge
 		{
 			container PerMoment := for_each_ne(/ModelParameters/Impl/MeasureMoments/Name, 'MergeMoment_T(' + quote(/ModelParameters/Impl/MeasureMoments/Name) + ')');
 
-			// De tellingen van dit blok, Tellingen/tellingen_<n>of<N>.csv, zoals een componentrun ze schrijft (PublicTransport/
-			// Generate_Output/Traveltime_ForEachDepTime/Tellingen): rijen per soort en unieke HB-paren per groep, per vertrekmoment,
-			// en de paren over de momenten samen.
+			// The counts of this block, Tellingen/tellingen_<n>of<N>.csv, as a component run writes them (PublicTransport/Generate_Output/
+			// Traveltime_ForEachDepTime/Tellingen): rows per kind and unique OD pairs per group, per departure moment, and the pairs over all moments.
 			container Tellingen
 			{
 				unit<uint32> AlleParen := ='union_unit(' + asList('PerMoment/' + /ModelParameters/Impl/MeasureMoments/Name + '/Paren', ',') + ')'
@@ -92,28 +90,28 @@ container ComponentMerge
 				,	ExplicitSuppliers = "/NetworkSetup/GenerateOutput/Output_Sig/ForWriting";
 			}
 			parameter<string> Generate := 'Ready', ExplicitSuppliers = "=asList('PerMoment/' + /ModelParameters/Impl/MeasureMoments/Name + '/Write', ';') + ';Tellingen/File'"
-			,	Descr = "Schrijft de samengevoegde uitvoer per vertrekmoment en de tellingen van het blok, en geeft alleen 'Ready' terug.";
+			,	Descr = "Writes the merged output per departure moment and the counts of the block, and returns only 'Ready'.";
 		}
 		container Fence := PhaseContainer(Work, 'Samengevoegd: ' + /NetworkSetup/impl/OrgBlockDomain/name[BlockDomain_id]);
 
-		Template MergeMoment_T
+		Template MergeMoment_T : Descr = "The merge of one departure moment of the block: reads the files of the Components, keeps the Pareto front per OD pair and writes it."
 		{
 			parameter<string> Moment;
 			///
 			parameter<string> MomentShort := rjoin(Moment, /ModelParameters/Impl/MeasureMoments/Name, /ModelParameters/Impl/MeasureMoments/TemplatableTextShrt);
 			parameter<string> FileTail    := '_' + MomentShort + '_' + BlockFile
-			,	Descr = "De naam van het bestand na tt, zonder extensie: tt_<moment>_<n>of<N> (sinds 2026-10-20 zonder de datum); de datum en de component of samenvoeging staan in de naam van de map.";
+			,	Descr = "The name of the file after tt, without extension: tt_<moment>_<n>of<N>; the date and the component or merge are in the name of the folder.";
 
-			// Het bestand van elke component in dit blok en vertrekmoment; een component met SingleDepartureMoment (WW, CC, en Car zonder
-			// CarTimeDependent) heeft er een per blok, dat van het congestiemoment, dat voor elk vertrekmoment geldt.
+			// The file of every component in this block and departure moment; a component with SingleDepartureMoment (WW, CC, and Car without
+			// CarTimeDependent) has one per block, that of the congestion moment, which applies to every departure moment.
 			attribute<string> CompFile (ComponentMerge_Def/Comps) := ComponentMerge_Def/BaseDir + ComponentMerge_Def/Comps/OutputSuffix + '/PerBlock/tt_'
 				+ (ComponentMerge_Def/Comps/SingleDepartureMoment_Eff ? /ModelParameters/Impl/SingleDepartureMoment_Shrt : MomentShort) + '_' + BlockFile + '.parquet';
 			container PerComp := for_each_ne(ComponentMerge_Def/Comps/name
 				, 'Read' + ComponentMerge_Def/Comps/ExportClass + '_T(' + quote(ComponentMerge_Def/Comps/name) + ', ' + string(id(ComponentMerge_Def/Comps)) + 'b)'); // b: Comps is uint8
 
-			// Per soort component (Advanced/Components/ExportClass) een lezer, die de kolommen van zijn schrijver leest (PerDepartureMoment_T,
-			// CreateExports/LongFormat/Parquet_<ExportClass>) en de andere aanvult tot het gezamenlijke schema.
-			// WW en CC: OrgName, DestName, Traveltime.
+			// Per kind of component (Advanced/Components/ExportClass) a reader that reads the columns of its writer (PerDepartureMoment_T,
+			// CreateExports/LongFormat/Parquet_<ExportClass>) and completes the others to the common schema.
+			// WW and CC: OrgName, DestName, Traveltime.
 			Template ReadDirect_T
 			{
 				parameter<string> CompName;
@@ -130,7 +128,7 @@ container ComponentMerge
 				attribute<string>  OrgName          (domain) := domain/OrgName;
 				attribute<string>  DestName         (domain) := domain/DestName;
 				attribute<min_f>   Traveltime       (domain) := value(domain/Traveltime, min_f);
-				// zoals PublicTransport_Prep/Direct: de tijdwaardering, die alleen in Price telt met Include*CostsInPrice
+				// As in PublicTransport_Prep/Direct: the time valuation, which counts in Price only with Include*CostsInPrice.
 				attribute<Euro>    Price_Augm       (domain) := convert(rounded_convert(Traveltime * (IsWalking ? /ModelParameters/Direct_Walking_Time_Costs : /ModelParameters/Direct_Cycling_Time_Costs), Ct), Euro);
 				attribute<Euro>    Price            (domain) := (IsWalking ? /ModelParameters/Advanced/IncludeWalkingCostsInPrice : /ModelParameters/Advanced/IncludeCyclingCostsInPrice) ? Price_Augm : const(0[Euro], domain);
 				attribute<string>  ModeUsed         (domain) := const(CompName, domain);
@@ -163,7 +161,7 @@ container ComponentMerge
 				attribute<string>  OrgName          (domain) := domain/OrgName;
 				attribute<string>  DestName         (domain) := domain/DestName;
 				attribute<min_f>   Traveltime       (domain) := value(domain/Traveltime, min_f);
-				// zoals PublicTransport_Prep/Direct/Car: Car_FixedCosts_PerTrip + afstand x Car_CostPerKm; de afstand staat in hele meters in het bestand
+				// As in PublicTransport_Prep/Direct/Car: Car_FixedCosts_PerTrip + distance x Car_CostPerKm; the distance is in whole metres in the file.
 				attribute<Euro>    Price            (domain) := /ModelParameters/Advanced/IncludeCarCostsInPrice ? convert(rounded_convert(/ModelParameters/Car_FixedCosts_PerTrip + value(float32(domain/TravelDist_Car) / 1000f, km) * /ModelParameters/Car_CostPerKm, Ct), Euro) : const(0[Euro], domain);
 				attribute<Euro>    Price_Augm       (domain) := Price;
 				attribute<string>  ModeUsed         (domain) := const('AA', domain);
@@ -179,7 +177,7 @@ container ComponentMerge
 				attribute<uint32>  TravelDist_Ferry (domain) := const(0, domain, uint32);
 				attribute<uint32>  TravelDist_Car   (domain) := domain/TravelDist_Car;
 			}
-			// Een OV-component: de kolommen van Parquet_PT; NeedsBike volgt uit voor- en PostTransport (Advanced/Components/NeedsBike).
+			// A public transport component: the columns of Parquet_PT; NeedsBike follows from pre-transport and post-transport (Advanced/Components/NeedsBike).
 			Template ReadPT_T
 			{
 				parameter<string> CompName;
@@ -223,7 +221,7 @@ container ComponentMerge
 			}
 
 			unit<uint32> Rows := ='union_unit(' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/domain', ',') + ')'
-			,	Descr = "De rijen van alle Components, in de volgorde van Comps; bij een gelijke stand op alle criteria wint de eerste (pareto_optimal_eps)."
+			,	Descr = "The rows of all Components, in the order of Comps; with a tie on all criteria the first wins (pareto_optimal_eps)."
 			{
 				attribute<string> OrgName          := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/OrgName', ',') + ')';
 				attribute<string> DestName         := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/DestName', ',') + ')';
@@ -244,8 +242,8 @@ container ComponentMerge
 				attribute<uint32> TravelDist_Car   := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/TravelDist_Car', ',') + ')';
 				attribute<string> Component        := ='union_data(., ' + asList('const(' + quote(ComponentMerge_Def/Comps/name) + ', PerComp/' + ComponentMerge_Def/Comps/name + '/domain)', ',') + ')';
 
-				// de criteria (Classifications/OutputParetoAttr) in de eenheden van de eindafweging, Ct en s, zodat de epsilons dezelfde bakken
-				// geven als in een run; GeoDMS-namen zijn ongevoelig voor hoofdletters, dus TravelTime naast Traveltime_min
+				// The criteria (Classifications/OutputParetoAttr) in the units of the final front, Ct and s, so that the epsilons work as in a run; GeoDMS
+				// names are case-insensitive, hence TravelTime next to Traveltime_min.
 				attribute<Ct>     Price            := rounded_convert(Price_euro, Ct);
 				attribute<Ct>     Price_augm       := rounded_convert(Price_Augm_euro, Ct);
 				attribute<s>      TravelTime       := rounded_convert(Traveltime_min, s);
@@ -256,7 +254,7 @@ container ComponentMerge
 				unit<uint32>      OD               := unique(OrgDest);
 				attribute<OD>     OD_rel           := rlookup(OrgDest, OD/values);
 				attribute<bool>   keep             := ='pareto_optimal_eps(OD_rel, ' + asList(/Classifications/OutputParetoAttr/ParetoArgs, ', ') + ')'
-				,	Descr = "Met een criterium (MergeCriteria 'Time' of 'Price') per paar de ene snelste of goedkoopste rij: het eerste criterium heeft geen epsilon.";
+				,	Descr = "With one criterion (MergeCriteria 'Time' or 'Price') the one fastest or cheapest row per pair, because the first criterion has no epsilon.";
 			}
 			unit<uint32> Kept := select_with_org_rel(Rows/keep)
 			{
@@ -280,7 +278,7 @@ container ComponentMerge
 				attribute<string> Component        := Rows/Component[org_rel];
 			}
 
-			// de tellingen van dit vertrekmoment, voor Tellingen in het blok; een OV-keten heeft een _ in ModeUsed (W_BBR_W)
+			// The counts of this departure moment, for Tellingen in the block; a public transport chain has an _ in ModeUsed (W_BBR_W).
 			attribute<bool>   IsKeten (Kept) := IsDefined(strpos(Kept/ModeUsed, '_'));
 			attribute<uint64> Rijen (/Classifications/OD_Tellingen_Soort) := union_data(/Classifications/OD_Tellingen_Soort
 				, uint64(#Kept)
@@ -307,8 +305,8 @@ container ComponentMerge
 				, sum_uint64(Paren/zonder_auto)
 				, sum_uint64(Paren/zonder_auto_en_fiets));
 
-			// De uitvoer volgens ModelParameters/OutputFormat: parquet, getypt en zonder het vertrekmoment in de kolomnamen (dat staat in
-			// de bestandsnaam), of csv, met het vertrekmoment achter de kolomnamen, zoals de csv van een component, en een onbekende waarde leeg.
+			// The output according to ModelParameters/OutputFormat: parquet, typed and without the departure moment in the column names (it is in the
+			// file name), or csv, with the departure moment after the column names like the csv of a component, and an unknown value empty.
 			container Parquet : StorageName = "=/ModelParameters/Impl/OutputDir + '/PerBlock/tt' + FileTail + '.parquet'", StorageType = "gdalwrite.vect"
 			{
 				unit<uint32> tt := Kept, ExplicitSuppliers = "/NetworkSetup/GenerateOutput/Output_Sig/ForWriting"
@@ -333,7 +331,7 @@ container ComponentMerge
 					attribute<string> Component        := Kept/Component;
 				}
 			}
-			unit<uint8> CsvColumns : nrofrows = 16, Descr = "De kolommen van de csv na OrgName en DestName, in de volgorde van Parquet/tt."
+			unit<uint8> CsvColumns : nrofrows = 16, Descr = "The columns of the csv after OrgName and DestName, in the order of Parquet/tt."
 			{
 				attribute<string> name : ['Traveltime', 'Price', 'Price_Augm', 'ModeUsed', 'NeedsCar', 'NeedsBike', 'WaitingTime', 'PretransTime', 'PosttransTime', 'TravelDist_Bus', 'TravelDist_Metro', 'TravelDist_Tram', 'TravelDist_Rail', 'TravelDist_Ferry', 'TravelDist_Car', 'Component'];
 			}
@@ -347,7 +345,7 @@ container ComponentMerge
 			,	ExplicitSuppliers = "/NetworkSetup/GenerateOutput/Output_Sig/ForWriting";
 			parameter<string> Write := 'Ready', ExplicitSuppliers = "=/ModelParameters/OutputFormat == 'parquet' ? 'Parquet/tt' : 'File'"
 			,	IntegrityCheck = "ComponentMerge_Def/MergeComponents_OK"
-			,	Descr = "Schrijft de samengevoegde uitvoer van dit blok en vertrekmoment, als parquet of csv (OutputFormat).";
+			,	Descr = "Writes the merged output of this block and departure moment as parquet or csv (OutputFormat).";
 		}
 	}
 }

@@ -1,4 +1,4 @@
-container GTFS : using = "Geography;classifications"
+container GTFS : using = "Geography;classifications", Descr = "The public transport timetable from the GTFS feed: the feed as read, the selection for the analysis window, the network with waiting links and the public transport hubs."
 {
 	unit<uint64> c_Time_Stops             := combine_unit_uint64(Time,RelevantSelection/Stops);
 	unit<uint64> c_Trip_Time              := combine_unit_uint64(Trips, Time);
@@ -27,22 +27,19 @@ container GTFS : using = "Geography;classifications"
 			attribute<Time>      Time_rel       := union_data(., Network/fromTime_rel, Network/ToTime_rel);
 			attribute<Trips>     Trip_rel       := union_data(., Network/Trip_rel, Network/Trip_rel);
 			attribute<rdc>       geometry       := union_data(., Network/fromPoint, Network/toPoint);
-			// De halte van de link zelf. Tot 2026-10-21 rlookup(geometry, Stops/geometry): de eerste halte met hetzelfde punt. In de
-			// feed van 20260925 delen 810 van de 49947 gebruikte haltes hun punt met een andere, zodat 75244 van de 4,0 miljoen
-			// gebeurtenissen een andere halte kregen. Een stilstand op zo'n halte (2393, waarvan 1893 in NL, onder meer Amsterdam
-			// Bijlmerplein, Oostzanerdijk en Buiteneilandlaan (tram) en Groningen P+R Hoogkerk) verbond dan de knopen van de andere
-			// halte, zodat een been daar niet kon doorrijden: de ketens stapten uit en in hetzelfde voertuig weer in.
+			// The stop of the link itself, not the first stop with the same point: where stops share a point, a dwell at one of them would otherwise
+			// connect the nodes of the other stop, so that a leg could not continue there and the chains alighted and boarded the same vehicle again.
 			attribute<Stops>     Stop_rel       := union_data(., Network/FromStop_rel, Network/ToStop_rel);
 			attribute<c_Trip_Time>     c_Trip_Time_rel     := combine_data(c_Trip_Time, Trip_rel, Time_rel);
-			// #3: in- en uitstappen van de stop_time van dit moment (aankomst of vertrek, dezelfde GTFS-regel).
+			// #3: boarding and alighting of the stop_time of this moment (arrival or departure, the same GTFS row).
 			attribute<bool>      PickupAllowed  := union_data(., Network/FromPickupAllowed,  Network/ToPickupAllowed);
 			attribute<bool>      DropOffAllowed := union_data(., Network/FromDropOffAllowed, Network/ToDropOffAllowed);
 			
 			attribute<WaitingAtStop>  uq_c_Trip_Time_rel := rlookup(c_Trip_Time_rel, WaitingAtStop/c_Trip_Time_rel);
 		}
 	
-		//bij elke c_Time_Stop_rel wordt er een wachtlink toegevoegd tot aan de volgende time_rel op die stop. 
-		unit<uint32> WaitingAtStop   := unique(doubledLinks/c_Trip_Time_rel) //fka uq_c_Trip_Time
+		// For each c_Time_Stop_rel a waiting link is added up to the next time_rel at that stop.
+		unit<uint32> WaitingAtStop   := unique(doubledLinks/c_Trip_Time_rel)
 		{
 			attribute<c_Trip_Time>  c_Trip_Time_rel    := values;
 			attribute<Trips>        Trip_rel           := value(c_Trip_Time_rel / uint64(#Time), Trips);
@@ -77,8 +74,8 @@ container GTFS : using = "Geography;classifications"
 														? float32(sub_or_null(ToTime_rel,FromTime_rel))[s_f] 
 														: float32(sub_or_null(ToTime_rel + #Time,FromTime_rel))[s_f]; // duration in seconds
 			attribute<string>       Label          := 'Waiting at stop: ' + Stops/Name[FromStop_rel] + ' from ' + Time/Label[FromTime_rel] + ' to ' + Time/Label[ToTime_rel];
-			// #3: stilstand tussen aankomst en vertrek op een halte hoort bij een GTFS-stop_time; beide knopen krijgen diens in- en
-			// uitstapregel. Nodig aan de rand van het tijdvenster, waar de binnenkomende geplande link buiten de set valt.
+			// #3: a dwell between arrival and departure at a stop belongs to a GTFS stop_time, and both nodes get its boarding and alighting rule.
+			// This is needed at the edge of the time window, where the incoming scheduled link falls outside the set.
 			attribute<bool>         PickupAllowed      := doubledLinks/PickupAllowed[invert(doubledLinks/uq_c_Trip_Time_rel)];
 			attribute<bool>         DropOffAllowed     := doubledLinks/DropOffAllowed[invert(doubledLinks/uq_c_Trip_Time_rel)];
 			attribute<bool>         FromPickupAllowed  := PickupAllowed;
@@ -110,10 +107,9 @@ container GTFS : using = "Geography;classifications"
 				attribute<OVprijzen/NS/NS_Stations> NS_Stations_rel    := rlookup(lowercase(Trainstations_code), OVprijzen/NS/NS_Stations/code);
 			}
 			
-			// Het NS-station van een halte, voor de NS-prijs en de doorprijs: het station binnen DistanceTrainStationsSelection, en sinds
-			// 2026-09-27 (audit 6.6) anders het station met precies dezelfde naam (alleen voor treinhaltes; perronhaltes heten als hun station).
-			// Nodig voor Vught: in de feed van 20260925 liggen de perrons na de verdiepte ligging ~600 m ten zuiden van het
-			// stationspunt, zodat 118 NS-benen geen prijs kregen en NS_Station_Price_IntegrityCheck (MakeODs) faalde.
+			// The NS station of a stop, for the NS price and the through fare: the station within DistanceTrainStationsSelection, else the station with
+			// exactly the same name (only for rail stops; platform stops are named after their station). The name is needed where the platforms lie
+			// further from the station point, as in Vught.
 			attribute<OVprijzen/NS/NS_Stations> NS_Stations_rel_near     := lookup(invert(Find_Trainstations_Clusters/first_rel), Find_Trainstations_Clusters/NS_Stations_rel);
 			attribute<SourceData/Infrastructure/Infrastructure/Trainstations> Trainstation_byname_rel := rlookup(Mode_rel == GTFS_Modes/Selection/V/Rail ? lowercase(stop_name) : '', lowercase(SourceData/Infrastructure/Infrastructure/Trainstations/label));
 			attribute<OVprijzen/NS/NS_Stations> NS_Stations_rel          := MakeDefined(NS_Stations_rel_near, rlookup(lowercase(SourceData/Infrastructure/Infrastructure/Trainstations/code[Trainstation_byname_rel]), OVprijzen/NS/NS_Stations/code));
@@ -149,8 +145,8 @@ container GTFS : using = "Geography;classifications"
 		attribute<string>                  RouteName                       := union_data(., RelevantSelection/ScheduledLinks/RouteName, const('Waiting', GetWaitingAtStop/WaitingAtStop));
 		attribute<string>                  RouteName_short                 := union_data(., RelevantSelection/ScheduledLinks/RouteName_short, const('Waiting', GetWaitingAtStop/WaitingAtStop)); 
 		 
-		// #3: in- en uitstappen volgens de GTFS-stop_times, aan begin en eind van elke link (ook een wachtlink: stilstand binnen
-		// een rit, met de regel van zijn stop_time); zie Get_Windowed_Agency_Set_T/Set/NodeSet/CanBoard en CanAlight.
+		// #3: boarding and alighting according to the GTFS stop_times, at the start and end of each link (also a waiting link: a dwell within a
+		// trip, with the rule of its stop_time); see Get_Windowed_Agency_Set_T/Set/NodeSet/CanBoard and CanAlight.
 		attribute<bool>                    FromPickupAllowed               := union_data(., RelevantSelection/ScheduledLinks/FromPickupAllowed,  GetWaitingAtStop/WaitingAtStop/FromPickupAllowed);
 		attribute<bool>                    FromDropOffAllowed              := union_data(., RelevantSelection/ScheduledLinks/FromDropOffAllowed, GetWaitingAtStop/WaitingAtStop/FromDropOffAllowed);
 		attribute<bool>                    ToPickupAllowed                 := union_data(., RelevantSelection/ScheduledLinks/ToPickupAllowed,    GetWaitingAtStop/WaitingAtStop/ToPickupAllowed);

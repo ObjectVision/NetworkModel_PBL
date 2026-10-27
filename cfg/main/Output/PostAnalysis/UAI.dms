@@ -1,38 +1,37 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
-// Netwerk-gebaseerde Urban Attractivity Index (UAI), t.b.v. RSopen.
-// N.a.v. https://github.com/pbl-nl/model-RSopen/issues/38 : "UAI gaat nu hemelsbreed ipv via netwerk afstand".
+// Network-based Urban Attractivity Index (UAI) for RSopen, following pbl-nl/model-RSopen#38, which notes that the UAI uses straight-line
+// distance instead of network distance.
 //
-// De UAI in RSopen (BaseData/Suitabilities/Wonen/UrbanAttractivityIndex/R_5000m_AbsWeight) is de som van de
-// genormaliseerde potentialen van detailhandel, bijeenkomst/logies en monumentaal vastgoed (pand met bouwjaar <= 1900),
-// met kernel AbsWeight = 1/distMatr^2 waarbij distMatr de KWADRATISCHE celafstand is; het gewicht is dus d^-4 met d in
-// cellen van 100m. Voorzieningen aan de overkant van een kanaal/spoor/snelweg tellen daarin hemelsbreed mee.
-// Hier wordt dezelfde vervalfunctie toegepast op LOOPAFSTAND over het OSM-voetgangersnetwerk (incl. veerponten),
-// zodat barrieres realistisch doorwerken.
+// The UAI in RSopen (BaseData/Suitabilities/Wonen/UrbanAttractivityIndex/R_5000m_AbsWeight) is the sum of the normalised potentials of
+// retail, assembly and lodging, and monumental buildings (buildings with a construction year up to 1900), with the kernel AbsWeight =
+// 1/distMatr^2, where distMatr is the SQUARED cell distance, so the weight is d^-4 with d in cells of 100 m. Facilities on the other side
+// of a canal, railway or motorway count there at straight-line distance. This container applies the same decay function to the WALKING
+// DISTANCE over the OSM walking network (including ferries), so that barriers have a realistic effect.
 //
-// - Herkomsten: alle 100m-celmiddens binnen Nederland (perGridsize/size_100m/points).
-// - Bestemmingen: 100m-cellen met >= 1 voorzienings-object, uit de BAG-snapshots %SourceDataDir%/BAG/snapshots.ext/<jaar>0101_RS
-//   (die bevatten - anders dan de uitgeklede kopieen onder RegioIndelingen/BAG - ook pand.fss met bouwjaar, voor alle jaren 2012-2025).
-// - Gewicht per OD-paar: 1 binnen de eigen cel (<= 100m), daarbuiten (100m/d_netwerk)^4, afgekapt op Afkapstraal.
-//   Op 1500m is het gewicht (0.1/1.5)^4 = 2e-5; wat verder weg ligt draagt niet meer bij, vandaar de afkap.
-// - Het gebruikte loopnetwerk volgt ModelParameters/AnalysisMoment (OSM-vintage). Bewust EEN netwerk voor alle BAG-jaren,
-//   zodat verschillen tussen jaren puur BAG-gedreven zijn (van 2012 bestaat toch geen bruikbare OSM-extract).
-// - Output per jaar: 3 ruwe potentiaal-tifs (zodat RSopen zelf kan normaliseren over het eigen studiegebied)
-//   plus de samengestelde, genormaliseerde UAI (0..1, conform R_5000m_AbsWeight).
+// - Origins: all 100 m cell centres in the Netherlands (perGridsize/size_100m/points).
+// - Destinations: 100 m cells with at least one facility object, from the BAG snapshots <year>0101_RS in SnapshotBaseDir, which unlike
+//   the stripped copies under RegioIndelingen/BAG also hold pand.fss with the construction year, for all years 2012 to 2025.
+// - Weight per OD pair: 1 within the own cell (up to 100 m), beyond that (100 m / network distance)^4, cut off at Afkapstraal. At 1500 m
+//   the weight is (0.1/1.5)^4 = 2e-5; what lies farther away no longer contributes, hence the cut-off.
+// - The walking network follows ModelParameters/AnalysisMoment (OSM vintage). There is deliberately ONE network for all BAG years, so
+//   that differences between years come from the BAG alone (there is no usable OSM extract of 2012 anyway).
+// - Output per year: three raw potential tifs (so that RSopen can normalise over its own study area) plus the composite, normalised UAI
+//   (0 to 1, as R_5000m_AbsWeight).
 //
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 container UAI
-: Descr = "Netwerk-gebaseerde Urban Attractivity Index per BAG-jaar, over het OSM-voetgangersnetwerk (issue RSopen#38)."
+: Descr = "Network-based Urban Attractivity Index per BAG year, over the OSM walking network (pbl-nl/model-RSopen#38)."
 {
-	parameter<km>      Afkapstraal := 1.5[km], Descr = "Maximale loopafstand waarbinnen voorzieningen meetellen. Gewicht op 1.5km = (0.1/1.5)^4 = 2e-5, dus verhogen voegt vrijwel niets toe maar maakt de OD-matrix veel groter.";
-	parameter<km>      CelMaat     := 0.1[km], Descr = "Binnen deze afstand geldt gewicht 1, conform de AbsWeight-kernel in RSopen (eigen cel en direct aangrenzende afstand 1 cel hebben daar gewicht 1).";
-	parameter<float32> DecayMacht  := 4f,      Descr = "AbsWeight in RSopen = 1/distMatr^2 met distMatr = kwadratische celafstand, ofwel gewicht = d^-4.";
+	parameter<km>      Afkapstraal := 1.5[km], Descr = "Maximum walking distance within which facilities count; at 1.5 km the weight is (0.1/1.5)^4 = 2e-5, so a larger value adds almost nothing but makes the OD matrix much larger.";
+	parameter<km>      CelMaat     := 0.1[km], Descr = "Within this distance the weight is 1, as in the AbsWeight kernel of RSopen, where the own cell and the cells at a distance of one cell have weight 1.";
+	parameter<float32> DecayMacht  := 4f,      Descr = "Exponent of the distance decay: AbsWeight in RSopen is 1/distMatr^2 with distMatr the squared cell distance, so the weight is d^-4.";
 
-	parameter<string>  SnapshotBaseDir := '%BAG_DataDir%/BAG/snapshots.ext', Descr = "Ruimtescanner-BAG-snapshots (vbo.fss + pand.fss + adres.fss) per kwartaal, 2012 t/m 2025.";
+	parameter<string>  SnapshotBaseDir := '%BAG_DataDir%/BAG/snapshots.ext', Descr = "Folder of the BAG snapshots of the RuimteScanner (vbo.fss, pand.fss and adres.fss), one per quarter.", Source = "BAG snapshots prepared for the RuimteScanner, one per quarter, 2012 to 2025.";
 
 	unit<uint32> Jaren : nrofrows = 14
-	, Descr = "Jaren waarvoor een 1-januari-snapshot met pand.fss beschikbaar is in SnapshotBaseDir."
+	, Descr = "The years with a 1 January snapshot including pand.fss in SnapshotBaseDir."
 	{
 		attribute<uint32> jaar := id(.) + 2012;
 		attribute<string> name := 'Y'+string(jaar);
@@ -41,19 +40,19 @@ container UAI
 	container PerJaar := for_each_ne(Jaren/name, 'UAI_Jaar_T('+quote(string(Jaren/jaar))+')');
 
 	parameter<string> Generate_Alle_Jaren := 'Ready', ExplicitSuppliers = "=asList('PerJaar/'+Jaren/name+'/Export/Generate', ';')"
-	, Descr = "Genereert de tifs voor alle jaren. Voor een enkel jaar: PerJaar/Y<jaar>/Export/Generate.";
+	, Descr = "Writes the tifs of all years; PerJaar/Y<year>/Export/Generate writes a single year.";
 
-	Template UAI_Jaar_T
+	Template UAI_Jaar_T : Descr = "The UAI of one BAG year: the BAG objects, the counts per cell, the walking distances over the network, the potentials and the tifs."
 	{
 		parameter<string> jaar;
 		///
-		parameter<string> SnapshotDir                     := SnapshotBaseDir+'/'+jaar+'0101_RS';
+		parameter<string> SnapshotDir                     := SnapshotBaseDir+'/'+jaar+'0101_RS', Descr = "The snapshot of 1 January of the year.";
 		parameter<string> bouwjaar_truncation_expr        := 'bouwjaar <= 1000w || bouwjaar > @YYYY@[yr] ? (0/0)[uint16] : bouwjaar < 1500w ? 1500w : bouwjaar';
 
 		unit<spoint> grid := Geography/rdc_100m;
 
 		container BAG
-		: Descr = "Leest per jaar de benodigde BAG-onderdelen rechtstreeks uit de RS-snapshot (zelfde schema als SourceData/Vastgoed/BAG in RSopen)."
+		: Descr = "Reads the BAG parts needed for the year directly from the RuimteScanner snapshot, with the same schema as SourceData/Vastgoed/BAG in RSopen."
 		{
 			unit<uint32> vbo_import
 			:	StorageName     = "= SnapshotDir+'/vbo.fss'"
@@ -83,7 +82,7 @@ container UAI
 				attribute<bool>         InVoorraad  := status_rel == vbo_status/V/Verblijfsobject_in_gebruik
 														|| status_rel == vbo_status/V/Verblijfsobject_in_gebruik_niet_ingemeten
 														|| status_rel == vbo_status/V/Verblijfsobject_buiten_gebruik
-														|| status_rel == vbo_status/V/Verbouwing_verblijfsobject, Descr = "Zelfde statusselectie als VBO_selection in SourceData/BAG.";
+														|| status_rel == vbo_status/V/Verbouwing_verblijfsobject, Descr = "Is the vbo in the stock? The same status selection as VBO_selection in SourceData/BAG.";
 
 				attribute<bool>         IsDetailhandel      := InVoorraad && vbo_import/gebruiksdoelen/winkel;
 				attribute<bool>         IsBijeenkomstLogies := InVoorraad && (vbo_import/gebruiksdoelen/bijeenkomst || vbo_import/gebruiksdoelen/logies);
@@ -102,10 +101,10 @@ container UAI
 														|| status_rel == pand_status/V/Pand_buiten_gebruik
 														|| status_rel == pand_status/V/Verbouwing_pand;
 
-				attribute<uint32>       nr_vbo        := pcount(vbo/pand_rel_InVoorraad), Descr = "Aantal vbo's (in voorraad) in het pand; conform pand/met_vbo in RSopen.";
+				attribute<uint32>       nr_vbo        := pcount(vbo/pand_rel_InVoorraad), Descr = "Number of vbo's in stock in the building, as pand/met_vbo in RSopen.";
 				attribute<bool>         IsMonumentaal := InVoorraad && nr_vbo > 0
 														&& pand_import/bouwjaar >= 1000s && pand_import/bouwjaar <= 1900s
-				, Descr = "Monumentaal = pand met vbo en bouwjaar <= 1900, conform Monumentaal_Per_AllocDomain in RSopen (SourceData/Vastgoed/BAG.dms).";
+				, Descr = "A monumental building is a building in stock with a vbo and a construction year up to 1900, as Monumentaal_Per_AllocDomain in RSopen (SourceData/Vastgoed/BAG.dms).";
 
 				attribute<rdc>          centroid      := centroid_or_mid(pand_import/geometry_mm[rdc]);
 				attribute<rdc_100m>     rdc_100m_rel  := centroid[rdc_100m];
@@ -113,7 +112,7 @@ container UAI
 		}
 
 		container Tellingen
-		: Descr = "Aantal voorzienings-objecten per 100m-cel, per UAI-component."
+		: Descr = "Number of facility objects per 100 m cell, per UAI component."
 		{
 			attribute<float32> Detailhandel      (rdc_100m) := sum(float32(BAG/vbo/IsDetailhandel),       BAG/vbo/rdc_100m_rel);
 			attribute<float32> BijeenkomstLogies (rdc_100m) := sum(float32(BAG/vbo/IsBijeenkomstLogies),  BAG/vbo/rdc_100m_rel);
@@ -121,7 +120,7 @@ container UAI
 		}
 
 		unit<uint32> VoorzieningCellen := select_with_org_rel(Tellingen/Detailhandel > 0f || Tellingen/BijeenkomstLogies > 0f || Tellingen/Monumentaal > 0f)
-		, Descr = "Bestemmingen voor de dijkstra: alle 100m-cellen met minstens een voorzienings-object, met de tellingen als gewicht."
+		, Descr = "Destinations of the network search: all 100 m cells with at least one facility object, with the counts as weights."
 		{
 			attribute<rdc>     geometry          := grid/point[org_rel];
 			attribute<float32> Detailhandel      := Tellingen/Detailhandel[org_rel];
@@ -130,7 +129,7 @@ container UAI
 		}
 
 		container Diagnostiek
-		: Descr = "Sanity-checks per jaar; goedkoop te berekenen, zonder netwerk of dijkstra."
+		: Descr = "Sanity checks per year that need no network or route search, so they are cheap to calculate."
 		{
 			parameter<uint32>  Nr_vbo                        := #BAG/vbo;
 			parameter<uint32>  Nr_pand                       := #BAG/pand;
@@ -142,7 +141,7 @@ container UAI
 			unit<uint32> Log : nrofrows = 1
 			, StorageName = "= '%LocalDataProjDir%/Output/UAI/UAI_diagnostiek_'+jaar+'.csv'"
 			, StorageType = "gdalwrite.vect"
-			, Descr = "Schrijft de sanity-checks weg als csv, als audit-trail bij iedere generatie."
+			, Descr = "Writes the sanity checks to a csv, as a record of every generation."
 			{
 				attribute<string>  jaar_                          (.) := const(jaar, ., string);
 				attribute<uint32>  nr_vbo                         (.) := const(../Nr_vbo, .);
@@ -155,10 +154,10 @@ container UAI
 		}
 
 		unit<uint32> Herkomsten := Geography/perGridsize/size_100m/points
-		, Descr = "Alle 100m-celmiddens binnen Nederland (incl. cellen zonder bebouwing: RSopen heeft op elke AllocDomain-cel een UAI-waarde nodig).";
+		, Descr = "All 100 m cell centres in the Netherlands, including cells without buildings, because RSopen needs a UAI value in every AllocDomain cell.";
 
 		container Netwerk := Templates/CreateNetwork_Efficient_T(Herkomsten, VoorzieningCellen, SourceData/Infrastructure/OSM/Network_Walking, 'Walking', FALSE)
-		, Descr = "Voetgangersnetwerk (OSM, incl. ponten en veren; excl. snelwegen) waaraan herkomsten en voorzieningcellen zijn geknoopt.";
+		, Descr = "The OSM walking network, with ferries and without motorways, with the origins and the facility cells connected to it.";
 
 		unit<uint32> LinkSet := Netwerk/CreateMoreEfficientNetwork/FinalLinkSet
 		{
@@ -175,36 +174,36 @@ container UAI
 				, NodeSet/DestNode_rel
 				, Afkapstraal
 			)
-		, Descr = "Alle herkomst-voorzieningcel-paren binnen de afkapstraal, met de loopafstand over het netwerk."
+		, Descr = "All pairs of origin and facility cell within Afkapstraal, with the walking distance over the network."
 		{
 			attribute<km>                impedance;
 			attribute<Herkomsten>        OrgZone_rel;
 			attribute<VoorzieningCellen> DstZone_rel;
 
 			attribute<float32> gewicht := impedance <= CelMaat ? 1f : float32(CelMaat / impedance)^DecayMacht
-			, Descr = "Afstandsverval conform AbsWeight in RSopen: gewicht 1 binnen de eigen cel, daarbuiten (100m/d)^4.";
+			, Descr = "Distance decay as AbsWeight in RSopen: weight 1 within the own cell, beyond that (100 m / d)^4.";
 		}
 
 		container Potentialen
-		: Descr = "Netwerk-potentiaal per herkomstcel: som over voorzieningcellen van aantal objecten maal afstandsgewicht."
+		: Descr = "Network potential per origin cell: the sum over the facility cells of the number of objects times the distance weight."
 		{
 			attribute<float32> Detailhandel      (Herkomsten) := sum(OD/gewicht * VoorzieningCellen/Detailhandel[OD/DstZone_rel],      OD/OrgZone_rel);
 			attribute<float32> BijeenkomstLogies (Herkomsten) := sum(OD/gewicht * VoorzieningCellen/BijeenkomstLogies[OD/DstZone_rel], OD/OrgZone_rel);
 			attribute<float32> Monumentaal       (Herkomsten) := sum(OD/gewicht * VoorzieningCellen/Monumentaal[OD/DstZone_rel],       OD/OrgZone_rel);
 
-			parameter<float32> Max_Detailhandel      := max(Detailhandel),      Descr = "Maximum binnen Nederland, voor de normalisatie.";
+			parameter<float32> Max_Detailhandel      := max(Detailhandel),      Descr = "Maximum in the Netherlands, for the normalisation.";
 			parameter<float32> Max_BijeenkomstLogies := max(BijeenkomstLogies);
 			parameter<float32> Max_Monumentaal       := max(Monumentaal);
 
 			attribute<float32> UAI (Herkomsten) := (Detailhandel / Max_Detailhandel + BijeenkomstLogies / Max_BijeenkomstLogies + Monumentaal / Max_Monumentaal) / 3f
-			, Descr = "Som van de drie genormaliseerde potentialen, gelijk gewogen; 0..1, conform R_5000m_AbsWeight in RSopen.";
+			, Descr = "The mean of the three normalised potentials, between 0 and 1, as R_5000m_AbsWeight in RSopen.";
 
 			parameter<float32> Max_UAI := max(UAI);
 			attribute<float32> UAI_geschaald (Herkomsten) := UAI / Max_UAI
-			, Descr = "UAI herschaald naar landelijk max = 1, conform de conventie van de bestaande UAI_2021.tif (ongedempte som, gedeeld door max). Let op bij tijdreeks-gebruik: het max verschilt per jaar, dus jaren zijn in deze geschaalde vorm niet absoluut vergelijkbaar; gebruik daarvoor de ongeschaalde UAI of de ruwe potentialen.";
+			, Descr = "UAI rescaled to a national maximum of 1, the convention of the existing UAI_2021.tif; since the maximum differs per year, compare years with the unscaled UAI or the raw potentials.";
 		}
 
-		container PerGrid
+		container PerGrid : Descr = "The potentials and the UAI on the 100 m grid, 0 outside the origins."
 		{
 			attribute<Herkomsten> herkomst_rel      (rdc_100m) := invert(Herkomsten/rdc_100m_rel);
 
@@ -215,7 +214,7 @@ container UAI
 			attribute<float32>    UAI_geschaald     (rdc_100m) := MakeDefined(Potentialen/UAI_geschaald[herkomst_rel],     0f);
 		}
 
-		container Export
+		container Export : Descr = "The five tifs of the year in %LocalDataProjDir%/Output/UAI."
 		{
 			parameter<string> OutDir := '%LocalDataProjDir%/Output/UAI';
 
@@ -225,7 +224,7 @@ container UAI
 			attribute<float32> UAI_netwerk                  (rdc_100m) := PerGrid/UAI,               StorageName = "= OutDir+'/UAI_netwerk_'+jaar+'.tif'",                              StorageType = "gdalwrite.grid";
 			attribute<float32> UAI_netwerk_geschaald        (rdc_100m) := PerGrid/UAI_geschaald,     StorageName = "= OutDir+'/UAI_netwerk_geschaald_'+jaar+'.tif'",                    StorageType = "gdalwrite.grid";
 
-			parameter<string> Generate := 'Ready', ExplicitSuppliers = "Potentiaal_Detailhandel;Potentiaal_BijeenkomstLogies;Potentiaal_Monumentaal;UAI_netwerk;UAI_netwerk_geschaald";
+			parameter<string> Generate := 'Ready', ExplicitSuppliers = "Potentiaal_Detailhandel;Potentiaal_BijeenkomstLogies;Potentiaal_Monumentaal;UAI_netwerk;UAI_netwerk_geschaald", Descr = "Writes the five tifs of the year.";
 		}
 	}
 }

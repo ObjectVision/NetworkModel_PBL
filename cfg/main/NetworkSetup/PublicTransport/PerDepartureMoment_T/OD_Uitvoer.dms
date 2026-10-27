@@ -1,19 +1,21 @@
-// DE OPTIES VAN EEN HB-PAAR MET HUN ONDERDELEN EN LINKS (sinds 2026-10-21, #129; alleen in de HB-paarmodus, ModelParameters/Impl/IsOD).
-// Per vertrekmoment de opties van het front (Result_AfterSecondCondensation), elk teruggeleid tot de rij van de eindafweging waar hij uit
-// komt: een OV-reis (voortransportbeen, keten, natransportbeen) of een directe rit. Onderdelen beschrijft elke optie in de volgorde van de
-// reis; Links geeft elk onderdeel zijn links, met een lijn per link:
-// - voor- en PostTransport: de links van het been uit de benenstore (PublicTransport_Prep/LegStores/<basistype>/Links);
-// - een OV-been: de halte-tot-haltelinks binnen de rit, uit een zoektocht in Set_L of Set_R tussen de begin- en eindknoop van het been
-//   (OD_Ketens/Read_Benen), die op het tijd-geexpandeerde net hetzelfde pad geeft als het been (elk pad tussen twee knopen duurt even lang,
-//   en met ParetoLegs is de keuze bij gelijke tijd de kortste, Length);
-// - een overstap: de rechte looplijn tussen de haltes;
-// - de directe loop- en fietsrit: de links van de zoektocht (PrivateTransport/<modaliteit>/Calc_Traveltimes_maxspeed_<modaliteit>/Links).
-// Write schrijft ze als drie lagen van <OutputDir>/PerBlock/od_<moment>.gpkg (od_opties, od_onderdelen en od_links; GeoDMS-namen zijn
-container OD_Uitvoer
+// THE OPTIONS OF AN OD PAIR WITH THEIR PARTS AND LINKS (#129; only in the OD pair mode, ModelParameters/Impl/IsOD).
+// Per departure moment the options of the front (Result_AfterSecondCondensation), each traced back to the row of the final front it comes
+// from: a public transport journey (pre-transport leg, chain, post-transport leg) or a direct trip. Onderdelen describes each option in the
+// order of the journey; Links gives each part its links, with one line per link:
+// - pre-transport and post-transport: the links of the leg from the leg store (PublicTransport_Prep/LegStores/<base type>/Links);
+// - a public transport leg: the stop-to-stop links within the trip, from a search in Set_L or Set_R between the begin and end node of the leg
+//   (OD_Ketens/Read_Benen), which on the time-expanded network gives the same path as the leg (every path between two nodes takes equally
+//   long, and with ParetoLegs the choice at equal time is the shortest, Length);
+// - a transfer: the straight walking line between the stops;
+// - the direct walking and cycling trip: the links of the search (PrivateTransport/<mode>/Calc_Traveltimes_maxspeed_<mode>/Links);
+// - the direct car trip of the moment: the links of its route from the car store of the moment (see AutoOpties).
+// Write writes them as three layers of <OutputDir>/PerBlock/od_<moment>.gpkg (od_opties, od_onderdelen and od_links; GeoDMS names are
+// case-insensitive, so a layer opties := Opties would refer to itself), in the request of the output (Results_Traveltime/Generate).
+container OD_Uitvoer : Descr = "The options of the OD pair per departure moment with their parts and links, written as three layers of a gpkg (only in the OD pair mode, #129)."
 {
 	unit<uint64> Opties := Result_AfterSecondCondensation
 	{
-		attribute<uint32>                         Optie        := uint32(id(.)) + 1, Descr = "Het nummer van de optie van dit vertrekmoment, vanaf 1.";
+		attribute<uint32>                         Optie        := uint32(id(.)) + 1, Descr = "The number of the option of this departure moment, from 1.";
 		attribute<Union_with_DirectOD>            Union_rel    := Result_AfterFirstCondensation/Union_rel[Result_AfterSecondCondensation/First_rel];
 		attribute<bool>                           IsDirect     := Union_with_DirectOD/IsDirectTravel[Union_rel];
 		attribute<uint64>                         Bron_rel     := Union_with_DirectOD/Bron_rel[Union_rel];
@@ -24,11 +26,11 @@ container OD_Uitvoer
 		attribute<string>                         label        := string(Optie) + ' ' + Vertrek + ' ' + ModeUsed + ' ' + string(Reistijd) + ' min ' + string(Prijs) + ' euro';
 	}
 
-	// DE OV-OPTIES: de herkomst door de eindafweging heen, tot de keten in de ketenstore van het paar
+	// THE PUBLIC TRANSPORT OPTIONS: each traced back through the final front to the chain in the chain store of the pair.
 	unit<uint64> PT := = WithPT ? 'select_with_org_rel(!Opties/IsDirect)' : 'range(uint64, 0u64, 0u64)'
 	{
 		attribute<Opties> Optie_rel := = WithPT ? 'org_rel' : 'const(value(null_u, Opties), .)';
-		attribute<uint64> VPTN_Res  := Opties/Bron_rel[Optie_rel], Descr = "De rij van Add_N_to_VPT/Result.";
+		attribute<uint64> VPTN_Res  := Opties/Bron_rel[Optie_rel], Descr = "The row of Add_N_to_VPT/Result.";
 		attribute<uint64> VPTN      := = WithPT ? 'uint64(Add_N_to_VPT/Result/VPTN_rel[value(VPTN_Res, Add_N_to_VPT/Result)])' : 'const(0u64, .)';
 		attribute<uint64> N_row     := = WithPT ? 'uint64(Add_N_to_VPT/N_rel[value(VPTN, Add_N_to_VPT)])' : 'const(0u64, .)';
 		attribute<uint64> VPT_Res   := = WithPT ? 'uint64(Add_N_to_VPT/PT_rel[value(VPTN, Add_N_to_VPT)])' : 'const(0u64, .)';
@@ -36,7 +38,7 @@ container OD_Uitvoer
 		attribute<uint64> V_row     := = WithPT ? 'uint64(Add_V_to_PT/V_rel[value(VPT, Add_V_to_PT)])' : 'const(0u64, .)';
 		attribute<uint64> W_row     := = WithPT ? 'uint64(Add_V_to_PT/PT_rel[value(VPT, Add_V_to_PT)])' : 'const(0u64, .)';
 		attribute<uint64> Keten     := = WithPT ? '/NetworkSetup/PublicTransport_Prep/PT_V/Keten[PT_InBlock/PT_V_rel[Within_VW_Window/PT_InBlock_rel[value(W_row, Within_VW_Window)]]]' : 'const(0u64, .)'
-		,	Descr = "Het rijnummer van de keten in de ketenstore van het paar, zoals OD_Ketens/Read_Benen/Keten.";
+		,	Descr = "The row number of the chain in the chain store of the pair, as OD_Ketens/Read_Benen/Keten.";
 		attribute<Places> V_Stop_Place := = WithPT ? 'V/To_Place_rel[value(V_row, V)]' : 'const(value(null_u, Places), .)';
 		attribute<Places> N_Stop_Place := = WithPT ? 'N/From_Place_rel[value(N_row, N)]' : 'const(value(null_u, Places), .)';
 		attribute<Modes>  V_Mode       := = WithPT ? 'V/Mode_rel[value(V_row, V)]' : 'const(value(null_b, Modes), .)';
@@ -50,8 +52,8 @@ container OD_Uitvoer
 		attribute<ct>     V_Prijs      := Result_AfterSecondCondensation/Price_V[Optie_rel];
 		attribute<ct>     N_Prijs      := Result_AfterSecondCondensation/Price_N[Optie_rel];
 	}
-	// de onderdelen van de keten van elke OV-optie, uit de benen van de ketenstore van het paar
-	unit<uint64> Benen := = WithPT ? '/NetworkSetup/PublicTransport_Prep/OD_Ketens/Read_Benen' : '/NetworkSetup/PublicTransport_Prep/OD_Ketens/Benen_leeg', Descr = "Zonder OV de lege benen: dan is er geen ketenstore.";
+	// The parts of the chain of every public transport option, from the legs of the chain store of the pair.
+	unit<uint64> Benen := = WithPT ? '/NetworkSetup/PublicTransport_Prep/OD_Ketens/Read_Benen' : '/NetworkSetup/PublicTransport_Prep/OD_Ketens/Benen_leeg', Descr = "The legs of the chain store of the pair, or without public transport the empty legs, because then there is no chain store.";
 	unit<uint64> PT_Delen := join_equal_values_uint64(PT/Keten, Benen/Keten)
 	{
 		attribute<PT>     PT_rel   := first_rel;
@@ -65,8 +67,8 @@ container OD_Uitvoer
 		attribute<Modes> Mode_rel := Result_AfterSecondCondensation/V_mode_rel[org_rel];
 	}
 
-	// ONDERDELEN: per optie in de volgorde van de reis; een directe rit is een onderdeel, een OV-reis het PreTransport, de benen en
-	// overstappen van de keten en het PostTransport.
+	// ONDERDELEN (parts): per option in the order of the journey; a direct trip is one part, a public transport journey the pre-transport, the
+	// legs and transfers of the chain and the post-transport.
 	unit<uint64> Onderdelen := union_unit_uint64(Direct, PT, PT_Delen, PT)
 	{
 		attribute<Opties>   Optie_rel   := union_data(., Direct/org_rel, PT/Optie_rel, PT/Optie_rel[PT_Delen/PT_rel], PT/Optie_rel);
@@ -77,8 +79,8 @@ container OD_Uitvoer
 		attribute<string>   Modaliteit  := Modes/name[Mode_rel];
 		attribute<string>   Van         := union_data(., Places/label[Result_AfterSecondCondensation/From_Place_rel[Direct/org_rel]], Places/label[Result_AfterSecondCondensation/From_Place_rel[PT/Optie_rel]], Stops/name[Benen/From_Stop_rel[PT_Delen/Been_rel]], Places/label[PT/N_Stop_Place]);
 		attribute<string>   Naar        := union_data(., Places/label[Result_AfterSecondCondensation/To_Place_rel[Direct/org_rel]], Places/label[PT/V_Stop_Place], Stops/name[Benen/To_Stop_rel[PT_Delen/Been_rel]], Places/label[Result_AfterSecondCondensation/To_Place_rel[PT/Optie_rel]]);
-		// een OV-been van zijn vertrek tot zijn aankomst volgens de dienstregeling (Rit_Vertrek, Rit_Aankomst), niet van zijn begin- tot zijn
-		// eindknoop: die kunnen een minuut stilstand bij instappen of uitstappen bevatten (07:52 instappen, 07:53 vertrek)
+		// A public transport leg runs from its departure to its arrival in the timetable (Rit_Vertrek, Rit_Aankomst), not from its begin to its end
+		// node: those can include a minute of standstill at boarding or alighting (boarding at 07:52, departure at 07:53).
 		attribute<Time>     Vertrek_rel := union_data(., const(inTime[Time], Direct), PT/V_Vertrek, MakeDefined(Rit_Vertrek, Benen/From_Time_rel[PT_Delen/Been_rel]), PT/N_Vertrek);
 		attribute<s>        Duur        := union_data(., Result_AfterSecondCondensation/V_time[Direct/org_rel], PT/V_Duur, MakeDefined((Rit_Aankomst - Rit_Vertrek)[s], Benen/Duur[PT_Delen/Been_rel]), PT/N_Duur);
 		attribute<Time>     Aankomst_rel := Vertrek_rel + Duur[Time];
@@ -93,7 +95,7 @@ container OD_Uitvoer
 	}
 
 	// LINKS
-	// voor- en PostTransport: de links van het been uit de benenstore van zijn basistype, gekoppeld op de halte
+	// Pre-transport and post-transport: the links of the leg from the leg store of its base type, joined on the stop.
 	Template LegLinks_T
 	{
 		parameter<string> BaseType;
@@ -124,7 +126,7 @@ container OD_Uitvoer
 	container N_Lopen  := LegLinks_T('Stops2Dest_Walking', FALSE, TRUE);
 	container N_Fietsen := LegLinks_T('Stops2Dest_Cycling', FALSE, FALSE);
 
-	// een OV-been: de links binnen de rit, uit een zoektocht in zijn net tussen de begin- en eindknoop van het been
+	// A public transport leg: the links within the trip, from a search in its network between the begin and end node of the leg.
 	Template PTLinks_T
 	{
 		parameter<string> Letter;
@@ -132,14 +134,14 @@ container OD_Uitvoer
 		unit<uint32>   Set      := ='/NetworkSetup/PublicTransport_Prep/impl/Set_' + Letter + '/Set';
 		parameter<bool> IsPareto := ='/ModelParameters/Advanced/ParetoLegs_' + Letter;
 		attribute<bool> IsMee (PT_Delen) := !Benen/IsOverstap[PT_Delen/Been_rel] && Benen/IsL[PT_Delen/Been_rel] == (Letter == 'L');
-		unit<uint32>   Delen    := select_uint32(IsMee), Descr = "uint32: de begin- en eindpunten van impedance_matrix vragen een uint32-domein."
+		unit<uint32>   Delen    := select_uint32(IsMee), Descr = "A uint32 domain, because the start and end points of impedance_matrix need one."
 		{
 			attribute<PT_Delen>    org_rel := collect_by_cond(., IsMee, id(PT_Delen));
 			attribute<Set/NodeSet> Begin := value(Benen/BeginKnoop[PT_Delen/Been_rel[org_rel]], Set/NodeSet);
 			attribute<Set/NodeSet> Eind  := value(Benen/EindKnoop[PT_Delen/Been_rel[org_rel]], Set/NodeSet);
 		}
 		unit<uint64> od := ='impedance_matrix_od64(''directed;startPoint(Node_rel);endPoint(Node_rel);od:impedance,OrgZone_rel,DstZone_rel,LinkSet'', Set/' + (IsPareto ? 'Length' : 'Duration') + ', Set/F1, Set/F2, Delen/Begin, Delen/Eind)';
-		unit<uint64> Eigen := select_with_org_rel(od/OrgZone_rel == od/DstZone_rel), Descr = "De zoektocht van elk been naar zijn eigen eindknoop.";
+		unit<uint64> Eigen := select_with_org_rel(od/OrgZone_rel == od/DstZone_rel), Descr = "The rows of the search from the begin node of each leg to its own end node.";
 		attribute<uint32> LinkSet (arc, Eigen) := od/LinkSet[Eigen/org_rel];
 		container R := /Templates/RouteLinks_T(Eigen, LinkSet, Set, Set/NodeSet, Set/F1, Set/F2, Set/NodeSet/geometry, Delen/Eind[od/DstZone_rel[Eigen/org_rel]]);
 		unit<uint32> Rows := R/Rows
@@ -152,10 +154,10 @@ container OD_Uitvoer
 			attribute<Modes>    Mode_rel  := Benen/Mode_rel[PT_Delen/Been_rel[Deel_rel]];
 			attribute<rdc>      geometry (arc) := Set/geometry[R/Rows/Link_rel];
 		}
-		// De dienstregelingstijden van het been: het vertrek van zijn eerste en de aankomst van zijn laatste geplande link. De begin- en
-		// eindknoop kunnen de aankomst- en de vertrekknoop zijn van een halte waar de rit stilstaat (instappen bij aankomst, uitstappen
-		// bij vertrek), zodat hun tijden een minuut stilstand kunnen bevatten. Binnen een rit lopen de tijden op (Time: 48 uur, zonder
-		// omslag), dus het eerste vertrek is het kleinste en de laatste aankomst de grootste.
+		// The timetable times of the leg: the departure of its first and the arrival of its last scheduled link. The begin and end node can be the
+		// arrival and departure node of a stop where the trip stands still (boarding at arrival, alighting at departure), so that their times can
+		// include a minute of standstill. Within a trip the times increase (Time covers 48 hours, without wrap-around), so the first departure is
+		// the smallest and the last arrival the largest.
 		unit<uint32> Gepland := select_with_org_rel(Set/LinkType_rel[R/Rows/Link_rel] == /Classifications/LinkTypes/V/Scheduled)
 		{
 			attribute<Delen> Delen_rel := Rows/Delen_rel[org_rel];
@@ -165,12 +167,12 @@ container OD_Uitvoer
 	}
 	container PT_L := PTLinks_T('L');
 	container PT_R := PTLinks_T('R');
-	// de dienstregelingstijden van elk OV-been (een overstap heeft ze niet), voor Onderdelen; zonder OV niets, zodat een run zonder OV
-	// Set_L en Set_R niet vraagt
+	// The timetable times of every public transport leg (a transfer has none), for Onderdelen; without public transport nothing, so that a run
+	// without public transport does not request Set_L and Set_R.
 	attribute<Time> Rit_Vertrek  (PT_Delen) := = WithPT ? 'MakeDefined(PT_L/Vertrek[invert(PT_L/Delen/org_rel)], PT_R/Vertrek[invert(PT_R/Delen/org_rel)])' : 'const(value(null_u, Time), PT_Delen)';
 	attribute<Time> Rit_Aankomst (PT_Delen) := = WithPT ? 'MakeDefined(PT_L/Aankomst[invert(PT_L/Delen/org_rel)], PT_R/Aankomst[invert(PT_R/Delen/org_rel)])' : 'const(value(null_u, Time), PT_Delen)';
 
-	// een overstap: de rechte looplijn
+	// A transfer: the straight walking line.
 	unit<uint64> Overstappen := select_with_org_rel(Benen/IsOverstap[PT_Delen/Been_rel])
 	{
 		attribute<Opties> Optie_rel := PT/Optie_rel[PT_Delen/PT_rel[org_rel]];
@@ -186,7 +188,7 @@ container OD_Uitvoer
 		}
 	}
 
-	// de directe loop- en fietsrit: de links van de zoektocht van het HB-paar, voor elke directe optie van die modaliteit (er is een route)
+	// The direct walking and cycling trip: the links of the search of the OD pair, for every direct option of that mode (there is one route).
 	Template DirectLinks_T
 	{
 		parameter<string> Modaliteit;
@@ -206,8 +208,8 @@ container OD_Uitvoer
 	container D_Lopen   := DirectLinks_T('Walking');
 	container D_Fietsen := DirectLinks_T('Cycling');
 
-	// de directe autorit van dit vertrekmoment (CarTD): de links van zijn route uit de autostore van het moment (Read_CarLinks), gekoppeld
-	// op de rij van de store: optie -> Direct_OD_M -> DirectCar_M = DirectCar/Front -> CarRows -> rij van de store
+	// The direct car trip of this departure moment (CarTD): the links of its route from the car store of the moment (Read_CarLinks), joined on
+	// the row of the store: option -> Direct_OD_M -> DirectCar_M = DirectCar/Front -> CarRows -> row of the store.
 	unit<uint64> AutoOpties := = CarTD ? 'select_with_org_rel(Opties/IsDirect && Direct_OD_M/IsCarTD[value(Opties/Bron_rel, Direct_OD_M)])' : 'range(uint64, 0u64, 0u64)'
 	{
 		attribute<Opties> Optie_rel := = CarTD ? 'org_rel' : 'const(value(null_u, Opties), .)';
@@ -226,8 +228,8 @@ container OD_Uitvoer
 		attribute<rdc>    geometry (arc) := ='/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/' + TDName + '/Read_CarLinks/links/geometry[second_rel]';
 	}
 
-	// De delen van Links die deze run heeft: het OV met WithPT, de directe ritten van de toegestane modaliteiten, voor- en PostTransport van
-	// de typen van de component (de andere leveren geen rijen, maar zo leest de run hun store niet).
+	// The parts of Links that this run has: public transport with WithPT, the direct trips of the allowed modes, and pre-transport and
+	// post-transport of the types of the component (the others give no rows, but this way the run does not read their store).
 	unit<uint8> LinkDelen : nrofrows = 10
 	{
 		attribute<string> name  : ['V_Lopen/Sel', 'V_Fietsen/Sel', 'PT_L/Rows', 'PT_R/Rows', 'Overstappen', 'N_Lopen/Sel', 'N_Fietsen/Sel', 'D_Lopen/Rows', 'D_Fietsen/Rows', 'A_Auto'];

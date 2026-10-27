@@ -1,9 +1,9 @@
-// DE LINKS VAN ROUTES (sinds 2026-10-21, #129; alleen in de HB-paarmodus, ModelParameters/Impl/IsOD): uit de LinkSet van een
-// impedance_matrix per route de links in de volgorde van de reis, met de knoop waar elke link begint en eindigt, en per route een lijn
-// langs die knopen. De LinkSet loopt van het eind van de route naar het begin (GeoDMS, Dijkstra.cpp WriteLinkSets); Volgnr telt vanaf het
-// begin. Een link eindigt in de knoop die hij deelt met de volgende link; de laatste link eindigt in EndNode, de eindknoop van de route.
-// Zo is de richting ook goed op een tweerichtingsnet, waar F1 en F2 niets over de rijrichting zeggen.
-Template RouteLinks_T
+// THE LINKS OF ROUTES (#129; only in the OD pair mode, ModelParameters/Impl/IsOD): from the LinkSet of an impedance_matrix, per route
+// the links in the order of the trip, with the node where each link begins and ends, and per route a line along those nodes. The LinkSet
+// runs from the end of the route to its start (GeoDMS, Dijkstra.cpp WriteLinkSets); Volgnr counts from the start. A link ends in the node it
+// shares with the next link; the last link ends in EndNode, the end node of the route. This way the direction is also right on a two-way
+// network, where F1 and F2 say nothing about the driving direction.
+Template RouteLinks_T : Descr = "Lists the links of each route of an impedance_matrix in the order of the trip, with the node where each link begins and ends, and draws a line per route (#129)."
 {
 	unit<uint64>      Routes;
 	attribute<uint32> LinkSet   (arc, Routes);
@@ -15,19 +15,19 @@ Template RouteLinks_T
 	attribute<Nodes>  EndNode   (Routes);
 	///
 	unit<uint32> Rows := sequence2points(LinkSet)
-	, Descr = "Een rij per link van een route, in de volgorde van de LinkSet (van het eind naar het begin)."
+	, Descr = "One row per link of a route, in the order of the LinkSet, from the end of the route to its start."
 	{
 		attribute<Routes> Route_rel     := Sequence_rel;
 		attribute<Links>  Link_rel      := value(point, Links);
 		attribute<uint32> NrLinks       := pcount_uint32(Route_rel)[Route_rel];
-		attribute<uint32> Volgnr        := NrLinks - 1 - Ordinal, Descr = "De plaats van de link in de reis, vanaf 0.";
-		attribute<.>      Volgende_rel  := Ordinal > 0 ? value(sub_or_null(id(.), 1u), .) : value(null_u, .), Descr = "De link die in de reis volgt: de vorige rij, want de LinkSet loopt achteruit.";
+		attribute<uint32> Volgnr        := NrLinks - 1 - Ordinal, Descr = "The position of the link in the trip, counted from 0.";
+		attribute<.>      Volgende_rel  := Ordinal > 0 ? value(sub_or_null(id(.), 1u), .) : value(null_u, .), Descr = "The link that follows in the trip: the previous row, because the LinkSet runs backwards.";
 		attribute<Nodes>  A             := F1[Link_rel];
 		attribute<Nodes>  B             := F2[Link_rel];
-		attribute<Nodes>  EindKnoop     := Ordinal == 0 ? EndNode[Route_rel] : (A == A[Volgende_rel] || A == B[Volgende_rel] ? A : B);
-		attribute<Nodes>  BeginKnoop    := A == EindKnoop ? B : A;
-		attribute<bool>   IsVooruit     := B == EindKnoop, Descr = "Gaat de reis over de link van F1 naar F2?";
-		attribute<rdc>    geometry (arc) := points2sequence(LinkPunten/Point, LinkPunten/Rij_rel, LinkPunten/Ordinal), Descr = "Een rechte lijn van de begin- naar de eindknoop.";
+		attribute<Nodes>  EindKnoop     := Ordinal == 0 ? EndNode[Route_rel] : (A == A[Volgende_rel] || A == B[Volgende_rel] ? A : B), Descr = "The node where the trip leaves the link: the node it shares with the next link, or EndNode for the last link.";
+		attribute<Nodes>  BeginKnoop    := A == EindKnoop ? B : A, Descr = "The node where the trip enters the link.";
+		attribute<bool>   IsVooruit     := B == EindKnoop, Descr = "Does the trip run over the link from F1 to F2?";
+		attribute<rdc>    geometry (arc) := points2sequence(LinkPunten/Point, LinkPunten/Rij_rel, LinkPunten/Ordinal), Descr = "A straight line from the begin node to the end node of the link.";
 
 		unit<uint32> LinkPunten := union_unit(., .)
 		{
@@ -36,7 +36,7 @@ Template RouteLinks_T
 			attribute<uint32> Ordinal  := union_data(., const(0, .., uint32), const(1, .., uint32));
 		}
 	}
-	// De lijn per route: de beginknoop van de eerste link en dan de eindknoop van elke link.
+	// The line per route: the begin node of the first link, then the end node of each link.
 	unit<uint32> Eerste := select_with_org_rel(Rows/Volgnr == 0);
 	unit<uint32> RoutePunten := union_unit(Eerste, Rows)
 	{
@@ -47,7 +47,7 @@ Template RouteLinks_T
 	attribute<rdc> geometry (arc, Routes) := points2sequence(RoutePunten/Point, RoutePunten/Route_rel, RoutePunten/Ordinal);
 }
 
-// De plaatshouder van RouteLinks_T buiten de HB-paarmodus: de zoektochten vragen dan geen LinkSet.
+// The placeholder for RouteLinks_T outside the OD pair mode: the searches then do not request a LinkSet.
 Template GeenRouteLinks_T
 {
 	parameter<string> Toelichting := 'Links worden alleen bijgehouden in de HB-paarmodus (ModelParameters/Impl/IsOD).';

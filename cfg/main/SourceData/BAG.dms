@@ -1,11 +1,11 @@
-container BAG
+container BAG : Descr = "The BAG snapshot of the analysis moment: accommodation objects (vbo), buildings (pand) and addresses, for origins weighted by dwellings and for the centroids of regions and postcodes."
 {
 	parameter<string> SnapshotDir   := '%NetworkModel_Dir%/RegioIndelingen/BAG/'+ModelParameters/Impl/BAG_snapshot, Descr = "Folder with the BAG snapshot (vbo.fss, pand.fss, adres.fss) of ModelParameters/Impl/BAG_snapshot.";
 	unit<uint32> RegioUnit_Buurt    := /SourceData/RegioIndelingen/Buurt;
 	unit<uint32> RegioUnit_Wijk     := /SourceData/RegioIndelingen/Wijk;
 	unit<uint32> RegioUnit_Gemeente := /SourceData/RegioIndelingen/Gemeente;
 	
-	parameter<uint32> BAG_year      := uint32(ModelParameters/Impl/BAG_year);
+	parameter<uint32> BAG_year      := uint32(ModelParameters/Impl/BAG_year), Descr = "The year of the BAG snapshot; later construction years are set to null.";
 	
 	container VBOs
 	{
@@ -94,7 +94,7 @@ container BAG
 			attribute<WPSrc> WPSrc_rel := woonpand_type;
 			attribute<rdc_mm> NW := lower_bound(src/geometry_mm);
 			attribute<rdc_mm> SE := upper_bound(src/geometry_mm);
-			attribute<int32> X_ext := sub_or_null(PointCol(SE), PointCol(NW)), Descr = "null voor panden zonder geometrie (lege bounds geven anders int32-overflow); die vallen daarmee uit Pand_selection_condition.";
+			attribute<int32> X_ext := sub_or_null(PointCol(SE), PointCol(NW)), Descr = "Null for buildings without geometry (empty bounds would otherwise give an int32 overflow), so that they drop out of Pand_selection_condition.";
 			attribute<int32> Y_ext := sub_or_null(PointRow(SE), PointRow(NW));
 			attribute<string> status := import/status;
 			attribute<pand_status> status_rel := rlookup(status, pand_status/label);
@@ -110,7 +110,7 @@ container BAG
 			unit<uint32>                  vbo_woon_domein      := VBOs/GebruiksdoelSets/woon/GebruiksdoelSet;
 			attribute<string>             pand_id                  := identificatie;
 			attribute<rdc>                pand_centroid            := centroid_or_mid(geometry);
-			attribute<uint32>             count_vbo_pand_woon      := pcount(vbo_woon_domein/pand_rel); //pand_woon_vbo_rel
+			attribute<uint32>             count_vbo_pand_woon      := pcount(vbo_woon_domein/pand_rel);
 			
 			unit<uint32> pand_woon_vbo := select_with_org_rel(pand/count_vbo_pand_woon > 0)
 			{
@@ -129,7 +129,7 @@ container BAG
 				
 				parameter<string>                Gridsize                        := ModelParameters/Advanced/Org_location_scale, Descr = "Cell size of the origin clustering.";
 				
-				unit<uint32> HeeftPanden := select_with_attr_by_org_rel(.,Count_IsPositive > 0)
+				unit<uint32> HeeftPanden := select_with_attr_by_org_rel(.,Count_IsPositive > 0), Descr = "The cells with at least one residential building, as origins named PandBlok_<n>."
 				{
 					attribute<rdc>    geometry            := domain/point[org_rel];
 					attribute<uint32> identificatie       := id(.);
@@ -174,7 +174,7 @@ container BAG
 			attribute<string>   name                   := pc_huisnr;
 		}
 		
-		unit<uint32> Woon_Voorraad := select_with_attr_by_cond(src, src/IsWoon && src/IsVoorraad)
+		unit<uint32> Woon_Voorraad := select_with_attr_by_cond(src, src/IsWoon && src/IsVoorraad), Descr = "The addresses of dwellings in the housing stock, with their neighbourhood, district and municipality."
 		{
 			attribute<RegioUnit_Buurt>    buurt_rel    := point_in_polygon(geometry,  RegioUnit_Buurt/geometry);
 			attribute<RegioUnit_Wijk>     wijk_rel     := point_in_polygon(geometry,  RegioUnit_Wijk/geometry);
@@ -189,7 +189,7 @@ container BAG
 				attribute<float64>  y_mean    := mean(pointrow(../geometry), buurt_rel);
 				attribute<rdc>      centroid0 := point_xy(x_mean, y_mean, rdc);
 				
-				//controles
+				// checks
 				attribute<.>        poly_rel             := point_in_polygon(centroid0, ./geometry);
 				attribute<string>   statcode_poly        := ./statcode;
 				attribute<string>   statcode_centr       := statcode_poly[Poly_rel];
@@ -206,7 +206,7 @@ container BAG
 				attribute<float64>  y_mean := mean(pointrow(../geometry), wijk_rel);
 				attribute<rdc>      centroid0 := point_xy(x_mean, y_mean, rdc);
 				
-				//controles
+				// checks
 				attribute<.>        poly_rel       := point_in_polygon(centroid0, ./geometry);
 				attribute<string>   statcode_poly  := ./statcode;
 				attribute<string>   statcode_centr := statcode_poly[Poly_rel];
@@ -222,7 +222,7 @@ container BAG
 				attribute<float64>  y_mean := mean(pointrow(../geometry), gemeente_rel);
 				attribute<rdc>      centroid0 := point_xy(x_mean, y_mean, rdc);
 				
-				//controles
+				// checks
 				attribute<.>        poly_rel       := point_in_polygon(centroid0, ./geometry);
 				attribute<string>   statcode_poly  := ./statcode;
 				attribute<string>   statcode_centr := statcode_poly[Poly_rel];

@@ -1,35 +1,35 @@
 container Validation
 : using = "units;Classifications;SourceData"
-, Descr = "Validation van de OV-ketens tegen 9292.nl, halte tot halte (ObjectVision/NetworkModel_PBL#53, skill .claude/skills/model-Validation). Schrijft voor de haltenparen in Paren de ketens uit de ketenstore die tussen VertrekVan en VertrekTot vertrekken, met vertrek, aankomst, reistijd, prijs, rit-opslag (Price_S, de ICD/ICE-toeslag die 9292 niet in de prijs telt) en ModeUsed: bereken /Output/Validation/Rows; csv in %LocalDataProjDir%/Output/validatie_*. Leest alleen de blokstores waarin de vertrekhaltes vallen; met LeesStore = FALSE rekent het die blokken zelf (zonder te schrijven), om te testen zonder ketenstore. Bereken /Output/Validation/Schrijf om alle kolommen weg te schrijven."
+, Descr = "Validation of the public transport chains against 9292.nl, stop to stop (ObjectVision/NetworkModel_PBL#53, skill model-validatie): for the stop pairs in Paren, Rows holds the chains of the chain store that depart between VertrekVan and VertrekTot, with departure, arrival, travel time, price, trip surcharge (Price_S, the ICD/ICE surcharge that 9292 leaves out of the price) and ModeUsed, and Schrijf writes all its columns to %LocalDataProjDir%/Output/validatie_*.csv; it reads only the block stores of the departure stops, or with LeesStore FALSE calculates those blocks itself without writing them, to test without a chain store."
 {
-	parameter<string> FileStem   := '%LocalDataProjDir%/Output/validatie_'+ModelParameters/Impl/GTFS_file_date+'_'+ModelParameters/Impl/Analysis_date;
-	parameter<bool>   LeesStore  := TRUE, Descr = "TRUE: lees de blokken uit de ketenstore (PublicTransport_Prep/PT_Chains_Blocks); FALSE: reken ze in het geheugen (ChainGeneration_PerBlock/<blok>/BlockResultContainer/Result; via Fence/Result faalt de engine op een interne check).";
-	parameter<Time>   VertrekVan := /ModelParameters/Impl/PT_FirstDepartureMoment;
-	parameter<Time>   VertrekTot := value(uint32(VertrekVan) + 3600, Time), Descr = "Een uur na VertrekVan.";
+	parameter<string> FileStem   := '%LocalDataProjDir%/Output/validatie_'+ModelParameters/Impl/GTFS_file_date+'_'+ModelParameters/Impl/Analysis_date, Descr = "Path of the csv without extension: validatie_<feed date>_<analysis date> in %LocalDataProjDir%/Output.";
+	parameter<bool>   LeesStore  := TRUE, Descr = "TRUE reads the blocks from the chain store (PublicTransport_Prep/PT_Chains_Blocks); FALSE calculates them in memory (ChainGeneration_PerBlock/<block>/BlockResultContainer/Result) without writing them.";
+	parameter<Time>   VertrekVan := /ModelParameters/Impl/PT_FirstDepartureMoment, Descr = "Start of the departure window: the first departure moment of the model.";
+	parameter<Time>   VertrekTot := value(uint32(VertrekVan) + 3600, Time), Descr = "End of the departure window, one hour after VertrekVan.";
 
 	unit<uint32> Stops       := /NetworkSetup/PublicTransport_Prep/impl/Stops;
 	unit<uint32> BlockDomain := /NetworkSetup/PublicTransport_Prep/impl/BlockDomain;
 
-	// Haltenparen op GTFS-naam (Stops/name); alle haltes met die naam tellen mee (perrons, beide richtingen).
+	// Stop pairs by GTFS name (Stops/name); all stops with that name count (platforms, both directions).
 	unit<uint32> Paren : nrofrows = 8
 	{
 		attribute<string> soort : ['HSL', 'HSL', 'HSL ICD1800', 'NS', 'grens VIAS', 'grens DB', 'Waterbus', 'eilandbus'];
 		attribute<string> van   : ['Schiphol Airport', 'Amsterdam Zuid', 'Hilversum', 'Amsterdam Zuid', 'Arnhem Centraal', 'Enschede', 'Dordrecht, Merwekade', 'Nes, Veerhaven'];
 		attribute<string> naar  : ['Rotterdam Centraal', 'Rotterdam Centraal', 'Rotterdam Centraal', 'Utrecht Centraal', 'Zevenaar', 'Glanerbrug', 'Rotterdam, Erasmusbrug', 'Hollum, Amelander Kaap'];
 	}
-	// join_equal_values kent geen strings: koppel via het nummer van de haltenaam.
+	// join_equal_values does not take strings, so the pairs are joined via the number of the stop name.
 	unit<uint32> Namen := unique(Stops/name);
 	attribute<Namen> Stop_Naam_rel (Stops) := rlookup(Stops/name, Namen/values);
 	attribute<Namen> Van_Naam_rel  (Paren) := rlookup(Paren/van,  Namen/values);
 	attribute<Namen> Naar_Naam_rel (Paren) := rlookup(Paren/naar, Namen/values);
 	parameter<bool>  Check_Namen := all(IsDefined(Van_Naam_rel) && IsDefined(Naar_Naam_rel))
-	, IntegrityCheck = "Check_Namen", Descr = "Elke van- en naarnaam van Paren bestaat als haltenaam in de feed.";
+	, IntegrityCheck = "Check_Namen", Descr = "Does every from and to name in Paren exist as a stop name in the feed?";
 
 	unit<uint32> VanHaltes := join_equal_values_uint32(Van_Naam_rel, Stop_Naam_rel)
 	{
 		attribute<Paren>       Paar_rel := first_rel;
 		attribute<Stops>       Stop_rel := second_rel;
-		attribute<BlockDomain> Blok_rel := value(/NetworkSetup/PublicTransport_Prep/impl/BlockSelections/rnd_rel[Stop_rel] / ModelParameters/Advanced/MaxStopBlockSize, BlockDomain), Descr = "Het haltenblok van de ketenstap, zoals ChainGeneration_PerBlock_T kiest.";
+		attribute<BlockDomain> Blok_rel := value(/NetworkSetup/PublicTransport_Prep/impl/BlockSelections/rnd_rel[Stop_rel] / ModelParameters/Advanced/MaxStopBlockSize, BlockDomain), Descr = "The stop block of this stop in the chain step, chosen as ChainGeneration_PerBlock_T does.";
 	}
 	unit<uint32> NaarHaltes := join_equal_values_uint32(Naar_Naam_rel, Stop_Naam_rel)
 	{
@@ -55,14 +55,14 @@ container Validation
 			unit<uint8>       CD       := /Classifications/GTFS_Modes/CodeDigits;
 			attribute<string> ModeUsed := CD/abbr[value(values / 65536u % 16u, CD)] + CD/abbr[value(values / 4096u % 16u, CD)] + CD/abbr[value(values / 256u % 16u, CD)] + CD/abbr[value(values / 16u % 16u, CD)] + CD/abbr[value(values % 16u, CD)];
 		}
-		attribute<string> ModeUsed   := UqModeCode/ModeUsed[rlookup(ModeCode, UqModeCode/values)], Descr = "De letters per been, uit ModeCode van de ketenstore (sinds 2026-10-06).";
+		attribute<string> ModeUsed   := UqModeCode/ModeUsed[rlookup(ModeCode, UqModeCode/values)], Descr = "The mode letters per leg, from ModeCode in the chain store.";
 		attribute<Stops>  From_Stop_rel := /NetworkSetup/PublicTransport_Prep/uq_c_FromTime_Stop/From_Stop_rel[uq_c_FromTime_Stop_rel];
 		attribute<Time>   From_Time_rel := /NetworkSetup/PublicTransport_Prep/uq_c_FromTime_Stop/From_Time_rel[uq_c_FromTime_Stop_rel];
 		attribute<Stops>  To_Stop_rel   := /NetworkSetup/PublicTransport_Prep/uq_c_ToTime_Stop/To_Stop_rel[uq_c_ToTime_Stop_rel];
 		attribute<Time>   To_Time_rel   := /NetworkSetup/PublicTransport_Prep/uq_c_ToTime_Stop/To_Time_rel[uq_c_ToTime_Stop_rel];
 	}
 
-	// Ketens van een vertrekhalte van een paar naar een aankomsthalte van hetzelfde paar, binnen het vertrekvenster.
+	// Chains from a departure stop of a pair to an arrival stop of the same pair, within the departure window.
 	unit<uint64> Kandidaten := join_equal_values_uint64(Ketens/From_Stop_rel, VanHaltes/Stop_rel)
 	{
 		attribute<Paren>  Paar_rel := VanHaltes/Paar_rel[second_rel];
@@ -77,11 +77,11 @@ container Validation
 		attribute<string>  naar       := Paren/naar[Kandidaten/Paar_rel[org_rel]];
 		attribute<string>  vertrek    := Time/Label[Ketens/From_Time_rel[Kandidaten/first_rel[org_rel]]];
 		attribute<string>  aankomst   := Time/Label[Ketens/To_Time_rel[Kandidaten/first_rel[org_rel]]];
-		attribute<float32> reistijd   := float32(Ketens/Traveltime[Kandidaten/first_rel[org_rel]]) / 60f, Descr = "Traveltime van de keten in minuten (inclusief eventuele overstappenalty's).";
-		attribute<float32> prijs      := float32(Ketens/Price[Kandidaten/first_rel[org_rel]]) / 100f, Descr = "Price in euro, inclusief de rit-opslag.";
-		attribute<float32> rit_opslag := float32(Ketens/Price_S[Kandidaten/first_rel[org_rel]]) / 100f, Descr = "Price_S in euro: de ICD/ICE-toeslag, die 9292 niet in de prijs telt.";
+		attribute<float32> reistijd   := float32(Ketens/Traveltime[Kandidaten/first_rel[org_rel]]) / 60f, Descr = "Travel time of the chain in minutes, including any transfer penalties.";
+		attribute<float32> prijs      := float32(Ketens/Price[Kandidaten/first_rel[org_rel]]) / 100f, Descr = "Price in euro, including the trip surcharge.";
+		attribute<float32> rit_opslag := float32(Ketens/Price_S[Kandidaten/first_rel[org_rel]]) / 100f, Descr = "Price_S in euro: the ICD/ICE surcharge, which 9292 leaves out of the price.";
 		attribute<string>  ModeUsed   := Ketens/ModeUsed[Kandidaten/first_rel[org_rel]];
 	}
 
-	parameter<string> Schrijf := 'Validation: ' + string(#Rows) + ' ketens voor ' + string(#Paren) + ' haltenparen', ExplicitSuppliers = "Rows", Descr = "Bereken dit item om Rows met alle kolommen naar FileStem.csv te schrijven.";
+	parameter<string> Schrijf := 'Validation: ' + string(#Rows) + ' ketens voor ' + string(#Paren) + ' haltenparen', ExplicitSuppliers = "Rows", Descr = "Calculating this item writes Rows with all its columns to FileStem.csv.";
 }

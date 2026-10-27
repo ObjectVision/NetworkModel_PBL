@@ -1,26 +1,24 @@
-Template PerDepartureMoment_T
+Template PerDepartureMoment_T : Descr = "Calculates for one departure moment of an origin block the options per OD pair (pre-transport, public transport chain and post-transport, plus the direct trips), keeps their Pareto front and writes it as csv or parquet."
 {
 	parameter<uint32>   inTime;
 	parameter<string>   inTime_string;
 	///
 	parameter<min_f>    Max_V_Time := /ModelParameters/Impl/PT_Max_V_Time
-	,	Descr = "Langste voortransportbeen dat nog geldig kan zijn: de grootste Max*Time-grens (op netwerktijd) plus de start- en parkeertijden die sinds 2026-09-23 in het been zitten. Begrenst het venster van OV-vertrekken; te ruim is onschadelijk, te krap laat combinaties weg.";
-	unit<uint8>         ParetoAttr := Classifications/OutputParetoAttr; // sinds 2026-10-01 met NeedsCar en NeedsBike (#117); tot dan FinalParetoAttr
-	// De OV-ketens die binnen PreTransport plus wachten thuis vertrekken. Sinds 2026-09-27 (audit 6.7) met de ondergrens inTime:
-	// een keten die eerder vertrekt haalt IsWaitingTimeValid toch nooit, maar werd wel aan alle voortransportbenen gekoppeld;
-	// bij vertrek 07:45 met de ketenstore 07:00-09:29 was dat 59% van de rijen (307 van 523 miljoen op herkomstblok 1). Sinds 2026-10-20
-	// uit de ketens van het blok (PublicTransport/PT_InBlock), tot dan uit alle ketens (PublicTransport_Prep/PT): dezelfde rijen voor het
-	// front, in dezelfde volgorde, zonder de ketens die bij geen voortransportbeen van het blok instappen.
+	,	Descr = "The longest pre-transport leg that can still be valid (the largest Max*Time limit on network time plus the start and parking times in the leg), which bounds the window of public transport departures; too wide is harmless, too narrow drops combinations.";
+	unit<uint8>         ParetoAttr := Classifications/OutputParetoAttr; // with NeedsCar and NeedsBike (#117)
+	// The public transport chains of the block (PublicTransport/PT_InBlock) that depart within the window of pre-transport plus waiting at home,
+	// from the departure moment inTime on. A chain that departs before inTime can never pass IsWaitingTimeValid, so the lower bound only removes
+	// rows that would otherwise be coupled to all pre-transport legs.
 	attribute<bool>     Within_VW_Window_SelectionCriterium (PT_InBlock) :=PT_InBlock/From_Time_rel >= inTime[Time] && PT_InBlock/From_Time_rel <= inTime + convert(Max_V_Time, s_f)[Time] + ModelParameters/Advanced/MaxWaitingTimeAtOrigin;
 	
 	unit<uint64> Within_VW_Window := select(Within_VW_Window_SelectionCriterium)
-	, Descr = "Opties binnen PreTransport + wachten thuis window"
+	, Descr = "The public transport chains of the block that depart within the window of pre-transport plus waiting at home."
 	{
 		attribute<ct>                Price                       := collect_by_cond(., Within_VW_Window_SelectionCriterium, PT_InBlock/Price);
 		attribute<ct>                Price_augm                  := collect_by_cond(., Within_VW_Window_SelectionCriterium, PT_InBlock/Price_augm);
 		attribute<s>                 Traveltime                  := collect_by_cond(., Within_VW_Window_SelectionCriterium, PT_InBlock/Traveltime);
 		attribute<uint32>            ModeCode                    := collect_by_cond(., Within_VW_Window_SelectionCriterium, PT_InBlock/ModeCode);
-		// de letters per been (sinds 2026-10-06 uit de uint32 ModeCode van de ketenstore), een keer per verschillende code
+		// The mode letters per leg, decoded from the uint32 ModeCode of the chain store once per distinct code.
 		unit<uint32>                 UqModeCode                  := unique_uint32(ModeCode)
 		{
 			unit<uint8>                CD                          := /Classifications/GTFS_Modes/CodeDigits;
@@ -38,11 +36,12 @@ Template PerDepartureMoment_T
 		attribute<dam>               Traveldist_Tram             := collect_by_cond(., Within_VW_Window_SelectionCriterium, PT_InBlock/Traveldist_Tram);
 		attribute<dam>               Traveldist_Rail             := collect_by_cond(., Within_VW_Window_SelectionCriterium, PT_InBlock/Traveldist_Rail);
 		attribute<dam>               Traveldist_Ferry            := collect_by_cond(., Within_VW_Window_SelectionCriterium, PT_InBlock/Traveldist_Ferry);
-		// de herkomst van elke rij, om een optie terug te leiden (sinds 2026-10-21, #129; alleen gevraagd in de HB-paarmodus, OD_Uitvoer)
+		// The source row of every option, to trace an option back (#129; only requested in the OD pair mode, OD_Uitvoer).
 		attribute<PT_InBlock>        PT_InBlock_rel              := collect_by_cond(., Within_VW_Window_SelectionCriterium, id(PT_InBlock));
 	}
 
 	unit<uint64> Add_V_to_PT   := join_equal_values_uint64(V/To_Place_rel, Within_VW_Window/From_Place_rel)
+	, Descr = "Couples every pre-transport leg (V) to the chains of the window that depart from the stop where the leg ends, with waiting at home before the leg; IsValid keeps the combinations that catch the departure within the limits."
 	{
 		attribute<V>                                           V_rel                            := first_rel; //debug
 		attribute<Within_VW_Window>                            PT_rel                           := second_rel; //debug
@@ -62,23 +61,22 @@ Template PerDepartureMoment_T
 		attribute<c_Time_Places>                               PT_c_toTime_Place_rel            := Within_VW_Window/c_toTime_Place_rel[PT_rel];
 		
 		attribute<c_Time_Stops>                                PT_c_fromTime_Stop_rel           := combine_data(c_Time_Stops, PT_From_Time_rel, PT_From_Stop_rel);
-		attribute</SourceData/Infrastructure/GTFS/RelevantSelection/ScheduledLinks> IsPT_departureEvent_ActualPT0     := rlookup(PT_c_fromTime_Stop_rel, /SourceData/Infrastructure/GTFS/RelevantSelection/ScheduledLinks/c_fromTime_Stop_rel), Descr = "the departure event should be a depature event, and not waiting or already a transfer. To make sure, this check is built in.";
+		attribute</SourceData/Infrastructure/GTFS/RelevantSelection/ScheduledLinks> IsPT_departureEvent_ActualPT0     := rlookup(PT_c_fromTime_Stop_rel, /SourceData/Infrastructure/GTFS/RelevantSelection/ScheduledLinks/c_fromTime_Stop_rel), Descr = "The scheduled link that departs from the first stop at the departure time of the chain, so that the chain starts with an actual departure and not with waiting or a transfer.";
 		attribute<bool>                                        IsPT_departureEvent_ActualPT                           := IsDefined(IsPT_departureEvent_ActualPT0);
 		
 		attribute<Time>                                        WaitingStart_Time_rel            := V_To_Time_rel_org;
 		attribute<Time>                                        WaitingEnd_Time_rel              := value(PT_c_fromTime_Place_rel / uint64(#Places), Time);
-		// Aankomst bij de halte uiterlijk op het vertrek; sinds 2026-09-27 (audit 6.7) mag dat ook precies op het vertrek, zoals bij
-		// een overstap (CreateTransfers_T: Transfer_Time >= Walking_Time). Tot dan niet, zodat vanaf een herkomst met toegangstijd 0
-		// het vertrek op het vertrekmoment zelf ontbrak (herkomstblok 1, 07:45: 32 van 31.903 paren een ander front).
+		// Arrival at the stop no later than the departure; arriving exactly at the departure is allowed, as for a transfer (CreateTransfers_T:
+		// Transfer_Time >= Walking_Time), so that from an origin with access time 0 the departure at the departure moment itself counts.
 		attribute<bool>                                        IsWaitingTimeValid               := WaitingStart_Time_rel <= WaitingEnd_Time_rel;
 		
 		attribute<s>                                           V_time_wo_Penalty                := V/impedance[V_rel];
-		attribute<s>                                           V_time_net                       := V/impedance_net[V_rel], Descr = "Netwerkreistijd van het PreTransport, zonder start- en parkeertijd; hierop toetst IsVTimeNotTooLong.";
+		attribute<s>                                           V_time_net                       := V/impedance_net[V_rel], Descr = "Network travel time of the pre-transport without start and parking time, which IsVTimeNotTooLong tests.";
 		attribute<Modes>                                       V_mode_rel                       := V/Mode_rel[V_rel];
 		attribute<VN_ModeClasses/Uq>                           V_ModeClass_rel                  := V/ModeClass_rel[V_rel];
 		attribute<ct>                                          V_price                          := V/Price[V_rel];
 		attribute<bool>                                        NeedsBike                        := VN_ModeClasses/Uq/NeedsBike[V_ModeClass_rel];
-		attribute<s>                                           V_time                           := V_time_wo_Penalty; // start- en parkeertijden zitten sinds 2026-09-23 in het been zelf (ODMatrix/Duration_seconds_ext)
+		attribute<s>                                           V_time                           := V_time_wo_Penalty; // the start and parking times are in the leg itself (ODMatrix/Duration_seconds_ext)
 		
 		attribute<Time>                                        WaitingTime_rel                  := MakeDefined(sub_or_null(WaitingEnd_Time_rel, WaitingStart_Time_rel), 0[Time]);
 		attribute<s>                                           W_time                           := WaitingTime_rel[s];
@@ -86,10 +84,10 @@ Template PerDepartureMoment_T
 		attribute<c_Time_Places>                               c_fromTime_Place_rel             := V_c_fromTime_Place_rel;
 		attribute<c_Time_Places>                               c_toTime_Place_rel               := PT_c_toTime_Place_rel;
 
-		// Het PreTransport telt in Price mee zoals de directe rit van dezelfde modaliteit: fietsen met IncludeCyclingCostsInPrice,
-		// lopen sinds 2026-09-26 met IncludeWalkingCostsInPrice (audit 6.4; tot dan betaalde alleen de directe looprit).
+		// The pre-transport counts in Price like the direct trip of the same mode: cycling with IncludeCyclingCostsInPrice, walking with
+		// IncludeWalkingCostsInPrice.
 		attribute<bool>                                        V_PriceCounts                    := (ModelParameters/Advanced/IncludeCyclingCostsInPrice && V_mode_rel == Modes/v/Cycling) || (ModelParameters/Advanced/IncludeWalkingCostsInPrice && V_mode_rel == Modes/v/Walking);
-		attribute<ct>                                          Price_V                          := V_PriceCounts ? V_price : 0[ct], Descr = "Het deel van Price voor het PreTransport: V_price als dat meetelt (V_PriceCounts), anders 0. Sinds 2026-10-02 apart in de uitvoer (PretransPrice).";
+		attribute<ct>                                          Price_V                          := V_PriceCounts ? V_price : 0[ct], Descr = "The part of Price for the pre-transport: V_price if it counts (V_PriceCounts), otherwise 0; in the output as PretransPrice.";
 		attribute<ct>                                          Price                            := Within_VW_Window/Price[PT_rel] + Price_V;
 		attribute<ct>                                          Price_augm                       := Within_VW_Window/Price_augm[PT_rel] + V_price;
 		attribute<s>                                           PT_time                          := Within_VW_Window/Traveltime[PT_rel];
@@ -134,11 +132,12 @@ Template PerDepartureMoment_T
 			attribute<dam>                         Traveldist_Tram                  := collect_by_cond(., ../IsValid, ../Traveldist_Tram);
 			attribute<dam>                         Traveldist_Rail                  := collect_by_cond(., ../IsValid, ../Traveldist_Rail);
 			attribute<dam>                         Traveldist_Ferry                 := collect_by_cond(., ../IsValid, ../Traveldist_Ferry);
-			attribute<Add_V_to_PT>                 VPT_rel                          := collect_by_cond(., ../IsValid, id(..)), Descr = "De rij van Add_V_to_PT (alleen gevraagd in de HB-paarmodus, OD_Uitvoer).";
+			attribute<Add_V_to_PT>                 VPT_rel                          := collect_by_cond(., ../IsValid, id(..)), Descr = "The row of Add_V_to_PT (only requested in the OD pair mode, OD_Uitvoer).";
 		}
 	}
 	
 	unit<uint64> Add_N_to_VPT   := join_equal_values_uint64(Add_V_to_PT/Result/To_Place_rel, N/From_Place_rel)
+	, Descr = "Couples every valid combination of pre-transport and chain to the post-transport legs (N) from the stop where the chain ends; IsValid keeps those within MaxTravelTime and the post-transport time limits."
 	{
 		attribute<Add_V_to_PT/Result>                          PT_rel                           := first_rel; //debug
 		attribute<N>                                           N_rel                            := second_rel; //debug
@@ -150,7 +149,7 @@ Template PerDepartureMoment_T
 		attribute<Time>                                        N_To_Time_rel                    := PT_To_Time_rel + N_time[Time];
 		attribute<Places>                                      N_to_Place_rel                   := N/To_Place_rel[N_rel];
 		attribute<s>                                           N_time                           := N/impedance[N_rel];
-		attribute<s>                                           N_time_net                       := N/impedance_net[N_rel], Descr = "Netwerkreistijd van het PostTransport, zonder starttijd; hierop toetst IsNTimeNotTooLong.";
+		attribute<s>                                           N_time_net                       := N/impedance_net[N_rel], Descr = "Network travel time of the post-transport without start time, which IsNTimeNotTooLong tests.";
 		attribute<Modes>                                       N_mode_rel                       := N/Mode_rel[N_rel];
 		attribute<VN_ModeClasses/Uq>                           N_ModeClass_rel                  := N/ModeClass_rel[N_rel];
 		attribute<ct>                                          N_price                          := N/Price[N_rel];
@@ -158,9 +157,9 @@ Template PerDepartureMoment_T
 		attribute<c_Time_Places>                               c_fromTime_Place_rel             := PT_c_fromTime_Place_rel;
 		attribute<c_Time_Places>                               c_toTime_Place_rel               := combine_data(c_Time_Places, N_To_Time_rel, N_to_Place_rel);
 		
-		// Het PostTransport net als het PreTransport (audit 6.4).
+		// The post-transport counts in Price like the pre-transport.
 		attribute<bool>                                        N_PriceCounts                    := (ModelParameters/Advanced/IncludeCyclingCostsInPrice && N_mode_rel == Modes/v/Cycling) || (ModelParameters/Advanced/IncludeWalkingCostsInPrice && N_mode_rel == Modes/v/Walking);
-		attribute<ct>                                          Price_N                          := N_PriceCounts ? N_price : 0[ct], Descr = "Het deel van Price voor het PostTransport, zoals Price_V voor het PreTransport (PosttransPrice in de uitvoer).";
+		attribute<ct>                                          Price_N                          := N_PriceCounts ? N_price : 0[ct], Descr = "The part of Price for the post-transport, like Price_V for the pre-transport (PosttransPrice in the output).";
 		attribute<ct>                                          Price_V                          := Add_V_to_PT/Result/Price_V[PT_rel];
 		attribute<ct>                                          Price                            := Add_V_to_PT/Result/Price[PT_rel] + Price_N;
 		attribute<ct>                                          Price_augm                       := Add_V_to_PT/Result/Price_augm[PT_rel] + N_price;
@@ -214,39 +213,37 @@ Template PerDepartureMoment_T
 			attribute<dam>                         Traveldist_Rail                  := collect_by_cond(., ../IsValid, ../Traveldist_Rail);
 			attribute<dam>                         Traveldist_Ferry                 := collect_by_cond(., ../IsValid, ../Traveldist_Ferry);
 			attribute<dam>                         Traveldist_N                     := collect_by_cond(., ../IsValid, ../Traveldist_N);
-			attribute<Add_N_to_VPT>                VPTN_rel                         := collect_by_cond(., ../IsValid, id(..)), Descr = "De rij van Add_N_to_VPT (alleen gevraagd in de HB-paarmodus, OD_Uitvoer).";
+			attribute<Add_N_to_VPT>                VPTN_rel                         := collect_by_cond(., ../IsValid, id(..)), Descr = "The row of Add_N_to_VPT (only requested in the OD pair mode, OD_Uitvoer).";
 		}
 	}
 	
-	// Zonder OV (Component Auto, ModelParameters/Impl/WithPT FALSE, #117) alleen de directe ritten: dan verwijst niets naar
-	// Add_N_to_VPT, en rekent de eindafweging geen ketens, voor- en PostTransport.
+	// Without public transport (Component 'Car', ModelParameters/Impl/WithPT FALSE, #117) only the direct trips: then nothing refers to
+	// Add_N_to_VPT, and the final front calculates no chains, pre-transport or post-transport.
 	parameter<bool>   WithPT := /ModelParameters/Impl/WithPT;
 
-	// De directe ritten van dit vertrekmoment (sinds 2026-10-09, #132): die van het blok (Direct_OD, niet afhankelijk van het moment) en, met
-	// de tijdafhankelijke autorit (ModelParameters/Impl/CarTimeDependent), de autoritten van dit moment uit de store van dit moment.
+	// The direct trips of this departure moment (#132): those of the block (Direct_OD, independent of the moment) and, with the time-dependent
+	// car trip (ModelParameters/Impl/CarTimeDependent), the car trips of this moment from the store of this moment.
 	parameter<bool>   CarTD       := /ModelParameters/Impl/CarTimeDependent && /ModelParameters/Impl/AllowDirectCar;
 	parameter<string> TDName      := 'TD' + Time/TemplatableTextShrt[inTime[Time]];
 	parameter<string> CarTD_Store := '/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/' + TDName + '/Read_Car';
 
-	// Sinds 2026-10-12 kiest het blok zijn rijen uit de store zelf en rekent het prijs, front (CarFront_T) en plaatsen alleen voor die rijen.
-	// Tot dan kozen de blokken uit tabellen met alle rijen en hun afgeleiden (NetworkSetup/impl/DirectCarTD), die voor Y2023, Buurt2023 naar
-	// Buurt2023, 4 x 800 miljoen rijen in het geheugen hielden: een piek van 97,9 GB vastgelegd geheugen in de uitvoerstap, 88,3 GB voor de
-	// eerste portie van 50 blokken. Nu is dat 2,5 GB, met dezelfde uitvoer (byte voor byte). De keuze gaat per tegel van de store (64K rijen):
-	// collect_by_cond leest alleen de tegels waarin het blok rijen heeft. Een lookup in de store (<kolom>[rij]) maakt eerst een aaneengesloten
-	// kopie van de hele kolom (3,2 GB), per blok, moment en kolom; een variant die zo per herkomst de rijen las, deed 100 s per blok.
-	attribute<bool> Org_InBlock (/NetworkSetup/impl/OrgBlockSelections) := /NetworkSetup/impl/OrgBlockSelections/OrgBlock_rel == BlockDomain_id, Descr = "Is de herkomst in dit blok? Zoals ConfigurationPerOrgBlock_T/org.";
+	// The block selects its rows from the store itself and calculates price, front (CarFront_T) and places only for those rows, so that no table
+	// with all rows and their derived attributes stays in memory. The selection works per tile of the store (64K rows): collect_by_cond reads only
+	// the tiles in which the block has rows. A lookup in the store (<column>[row]) would first make a contiguous copy of the whole column, per
+	// block, moment and column, which is much slower.
+	attribute<bool> Org_InBlock (/NetworkSetup/impl/OrgBlockSelections) := /NetworkSetup/impl/OrgBlockSelections/OrgBlock_rel == BlockDomain_id, Descr = "Whether the origin is in this block, as in ConfigurationPerOrgBlock_T/org.";
 	unit<uint64> CarStore := = CarTD ? CarTD_Store : 'range(uint64, 0u64, 0u64)'
 	{
 		attribute<bool> InBlock := = CarTD ? '../Org_InBlock[' + CarTD_Store + '/OrgZone_rel]' : 'const(FALSE, .)';
 	}
 	unit<uint64> CarRows := select(CarStore/InBlock)
-	,	Descr = "De rijen van de store van dit moment voor de herkomsten van dit blok, in de volgorde van de store: dezelfde rijen als de keuze uit de hele tabel tot 2026-10-12."
+	,	Descr = "The rows of the car store of this moment for the origins of this block, in the order of the store."
 	{
 		attribute<s_f>                                          impedance   := = CarTD ? 'collect_by_cond(., CarStore/InBlock, ' + CarTD_Store + '/impedance)'   : 'const(0[s_f], .)';
 		attribute<km>                                           alt_imp     := = CarTD ? 'collect_by_cond(., CarStore/InBlock, ' + CarTD_Store + '/alt_imp)'     : 'const(0[km], .)';
 		attribute</NetworkSetup/PublicTransport_Prep/impl/org>  OrgZone_rel := = CarTD ? 'collect_by_cond(., CarStore/InBlock, ' + CarTD_Store + '/OrgZone_rel)' : 'const(value(null_u, /NetworkSetup/PublicTransport_Prep/impl/org), .)';
 		attribute</NetworkSetup/PublicTransport_Prep/impl/dest> DstZone_rel := = CarTD ? 'collect_by_cond(., CarStore/InBlock, ' + CarTD_Store + '/DstZone_rel)' : 'const(value(null_u, /NetworkSetup/PublicTransport_Prep/impl/dest), .)';
-		attribute<CarStore>                                     Store_rel   := collect_by_cond(., CarStore/InBlock, id(CarStore)), Descr = "De rij van de autostore (alleen gevraagd in de HB-paarmodus, OD_Uitvoer).";
+		attribute<CarStore>                                     Store_rel   := collect_by_cond(., CarStore/InBlock, id(CarStore)), Descr = "The row of the car store (only requested in the OD pair mode, OD_Uitvoer).";
 	}
 	container DirectCar := /NetworkSetup/PublicTransport_Prep/Direct/CarFront_T(CarRows, CarRows/impedance, CarRows/alt_imp, CarRows/OrgZone_rel, CarRows/DstZone_rel);
 	unit<uint64> DirectCar_M := DirectCar/Front
@@ -274,12 +271,13 @@ Template PerDepartureMoment_T
 		attribute<ct>     Price_Augm       := = CarTD ? 'union_data(., Direct_OD/Price_Augm, DirectCar_M/Price_Augm)' : 'Direct_OD/Price_Augm';
 		attribute<dam>    Distance         := = CarTD ? 'union_data(., Direct_OD/Distance, DirectCar_M/Distance)' : 'Direct_OD/Distance';
 		attribute<s>      Duration_seconds := = CarTD ? 'union_data(., Direct_OD/Duration_seconds, DirectCar_M/Duration_seconds)' : 'Direct_OD/Duration_seconds';
-		// de herkomst van elke rij (sinds 2026-10-21, #129; alleen gevraagd in de HB-paarmodus): een rij van Direct_OD of, met CarTD, van DirectCar_M
+		// The source row of every option (#129; only requested in the OD pair mode): a row of Direct_OD or, with CarTD, of DirectCar_M.
 		attribute<bool>   IsCarTD          := = CarTD ? 'union_data(., const(FALSE, Direct_OD), const(TRUE, DirectCar_M))' : 'const(FALSE, .)';
 		attribute<uint64> Bron_rel         := = CarTD ? 'union_data(., id(Direct_OD), id(DirectCar_M))' : 'id(Direct_OD)';
 	}
 
 	unit<uint64> Union_with_DirectOD   := ='union_unit_uint64(' + (WithPT ? 'Add_N_to_VPT/Result, ' : '') + 'Direct_OD_M)'
+	, Descr = "All options of this departure moment, the chains with pre-transport and post-transport (with WithPT) and the direct trips, from which the Pareto front per OD pair is taken in two steps."
 	{
 		attribute<c_Time_Places>               c_fromTime_Place_rel             := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/c_FromTime_Place_rel, ' : '') + 'combine_data(c_Time_Places, inTime[Time], Direct_OD_M/From_Place_rel))'; 
 		attribute<c_Time_Places>               c_toTime_Place_rel               := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/c_toTime_Place_rel, ' : '') + 'combine_data(c_Time_Places, inTime[Time] + Direct_OD_M/Duration_seconds[Time], Direct_OD_M/To_Place_rel))'; 
@@ -301,23 +299,23 @@ Template PerDepartureMoment_T
 		attribute<s>                           N_time                           := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/N_time, ' : '') + 'const(0w, Direct_OD_M, s))';
 		
 		attribute<ct>                          Price                            := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/Price, ' : '') + 'Direct_OD_M/Price)';
-		// De directe rit staat, net als zijn reistijd (V_time) en afstand (TravelDist_V), in de kolom van het PreTransport.
+		// The direct trip, like its travel time (V_time) and distance (TravelDist_V), is in the pre-transport column.
 		attribute<ct>                          Price_V                          := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/Price_V, ' : '') + 'Direct_OD_M/Price)';
 		attribute<ct>                          Price_N                          := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/Price_N, ' : '') + 'const(0w, Direct_OD_M, ct))';
 		attribute<ct>                          Price_augm                       := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/Price_augm, ' : '') + 'Direct_OD_M/Price_Augm)';
 		attribute<s>                           Traveltime                       := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/Traveltime, ' : '') + 'Direct_OD_M/duration_seconds)';
 		attribute<string>                      ModeUsed                         := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/ModeUsed, ' : '') + 'Direct_OD_M/ModeUsed)';
-		// Criteria van de eindafweging als MinimiseCriteria 'Car' en 'Bike' noemt (Classifications/OwnershipParetoAttr, #117).
-		// Een OV-keten vraagt geen auto (er is geen P+R-PreTransport), en alleen een fiets als een voor- of natransporttype dat doet.
+		// Criteria of the final front when MinimiseCriteria names 'Car' and 'Bike' (Classifications/OwnershipParetoAttr, #117). A public transport
+		// chain needs no car (there is no park-and-ride pre-transport), and a bike only if a pre-transport or post-transport type does.
 		attribute<bool>                        NeedsCar                         := ='union_data(., ' + (WithPT ? 'const(FALSE, Add_N_to_VPT/Result), ' : '') + 'Direct_OD_M/NeedsCar)';
 		attribute<bool>                        NeedsBike                        := ='union_data(., '
 			+ (WithPT ? (VN_ModeClasses/AnyNeedsBike ? 'Add_N_to_VPT/Result/NeedsBike, ' : 'const(FALSE, Add_N_to_VPT/Result), ') : '')
 			+ 'Direct_OD_M/NeedsBike)';
 
 		attribute<bool>                        IsDirectTravel                   := ='union_data(., ' + (WithPT ? 'const(FALSE, Add_N_to_VPT/Result), ' : '') + 'const(TRUE, Direct_OD_M))';
-		attribute<uint64>                      Bron_rel                         := ='union_data(., ' + (WithPT ? 'id(Add_N_to_VPT/Result), ' : '') + 'id(Direct_OD_M))', Descr = "De rij van Add_N_to_VPT/Result of, bij een directe rit (IsDirectTravel), van Direct_OD_M (alleen gevraagd in de HB-paarmodus, OD_Uitvoer).";
-		// Modaliteit van het voor- en PostTransport, voor de uitsplitsing naar lopen, fiets en auto in de uitvoer. Een directe rit
-		// staat in het PreTransport (zie Price_V); zijn PostTransport heeft geen modaliteit.
+		attribute<uint64>                      Bron_rel                         := ='union_data(., ' + (WithPT ? 'id(Add_N_to_VPT/Result), ' : '') + 'id(Direct_OD_M))', Descr = "The row of Add_N_to_VPT/Result or, for a direct trip (IsDirectTravel), of Direct_OD_M (only requested in the OD pair mode, OD_Uitvoer).";
+		// Mode of the pre-transport and post-transport, for the split into walking, cycling and car in the output. A direct trip is in the
+		// pre-transport (see Price_V); its post-transport has no mode.
 		attribute<Modes>                       V_mode_rel                       := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/V_mode_rel, ' : '') + 'Direct_OD_M/Mode_rel)';
 		attribute<Modes>                       N_mode_rel                       := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/N_mode_rel, ' : '') + 'const(value(null_b, Modes), Direct_OD_M))';
 
@@ -333,11 +331,10 @@ Template PerDepartureMoment_T
  		unit<uint64>          OD_key_set                       := combine_unit_uint64(Union_with_DirectOD/uq_c_FromTime_Place, Places), Descr = "Step-wise condensation of result set: second condense the results based on time-place to place.";
 		attribute<OD_key_set> OD_key                           := combine_data(OD_key_set, uq_c_FromTime_Place_rel, To_Place_rel);
 		unit<uint64>          uq_OD_key                        := unique(OD_key);
-		attribute<uq_OD_key>  uq_OD_key_rel                    := rlookup(OD_key, uq_OD_key/values); //attribuut om partitionering van price/traveltime etc te doen.
+		attribute<uq_OD_key>  uq_OD_key_rel                    := rlookup(OD_key, uq_OD_key/values); // the group of each row for the Pareto selection below
 		
 		// pareto_optimal_eps keeps per group the rows that no other row dominates, with a relative epsilon per criterion (Classifications/../EpsilonExpr; 0 = exact).
-		// NeedsCar en NeedsBike (#117) zijn bool-criteria zonder epsilon (GeoDMS #1287, vanaf e04ad20f0; een oudere engine geeft
-		// 'Cannot find operator').
+		// NeedsCar and NeedsBike (#117) are bool criteria without epsilon (ObjectVision/GeoDMS#1287); an older engine gives 'Cannot find operator'.
 		attribute<bool>       pareto_condition                 := ='pareto_optimal_eps(uq_OD_key_rel, ' + asList(ParetoAttr/ParetoArgs, ', ') + ')';
 	}
 	
@@ -370,17 +367,16 @@ Template PerDepartureMoment_T
 		attribute<bool>                                     IsDirectTravel              := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/IsDirectTravel);
 		attribute<Modes>                                    V_mode_rel                  := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/V_mode_rel);
 		attribute<Modes>                                    N_mode_rel                  := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/N_mode_rel);
-		attribute<Union_with_DirectOD>                      Union_rel                   := collect_by_cond(., Union_with_DirectOD/pareto_condition, id(Union_with_DirectOD)), Descr = "Alleen gevraagd in de HB-paarmodus (OD_Uitvoer).";
+		attribute<Union_with_DirectOD>                      Union_rel                   := collect_by_cond(., Union_with_DirectOD/pareto_condition, id(Union_with_DirectOD)), Descr = "The row of Union_with_DirectOD (only requested in the OD pair mode, OD_Uitvoer).";
 	
 		///// ==== Step-wise condensation of result set ==== ////
  		unit<uint64>          OD_key_set                       := combine_unit_uint64(Places, Places), Descr = "Step-wise condensation of result set: third condense the results based on place to place.";
 		attribute<OD_key_set> OD_key                           := combine_data(OD_key_set, From_Place_rel, To_Place_rel);
 		unit<uint64>          uq_OD_key                        := unique(OD_key);
-		attribute<uq_OD_key>  uq_OD_key_rel                    := rlookup(OD_key, uq_OD_key/values); //attribuut om partitionering van price/traveltime etc te doen.
+		attribute<uq_OD_key>  uq_OD_key_rel                    := rlookup(OD_key, uq_OD_key/values); // the group of each row for the Pareto selection below
 		
 		// pareto_optimal_eps keeps per group the rows that no other row dominates, with a relative epsilon per criterion (Classifications/../EpsilonExpr; 0 = exact).
-		// NeedsCar en NeedsBike (#117) zijn bool-criteria zonder epsilon (GeoDMS #1287, vanaf e04ad20f0; een oudere engine geeft
-		// 'Cannot find operator').
+		// NeedsCar and NeedsBike (#117) are bool criteria without epsilon (ObjectVision/GeoDMS#1287); an older engine gives 'Cannot find operator'.
 		attribute<bool>       pareto_condition                 := ='pareto_optimal_eps(uq_OD_key_rel, ' + asList(ParetoAttr/ParetoArgs, ', ') + ')';
 	}
 	
@@ -390,7 +386,7 @@ Template PerDepartureMoment_T
 		attribute<ct>                                       Price                       := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Price);
 		attribute<ct>                                       Price_V                     := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Price_V);
 		attribute<ct>                                       Price_N                     := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Price_N);
-		attribute<ct>                                       Price_PT                    := Price - Price_V - Price_N, Descr = "Het OV-deel van Price: de ketenprijs zonder voor- en PostTransport; 0 bij een directe rit.";
+		attribute<ct>                                       Price_PT                    := Price - Price_V - Price_N, Descr = "The public transport part of Price: the chain price without pre-transport and post-transport, and 0 for a direct trip.";
 		attribute<ct>                                       Price_augm                  := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Price_augm);
 		attribute<s>                                        Traveltime                  := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Traveltime);
 		attribute<string>                                   ModeUsed                    := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/ModeUsed);
@@ -419,22 +415,20 @@ Template PerDepartureMoment_T
 		attribute<bool>                                     IsDirectTravel              := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/IsDirectTravel);
 		attribute<Modes>                                    V_mode_rel                  := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/V_mode_rel);
 		attribute<Modes>                                    N_mode_rel                  := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/N_mode_rel);
-		attribute<Result_AfterFirstCondensation>            First_rel                   := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, id(Result_AfterFirstCondensation)), Descr = "Alleen gevraagd in de HB-paarmodus (OD_Uitvoer).";
+		attribute<Result_AfterFirstCondensation>            First_rel                   := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, id(Result_AfterFirstCondensation)), Descr = "The row of Result_AfterFirstCondensation (only requested in the OD pair mode, OD_Uitvoer).";
 
-		// Sinds 2026-10-03 (bespreking PBL 21-09-2026, punt 2) afstand, reistijd en prijs ook per modaliteit. Het OV is de OV-keten
-		// (TravelDist_PT, PT_time, Price_PT), met het lopen en wachten bij overstappen; lopen, fiets en auto zijn het voor- en
-		// PostTransport en de directe rit met die modaliteit. De wachttijd thuis (W_time) valt onder geen van de vier. De auto had van
-		// 2026-10-03 tot 2026-10-05 geen afstand, toen het autofront de kosten droeg in plaats van de afstand (0eb61ea); sinds het
-		// front op reistijd en afstand staat (#88) is TravelDist_Car er weer.
+		// Distance, travel time and price also per mode. Public transport is the public transport chain (TravelDist_PT, PT_time, Price_PT),
+		// including walking and waiting at transfers; walking, cycling and car are the pre-transport and post-transport and the direct trip with
+		// that mode. Waiting at home (W_time) falls under none of the four.
 		attribute<dam>                                      TravelDist_PT               := TravelDist_Bus + Traveldist_Metro + Traveldist_Tram + Traveldist_Rail + Traveldist_Ferry;
 		attribute<bool>                                     V_IsWalking                 := V_mode_rel == Modes/v/Walking;
 		attribute<bool>                                     V_IsCycling                 := V_mode_rel == Modes/v/Cycling;
 		attribute<bool>                                     V_IsCar                     := V_mode_rel == Modes/v/Car;
-		attribute<bool>                                     N_IsWalking                 := N_mode_rel == Modes/v/Walking, Descr = "FALSE bij een directe rit: N_mode_rel is daar leeg.";
+		attribute<bool>                                     N_IsWalking                 := N_mode_rel == Modes/v/Walking, Descr = "FALSE for a direct trip, because N_mode_rel is empty there.";
 		attribute<bool>                                     N_IsCycling                 := N_mode_rel == Modes/v/Cycling;
 		attribute<dam>                                      TravelDist_Walking          := (V_IsWalking ? TravelDist_V : 0[dam]) + (N_IsWalking ? Traveldist_N : 0[dam]);
 		attribute<dam>                                      TravelDist_Cycling          := (V_IsCycling ? TravelDist_V : 0[dam]) + (N_IsCycling ? Traveldist_N : 0[dam]);
-		attribute<dam>                                      TravelDist_Car              := V_IsCar ? TravelDist_V : 0[dam], Descr = "De afstand van de directe autorit (PublicTransport_Prep/Direct/Car, sinds 2026-10-05 de afstand van de route in het front op reistijd en afstand, #88), 0 bij elke andere optie.";
+		attribute<dam>                                      TravelDist_Car              := V_IsCar ? TravelDist_V : 0[dam], Descr = "The distance of the direct car trip (PublicTransport_Prep/Direct/Car), that is of the route in the front on travel time and distance (#88), and 0 for every other option.";
 		attribute<s>                                        Walking_time                := (V_IsWalking ? V_time : 0[s]) + (N_IsWalking ? N_time : 0[s]);
 		attribute<s>                                        Cycling_time                := (V_IsCycling ? V_time : 0[s]) + (N_IsCycling ? N_time : 0[s]);
 		attribute<s>                                        Car_time                    := V_IsCar ? V_time : 0[s];
@@ -444,24 +438,22 @@ Template PerDepartureMoment_T
 
 		attribute<bool>                                     HasFerryInTrip              := strcount(ModeUsed, 'F') > 0;
 	
-		attribute<bool>                                     IsPTWithoutPrice            := NOT(IsDirectTravel) && price == 0[ct] && NOT(HasFerryInTrip); //zou allemaal false moeten zijn.In Amsterdam komen dit voor vanwege gratis ferry.
+		attribute<bool>                                     IsPTWithoutPrice            := NOT(IsDirectTravel) && price == 0[ct] && NOT(HasFerryInTrip); // should be FALSE everywhere; trips with a ferry are excluded because some ferries are free, as in Amsterdam
 	}
 	
-	container CreateExports
+	container CreateExports : Descr = "The output of this block and departure moment: the final set as csv (LongFormat/File) or parquet (LongFormat/Parquet_<ExportClass>), the counts and, in the OD pair mode, OD_Uitvoer."
 	{
 		unit<uint64>       domain                                        := Result_AfterSecondCondensation, IntegrityCheck = "NOT(Result_AfterSecondCondensation/IsPTWithoutPrice)";
 		attribute<string>  OrgName                              (domain) := domain/OrgName;
 		attribute<string>  DestName                             (domain) := domain/DestName;
 		attribute<string>  OrgDestName                          (domain) := OrgName + '_' + DestName;
-		// Een onbekende waarde wordt een leeg veld: de directe autorit had tot 2026-10-05 geen afstand (TravelDist_V null), en een null
-		// in de samengestelde regel maakte de hele regel null, zodat alle autoritten uit de csv verdwenen (2026-09-24).
-		// Sinds 2026-10-03 heet elk item hieronder naar zijn kolom (zonder het vertrekmoment), en bepaalt Columns welke kolommen in
-		// welke volgorde in het bestand komen; tot dan waren er vier met de hand bijgehouden varianten van kop en regel (audit 3.6).
+		// An unknown value becomes an empty field, because a null in the composed line would make the whole line null. Every item below is named
+		// after its column (without the departure moment), and Columns sets which columns go into the file and in which order.
 		attribute<string>  Traveltime                           (domain) := MakeDefined(string(convert(domain/Traveltime, min_f)), '');
 		attribute<string>  Price                                (domain) := MakeDefined(string(convert(domain/Price, euro)), '');
 		attribute<string>  Price_Augm                           (domain) := MakeDefined(string(convert(domain/Price_augm, euro)), '');
 		attribute<string>  ModeUsed                             (domain) := domain/ModeUsed;
-		// Sinds 2026-10-02 (#117) een eigen kolom per bezitscriterium, 0 of 1, ook als MinimiseCriteria ze niet noemt.
+		// A column of its own per ownership criterion, 0 or 1, also when MinimiseCriteria does not name it (#117).
 		attribute<string>  NeedsCar                             (domain) := string(uint8(domain/NeedsCar));
 		attribute<string>  NeedsBike                            (domain) := string(uint8(domain/NeedsBike));
 		attribute<string>  TravelDist_V                         (domain) := MakeDefined(string(convert(domain/TravelDist_V, m)), '');
@@ -475,14 +467,14 @@ Template PerDepartureMoment_T
 		attribute<string>  PretransTime                         (domain) := MakeDefined(string(convert(domain/V_time, min_f)), '');
 		attribute<string>  PTTime                               (domain) := MakeDefined(string(convert(domain/PT_time, min_f)), '');
 		attribute<string>  PosttransTime                        (domain) := MakeDefined(string(convert(domain/N_time, min_f)), '');
-		// Sinds 2026-10-02 (bespreking PBL 21-09-2026, punt 2) Price uitgesplitst zoals de reistijd: PreTransport, OV en PostTransport,
-		// samen precies Price. Een directe rit staat in het PreTransport, zoals bij V_time en TravelDist_V.
+		// Price split like the travel time into pre-transport, public transport and post-transport, which together add up exactly to Price. A direct
+		// trip is in the pre-transport, as with V_time and TravelDist_V.
 		attribute<string>  PretransPrice                        (domain) := MakeDefined(string(convert(domain/Price_V, euro)), '');
 		attribute<string>  PTPrice                              (domain) := MakeDefined(string(convert(domain/Price_PT, euro)), '');
 		attribute<string>  PosttransPrice                       (domain) := MakeDefined(string(convert(domain/Price_N, euro)), '');
-		// Sinds 2026-10-03 de OV-afstand in een kolom, en afstand, reistijd en prijs per modaliteit (zie Result_AfterSecondCondensation).
-		// Het OV per modaliteit is het OV-deel hierboven: TravelDist_PT, PTTime en PTPrice. TravelDist_Car (sinds 2026-10-05 weer,
-		// #88) staat als laatste kolom, zodat de kolommen van 2026-10-03 hun plaats houden.
+		// The public transport distance in one column, and distance, travel time and price per mode (see Result_AfterSecondCondensation). Public
+		// transport per mode is the public transport part above: TravelDist_PT, PTTime and PTPrice. TravelDist_Car (#88) is the last column, so
+		// that the columns before it keep their position.
 		attribute<string>  TravelDist_PT                        (domain) := MakeDefined(string(convert(domain/TravelDist_PT, m)), '');
 		attribute<string>  TravelDist_Walking                   (domain) := MakeDefined(string(convert(domain/TravelDist_Walking, m)), '');
 		attribute<string>  TravelDist_Cycling                   (domain) := MakeDefined(string(convert(domain/TravelDist_Cycling, m)), '');
@@ -495,7 +487,7 @@ Template PerDepartureMoment_T
 		attribute<string>  CarPrice                             (domain) := MakeDefined(string(convert(domain/Price_Car, euro)), '');
 
 		unit<uint8> Columns : nrofrows = 30
-		, Descr = "De kolommen van de OV-uitvoer na OrgName en DestName, in deze volgorde en elk met het vertrekmoment achter de naam; name is ook het item hierboven. kind 'dist' komt alleen in het bestand met Export_TravelledDistance, 'price' alleen met Export_PriceInformation. Nieuwe kolommen achteraan, zodat een lezer op positie de bestaande houdt."
+		, Descr = "The columns of the csv output after OrgName and DestName, in this order, each named after the item above with the departure moment appended; kind 'dist' is written only with Export_TravelledDistance and 'price' only with Export_PriceInformation, and new columns go at the end so that a reader that reads by position keeps the existing ones."
 		{
 			attribute<string> name : [
 				'Traveltime', 'Price', 'Price_Augm', 'ModeUsed', 'NeedsCar', 'NeedsBike',
@@ -518,25 +510,24 @@ Template PerDepartureMoment_T
 			attribute<string>  BodyLines (domain) := ='domain/OrgName + '';'' + domain/DestName + '';'' + ' + asList(ExportColumns/name, ' + '';'' + ');
 			parameter<string>  File              := 'OrgName;DestName;' + asList(ExportColumns/name + '_' + inTime_str_short, ';') + '\n' + asList(BodyLines, '\n')
 			,	StorageName = "=fileNamePrefix+'tt'+fileNameSuffix +'.csv'", StorageType = "str"
-			,	ExplicitSuppliers = "/NetworkSetup/GenerateOutput/Output_Sig/ForWriting"; // schrijft de handtekening van de uitvoermap, of faalt bij een andere of een te lang pad (#118)
+			,	ExplicitSuppliers = "/NetworkSetup/GenerateOutput/Output_Sig/ForWriting"; // writes the signature of the output folder, or fails on a different signature or a path that is too long (#118)
 
-			// Sinds 2026-10-16 de uitvoer ook als parquet (ModelParameters/OutputFormat 'parquet', sinds 2026-10-19 de standaard), met
-			// zstd, getypt (tijden in min en prijzen in euro als float32, afstanden in m als uint32), een onbekende waarde null, zonder het
-			// vertrekmoment in de kolomnamen (dat staat in de bestandsnaam). Export_TravelledDistance en Export_PriceInformation gelden
-			// alleen voor de csv.
-			// GDAL_LayerCreationOptions staat naast de containers met de storage: erin zag de schrijver hem als kolom van een laag zonder
-			// domein (Domain mismatch ... layerDomain void, 2026-10-16); hij zoekt hem ook in de containers erboven.
+			// The output can also be written as parquet (ModelParameters/OutputFormat 'parquet'), with zstd compression, typed (times in min and prices
+			// in euro as float32, distances in m as uint32), an unknown value as null, and without the departure moment in the column names (it is in
+			// the file name). Export_TravelledDistance and Export_PriceInformation apply only to the csv.
+			// GDAL_LayerCreationOptions stands next to the containers with the storage: inside them the writer takes it for a column of a layer without
+			// domain; it also looks for it in the containers above.
 			parameter<string> GDAL_LayerCreationOptions := 'COMPRESSION=ZSTD';
-			// Sinds 2026-10-19 per soort component alleen de kolommen die binnen de component varieren en niet lineair uit andere volgen
-			// (zoals de afstand van een loop- of fietsrit uit de reistijd, of de autoprijs uit de afstand); ModelParameters/Advanced/
-			// ExportClass kiest de schrijver, en alleen die wordt opgevraagd (Generate). De andere kolommen zijn constant in de component
-			// (ModeUsed van een directe rit, NeedsCar, NeedsBike, WaitingTime 0) of een lineaire combinatie: TravelDist_V en _N uit de
-			// tijden van voor- en PostTransport, TravelDist_PT als som van de OV-afstanden, PTTime = Traveltime - PretransTime -
-			// PosttransTime, de prijsdelen uit Price en die tijden (het voor- en PostTransport kost per minuut, de OV-fiets een vast bedrag),
-			// en de kolommen per modaliteit uit die van voor- en PostTransport.
+			// Per kind of component only the columns that vary within the component and do not follow linearly from other columns (such as the distance
+			// of a walking or cycling trip from its travel time, or the car price from the distance); ModelParameters/Impl/ExportClass picks the writer,
+			// and only that one is requested (Generate). The other columns are constant within the component (ModeUsed of a direct trip, NeedsCar,
+			// NeedsBike, WaitingTime 0) or a linear combination: TravelDist_V and _N from the pre-transport and post-transport times, TravelDist_PT as
+			// the sum of the public transport distances, PTTime = Traveltime - PretransTime - PosttransTime, the price parts from Price and those times
+			// (pre-transport and post-transport cost per minute, the OV-fiets a fixed amount), and the columns per mode from those of pre-transport and
+			// post-transport.
 			container Parquet_Direct
 			:	StorageName = "=fileNamePrefix+'tt'+fileNameSuffix+'.parquet'", StorageType = "gdalwrite.vect"
-			,	Descr = "WW en CC: alleen de reistijd (een route per HB-paar; afstand en prijs volgen uit de reistijd)."
+			,	Descr = "The parquet writer for WW and CC, with only the travel time, because there is one route per OD pair and distance and price follow from the travel time."
 			{
 				unit<uint64> tt := domain, ExplicitSuppliers = "/NetworkSetup/GenerateOutput/Output_Sig/ForWriting"
 				{
@@ -547,7 +538,7 @@ Template PerDepartureMoment_T
 			}
 			container Parquet_Car
 			:	StorageName = "=fileNamePrefix+'tt'+fileNameSuffix+'.parquet'", StorageType = "gdalwrite.vect"
-			,	Descr = "Car: reistijd en afstand van elke route in het front (de prijs is Car_FixedCosts_PerTrip plus de afstand maal Car_CostPerKm)."
+			,	Descr = "The parquet writer for Car, with the travel time and distance of every route in the front; the price is Car_FixedCosts_PerTrip plus the distance times Car_CostPerKm."
 			{
 				unit<uint64> tt := domain, ExplicitSuppliers = "/NetworkSetup/GenerateOutput/Output_Sig/ForWriting"
 				{
@@ -559,7 +550,7 @@ Template PerDepartureMoment_T
 			}
 			container Parquet_PT
 			:	StorageName = "=fileNamePrefix+'tt'+fileNameSuffix+'.parquet'", StorageType = "gdalwrite.vect"
-			,	Descr = "Een OV-component: reistijd, prijs, de gewaardeerde prijs, de vervoerwijzen, het wachten thuis, de tijd van voor- en PostTransport en de afstand per OV-vervoerwijze."
+			,	Descr = "The parquet writer for a public transport component, with travel time, Price, Price_Augm, the modes used, waiting at home, the pre-transport and post-transport times and the distance per public transport mode."
 			{
 				unit<uint64> tt := domain, ExplicitSuppliers = "/NetworkSetup/GenerateOutput/Output_Sig/ForWriting"
 				{
@@ -584,11 +575,11 @@ Template PerDepartureMoment_T
 			container Results_Traveltime
 			{
 				parameter<string>  Generate := 'Ready', ExplicitSuppliers = "=(ModelParameters/OutputFormat == 'parquet' ? 'Parquet_' + ModelParameters/Impl/ExportClass + '/tt' : 'File') + (ModelParameters/Impl/IsOD ? ';OD_Uitvoer/Write' : '')"
-				,	Descr = "Schrijft File, de csv van dit blok en vertrekmoment, of bij OutputFormat 'parquet' (sinds 2026-10-16) de parquet-schrijver van de soort component (Parquet_<ExportClass>, sinds 2026-10-19), en geeft alleen 'Ready' terug. Tot 2026-10-07 ='File': dan ging de hele tekst door de opvraging, en plakte de opvraging over alle blokken alle teksten aan elkaar (Auto, Buurt2023 naar Buurt2023: 284 GB), die tot het eind per blok in het geheugen bleven.";
+				,	Descr = "Writes the output of this block and departure moment (the csv File, or with OutputFormat 'parquet' the writer Parquet_<ExportClass>; in the OD pair mode also OD_Uitvoer/Write) and returns only 'Ready', so that the file contents do not pile up in the request over all blocks.";
 
-				// Tellingen voor <OutputDir>/od_tellingen.csv en unieke_od_tellingen.csv (sinds 2026-10-04). Ze staan binnen het hek,
-				// uit het eindresultaat dat voor File toch al gerekend is. De telling per blok (PublicTransport/Generate_Output/
-				// Traveltime_ForEachDepTime/Tellingen) gebruikt alleen deze kleine resultaten, zodat het eindresultaat na de fase vrij kan.
+				// Counts for <OutputDir>/od_tellingen.csv and unieke_od_tellingen.csv. They are inside the fence, from the final result that is calculated
+				// for File anyway. The count per block (PublicTransport/Generate_Output/Traveltime_ForEachDepTime/Tellingen) uses only these small results,
+				// so that the final result can be freed after the phase.
 				container Tellingen
 				{
 					unit<uint64>      R                   := Result_AfterSecondCondensation;
@@ -599,7 +590,7 @@ Template PerDepartureMoment_T
 					attribute<bool>   IsZonderAuto    (R) := NOT(R/NeedsCar);
 					attribute<bool>   IsZonderAutoEnFiets (R) := NOT(R/NeedsCar) && NOT(R/NeedsBike);
 
-					// Rijen per soort, in de volgorde van Classifications/OD_Tellingen_Soort: alle, en de vier soorten.
+					// Rows per kind, in the order of Classifications/OD_Tellingen_Soort: all, and the four kinds.
 					attribute<uint64> Rijen (Classifications/OD_Tellingen_Soort) := union_data(Classifications/OD_Tellingen_Soort
 						, #R
 						, sum_uint64(IsKeten)
@@ -607,7 +598,7 @@ Template PerDepartureMoment_T
 						, sum_uint64(IsCC)
 						, sum_uint64(IsAA));
 
-					// Unieke HB-paren, met per groep (Classifications/OD_Tellingen_Groep) of het paar een optie van die groep heeft.
+					// Unique OD pairs, with per group (Classifications/OD_Tellingen_Groep) whether the pair has an option of that group.
 					attribute<OD_code> OD_key         (R) := combine_data(OD_code, R/From_Place_rel, R/To_Place_rel);
 					unit<uint64> Paren := unique(OD_key)
 					{
@@ -618,18 +609,18 @@ Template PerDepartureMoment_T
 						attribute<bool> zonder_auto          := any(../IsZonderAuto, ../Paren_rel);
 						attribute<bool> zonder_auto_en_fiets := any(../IsZonderAutoEnFiets, ../Paren_rel);
 
-						// De goedkoopste optie van het paar, voor de mediaan per blok (ModelParameters/Advanced/MakeMedian;
-						// PublicTransport/Generate_Output/Traveltime_ForEachDepTime/Tellingen/UniekeParen): de laagste prijs, bij gelijke
-						// prijs de laagste reistijd. Van 2026-10-08 tot 2026-10-19 de snelste optie (overleg PBL 19-10-2026).
+						// The cheapest option of the pair, for the median per block (ModelParameters/Advanced/MakeMedian;
+						// PublicTransport/Generate_Output/Traveltime_ForEachDepTime/Tellingen/UniekeParen): the lowest price, and with equal price the shortest
+						// travel time.
 						attribute<ct>      Price_ct         := min(../R/Price, ../Paren_rel);
 						attribute<R>       Goedkoopste_rel  := min_index(../TijdBijGoedkoopste, ../Paren_rel);
 						attribute<min_f>   Traveltime       := convert(../R/Traveltime[Goedkoopste_rel], min_f);
 						attribute<Euro>    Price            := convert(Price_ct, Euro);
-						attribute<m>       TravelDist       := convert(../R/TravelDist_V[Goedkoopste_rel] + ../R/TravelDist_PT[Goedkoopste_rel] + ../R/Traveldist_N[Goedkoopste_rel], m), Descr = "Voor-, OV- en PostTransport; bij een directe rit alleen TravelDist_V.";
+						attribute<m>       TravelDist       := convert(../R/TravelDist_V[Goedkoopste_rel] + ../R/TravelDist_PT[Goedkoopste_rel] + ../R/Traveldist_N[Goedkoopste_rel], m), Descr = "The distance of the cheapest option: pre-transport, public transport and post-transport, or for a direct trip only TravelDist_V.";
 					}
 					attribute<Paren>  Paren_rel          (R) := rlookup(OD_key, Paren/values);
-					attribute<min_f>  TijdBijGoedkoopste (R) := R/Price == Paren/Price_ct[Paren_rel] ? convert(R/Traveltime, min_f) : null_f[min_f], Descr = "De reistijd van een rij met de laagste prijs van zijn paar, anders leeg: min_index kiest zo de snelste van de goedkoopste.";
-					// Een telling per groep, in de volgorde van Classifications/OD_Tellingen_Groep.
+					attribute<min_f>  TijdBijGoedkoopste (R) := R/Price == Paren/Price_ct[Paren_rel] ? convert(R/Traveltime, min_f) : null_f[min_f], Descr = "The travel time of a row with the lowest price of its pair, otherwise empty, so that min_index picks the fastest of the cheapest options.";
+					// A count per group, in the order of Classifications/OD_Tellingen_Groep.
 					attribute<uint64> Paren_Telling (Classifications/OD_Tellingen_Groep) := union_data(Classifications/OD_Tellingen_Groep
 						, #Paren
 						, sum_uint64(Paren/OV_keten)
@@ -644,21 +635,20 @@ Template PerDepartureMoment_T
 			container Results_Traveltime_Fence := PhaseContainer(Results_Traveltime, 'Results in '+NetworkSetup/Impl/OrgBlockDomain/name[BlockDomain_id]+' are finished calculating'); //
 		}
 		
-		// De opties van het HB-paar met hun onderdelen en links (sinds 2026-10-21, #129; alleen in de HB-paarmodus), in dezelfde opvraging als de uitvoer.
+		// The options of the OD pair with their parts and links (#129; only in the OD pair mode), in the same request as the output.
 		#include<OD_Uitvoer.dms>
 
 		parameter<string> inTime_str_short := rjoin(inTime_string, ModelParameters/Impl/MeasureMoments/Name , ModelParameters/Impl/MeasureMoments/TemplatableTextShrt);
 		
 		parameter<string> fileNamePrefix := ModelParameters/Impl/fileNamePrefix;
-		// Sinds 2026-10-20 alleen vertrekmoment en blok: tt_<moment>_<n>of<N>.csv of .parquet in <OutputDir>/PerBlock; de datum staat al
-		// in de naam van de uitvoermap (wens PBL 20-10, MAX_PATH). Van 2026-10-03 (NetworkModel_PBL#118) tot dan tt_<datum>_<moment>_
-		// <n>of<N>. De herkomstenset, _DEST, modaliteiten, overstappen, criteria, MaxPT en de tags staan in de handtekening van de
-		// uitvoermap (NetworkSetup/GenerateOutput/Output_Signature); tot 2026-10-03 stonden ze hier, tot 261 tekens in het langste pad.
+		// Only departure moment and block: tt_<moment>_<n>of<N>.csv or .parquet in <OutputDir>/PerBlock; the date is already in the name of the
+		// output folder, which keeps the path short (MAX_PATH). The set of origins, _DEST, modes, transfers, criteria, MaxPT and the tags are in
+		// the signature of the output folder (NetworkSetup/GenerateOutput/Output_Signature, #118).
 		parameter<string> fileNameSuffix :=
 			'_' + inTime_str_short +
 			'_' + NetworkSetup/Impl/OrgBlockDomain/FileName[BlockDomain_id];
 		
-		parameter<string> Direct_str := ModelParameters/Impl/Direct_str; // WW, CC en/of AA; sinds 2026-09-23 uit DirectModes
+		parameter<string> Direct_str := ModelParameters/Impl/Direct_str; // WW, CC and/or AA, from DirectModes
 		parameter<string> V_typen := (Direct_str != '' ? Direct_str + ',' : '') + asList(ModelParameters/Impl/OV_PreTransport_Typen/ExportName, ',');
 		parameter<string> N_typen := asList(ModelParameters/Impl/OV_PostTransport_Typen/ExportName, ',');
 	}

@@ -1,51 +1,47 @@
-// Het OV-net in een tijdvenster, voor GIS (ObjectVision/NetworkModel_PBL#57, sinds 2026-10-21). Alle ritten van Dag die het
-// venster Begin-Eind overlappen, met hun lijn en kenmerken, ontdubbeld op twee manieren: per lijnvoering (lijn + shape) en per
-// segment tussen twee knopen van haltes (per modaliteit), met de kenmerken van de ritten geaggregeerd. De tabellen in Kaart zijn
-// voor de GUI (kleur naar Mode_rel, FlexKlasse_rel of een getal); Generate schrijft ze als gpkg, parquet of csv.
+// The public transport network in a time window, for GIS (ObjectVision/NetworkModel_PBL#57). All trips of Dag that overlap the
+// window Begin to Eind, with their route and attributes, deduplicated in two ways: per route variant (route and shape) and per
+// segment between two nodes of stops (per mode), with the attributes of the trips aggregated. The tables in Kaart are for the GUI
+// (colour by Mode_rel, FlexKlasse_rel or a number); Generate writes them as gpkg, parquet or csv.
 container PT_NetworkExport
 :	using = "units;Classifications;SourceData/Infrastructure/GTFS/LoadFeeds"
-,	Descr = "Het OV-net in een tijdvenster (#57): de ritten van Dag die het venster Begin-Eind overlappen (Kaart/Ritten), per lijnvoering (Kaart/Lijnvoeringen), per segment tussen knopen van haltes (Kaart/Segmenten) en de knopen zelf (Kaart/Knopen). Bekijk de tabellen in de GUI, of schrijf ze met Generate naar %LocalDataProjDir%/Output/ptwindow_<feed>_<dag>_<venster>_<laag>.<ExportFormaat>, met het rapport ernaast."
+,	Descr = "The public transport network in a time window (#57): the trips of Dag that overlap the window Begin to Eind (Kaart/Ritten), per route variant (Kaart/Lijnvoeringen), per segment between nodes of stops (Kaart/Segmenten) and the nodes themselves (Kaart/Knopen), to view in the GUI or to write with Generate to %LocalDataProjDir%/Output/ptwindow_<feed>_<day>_<window>_<layer>.<ExportFormaat>, with the report beside them."
 {
-	// INSTELLINGEN
+	// SETTINGS
 	parameter<string> Dag                  := ModelParameters/Impl/Analysis_date
-	,	Descr = "De dag (jjjjmmdd) waarvan de ritten worden gezocht: elke dag die de geladen feed dekt. De feed is die van de peildatum van het model (ModelParameters/AnalysisMoment, ModelParameters/Impl/GTFS_file_date); het rapport noemt de eerste en laatste datum ervan. Standaard de peildatum zelf."
-	,	IntegrityCheck = "strlen(this) == 8";
+	,	Descr = "The day (yyyymmdd) whose trips are searched, any day the loaded feed covers; the feed is the one of the analysis moment of the model (ModelParameters/AnalysisMoment, ModelParameters/Impl/GTFS_file_date), the report names its first and last date, and the default is the analysis date itself.",	IntegrityCheck = "strlen(this) == 8";
 	parameter<string> Begin                := '07:00'
-	,	Descr = "Begin van het venster, HH:MM op de tijdas van Dag (seconden sinds 00:00; na 24:00 de nacht erna, tot 47:59)."
-	,	IntegrityCheck = "strlen(this) == 5 && substr(this, 2, 1) == ':'";
+	,	Descr = "Start of the window, HH:MM on the time axis of Dag (seconds since 00:00; after 24:00 the following night, up to 47:59).",	IntegrityCheck = "strlen(this) == 5 && substr(this, 2, 1) == ':'";
 	parameter<string> Eind                 := '09:00'
-	,	Descr = "Einde van het venster, HH:MM, na Begin."
-	,	IntegrityCheck = "strlen(this) == 5 && substr(this, 2, 1) == ':'";
+	,	Descr = "End of the window, HH:MM, after Begin.",	IntegrityCheck = "strlen(this) == 5 && substr(this, 2, 1) == ':'";
 	parameter<m>      HalteClusterAfstand  := ModelParameters/Advanced/DistanceStopClusters
-	,	Descr = "Haltes binnen deze afstand van elkaar, en zo verder (single linkage), vormen een knoop: de perrons van een station, de haltes aan weerszijden van een straat. Bij 0 m alleen haltes op dezelfde plek.";
+	,	Descr = "Stops within this distance of each other, and so on (single linkage), form a node, such as the platforms of a station or the stops on both sides of a street; at 0 m only stops at the same location.";
 	parameter<m>      MaxAfstandHalteShape := 100[m]
-	,	Descr = "Een halte verder dan dit van de shape van zijn rit wordt niet op de shape geprojecteerd; het segment wordt dan een rechte lijn.";
+	,	Descr = "A stop farther than this from the shape of its trip is not projected onto the shape, and the segment becomes a straight line.";
 	parameter<bool>   SegmentenOngericht   := true
-	,	Descr = "Heen en terug tussen dezelfde knopen zijn een segment (met nr_heen en nr_terug, heen van de knoop met het laagste nummer af), of een segment per richting.";
+	,	Descr = "TRUE makes the trips in both directions between the same nodes one segment (with nr_heen and nr_terug, heen starting at the node with the lowest number); FALSE gives a segment per direction.";
 	parameter<string> ExportFormaat        := 'gpkg'
-	,	Descr = "Het formaat van Generate: gpkg, parquet (zstd) of csv (de geometrie als WKT)."
-	,	IntegrityCheck = "this == 'gpkg' || this == 'parquet' || this == 'csv'";
+	,	Descr = "The format of Generate: gpkg, parquet (zstd) or csv (with the geometry as WKT).",	IntegrityCheck = "this == 'gpkg' || this == 'parquet' || this == 'csv'";
 
-	// AFGELEID
-	parameter<Time>    BeginMoment := value(uint32(substr(Begin, 0, 2)) * 3600 + uint32(substr(Begin, 3, 2)) * 60, Time);
+	// DERIVED
+	parameter<Time>    BeginMoment := value(uint32(substr(Begin, 0, 2)) * 3600 + uint32(substr(Begin, 3, 2)) * 60, Time), Descr = "Begin as a moment on the time axis (seconds since 00:00).";
 	parameter<Time>    EindMoment  := value(uint32(substr(Eind, 0, 2)) * 3600 + uint32(substr(Eind, 3, 2)) * 60, Time)
-	,	IntegrityCheck = "BeginMoment < this && uint32(this) < #Time";
-	parameter<float32> VensterUren := float32(uint32(EindMoment) - uint32(BeginMoment)) / 3600f;
-	parameter<string>  Venster     := Time/TemplatableTextShrt[BeginMoment] + '-' + Time/TemplatableTextShrt[EindMoment];
-	parameter<string>  FileStem    := '%LocalDataProjDir%/Output/ptwindow_' + ModelParameters/Impl/GTFS_file_date + '_' + Dag + '_' + Venster;
+	,	IntegrityCheck = "BeginMoment < this && uint32(this) < #Time", Descr = "Eind as a moment on the time axis (seconds since 00:00).";
+	parameter<float32> VensterUren := float32(uint32(EindMoment) - uint32(BeginMoment)) / 3600f, Descr = "Length of the window in hours, for the counts per hour.";
+	parameter<string>  Venster     := Time/TemplatableTextShrt[BeginMoment] + '-' + Time/TemplatableTextShrt[EindMoment], Descr = "The window as text, for the file names.";
+	parameter<string>  FileStem    := '%LocalDataProjDir%/Output/ptwindow_' + ModelParameters/Impl/GTFS_file_date + '_' + Dag + '_' + Venster, Descr = "Path of the output files without the layer and the extension.";
 
 	unit<uint32> Trips  := SourceData/Infrastructure/GTFS/RelevantSelection/Trips;
 	unit<uint32> Routes := SourceData/Infrastructure/GTFS/RelevantSelection/Routes;
 
-	container Klassen
+	container Klassen : Descr = "The classes by which the tables of the map are coloured: mode and flex class."
 	{
 		unit<uint8> KlasseModaliteit := GTFS_Modes/Selection
-		,	Descr = "De modaliteiten van het model, met de kleuren van GTFS_Modes/List voor de kaart."
+		,	Descr = "The modes of the model, with the colours of GTFS_Modes/List for the map."
 		{
 			attribute<uint32> PenColor := rjoin(GTFS_Modes/Selection/ModeNr, GTFS_Modes/List/ModeNr, GTFS_Modes/List/PenColor), DialogType = "PenColor";
-			attribute<int16>  PenWidth : [3, 3, 3, 2, 3, 1, 1, 1, 1], DialogType = "PenWidth", Descr = "Lijndikte in pixels, in de volgorde van GTFS_Modes/Selection: tram, metro, trein en veerboot dikker dan bus.";
+			attribute<int16>  PenWidth : [3, 3, 3, 2, 3, 1, 1, 1, 1], DialogType = "PenWidth", Descr = "Line width in pixels, in the order of GTFS_Modes/Selection: tram, metro, train and ferry wider than bus.";
 		}
-		unit<uint8> KlasseFlex : nrofrows = 3
+		unit<uint8> KlasseFlex : nrofrows = 3, Descr = "Flex class of a trip, route variant or segment: fixed timetable, partly flex or flex."
 		{
 			attribute<string> name     : ['vast', 'deels_flex', 'flex'];
 			attribute<string> label    : ['vaste dienstregeling', 'deels flex', 'flex'];
@@ -57,7 +53,7 @@ container PT_NetworkExport
 
 	container Impl
 	{
-		// DE DAG: D-1, D en D+1 rond Dag, zoals LoadFeeds/ServiceDays voor Analysis_date, maar met de eigen dag en het eigen venster.
+		// THE DAY: D-1, D and D+1 around Dag, as LoadFeeds/ServiceDays does for Analysis_date, but with the day and the window of this export.
 		unit<uint32> DagEenheid : nrofrows = 1
 		{
 			attribute<uint32> yyyymmdd := const(uint32(Dag), .);
@@ -65,27 +61,27 @@ container PT_NetworkExport
 		container DagNr := /Templates/DayNr_T(DagEenheid, DagEenheid/yyyymmdd);
 
 		unit<uint32> Dagen : nrofrows = 3
-		,	Descr = "D-1, D en D+1 rond Dag, op de tijdas van D: van D-1 de stop_times na middernacht (GTFS-tijd 24:00 en later, min 24 uur), van D alle, van D+1 de ritten die helemaal voor 24:00 GTFS-tijd liggen (plus 24 uur). Van elke dag alleen de ritten die het venster overlappen."
+		,	Descr = "D-1, D and D+1 around Dag, on the time axis of D: of D-1 the stop_times after midnight (GTFS time 24:00 and later, minus 24 hours), of D all, of D+1 the trips that lie entirely before 24:00 GTFS time (plus 24 hours), and of each day only the trips that overlap the window."
 		{
 			attribute<string>        name                 : ['Gisteren', 'Vandaag', 'Morgen'];
 			attribute<string>        label                : ['D-1', 'D', 'D+1'];
 			attribute<uint32>        AddSec               : [0, 0, 86400];
 			attribute<uint32>        SubSec               : [86400, 0, 0];
-			attribute<uint32>        MinVertrekDag        : [1, 0, 0], Descr = "De GTFS-dag (Time/Day) van het vertrek van een stop_time is minstens dit.";
-			attribute<uint32>        MaxAankomstDag       : [1, 1, 0], Descr = "De GTFS-dag van de aankomst van een stop_time is hoogstens dit.";
-			attribute<bool>          TeltZomertijd        : [false, true, true], Descr = "Een zomertijdwissel op deze dag verschuift de tijden; op D-1 niet, want van D-1 doen alleen de tijden na middernacht mee.";
+			attribute<uint32>        MinVertrekDag        : [1, 0, 0], Descr = "The GTFS day (Time/Day) of the departure of a stop_time is at least this.";
+			attribute<uint32>        MaxAankomstDag       : [1, 1, 0], Descr = "The GTFS day of the arrival of a stop_time is at most this.";
+			attribute<bool>          TeltZomertijd        : [false, true, true], Descr = "Does a daylight saving time change on this day shift the times? Not on D-1, because of D-1 only the times after midnight count.";
 			attribute<uint32>        DayNr                := first(DagNr/DayNr) + id(.) - 1;
 			container                Civil                := /Templates/CivilDate_T(., DayNr);
 			attribute<uint32>        yyyymmdd             := Civil/yyyymmdd;
 			attribute<Weekdays>      Weekday_rel          := value((DayNr + 3) % 7, Weekdays);
 			attribute<bool>          IsDSTChange          := Weekday_rel == Weekdays/V/sunday && (Civil/M == 3 || Civil/M == 10) && Civil/D >= 25;
 			attribute<bool>          IsNodig              := union_data(., BeginMoment < ModelParameters/Impl/PrevServiceDayTailEnd, true, uint32(EindMoment) > 86400)
-			,	Descr = "D altijd; D-1 als het venster voor ModelParameters/Impl/PrevServiceDayTailEnd begint; D+1 als het na middernacht doorloopt.";
+			,	Descr = "Is the day needed for the window? D always; D-1 when the window starts before ModelParameters/Impl/PrevServiceDayTailEnd; D+1 when it runs past midnight.";
 			attribute<CalendarDates> CalendarDate_rel     := rlookup(yyyymmdd, CalendarDates/yyyymmdd);
 			attribute<uint32>        NrTrips              := MakeDefined(CalendarDates/NrTrips[CalendarDate_rel], 0);
 			attribute<uint32>        MaxTrips_SameWeekday := MakeDefined(CalendarDates/MaxTrips_PerWeekday[Weekday_rel], 0);
 			attribute<float32>       TripShare            := MaxTrips_SameWeekday > 0 ? float32(NrTrips) / float32(MaxTrips_SameWeekday) : 0f;
-			attribute<bool>          IsCompleet           := TripShare >= ModelParameters/Advanced/MinServiceDayTripShare;
+			attribute<bool>          IsCompleet           := TripShare >= ModelParameters/Advanced/MinServiceDayTripShare, Descr = "Does the day have at least ModelParameters/Advanced/MinServiceDayTripShare of the trips of the busiest day with the same weekday in the feed?";
 			attribute<string>        Report               := label + ' ' + string(yyyymmdd) + ' (' + Weekdays/name[Weekday_rel] + '): ' + string(NrTrips) + ' ritten, '
 			                                                 + string(round(TripShare * 100f)) + '% van de drukste ' + Weekdays/name[Weekday_rel] + ' in de feed'
 			                                                 + (IsNodig ? (IsCompleet ? '' : ', ONVOLLEDIG') : ', niet nodig voor dit venster')
@@ -94,19 +90,19 @@ container PT_NetworkExport
 		}
 		parameter<bool>   Check_DagenCompleet       := all(!Dagen/IsNodig || Dagen/IsCompleet)
 		,	IntegrityCheck = "Check_DagenCompleet == True"
-		,	Descr = "Elke dag die het venster nodig heeft, staat in de feed met minstens ModelParameters/Advanced/MinServiceDayTripShare van de ritten van de drukste dag met dezelfde weekdag; zie DagenReport.";
+		,	Descr = "Is every day the window needs in the feed with at least ModelParameters/Advanced/MinServiceDayTripShare of the trips of the busiest day with the same weekday? See DagenReport.";
 		parameter<bool>   Check_GeenZomertijdwissel := all(!(Dagen/IsDSTChange && Dagen/IsNodig && Dagen/TeltZomertijd))
 		,	IntegrityCheck = "Check_GeenZomertijdwissel == True"
-		,	Descr = "Geen dag die het venster nodig heeft (D-1 uitgezonderd), is een dag van een zomertijdwissel.";
+		,	Descr = "Is none of the days the window needs (apart from D-1) a day with a daylight saving time change?";
 		parameter<string> DagenReport := asList(Dagen/Report, '; ');
 		parameter<string> FeedReport  := 'feed ' + ModelParameters/Impl/GTFS_file_date + ' met datums van ' + string(min(CalendarDates/yyyymmdd)) + ' tot en met ' + string(max(CalendarDates/yyyymmdd));
 
-		// DE LINKS VAN DE RITTEN OP DE TIJDAS VAN DAG
-		attribute<Time>   RitEinde    (protoTrips)     := max(protoStopTimes/arrivalTime/TimesVector/Time_rel, protoStopTimes/protoTrip_rel), Descr = "De laatste aankomst van de rit, in GTFS-tijd; protoTrips/StartTime is het eerste vertrek.";
+		// THE LINKS OF THE TRIPS ON THE TIME AXIS OF DAG
+		attribute<Time>   RitEinde    (protoTrips)     := max(protoStopTimes/arrivalTime/TimesVector/Time_rel, protoStopTimes/protoTrip_rel), Descr = "The last arrival of the trip, in GTFS time; protoTrips/StartTime is the first departure.";
 		attribute<uint32> VertrekDag  (protoStopTimes) := Time/Day[protoStopTimes/departureTime/TimesVector/Time_rel];
 		attribute<uint32> AankomstDag (protoStopTimes) := Time/Day[protoStopTimes/arrivalTime/TimesVector/Time_rel];
 
-		Template PartOfDay_T
+		Template PartOfDay_T : Descr = "The trips of one day of Dagen that run on its date and overlap the window, with their links on the time axis of D."
 		{
 			parameter<Dagen> d;
 			///
@@ -114,18 +110,17 @@ container PT_NetworkExport
 			parameter<uint32> AddSec := Dagen/AddSec[d];
 			parameter<uint32> SubSec := Dagen/SubSec[d];
 			attribute<bool>   Dienst (Services)   := sum(uint32(Calendar_dates/nDate == Datum) * Calendar_dates/nType, Calendar_dates/Services_rel) == 1
-			,	Descr = "Rijdt de dienst op Datum? Zoals LoadFeeds/Services/Today_exc voor Analysis_date.";
+			,	Descr = "Does the service run on Datum? As LoadFeeds/Services/Today_exc does for Analysis_date.";
 			attribute<bool>   Rit    (protoTrips) := Dienst[protoTrips/Services_rel]
 			                                         && uint32(protoTrips/StartTime) + AddSec < uint32(EindMoment) + SubSec
 			                                         && uint32(RitEinde) + AddSec > uint32(BeginMoment) + SubSec
-			,	Descr = "Rijdt de rit op Datum, en overlapt hij dan het venster?";
+			,	Descr = "Does the trip run on Datum, and does it then overlap the window?";
 			container Net := DayLinks_T(Rit[protoStopTimes/protoTrip_rel] && VertrekDag >= Dagen/MinVertrekDag[d] && AankomstDag <= Dagen/MaxAankomstDag[d], AddSec, SubSec);
 		}
 		container PerDag := for_each_ne(Dagen/name, 'PartOfDay_T(value(' + string(id(Dagen)) + ', Dagen))');
 
 		unit<uint32> Links := ='union_unit(' + asList(Dagen/NetPad, ', ') + ')'
-		,	Descr = "De links (van halte naar halte) van alle ritten van de drie dagen die het venster overlappen."
-		,	ExplicitSuppliers = "Check_DagenCompleet;Check_GeenZomertijdwissel"
+		,	Descr = "The links (from stop to stop) of all trips of the three days that overlap the window.",	ExplicitSuppliers = "Check_DagenCompleet;Check_GeenZomertijdwissel"
 		{
 			attribute<Dagen>                    Dag_rel       := ='union_data(., ' + asList('const(value(' + string(id(Dagen)) + ', Dagen), ' + Dagen/NetPad + ', Dagen)', ', ') + ')';
 			attribute<protoTrips>               protoTrip_rel := ='union_data(., ' + asList(Dagen/NetPad + '/protoTrip_rel', ', ') + ')';
@@ -146,9 +141,9 @@ container PT_NetworkExport
 			attribute<Kaart/Knopen>             VanKnoop_rel  := HalteKnoop_rel[VanHalte_rel];
 			attribute<Kaart/Knopen>             NaarKnoop_rel := HalteKnoop_rel[NaarHalte_rel];
 		}
-		unit<uint32> VLinks := select_with_org_rel(Links/InVenster), Descr = "De links die in het venster rijden.";
+		unit<uint32> VLinks := select_with_org_rel(Links/InVenster), Descr = "The links that run in the window.";
 
-		// RITINSTANTIES: een rit op een dag; dezelfde trip_id rijdt vaak op meer dagen.
+		// TRIP INSTANCES: a trip on a day; the same trip_id often runs on several days.
 		unit<uint32> c_Dag_Rit := combine_unit_uint32(Dagen, protoTrips);
 		unit<uint32> RitInst   := unique(Links/Dag_Rit_rel)
 		{
@@ -166,7 +161,7 @@ container PT_NetworkExport
 			attribute<protoStopTimes> LaatsteST    (protoTrips) := max_index(protoStopTimes/Stop_Sequence, protoStopTimes/protoTrip_rel);
 		}
 
-		// Ritten zonder shape (in de feed van 20260925 2,4 %): een lijn langs hun haltes.
+		// Trips without a shape get a line along their stops.
 		unit<uint32> RittenZonderShape := select_with_org_rel(not(Kaart/Ritten/heeft_shape));
 		unit<uint32> Haltelijnen       := unique(Kaart/Ritten/protoTrip_rel[RittenZonderShape/org_rel])
 		{
@@ -181,8 +176,8 @@ container PT_NetworkExport
 			attribute<rdc>         punt          := protoStops/geometry[Halte_rel];
 		}
 
-		// LIJNVOERINGEN: per lijn en shape, voor ritten zonder shape per lijn en haltepatroon (eerste en laatste halte, aantal haltes,
-		// zoals LoadFeeds/FlexOptions/PatternKey).
+		// ROUTE VARIANTS: per route and shape, for trips without a shape per route and stop pattern (first and last stop, number of stops,
+		// as LoadFeeds/FlexOptions/PatternKey).
 		unit<uint64> c_Route_Shape   := combine_unit_uint64(Routes, Shapes/Uq);
 		unit<uint32> NrHaltesKlasse  := range(uint32, 0, 1024);
 		unit<uint64> c_Route_Patroon := combine_unit_uint64(Routes, protoStops, protoStops, NrHaltesKlasse);
@@ -190,17 +185,17 @@ container PT_NetworkExport
 		unit<uint32> LV_Shape        := unique(Kaart/Ritten/LV_Shape_key[RittenMetShape/org_rel]);
 		unit<uint32> LV_Haltes       := unique(Kaart/Ritten/LV_Haltes_key[RittenZonderShape/org_rel]);
 
-		// KNOPEN: haltes binnen HalteClusterAfstand, zoals SourceData/Infrastructure/GTFS/OV_Knooppunten/Knopen, over alle haltes
-		// van de feed, zodat de nummers niet van de dag of het venster afhangen.
+		// NODES: stops within HalteClusterAfstand, as SourceData/Infrastructure/GTFS/OV_Knooppunten/Knopen, over all stops of the feed, so
+		// that the numbers do not depend on the day or the window.
 		unit<uint32> HalteParen := join_near_values(protoStops/geometry, protoStops/geometry, float64(HalteClusterAfstand));
 		unit<uint32> Clusters   := connected_parts(HalteParen/first_rel, HalteParen/second_rel);
 		attribute<uint32>       Vertrekken      (protoStops) := sum_uint32(Links/InVenster, Links/VanHalte_rel);
 		attribute<uint32>       Bezoeken        (protoStops) := Vertrekken + sum_uint32(Links/InVenster, Links/NaarHalte_rel);
 		attribute<uint32>       ClusterBezoeken (Clusters)   := sum(Bezoeken, Clusters/PartNr);
-		attribute<protoStops>   Hoofdhalte      (Clusters)   := max_index(Bezoeken, Clusters/PartNr), Descr = "De halte van het cluster met de meeste vertrekken en aankomsten in het venster; geeft de naam en het punt.";
+		attribute<protoStops>   Hoofdhalte      (Clusters)   := max_index(Bezoeken, Clusters/PartNr), Descr = "The stop of the cluster with the most departures and arrivals in the window; it gives the node its name and point.";
 		attribute<Kaart/Knopen> HalteKnoop_rel  (protoStops) := invert(Kaart/Knopen/org_rel)[Clusters/PartNr];
 
-		unit<uint32> KnoopBezoeken := union_unit(VLinks, VLinks), Descr = "Vertrek en aankomst van elke link in het venster."
+		unit<uint32> KnoopBezoeken := union_unit(VLinks, VLinks), Descr = "The departure and the arrival of every link in the window."
 		{
 			attribute<Kaart/Knopen>             Knoop_rel := union_data(., Links/VanKnoop_rel[VLinks/org_rel], Links/NaarKnoop_rel[VLinks/org_rel]);
 			attribute<Klassen/KlasseModaliteit> Mode_rel  := union_data(., Links/Mode_rel[VLinks/org_rel], Links/Mode_rel[VLinks/org_rel]);
@@ -218,9 +213,9 @@ container PT_NetworkExport
 			attribute<Kaart/Knopen> Knoop_rel := first_rel(values);
 		}
 
-		// SEGMENTEN: de links in het venster tussen twee verschillende knopen, per knopenpaar en modaliteit.
-		parameter<uint32> NrBinnenKnoop      := sum_uint32(Links/InVenster && Links/VanKnoop_rel == Links/NaarKnoop_rel), Descr = "Links in het venster binnen een knoop (tussen perrons van een station, bijvoorbeeld); die vormen geen segment.";
-		parameter<uint32> NrZonderModaliteit := sum_uint32(Links/InVenster && Links/VanKnoop_rel != Links/NaarKnoop_rel && !IsDefined(Links/Mode_rel));
+		// SEGMENTS: the links in the window between two different nodes, per pair of nodes and mode.
+		parameter<uint32> NrBinnenKnoop      := sum_uint32(Links/InVenster && Links/VanKnoop_rel == Links/NaarKnoop_rel), Descr = "Number of links in the window within one node (between the platforms of a station, for example); they form no segment.";
+		parameter<uint32> NrZonderModaliteit := sum_uint32(Links/InVenster && Links/VanKnoop_rel != Links/NaarKnoop_rel && !IsDefined(Links/Mode_rel)), Descr = "Number of links in the window between two nodes without a mode; they form no segment either.";
 		unit<uint64> c_Knoop_Knoop_Mode := combine_unit_uint64(Kaart/Knopen, Kaart/Knopen, Klassen/KlasseModaliteit);
 		unit<uint32> SegLinks := select_with_org_rel(Links/InVenster && Links/VanKnoop_rel != Links/NaarKnoop_rel && IsDefined(Links/Mode_rel))
 		{
@@ -255,11 +250,10 @@ container PT_NetworkExport
 			attribute<Agencies>        Agency_rel := second_rel(values);
 		}
 
-		// De lijn van een segment: het stuk van de shape van een representatieve link, de eerste in het venster met een shape.
-		// Zijn haltes A en B worden op de shape geprojecteerd met connect_info_eq, dezelfde projectie als connect, maar alleen op
-		// de eigen shape; de lijn loopt van A naar de projectie van A, langs de hoekpunten van de shape tot de projectie van B,
-		// en naar B. Zonder shape, met een halte verder dan MaxAfstandHalteShape of met B niet na A op de shape (een lus): de
-		// rechte lijn van A naar B.
+		// The line of a segment: the part of the shape of a representative link, the first one in the window with a shape. Its stops A and B
+		// are projected onto the shape with connect_info_eq, the same projection as connect but only onto the own shape; the line runs from A
+		// to the projection of A, along the vertices of the shape to the projection of B, and on to B. Without a shape, with a stop farther
+		// than MaxAfstandHalteShape, or with B not after A on the shape (a loop), it is the straight line from A to B.
 		container SegGeom
 		{
 			attribute<bool>     HeeftShape (Kaart/Segmenten) := any(IsDefined(SegLinks/Shape_rel), SegLinks/Seg_rel);
@@ -284,28 +278,28 @@ container PT_NetworkExport
 				attribute<uint32>    SegB      := uint32(ProjB/SegmID);
 				attribute<rdc>       CutA      := ProjA/CutPoint;
 				attribute<rdc>       CutB      := ProjB/CutPoint;
-				attribute<rdc>       BeginSegA := Hoekpunten/point[value(uint32(Bogen/EersteHoek[Boog_rel]) + SegA, Hoekpunten)], Descr = "Het eerste hoekpunt van het segment van de boog waar A op valt.";
+				attribute<rdc>       BeginSegA := Hoekpunten/point[value(uint32(Bogen/EersteHoek[Boog_rel]) + SegA, Hoekpunten)], Descr = "The first vertex of the segment of the arc on which A lies.";
 				attribute<rdc>       dA        := CutA - BeginSegA;
 				attribute<rdc>       dB        := CutB - BeginSegA;
 				attribute<bool>      Knipbaar  := IsDefined(CutA) && IsDefined(CutB) && IsDefined(SegA) && IsDefined(SegB)
-				                                  && (SegA < SegB || (SegA == SegB && PointCol(dA) * PointCol(dA) + PointRow(dA) * PointRow(dA) <= PointCol(dB) * PointCol(dB) + PointRow(dB) * PointRow(dB)));
+				                                  && (SegA < SegB || (SegA == SegB && PointCol(dA) * PointCol(dA) + PointRow(dA) * PointRow(dA) <= PointCol(dB) * PointCol(dB) + PointRow(dB) * PointRow(dB))), Descr = "Can the shape be cut between A and B: are both projections found and does B not lie before A on the shape?";
 			}
-			unit<uint32> Bogen := unique(MetShape/Shape_rel), Descr = "De shapes van de representatieve links."
+			unit<uint32> Bogen := unique(MetShape/Shape_rel), Descr = "The shapes of the representative links."
 			{
 				attribute<rdc>        geometry (arc) := Shapes/Uq/geometry[values];
 				attribute<Hoekpunten> EersteHoek     := min_index(Hoekpunten/ordinal, Hoekpunten/sequence_rel);
 			}
 			unit<uint32> Hoekpunten := sequence2points(Bogen/geometry);
 			parameter<float64> MaxAfstand2 := float64(MaxAfstandHalteShape) * float64(MaxAfstandHalteShape)
-			,	Descr = "connect_info_eq neemt de maximale afstand in het kwadraat (probe 2026-10-21: bij 5 vond hij haltes op 1 en 2 m van de boog wel, op 3 en 4 m niet).";
+			,	Descr = "MaxAfstandHalteShape squared, because connect_info_eq takes the maximum distance squared.";
 			container ProjA := connect_info_eq(Bogen/geometry, id(Bogen), MetShape/A_punt, MetShape/Boog_rel, MaxAfstand2);
 			container ProjB := connect_info_eq(Bogen/geometry, id(Bogen), MetShape/B_punt, MetShape/Boog_rel, MaxAfstand2);
 
-			// De punten van alle segmenten achter elkaar: per segment A, de projectie van A, de hoekpunten SegA+1 tot en met SegB, de
-			// projectie van B en B; of alleen A en B.
+			// The points of all segments in a row: per segment A, the projection of A, the vertices SegA+1 up to and including SegB, the
+			// projection of B and B; or only A and B.
 			attribute<MetShape> MetShape_rel (Kaart/Segmenten) := invert(MetShape/org_rel);
 			attribute<bool>     Knipbaar     (Kaart/Segmenten) := MakeDefined(MetShape/Knipbaar[MetShape_rel], false);
-			attribute<uint32>   NrPunten     (Kaart/Segmenten) := Knipbaar ? sub_or_null(MetShape/SegB[MetShape_rel], MetShape/SegA[MetShape_rel]) + 4 : 2, Descr = "sub_or_null: de engine rekent beide takken, ook waar B voor A ligt.";
+			attribute<uint32>   NrPunten     (Kaart/Segmenten) := Knipbaar ? sub_or_null(MetShape/SegB[MetShape_rel], MetShape/SegA[MetShape_rel]) + 4 : 2, Descr = "Number of points of the line of the segment; sub_or_null because both branches are calculated, also where B lies before A.";
 			attribute<uint32>   Offset       (Kaart/Segmenten) := cumulate(NrPunten) - NrPunten;
 			unit<uint32> Punten := range(uint32, 0, sum(NrPunten))
 			{
@@ -323,10 +317,10 @@ container PT_NetworkExport
 		}
 	}
 
-	container Kaart : using = "Impl;Klassen"
+	container Kaart : using = "Impl;Klassen", Descr = "The tables of the export, also for viewing in the GUI: the trips, route variants, nodes and segments in the window."
 	{
 		unit<uint32> Ritten := select_with_org_rel(RitInst/InVenster)
-		,	Descr = "De ritinstanties (een rit op een dag van Dagen) die het venster overlappen, met de shape van de rit of een lijn langs zijn haltes. Een rit met maar een halte heeft geen link en doet niet mee (in de feed van 20260925 in het venster 07:00-09:00 vier ritten van lijn Z132 naar Zierikzee)."
+		,	Descr = "The trip instances (a trip on a day of Dagen) that overlap the window, with the shape of the trip or a line along its stops; a trip with only one stop has no link and is left out."
 		{
 			attribute<protoTrips>       protoTrip_rel    := RitInst/protoTrip_rel[org_rel];
 			attribute<Dagen>            Dag_rel          := RitInst/Dag_rel[org_rel];
@@ -355,7 +349,7 @@ container PT_NetworkExport
 			attribute<string>  aanbieder       := Agencies/label[Agency_rel];
 			attribute<string>  modaliteit      := KlasseModaliteit/name[Mode_rel];
 			attribute<bool>    is_flex         := protoTrips/IsFlex[protoTrip_rel];
-			attribute<bool>    in_ovnet        := protoTrips/KeepFlexOption[protoTrip_rel], Descr = "Doet de rit mee in het OV-net van het model? Alleen gedunde flexopties niet (LoadFeeds/FlexOptions).";
+			attribute<bool>    in_ovnet        := protoTrips/KeepFlexOption[protoTrip_rel], Descr = "Is the trip part of the public transport network of the model? Only the thinned flex options are not (LoadFeeds/FlexOptions).";
 			attribute<bool>    heeft_shape     := IsDefined(Shape_rel);
 			attribute<uint32>  nr_haltes       := PerRit/NrHaltes[protoTrip_rel];
 			attribute<string>  eerste_halte    := protoStops/stop_name[EersteHalte_rel];
@@ -366,7 +360,7 @@ container PT_NetworkExport
 		}
 
 		unit<uint32> Lijnvoeringen := union_unit(LV_Shape, LV_Haltes)
-		,	Descr = "De ritten in het venster, ontdubbeld per lijn en shape (zonder shape: per lijn en haltepatroon). De vaste kenmerken zijn die van de eerste rit."
+		,	Descr = "The trips in the window, deduplicated per route and shape (without a shape, per route and stop pattern), with the fixed attributes of the first trip."
 		{
 			attribute<Ritten>           Rep_rel         := min_index(Ritten/VertrekMoment, Ritten/Lijnvoering_rel);
 			attribute<Routes>           Route_rel       := Ritten/Route_rel[Rep_rel];
@@ -394,12 +388,12 @@ container PT_NetworkExport
 		}
 
 		unit<uint32> Knopen := select_with_org_rel(ClusterBezoeken > 0)
-		,	Descr = "Knopen van haltes binnen HalteClusterAfstand met vertrekken of aankomsten in het venster, op de plek van hun drukste halte."
+		,	Descr = "Nodes of stops within HalteClusterAfstand with departures or arrivals in the window, at the location of their busiest stop."
 		{
 			attribute<protoStops> Hoofdhalte_rel     := Hoofdhalte[org_rel];
 			attribute<rdc>        geometry           := protoStops/geometry[Hoofdhalte_rel];
 			attribute<string>     knoopnaam          := protoStops/stop_name[Hoofdhalte_rel];
-			attribute<uint32>     nr_haltes          := sum_uint32(Bezoeken > 0, HalteKnoop_rel), Descr = "Haltes van de knoop met vertrekken of aankomsten in het venster.";
+			attribute<uint32>     nr_haltes          := sum_uint32(Bezoeken > 0, HalteKnoop_rel), Descr = "Number of stops of the node with departures or arrivals in the window.";
 			attribute<uint32>     nr_vertrekken      := sum(Vertrekken, HalteKnoop_rel);
 			attribute<float32>    vertrekken_per_uur := float32(nr_vertrekken) / VensterUren;
 			attribute<string>     modaliteiten       := asList(KlasseModaliteit/name[KnoopModes/Mode_rel], ',', KnoopModes/Knoop_rel);
@@ -407,12 +401,12 @@ container PT_NetworkExport
 		}
 
 		unit<uint32> Segmenten := unique(SegLinks/Seg_key)
-		,	Descr = "De links in het venster tussen twee knopen, ontdubbeld per knopenpaar (SegmentenOngericht: in beide richtingen samen) en modaliteit, met de kenmerken van hun ritten. De lijn volgt de shape van de eerste rit met een shape (SegGeom)."
+		,	Descr = "The links in the window between two nodes, deduplicated per pair of nodes (with SegmentenOngericht both directions together) and mode, with the attributes of their trips; the line follows the shape of the first trip with a shape (SegGeom)."
 		{
 			attribute<Knopen>           VanKnoop_rel     := first_rel(values);
 			attribute<Knopen>           NaarKnoop_rel    := second_rel(values);
 			attribute<KlasseModaliteit> Mode_rel         := combine_rel(values, 2);
-			attribute<Agencies>         Agency_rel       := modus(SegLinks/Agency_rel, SegLinks/Seg_rel), Descr = "De aanbieder van de meeste passages.";
+			attribute<Agencies>         Agency_rel       := modus(SegLinks/Agency_rel, SegLinks/Seg_rel), Descr = "The agency of most passages.";
 			attribute<KlasseFlex>       FlexKlasse_rel   := nr_flex == 0 ? KlasseFlex/V/vast : nr_flex < nr_passages ? KlasseFlex/V/deels_flex : KlasseFlex/V/flex;
 
 			attribute<rdc>     geometry (arc)   := points2sequence(SegGeom/Punten/punt, SegGeom/Punten/Seg_rel, SegGeom/Punten/j);
@@ -442,8 +436,8 @@ container PT_NetworkExport
 		}
 	}
 
-	// DE EXPORT: per laag een bestand FileStem_<laag>.<ExportFormaat>, met de kenmerken als tekst en getal. Een unit schrijft
-	// alleen de attributen die hij zelf heeft (probe 2026-10-21), dus hier staan ze nog eens.
+	// THE EXPORT: per layer a file FileStem_<layer>.<ExportFormaat>, with the attributes as text and number. A unit writes only the
+	// attributes it has itself, so they are listed here again.
 	container Export
 	{
 		parameter<string> GDAL_LayerCreationOptions := ExportFormaat == 'csv' ? 'GEOMETRY=AS_WKT' : ExportFormaat == 'parquet' ? 'COMPRESSION=ZSTD' : '';
@@ -533,9 +527,9 @@ container PT_NetworkExport
 		}
 	}
 
-	// HET RAPPORT, in dezelfde opvraging als de export (Generate).
-	parameter<bool>   CheckRitten    := sum(Kaart/Lijnvoeringen/nr_ritten) == #Kaart/Ritten;
-	parameter<bool>   CheckSegmenten := sum(Kaart/Segmenten/nr_passages) + Impl/NrBinnenKnoop + Impl/NrZonderModaliteit == #Impl/VLinks;
+	// THE REPORT, in the same request as the export (Generate).
+	parameter<bool>   CheckRitten    := sum(Kaart/Lijnvoeringen/nr_ritten) == #Kaart/Ritten, Descr = "Is the number of trips equal to the sum of nr_ritten over the route variants?";
+	parameter<bool>   CheckSegmenten := sum(Kaart/Segmenten/nr_passages) + Impl/NrBinnenKnoop + Impl/NrZonderModaliteit == #Impl/VLinks, Descr = "Is the number of links in the window equal to the sum of nr_passages over the segments plus the links within a node and the links without a mode?";
 	parameter<string> Report :=
 		'OV-net in het venster ' + Begin + '-' + Eind + ' op ' + Dag + ' (' + Impl/FeedReport + ')'
 		+ '\ndagen: ' + Impl/DagenReport
@@ -550,8 +544,8 @@ container PT_NetworkExport
 		+ '\ncontroles: ' + (CheckRitten ? 'PASS' : 'FAIL') + ' ritten = som van nr_ritten van de lijnvoeringen; '
 			+ (CheckSegmenten ? 'PASS' : 'FAIL') + ' links in het venster = som van nr_passages + binnen een knoop + zonder modaliteit'
 		+ '\n'
-	,	StorageName = "=FileStem + '_report.txt'", StorageType = "str";
+	,	StorageName = "=FileStem + '_report.txt'", StorageType = "str", Descr = "The report of the export, with the window, the days, the counts of trips, route variants, nodes, segments and links, and the two checks, written to FileStem_report.txt.";
 
 	parameter<string> Generate := 'Ready', ExplicitSuppliers = "Export/Ritten;Export/Lijnvoeringen;Export/Knopen;Export/Segmenten;Report"
-	,	Descr = "Schrijft de vier lagen in ExportFormaat en het rapport, in een opvraging.";
+	,	Descr = "Writes the four layers in ExportFormaat and the report, in one request.";
 }
