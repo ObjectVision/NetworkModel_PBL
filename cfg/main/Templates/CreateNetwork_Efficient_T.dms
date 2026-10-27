@@ -185,6 +185,9 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 		unit<uint32> NodeSet_src     := CreateInitialWorkingNetwork/NodeSet;
 
 		unit<uint64> Nodeset_x_NodeSet := combine_unit_uint64(NodeSet_src, NodeSet_src);
+		unit<uint8>  DirectionType : nrofrows = 2, Descr = "0 two-way, 1 one-way: the second part of the key on which LinkSet_cleanedforJFS finds duplicate links.";
+		// in two steps: combine_unit_uint64 with three factors gives a conversion error in GeoDMS 20.24.0 at this size
+		unit<uint64> Nodeset_x_NodeSet_x_DirectionType := combine_unit_uint64(Nodeset_x_NodeSet, DirectionType);
 		
 		container OptimiseNetwork := 
 			for_each_ne(
@@ -271,9 +274,13 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 			, Descr = "set of all nodes in the network, comprised of the nodes from the original network AND the OD-points." 
 			{
 				attribute<uint32>                          NrConnectedLinks               := pcount(LinkSet/F1) + pcount(LinkSet/F2);
-				attribute<bool>                            BordersWithOneDirectionalRoad  := LinkSet/IsOneDirection[invert(LinkSet/F1)] || LinkSet/IsOneDirection[invert(LinkSet/F2)];
+				attribute<uint32>                          NrOneDirectionIn               := pcount(LinkSet/IsOneDirection ? LinkSet/F2 : null_u), Descr = "The number of one-way links that arrive at this node.";
+				attribute<uint32>                          NrOneDirectionOut              := pcount(LinkSet/IsOneDirection ? LinkSet/F1 : null_u), Descr = "The number of one-way links that leave this node.";
+				attribute<bool>                            DirectionAllowsMerge           := (NrOneDirectionIn == 0 && NrOneDirectionOut == 0) || (NrOneDirectionIn == 1 && NrOneDirectionOut == 1)
+				, Descr = "Are all links of this node two-way, or is there one one-way link in and one out? Only then can a link across the node be used in the same directions as the links themselves.";
 				attribute<bool>                            WillBeDeleted                  := NrConnectedLinks == 2  // 2 connectinglinks means intermediary without junction
-																								&& !IsOD_connection_road;
+																								&& !IsOD_connection_road
+																								&& DirectionAllowsMerge;
 				attribute<bool>                            IsOD_connection_road           := pcount(uq_OD_points/Node_rel) != 0 // if there are node_rel's then it is an connected OD-point.
 																								|| pcount(uq_OD_points/Node_rel_of_link_to_network) != 0; //if a node is used in the connection link between network and OD-point, then it is the connecting node
 
@@ -518,12 +525,15 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 				attribute<bool>                            ToBeOmitted                    := IsLinkWithDeadEnd || IsLinkConnectedWithItself || IsDuplicateLink;
 				attribute<bool>                            IsOD_connection_road           := union_data(., UnchangedLinkSet/IsOD_connection_road, JunctionFreeSection/IsOD_connection_road);
 				
-				attribute<Nodeset_x_NodeSet>               Nodeset_x_NodeSet_rel          := combine_data(Nodeset_x_NodeSet, min_elem(F1, F2), max_elem(F1,F2)); //TO DO mind the direction
-				attribute<Find_DuplicateLinks>             Find_DuplicateLinks_rel        := rlookup(Nodeset_x_NodeSet_rel, Find_DuplicateLinks/values);
+				// After merging, links can connect the same nodes. Of a group of duplicate links the first stays, with the lowest impedance of
+				// the group. Duplicates are two-way links between the same nodes, in either order, and one-way links with the same F1 and F2;
+				// a one-way link next to a two-way link, or two in opposite directions, both stay.
+				attribute<Nodeset_x_NodeSet_x_DirectionType> LinkKey_rel                  := combine_data(Nodeset_x_NodeSet_x_DirectionType
+																								, combine_data(Nodeset_x_NodeSet, IsOneDirection ? F1 : min_elem(F1, F2), IsOneDirection ? F2 : max_elem(F1, F2))
+																								, value(uint8(IsOneDirection), DirectionType));
+				attribute<Find_DuplicateLinks>             Find_DuplicateLinks_rel        := rlookup(LinkKey_rel, Find_DuplicateLinks/values);
 
-				//After clean up, the reduced road could collapse into a road which is duplicate.
-				// TO DO: these duplicates were duplicates without direction, with directions this is not necesarily a duplicate.
-				unit<uint32> Find_DuplicateLinks := unique(Nodeset_x_NodeSet_rel)
+				unit<uint32> Find_DuplicateLinks := unique(LinkKey_rel)
 				{
 					attribute<uint32>                    count_occurence := pcount(Find_DuplicateLinks_rel);
 					attribute<bool>                      IsDuplicateLink := count_occurence > 1;
