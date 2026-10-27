@@ -1,6 +1,6 @@
 # WriteChainBlocks.ps1: de ketenstap per haltenblok, met hervatten (sinds 2026-09-29).
 #
-# Vraagt eerst de lijst op van de blokken waarvan de store nog ontbreekt (PublicTransport_Prep/ChainStore_Blocks/ToDo_List,
+# Vraagt eerst de lijst op van de blokken waarvan de store nog ontbreekt (PublicTransport_Prep/PT_Chains_Blocks/ToDo_List,
 # geschreven naar batch\log\chain_blocks_todo.txt; een blok telt als klaar als zijn 0Dictionary.dms bestaat, dat de MMD-writer
 # als laatste schrijft) en rekent die dan in porties van BatchSize blokken per GeoDmsRun. Elke portie is een eigen proces,
 # zodat het geheugen tussen de porties vrijkomt; een onderbroken of mislukte ketenstap gaat bij een volgende aanroep verder
@@ -21,7 +21,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $todoFile = Join-Path $LogDir 'chain_blocks_todo.txt'
-$todoItem = '/NetworkSetup/PublicTransport_Prep/ChainStore_Blocks/ToDo_List'
+$todoItem = '/NetworkSetup/PublicTransport_Prep/PT_Chains_Blocks/ToDo_List'
 function Say($m) { "{0} {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $m }
 
 function Get-ToDo {

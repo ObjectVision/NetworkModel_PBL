@@ -15,10 +15,11 @@ REM                                 zonder momenten alle vier: MorningRush NoonR
 REM                                 en Freeflow (TomTom) of MaxSpeed (OSM); 40 min scalair per
 REM                                 moment, langer met ParetoLegs_Car
 REM   UpdateAll.cmd chains          de OV-ketenstore per haltenblok (WriteChainBlocks.ps1; met de omgevingsvariabele
-REM                                 CHAINSTORE_SINGLE de ene store van PublicTransport_Prep/x/Write_Result), na de
+REM                                 CHAINSTORE_SINGLE de ene store van PublicTransport_Prep/ChainGeneration_Single/Write), na de
 REM                                 voorcheck op haltenblokken en prijsdekking; uren, veel geheugen
 REM   UpdateAll.cmd legs            de stores van de benen van het voor- en natransport (sinds 2026-10-19): de vier
-REM                                 basissets, lopen en fietsen naar en van elke halte (PublicTransport_Prep/LegStores_Write)
+REM                                 basissets, lopen en fietsen naar en van elke halte (PublicTransport_Prep/LegStores_Write);
+REM                                 schrijft alleen iets met ModelParameters/Advanced/LegsDecoupled
 REM   UpdateAll.cmd output          de OV-uitvoer: een csv per herkomstblok en vertrekmoment in
 REM                                 %LocalDataProjDir%\Output\<Analysis_date>_<OutputLabel><_component>[_fb]\PerBlock
 REM                                 (_fb: een component over het fietsnet met CyclingNetwork 'Fietsersbond')
@@ -168,8 +169,8 @@ set RC=!ERRORLEVEL!
 if not "!RC!"=="0" goto failed
 goto chains_done
 :chains_single
-echo === ketens: Write_Result, de ene store van voor 2026-09-29 (CHAINSTORE_SINGLE; zet ook ChainStore_PerBlock op FALSE) ===
-call :run chains %PREP%/x/Write_Result
+echo === ketens: ChainGeneration_Single/Write, de ene store van voor 2026-09-29 (CHAINSTORE_SINGLE; zet ook PT_Chains_PerBlock op FALSE) ===
+call :run chains %PREP%/ChainGeneration_Single/Write
 if not "!RC!"=="0" goto failed
 :chains_done
 if /I not "%SECTION%"=="all" goto done
