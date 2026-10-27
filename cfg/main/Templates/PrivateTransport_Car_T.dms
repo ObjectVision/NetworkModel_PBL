@@ -11,13 +11,13 @@ Template PrivateTransport_Car_T
 		parameter<string>  netwerk_type_Logit := netwerk_type_OSM == classifications/OSM/netwerk_type/name[classifications/OSM/netwerk_type/V/Pedestrian] ? classifications/OSM/netwerk_type/name[classifications/OSM/netwerk_type/V/Bike] : netwerk_type_OSM;
 		
 		parameter<min_f>   max_traveldistance_min  := ModelParameters/MaxCarTime;
-		attribute<uint32>  dest_mass (dest) := ='dest/'+ModelParameters/Advanced/items_of_interest;
+		attribute<uint32>  dest_mass (dest) := ='dest/'+ModelParameters/Impl/items_of_interest;
 		
 		parameter<string>  netwerk_type_suffix := ModelParameters/UseTomTomNetworkForCars ? '-TomTom' : '-OSM';
-		parameter<string>  fileNamePrefix :=  ModelParameters/Advanced/fileNamePrefix;
+		parameter<string>  fileNamePrefix :=  ModelParameters/Impl/fileNamePrefix;
 		parameter<string>  fileNameSuffix :=  
-			'_ORG-'    + ModelParameters/Advanced/OrgSet_PathTag + 
-			'_DEST-'   + ModelParameters/Advanced/DestSet_PathTag +
+			'_ORG-'    + ModelParameters/Impl/OrgSet_PathTag + 
+			'_DEST-'   + ModelParameters/Impl/DestSet_PathTag +
 			'_NETWERK-'+ netwerk_type_OSM + netwerk_type_suffix +
 			'_DayGroup-'+ModelParameters/Advanced/CongestionSpeed_DaySelection +
 			'_MaxTime-' + string(ModelParameters/MaxCarTime)+'min';
@@ -152,14 +152,14 @@ Template PrivateTransport_Car_T
 			}
 		}
 		
-		// Tijdafhankelijke autorit (ModelParameters/Advanced/CarTimeDependent, sinds 2026-10-09, NetworkModel_PBL#132, GeoDMS#1304): per vertrekmoment een
+		// Tijdafhankelijke autorit (ModelParameters/Impl/CarTimeDependent, sinds 2026-10-09, NetworkModel_PBL#132, GeoDMS#1304): per vertrekmoment een
 		// zoektocht op het TomTom-netwerk, met de linktijden van Create_Network_TomTom/TimeDependent: de vaste linktijd T_ref (de momentopname van
 		// het congestiemoment) en per link met een profiel de factor per tijdvak. De vertrektijd telt vanaf het begin van het venster
 		// (CarTD_WindowStart), plus Car_StartTime: de rit op het netwerk begint na het starten.
 		container TD :=
 			for_each_ne(
-				'TD' + ModelParameters/Advanced/MeasureMoments/TemplatableTextShrt
-				, 'TD_ImpedanceMatrix_T(' + string(uint32(ModelParameters/Advanced/MeasureMoments/Moment)) + ')'
+				'TD' + ModelParameters/Impl/MeasureMoments/TemplatableTextShrt
+				, 'TD_ImpedanceMatrix_T(' + string(uint32(ModelParameters/Impl/MeasureMoments/Moment)) + ')'
 			);
 
 		Template TD_ImpedanceMatrix_T
@@ -178,7 +178,7 @@ Template PrivateTransport_Car_T
 			parameter<string> BidirArg    := ModelParameters/Advanced/InterpretAllRoadsAsBidirectional ? '' : ', not(LinkSet_dom/IsOneDirection)';
 			parameter<string> TDArgs      := ', Create_Network_TomTom/TimeDependent/Profile_rel, Create_Network_TomTom/TimeDependent/ProfileSlot/factor, ModelParameters/Advanced/CarTD_SlotDuration, Departure';
 			// In de HB-paarmodus (sinds 2026-10-21, #129) ook de links van elke route (pareto met LinkSet: GeoDMS#1325).
-			parameter<bool>   MetLinks    := ModelParameters/Advanced/IsOD;
+			parameter<bool>   MetLinks    := ModelParameters/Impl/IsOD;
 			parameter<string> OdSpec      := 'od:impedance,OrgZone_rel,DstZone_rel' + (MetLinks ? ',LinkSet' : '');
 			unit<uint64> impedanceMatrix := = IsPareto
 				? 'impedance_matrix_od64(''' + BidirSpec + ';startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;pareto(OrgZone_max_imp2,imp2_epsilon);timedependent_alt(link_profile_rel,profile_slot_factor,slot_duration,departure_time);' + OdSpec + '''
@@ -187,7 +187,7 @@ Template PrivateTransport_Car_T
 						, LinkSet_dom/F2' + BidirArg + '
 						, NodeSet_dom/OrgNode_rel
 						, NodeSet_dom/DestNode_rel
-						, ModelParameters/Advanced/CarFrontMaxDistance
+						, ModelParameters/Impl/CarFrontMaxDistance
 						, Create_Network_TomTom/TimeDependent/T_ref
 						, convert(settings/max_traveldistance_min, s_f)
 						, ModelParameters/Advanced/CarFrontEpsilon' + TDArgs + '
@@ -252,7 +252,7 @@ Template PrivateTransport_Car_T
 						, LinkSet_dom/F2' + BidirArg + '
 						, NodeSet_dom/OrgNode_rel
 						, NodeSet_dom/DestNode_rel
-						, ModelParameters/Advanced/CarFrontMaxDistance
+						, ModelParameters/Impl/CarFrontMaxDistance
 						, Impedance
 						, convert(settings/max_traveldistance_min, s_f)
 						, ModelParameters/Advanced/CarFrontEpsilon
@@ -382,9 +382,9 @@ Template PrivateTransport_Car_T
 		attribute<float32> nr_items_of_interest_decayed_LateEveningRush_TomTom (org) := Decayed/LateEveningRush_TomTom/impedanceMatrix/D_i;
 		
 		attribute<string> BodyLines_OSM (org)    := org/name + ';' + string(nr_items_of_interest_decayed_MaxSpeed_OSM) + ';' + string(nr_items_of_interest_decayed_MorningRush_OSM)+';'+string(nr_items_of_interest_decayed_NoonRush_OSM)+';'+string(nr_items_of_interest_decayed_LateEveningRush_OSM);
-		parameter<string> File_OSM               := 'Org;freeflow;MorningRush;NoonRush;LateEveningRush\n'++asList(BodyLines_OSM, '\n'), StorageName = "=settings/fileNamePrefix+''+ModelParameters/Advanced/items_of_interest+'_decayed'+replace(settings/fileNameSuffix, '@@', 'Car', '##',  string(ModelParameters/MaxCarTime))+'.csv'", StorageType = "str";
+		parameter<string> File_OSM               := 'Org;freeflow;MorningRush;NoonRush;LateEveningRush\n'++asList(BodyLines_OSM, '\n'), StorageName = "=settings/fileNamePrefix+''+ModelParameters/Impl/items_of_interest+'_decayed'+replace(settings/fileNameSuffix, '@@', 'Car', '##',  string(ModelParameters/MaxCarTime))+'.csv'", StorageType = "str";
 		attribute<string> BodyLines_TomTom (org) := org/name + ';' + string(nr_items_of_interest_decayed_Freeflow_TomTom) + ';' + string(nr_items_of_interest_decayed_MorningRush_TomTom)+';'+string(nr_items_of_interest_decayed_NoonRush_TomTom)+';'+string(nr_items_of_interest_decayed_LateEveningRush_TomTom);
-		parameter<string> File_TomTom            := 'Org;freeflow;MorningRush;NoonRush;LateEveningRush\n'++asList(BodyLines_TomTom, '\n'), StorageName = "=settings/fileNamePrefix+''+ModelParameters/Advanced/items_of_interest+'_decayed'+replace(settings/fileNameSuffix, '@@', 'Car', '##',  string(ModelParameters/MaxCarTime))+'.csv'", StorageType = "str";
+		parameter<string> File_TomTom            := 'Org;freeflow;MorningRush;NoonRush;LateEveningRush\n'++asList(BodyLines_TomTom, '\n'), StorageName = "=settings/fileNamePrefix+''+ModelParameters/Impl/items_of_interest+'_decayed'+replace(settings/fileNameSuffix, '@@', 'Car', '##',  string(ModelParameters/MaxCarTime))+'.csv'", StorageType = "str";
 		parameter<string> File                   := =ModelParameters/UseTomTomNetworkForCars ? 'File_TomTom' : 'File_OSM'; 
 	}
 	

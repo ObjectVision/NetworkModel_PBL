@@ -10,7 +10,7 @@ container OVprijzen
 	unit<uint8>  Modes             := Classifications/GTFS_Modes/Selection;
 	unit<uint8>  Concessiegebieden := SourceData/RegioIndelingen/Concessiegebied;
 	
-	unit<uint8> FareTable := =ModelParameters/Advanced/PriceMethod_effective == 'DOVA' ? 'FareTable_DOVA' : 'FareTable_'+ModelParameters/Advanced/FareTable_year;
+	unit<uint8> FareTable := =ModelParameters/Impl/PriceMethod_effective == 'DOVA' ? 'FareTable_DOVA' : 'FareTable_'+ModelParameters/Impl/FareTable_year;
 	
 	unit<uint32> Read_DOVA_kmtarieven
 	: StorageName = "%ProjDir%/data/DOVA_Overzicht km-tarieven 2013-2026_edit.xlsx"
@@ -19,7 +19,7 @@ container OVprijzen
 	, SqlString   = "SELECT * FROM kmtarief"
 	{
 		attribute<Euro>         FixedPrice      := const(Read_DOVA_basistarieven/FixedPrice_param,.);
-		attribute<Euro_km>      VariablePrice   := ='y'+ModelParameters/Advanced/DOVA_year+'[Euro_km]';
+		attribute<Euro_km>      VariablePrice   := ='y'+ModelParameters/Impl/DOVA_year+'[Euro_km]';
 		
 	}
 	
@@ -29,7 +29,7 @@ container OVprijzen
 	, StorageReadOnly = "true"
 	, SqlString   = "SELECT * FROM basistarief"
 	{
-		attribute<Euro>         FixedPrice       := ='y'+ModelParameters/Advanced/DOVA_year+'[Euro]';
+		attribute<Euro>         FixedPrice       := ='y'+ModelParameters/Impl/DOVA_year+'[Euro]';
 		parameter<Euro>         FixedPrice_param := first(FixedPrice);
 	}
 
@@ -109,7 +109,7 @@ container OVprijzen
 		// Audit-trail: schrijft de dekking per (mode,agency)-combinatie weg als csv, zodat per feed/prijsjaar
 		// gedocumenteerd is wat gecheckt is (genereer door dit item bij te werken).
 		unit<uint32> Rapport := UniekeCombos
-		, StorageName = "= '%LocalDataProjDir%/Output/Checks/Prijsdekking_feed'+ModelParameters/Advanced/GTFS_file_date+'_FareTable'+ModelParameters/Advanced/FareTable_year+'.csv'"
+		, StorageName = "= '%LocalDataProjDir%/Output/Checks/Prijsdekking_feed'+ModelParameters/Impl/GTFS_file_date+'_FareTable'+ModelParameters/Impl/FareTable_year+'.csv'"
 		, StorageType = "gdalwrite.vect"
 		{
 			attribute<string> mode_agency  (.) := UniekeCombos/values;
@@ -119,7 +119,7 @@ container OVprijzen
 
 		// Tabel-sanity: alle niet-NS-rijen hebben gevulde, plausibele prijzen (NS-rijen prijzen via TariffUnits en zijn bewust leeg).
 		// MakeDefined ipv IsDefined zodat een null-prijs niet als null door de all() propageert maar hard als FALSE telt.
-		unit<uint8> FT_detailed := ='FareTable_'+ModelParameters/Advanced/FareTable_year;
+		unit<uint8> FT_detailed := ='FareTable_'+ModelParameters/Impl/FareTable_year;
 		parameter<bool> Tabel_OK_detailed := all(
 			lowercase(FT_detailed/Vervoerder) == 'ns'
 			|| (   MakeDefined(FT_detailed/FixedPrice,    0[Euro]    - 1[Euro])    >= 0[Euro]    && MakeDefined(FT_detailed/FixedPrice,    999[Euro])    <= 10[Euro]
@@ -130,16 +130,16 @@ container OVprijzen
 				&& MakeDefined(FareTable_DOVA/VariablePrice, 0[Euro_km] - 1[Euro_km]) >= 0[Euro_km] && MakeDefined(FareTable_DOVA/VariablePrice, 999[Euro_km]) <= 0.6[Euro_km]);
 
 		parameter<string> Status_Detailed := (#OntbrekendeCombos == 0
-												? 'PASS: alle '+string(#UniekeCombos)+' (mode,agency)-combinaties van feed '+ModelParameters/Advanced/GTFS_file_date+' hebben een rij in FareTable_'+ModelParameters/Advanced/FareTable_year+'.'
-												: 'FAIL: '+string(#OntbrekendeCombos)+' van de '+string(#UniekeCombos)+' (mode,agency)-combinaties van feed '+ModelParameters/Advanced/GTFS_file_date+' ontbreken in FareTable_'+ModelParameters/Advanced/FareTable_year+': '+OntbrekendeCombos_lijst)
-											+ (Tabel_OK_detailed ? '' : ' | FAIL: FareTable_'+ModelParameters/Advanced/FareTable_year+' bevat niet-NS-rijen met lege of onplausibele prijzen (verwacht 0-10 euro opstap, 0-0.60 euro/km).');
+												? 'PASS: alle '+string(#UniekeCombos)+' (mode,agency)-combinaties van feed '+ModelParameters/Impl/GTFS_file_date+' hebben een rij in FareTable_'+ModelParameters/Impl/FareTable_year+'.'
+												: 'FAIL: '+string(#OntbrekendeCombos)+' van de '+string(#UniekeCombos)+' (mode,agency)-combinaties van feed '+ModelParameters/Impl/GTFS_file_date+' ontbreken in FareTable_'+ModelParameters/Impl/FareTable_year+': '+OntbrekendeCombos_lijst)
+											+ (Tabel_OK_detailed ? '' : ' | FAIL: FareTable_'+ModelParameters/Impl/FareTable_year+' bevat niet-NS-rijen met lege of onplausibele prijzen (verwacht 0-10 euro opstap, 0-0.60 euro/km).');
 
 		parameter<string> Status_DOVA := Tabel_OK_DOVA
-												? 'PASS: DOVA-prijzen voor jaar '+ModelParameters/Advanced/DOVA_year+' zijn gevuld en plausibel voor alle concessie x modeklasse-combinaties (dekking is by construction, incl. Buitenland-vangnet).'
-												: 'FAIL: DOVA-prijstabel bevat lege of onplausibele prijzen voor jaar '+ModelParameters/Advanced/DOVA_year+' (verwacht 0-10 euro opstap, 0-0.60 euro/km); check de y-kolommen in de DOVA-xlsx.';
+												? 'PASS: DOVA-prijzen voor jaar '+ModelParameters/Impl/DOVA_year+' zijn gevuld en plausibel voor alle concessie x modeklasse-combinaties (dekking is by construction, incl. Buitenland-vangnet).'
+												: 'FAIL: DOVA-prijstabel bevat lege of onplausibele prijzen voor jaar '+ModelParameters/Impl/DOVA_year+' (verwacht 0-10 euro opstap, 0-0.60 euro/km); check de y-kolommen in de DOVA-xlsx.';
 
-		parameter<string> Status       := =ModelParameters/Advanced/PriceMethod_effective == 'DOVA' ? 'Status_DOVA' : 'Status_Detailed';
-		parameter<string> Status_gated := =ModelParameters/Advanced/PriceExportsAndIntegrityChecksNeeded ? 'Status' : 'Status_skip';
+		parameter<string> Status       := =ModelParameters/Impl/PriceMethod_effective == 'DOVA' ? 'Status_DOVA' : 'Status_Detailed';
+		parameter<string> Status_gated := =ModelParameters/Impl/PriceExportsAndIntegrityChecksNeeded ? 'Status' : 'Status_skip';
 		parameter<string> Status_skip  := 'SKIP: prijzen staan uit (geen price in MinimiseCriteria en Export_PriceInformation = FALSE).';
 	}
 
@@ -858,7 +858,7 @@ container OVprijzen
 	container NS
 	{
 		unit<uint32> NS_PricePerTariffUnit
-		: StorageName = "='%ProjDir%/Data/Tarieven_NS/NS tarieven '+ModelParameters/Advanced/NS_prijzen_year+'.csv'"
+		: StorageName = "='%ProjDir%/Data/Tarieven_NS/NS tarieven '+ModelParameters/Impl/NS_prijzen_year+'.csv'"
 		, StorageType = "gdal.vect"
 		, StorageReadOnly = "true"
 		, URL = "https://www.ns.nl/binaries/_ht_1704966727326/content/assets/ns-nl/tarieven/2024/consumenten/ns-tarievenlijst-consumenten-2024.pdf"
@@ -917,7 +917,7 @@ container OVprijzen
 					'NS-prijslijst consumenten 1-1-2026 (daluren 1,92 aan de toeslagpaal)'
 				];
 			}
-			parameter<Euro> Toeslag_ICE_ICD := rjoin(ModelParameters/Advanced/NS_prijzen_year, PerJaar/jaar, PerJaar/Toeslag_ICE_ICD)
+			parameter<Euro> Toeslag_ICE_ICD := rjoin(ModelParameters/Impl/NS_prijzen_year, PerJaar/jaar, PerJaar/Toeslag_ICE_ICD)
 			, IntegrityCheck = "IsDefined(this)", Descr = "De toeslag van NS_prijzen_year.";
 
 			attribute<Euro>        Opslag       (Treinen) := const(Toeslag_ICE_ICD, Treinen), Descr = "Opslag per enkele rit; beide producten volgen de NS-toeslag ICE / IC direct.";
@@ -929,7 +929,7 @@ container OVprijzen
 			, IntegrityCheck = "Check_Stations", Descr = "De stations van elk traject in RitOpslagTreinen bestaan in NS_stations.";
 		}
 				
-		// Het tariefnet per jaargang (ModelParameters/Advanced/NS_tariefnet_year, ObjectVision/NetworkModel_PBL#121):
+		// Het tariefnet per jaargang (ModelParameters/Impl/NS_tariefnet_year, ObjectVision/NetworkModel_PBL#121):
 		// - 2013 (voor NS_prijzen_year 2013-2015): tariefnet.dat van NDOV, uit ns-latest.zip tot ten minste 2024-10-09 (2023 en 2024
 		//   identiek; nu niet meer in de zip). Het heeft de gezamenlijke tariefpunten van NS: 35 kanten van 0 TE tussen stations
 		//   dicht bij elkaar, zoals Hilversum - Hilversum Sportpark en Den Haag HS - Den Haag Centraal.
@@ -941,7 +941,7 @@ container OVprijzen
 		//   goed (9292 en rijdendetreinen, zie /SourceData/Infrastructure/OVprijzen/RitOpslagReport/TE). Alleen paren met de Valleilijn-stations wijken nog af
 		//   (apd,hvl 37 hier, NS heeft amf,apd 43); die rekenen het RRReis-tarief, niet het NS-tarief.
 		unit<uint32> NS_TariffUnits_matrix
-		: StorageName = "='%ProjDir%/Data/Tarieven_NS/NS_tariefnet_'+ModelParameters/Advanced/NS_tariefnet_year+'.csv'"
+		: StorageName = "='%ProjDir%/Data/Tarieven_NS/NS_tariefnet_'+ModelParameters/Impl/NS_tariefnet_year+'.csv'"
 		, StorageType = "gdal.vect"
 		, StorageReadOnly = "true"
 		, URL = "https://www.rijdendetreinen.nl/tickets/tariefafstanden"

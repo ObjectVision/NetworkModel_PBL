@@ -23,14 +23,14 @@ attribute<Agencies>            Agency_rel                 := ThisSet/NodeSet/Age
 // hoort daarom bij het been en niet bij de links. Post hoc is exact: Dijkstra kiest binnen een OD-paar niet
 // tussen routes, de concurrentie tussen routes gebeurt in de ketenrijger, die deze Traveltime sinds 2026-09-26 als criterium
 // heeft zodra er een tijdpenalty is (Classifications/ChainJoinerParetoAttr_Candidates, audit 6.2); tot dan niet, zodat een
-// keten met flex-been een even dure zonder kon verdringen. Zonder extra wachttijd voor flex (ModelParameters/Advanced/FlexHasTimePenalty)
+// keten met flex-been een even dure zonder kon verdringen. Zonder extra wachttijd voor flex (ModelParameters/Impl/FlexHasTimePenalty)
 // blijft de expressie letterlijk 'Impedance[s]' (CalcCache).
 attribute<bool>                IsFlexLeg                  := MakeDefined(Routes/IsFlex[Route_rel], false), Descr = "#113: been op een flex-lijn = een instap op een flex-lijn";
 // #3: de extra tijd van de rit-opslag (ModelParameters/Advanced/RitOpslagTreinen/ExtraTijd) staat in RitOpslag_ExtraTijd van
 // OD_L (0 in OD_R) en komt er alleen bij als hij ergens groter dan 0 is, zodat de expressie anders gelijk blijft.
 attribute<s>                   Traveltime                 := ='Impedance[s]'
-                                                              + (ModelParameters/Advanced/FlexHasTimePenalty      ? ' + (IsFlexLeg ? convert(ModelParameters/Advanced/FlexExtraWaitingTime, s) : 0[s])' : '')
-                                                              + (ModelParameters/Advanced/RitOpslagHasTimePenalty ? ' + RitOpslag_ExtraTijd' : '');
+                                                              + (ModelParameters/Impl/FlexHasTimePenalty      ? ' + (IsFlexLeg ? convert(ModelParameters/Advanced/FlexExtraWaitingTime, s) : 0[s])' : '')
+                                                              + (ModelParameters/Impl/RitOpslagHasTimePenalty ? ' + RitOpslag_ExtraTijd' : '');
 // #3 (sinds 2026-10-02): mag je aan het begin van dit been instappen en aan het eind uitstappen (GTFS pickup_type en
 // drop_off_type, zie Set/NodeSet/CanBoard en CanAlight)? OD_L/Result en OD_R/Result houden alleen deze benen.
 attribute<bool>                IsBoardAlightAllowed       := ThisSet/NodeSet/CanBoard[OrgZone_rel] && ThisSet/NodeSet/CanAlight[DstZone_rel];
@@ -72,14 +72,14 @@ unit<uint32> impl := .
 	// en matchen de vangnetrijen in FareTable_DOVA; anders faalt Price_IntegrityCheck in DOVA-modus.
 	attribute<string>           Mode_class_DOVA                := Modes/name[Mode_rel] == 'Rail' ? 'Rail' : (Modes/name[Mode_rel] == 'Ferry' ? 'Ferry' : 'BTM');
 	attribute<string>           MC_CG_key_DOVA                 := Mode_class_DOVA + '_' + MakeDefined(Concessiegebied/name[Concessiegebied_rel], 'Buitenland');
-	attribute<FareTable>        FareTable_rel                  := =ModelParameters/Advanced/PriceMethod_effective == 'DOVA'
+	attribute<FareTable>        FareTable_rel                  := =ModelParameters/Impl/PriceMethod_effective == 'DOVA'
 																		? 'rlookup(MC_CG_key_DOVA, FareTable/MC_CG_key)'
 																		: 'MakeDefined(FareTable_rel_initial, FareTable_rel_augmented)';
 	
 	// Check niet alleen dat er een FareTable-rij matcht, maar ook dat die rij daadwerkelijk prijzen bevat
 	// (een gematchte rij met lege prijs zou anders stilletjes null-prijzen opleveren).
 	// IsDefined() geeft altijd een echte bool (ook bij null-rel), dus de && propageert geen nulls.
-	attribute<bool>              Price_IntegrityCheck            := =ModelParameters/Advanced/PriceExportsAndIntegrityChecksNeeded
+	attribute<bool>              Price_IntegrityCheck            := =ModelParameters/Impl/PriceExportsAndIntegrityChecksNeeded
 																		? 'IsDefined(impl/FareTable_rel) && IsDefined(FareTable/FixedPrice[impl/FareTable_rel]) && IsDefined(FareTable/VariablePrice[impl/FareTable_rel])'
 																		: 'const(TRUE,.)';
 
@@ -87,7 +87,7 @@ unit<uint32> impl := .
 	// zonder FareTable-match of met een rij zonder prijs, met het aantal getroffen OD-legs per combinatie.
 	unit<uint32> Ongeprijsd := select_with_org_rel(not(Price_IntegrityCheck))
 	{
-		attribute<string> combo := =ModelParameters/Advanced/PriceMethod_effective == 'DOVA' ? 'MC_CG_key_DOVA[org_rel]' : 'Mode_Agency_CG_Lijn_identifier[org_rel]';
+		attribute<string> combo := =ModelParameters/Impl/PriceMethod_effective == 'DOVA' ? 'MC_CG_key_DOVA[org_rel]' : 'Mode_Agency_CG_Lijn_identifier[org_rel]';
 		unit<uint32> uniek := unique(combo)
 		{
 			attribute<uint32> NrLegs := pcount(rlookup(../combo, values));

@@ -128,7 +128,7 @@ if /I not "%SECTION%"=="all" goto done
 :cars
 if "%SKIP_CARS%"=="1" goto cars_done
 REM Zonder directe autorit (AllowDirectCar FALSE: elke component behalve Car, #117) geen autostores.
-call :run cars_check /ModelParameters/Advanced/AllowDirectCar
+call :run cars_check /ModelParameters/Impl/AllowDirectCar
 if not "!RC!"=="0" goto failed
 findstr /R "^Minimum.0" "%LOGDIR%\UpdateAll_cars_check.txt" >nul
 if not errorlevel 1 (
@@ -150,8 +150,8 @@ if /I not "%SECTION%"=="all" goto done
 
 :chains
 if "%SKIP_CHAINS%"=="1" goto chains_done
-REM Zonder OV (Advanced/MetOV FALSE: de directe ritten WW, CC en Car en MergeOutput, #117) geen ketenstore.
-call :run chains_check /ModelParameters/Advanced/MetOV
+REM Zonder OV (ModelParameters/Impl/MetOV FALSE: de directe ritten WW, CC en Car en MergeOutput, #117) geen ketenstore.
+call :run chains_check /ModelParameters/Impl/MetOV
 if not "!RC!"=="0" goto failed
 findstr /R "^Minimum.0" "%LOGDIR%\UpdateAll_chains_check.txt" >nul
 if not errorlevel 1 (
@@ -182,8 +182,8 @@ if /I not "%SECTION%"=="all" goto done
 
 :legs
 if "%SKIP_LEGS%"=="1" goto legs_done
-REM Zonder OV (Advanced/MetOV FALSE) geen benen nodig.
-call :run legs_check /ModelParameters/Advanced/MetOV
+REM Zonder OV (ModelParameters/Impl/MetOV FALSE) geen benen nodig.
+call :run legs_check /ModelParameters/Impl/MetOV
 if not "!RC!"=="0" goto failed
 findstr /R "^Minimum.0" "%LOGDIR%\UpdateAll_legs_check.txt" >nul
 if not errorlevel 1 (

@@ -1,0 +1,546 @@
+container Advanced : using = "classifications"
+,	Descr = "Choices agreed with PBL and technical choices that a run normally leaves as they are, and the tables PBL may extend: the analysis moments, the origin and destination sets, the parts of the day and the components."
+{
+	// AFGESPROKEN MET PBL. Elke component rekent op prijs en tijd (#117);
+	// de criteria van het samenvoegen staan bovenaan (MergeCriteria). MinimiseCriteria staat in de handtekening van de ketenstore.
+	parameter<string>   MinimiseCriteria                          := 'Price,Time'             , Descr = "De criteria van het front van een component: 'Price', 'Price_Augm', 'Time' of een combinatie, zoals 'Price,Time' (#117). 'Car' en 'Bike' maken auto- en fietsbezit criteria van de eindafweging per vertrekmoment, niet van de ketenrijger; voor de componenten horen die bij MergeCriteria. Staat in de handtekening van de ketenstore.";
+	parameter<string>   CentroidWeightType                        := 'Addresses'            , Descr = "If you want to use weighted centroids for origins, how would you like to weigh the values comprsing the coentroid? Via addresses or population?";
+	// De maximale looptijd van voor- en natransporttypen die geen component gebruikt: geen component loopt naar of van een trein-,
+	// metro-, tram-, IC- of OV-fietshalte. Classifications/TimeInvariantTypes vraagt ze wel; gelijk aan die naar en van elke halte.
+	parameter<min_f>    MaxWalkingTime_Org2RMT_Stops              := /ModelParameters/MaxWalkingTime_Org2Stops,  Descr = "Maximum walking time from origin towards first rail, metro, or tram stop";
+	parameter<min_f>    MaxWalkingTime_Org2RM_Stops               := /ModelParameters/MaxWalkingTime_Org2Stops,  Descr = "Maximum walking time from origin towards first rail or metro stop (RM_Stops: haltes met Mode Rail of Metro in de GTFS)";
+	parameter<min_f>    MaxWalkingTime_Org2Ric_Stops              := /ModelParameters/MaxWalkingTime_Org2Stops,  Descr = "Maximum walking time from origin towards first InterCity train station";
+	parameter<min_f>    MaxWalkingTime_OVF_Stops2Dest             := /ModelParameters/MaxWalkingTime_Stops2Dest,  Descr = "Maximum walking time from last stop which is an OV-fiets station towards destination";
+	parameter<min_f>    MaxWalkingTime_RMT_Stops2Dest             := /ModelParameters/MaxWalkingTime_Stops2Dest,  Descr = "Maximum walking time from last stop which is a RMT station towards destination";
+	parameter<min_f>    MaxWalkingTime_RM_Stops2Dest              := /ModelParameters/MaxWalkingTime_Stops2Dest,  Descr = "Maximum walking time from last stop which is a rail or metro stop (RM_Stops) towards destination";
+
+	/// GENERAL
+	// BUURT NAAR BUURT (#126): twee buurtvarianten, elk met de CBS-buurtgrenzen en de BAG van
+	// hetzelfde jaar, en met hetzelfde punt als herkomst en als bestemming: het zwaartepunt van de woonadressen van de
+	// buurt (SourceData/RegioIndelingen/Buurt/address_weighted_centroid; een buurt zonder woningen krijgt het midden van
+	// zijn vlak). Buurt2023 hoort bij de peildata 2015, 2023 en 2024, Buurt2025 bij 2025 en 2026; de presets van die
+	// peildata hebben dezelfde Regios en BAG_snapshot, zodat ook 'Buurt' en de BAG-herkomsten die variant volgen.
+	unit<uint8> Buurtsets : nrofrows = 2
+	, Descr = "De buurtvarianten (#126). Kies er een als Orgset en Destset (org_domain_list, dest_domain_list): dan gelden zijn RegioIndelingen_year en BAG_snapshot, welke peildatum ook gekozen is."
+	{
+		attribute<string> name                 : ['Buurt2023', 'Buurt2025'];
+		attribute<string> RegioIndelingen_year : ['2023', '2025'];
+		attribute<string> BAG_snapshot         : ['20230101', '20250101'];
+	}
+	parameter<string>   LISA_year                                 := '2018'                 , Descr = "Which year of the LISA-dataset would you like to use?";
+	parameter<bool>     Dests_geclusterd                          := FALSE                  , Descr = "Would you like to cluster destinations? For example useful for firm destinations, with many firms at the same location. To determine the area of clustering look at Dest_location_scale";
+	parameter<string>   Dest_location_scale                       := '100m'                 , Descr = "If clustering the destination, at which scale would you like to cluster? Options: '100m', '500m', '1000m', '5000m', '10000m', '50000m'";
+	parameter<string>   Org_location_scale                        := '500m'                 , Descr = "Celmaat waarop de BAG-herkomsten geclusterd worden (BAG_woonpanden_Clustered).\n"
+					"Opties zijn de celmaten uit Geography/Gridsizes: '25m', '100m', '500m', '1000m', '5000m', '10000m', '50000m'.\n"
+					"Stond tot 2026-09-22 vast aan Dest_location_scale; op 100m levert de BAG-snapshot van 1-1-2026 588.903 herkomsten, wat de blokindeling en de OD-omvang onwerkbaar maakt.\n"
+					"Losgekoppeld omdat de bestemmingen hun eigen maat mogen houden.";
+	parameter<bool>     ExcludeOrgBuurtCentroidsWithoutAddressPop := FALSE                  , Descr = "Would yo like to exclude buurt centroid that do not contain addresses or population (depending on CentroidWeightType).";
+	parameter<uint32>   MaxPathLength                             := 259                    , Descr = "Het langste bestandspad dat Windows zonder longPathAware toestaat; GeoDMS vraagt geen lange paden aan. Elke storefamilie controleert er vooraf op (Templates/StoreSignature_T/PathGate), zodat een te lang pad faalt voordat er gerekend wordt (NetworkModel_PBL#118).";
+	parameter<bool>     LegsDecoupled                             := FALSE                  , Descr = "Write the legs of pre- and post-transport to a store in IntermediateResults (batch/UpdateAll.cmd legs) and read them back? Off: every run calculates them, which takes a few minutes per base set (#133).";
+	parameter<bool>     MaakMediaan                               := FALSE
+	,	Descr = "Schrijft de uitvoerstap per blok ook de mediaan per HB-paar over de vertrekmomenten (Mediaan/tt_<datum>_mediaan_<n>of<N>)? Dat is de mediaan van de goedkoopste optie per vertrekmoment (laagste Price, bij gelijke prijs de snelste). Standaard niet: de medianen worden niet opgeleverd.";
+	// De spelling van zeven kolomnamen van de parquet-uitvoer. GeoDMS onthoudt van een naam de spelling waarin hij het eerst gelezen
+	// wordt, voor de hele configuratie (namen zijn hoofdletterongevoelig), en gdalwrite.vect schrijft die spelling als kolomnaam.
+	// Elders heten deze items Price_augm en Traveldist_... Dit bestand
+	// wordt als eerste gelezen, dus deze namen leggen de spelling van de csv-kop vast. Ze worden nergens gebruikt.
+	container ParquetKolomSpelling
+	{
+		parameter<bool> Price_Augm;
+		parameter<bool> TravelDist_Bus;
+		parameter<bool> TravelDist_Metro;
+		parameter<bool> TravelDist_Tram;
+		parameter<bool> TravelDist_Rail;
+		parameter<bool> TravelDist_Ferry;
+		parameter<bool> TravelDist_N;
+	}
+	parameter<uint8>    NumberOfItersForNetworkCleanUp            := 10b                    , Descr = "In the network clean up method, how many iternations should be used?";
+
+	// PUBLIC TRANSPORT
+	parameter<string>   NS_TariffChoice                           := 'Price_FullFare'      , Descr = "Which tarif class for NS would you like to use. Full fare, or a discounted fare? Choices: 'Price_FullFare', 'Price_20pct_Discount' of 'Price_40pct_Discount'.";
+	parameter<m>        MaxTransferDist                           := 500[m]                 , Descr = "Maximum Euclidean distance between public transport stops that is allowed to be walked for transfers.";
+	parameter<string>   Concessiegebied_source                    := 'manual'               , Descr = "Use manual creation of concessiegebieden (based on CROW poster), or shapefile from CROW. Options:  manual, shape";
+	parameter<string>   PriceMethod                               := 'DOVA'             , Descr = "OV-prijsmethode: 'Detailed' (handmatige FareTable per Mode/Agency/Concessie/Lijn, zie OVprijzen/FareTable_2023) of 'DOVA' (concessie-brede km-tarieven uit DOVA-overzicht, terug tot 2013). Bij 'DOVA' bepaalt Impl/FareTable_year welk jaar (2013-2026) wordt gebruikt.";
+	parameter<m>        DistanceTrainStationsSelection            := 350[m]                 , Descr = "To find out which GTFS-stops relate to which trainstation a geographic search distance is used.";
+	parameter<m>        DistanceStopClusters                      := 100[m]                 , Descr = "To cluster stops which belong to the same 'stop' a geographic search distance is used. Stops in opposite directions should be considered the same stop cluster. Travelling from stops within a cluster is non-sensical.";
+	unit<uint8> OVFiets_Locaties : nrofrows = 2
+	, Descr = "De bestanden met de OV-fietslocaties in %NetworkModel_dir%/Infrastructuur, per jaar (AnalysisMomentPresets/OVFiets_year): 2023 283 locaties, gegeocodeerd door JC; 2025 de lijst van PBL (JB) van 13-10-2026, 293 locaties, gegeocodeerd met batch/OVFiets2025_Geocode.dms (kolom Bron)."
+	{
+		attribute<string> year : ['2023', '2025'];
+		attribute<string> file : ['20260408_Locaties.OVF_2023_Geocoded.csv', '20261013_Locaties.OVF_2025_Geocoded.csv'];
+	}
+	parameter<m>        DistanceOVFietsStops                      := 200[m]                 , Descr = "Maximale zoekafstand om OVfiets stations te koppelen aan GTFS haltes.";
+	parameter<m>        DistanceKnooppuntClusters                 := 150[m]                 , Descr = "Clusterafstand om GTFS-haltes samen te voegen tot een OV-knooppunt (single linkage via connected_parts). Perrons/haltekommen van hetzelfde knooppunt vallen zo samen.";
+	parameter<uint32>   Knooppunt_MinLijnen_BTM                   := 8                      , Descr = "Minimaal aantal unieke bus/tram/metro-lijnen op een haltecluster om als BTM-knooppunt te gelden (kruisende lijnen). Treinstations zijn altijd knooppunt; een solitaire metrohalte niet (die telt via de BTM-lijnen mee). Bij 8 lijnen ca. 270 BTM-knopen excl. metro (GTFS 20260316), schaal TBOV-actieagenda (~700 knooppunten totaal); bij 5 lijnen ca. 780.";
+	parameter<uint32>   Knooppunt_MinVertrekken_BTM               := 150                    , Descr = "Minimaal aantal bus+tram+metro-vertrekken per dag (Impl/Analysis_date) op een haltecluster om als BTM-knooppunt te gelden. 150/dag komt overeen met ca. 8-10 vertrekken/uur overdag.";
+	parameter<float32>  Knooppunt_BedrijfsurenPerDag              := 18f                    , Descr = "Aantal bedrijfsuren per dag waarmee vertrekken/dag wordt omgerekend naar frequentie/uur, t.b.v. de ontsluitingswaarde (vlindermodel).";
+	parameter<m>        Knooppunt_DominantieRadius                := 1500[m]                , Descr = "Niet verhogen naar 2000m: dan valt o.a. busstation Drachten weg onder een sterkere kandidaat-halte in de buurt. Dominantiefilter (competitie, vgl. Goudappel 2024): een BTM-knooppunt vervalt als binnen deze straal een kandidaat met hogere netwerkwaarde ligt. Voorkomt reeksen knopen langs HOV-corridors (Zuidas, Uithoflijn), meerdere punten per groot complex (Schiphol) en corridorhaltes zonder eigen regiofunctie naast een station (Anderlechtlaan bij Station Zuid, De Hoek bij Hoofddorp). Een sterke BTM-knoop naast een zwak station blijft gewoon staan (Zoetermeer Centrum West naast Zoetermeer station); treinstations zelf vervallen nooit onder BTM-knopen.";
+	parameter<m>        Knooppunt_DedupRadiusTrein                := 400[m]                 , Descr = "Twee treinclusters binnen deze straal (bv. NS-perrons en stadshaltes van hetzelfde station die net buiten de clusterafstand vallen, zoals Sloterdijk) worden ontdubbeld: het cluster met de meeste treinvertrekken blijft. Kortste afstand tussen twee echte NL-stations is ca. 800m, dus 400m is veilig.";
+	parameter<uint32>   Knooppunt_MinRichtingen_BTM               := 3                      , Descr = "Minimaal aantal windrichtingen (4 sectoren: O/W/N/Z op basis van de richting naar de volgende halte) waarin BTM-vertrekken het cluster verlaten. Een corridor-bundel (R-net over een as, bv. Ilpendam) heeft er 2; een echt knooppunt met kruisende of uitwaaierende lijnen 3-4. Operationaliseert 'aantal richtingen' uit het vlindermodel.";
+	parameter<float32>  Knooppunt_MinNetwerkwaarde_BTM            := 0f                     , Descr = "Optionele extra drempel op de netwerkwaarde (vlindermodel) voor BTM-knooppunten; 0 = uit. Ter referentie (GTFS 20260316): Amsterdam CS 3400, Station Noord 988, Zoetermeer Centrum West 501, Hoofddorp De Hoek 331, Anderlechtlaan 194, Lemmer busstation 111, Zierikzee busstation 78. Let op: een hoge drempel (bv. 500) schrapt vrijwel alle busstations in spoorloze kernen (Zierikzee, Lemmer, Drachten) - precies de knopen waarvoor deze laag is toegevoegd.";
+	parameter<min_f>    MaxTransferTimeForBoardingSurcharge       := 35[min_f]              , Descr = "Maximale overstap tijd om binnen opstap basistarief te blijven. Dit is door Nederlands OV-prijs model bepaald. Dus niet zomaar aanpassen.";
+	parameter<m_s>      TransferEffectiveSpeed                    := value(4.5[km_hr] / 1.2f, m_s), Descr = "De loopsnelheid tijdens het overstappen. X km/uur / 1.2 (correctie voor Manhattan distances) en dan geconverteerd naar meter/sec.";
+	parameter<bool>     IncludeWaitingAtHomeInTravelTime          := FALSE                  , Descr = "Wil je dat de wachttijd thuis wordt meegenomen in de totale reisduur, bij vertrektijd vanaf bepaald moment?";
+	parameter<float32>  MinServiceDayTripShare                    := 0.95f                  , Descr = "Minimaal aandeel ritten van elke dienstdag die het analysevenster nodig heeft, ten opzichte van de drukste dag van dezelfde weekdag in de feed. Een feed is na een paar weken onvolledig en een feestdag rijdt een zondagsdienst; verlaag dit alleen bewust.";
+	parameter<Time>     MaxWaitingTimeAtOrigin                    := 899[Time]             , Descr = "Maximale wachttijd thuis. Zet je dit hoog, zonder dat dit in de reistijd zit (WeighingWaitingAtOriginPreTransport = 0) dan kun je ongemerkt veel later vertrekken dan je denkt.";
+	parameter<min_f>    GradeSeparatedTransferPenalty             := 0[min_f]               , Descr = "Does a public transport stop have a lot of vertical distance to traverse? In that case a time penalty will be given when traffering through that stop.";
+	parameter<min_f>    Cycling_PreTransport_Penalty              := 0[min_f]               , Descr = "Parkeertijd van de fiets aan het eind van elk fietsbeen in het voortransport (bij een halte of station), opgeteld in de OD-matrix van het been (ExtraTime_seconds).";
+
+	// FLEXVERVOER: GEBIEDSVERVOER OP AFROEP EN BELBUSSEN (ObjectVision/NetworkModel_PBL#113, #116)
+	// Bravoflex, U-flex, SyntusFlex, FlexRRReis, Overal Flex, Texelhopper, Opstapper en belbussen staan in de
+	// GTFS-feeds als gewone lijnen met ritten, maar moeten 30-60 min vooraf geboekt worden. NeTEx heeft er geen
+	// gebiedsgeometrie voor (alleen de BISON flex-markering), dus de herkenning loopt op lijnnaam
+	// (SourceData/Infrastructure/GTFS/RelevantSelection/Routes/IsFlex).
+	// IsFlexMeenemen = FALSE neemt geen flex mee; met FlexMinInterval, FlexExtraWaitingTime en FlexCallCosts alle drie 0
+	// rekent het de flexritten zoals de feed ze heeft. De standaard (#116): meenemen, met 15 min, 30 min en 0,00 euro;
+	// de flextag van ketenstore en uitvoer (Impl/Flex_FileTag) is daarmee '_flex15i30w0ct'.
+	parameter<bool>     IsFlexMeenemen                            := TRUE                   , Descr = "Neemt het model het flexvervoer (Routes/IsFlex: gebiedsvervoer op afroep en belbussen) mee? FALSE = alle links (rit- en wachtlinks) van flexlijnen uit het OV-net. De OV-knooppunten tellen de flexvertrekken hoe dan ook mee.";
+	parameter<min_f>    FlexMinInterval                           := 15[min_f]              , Descr = "Minimum tijdsinterval tussen de ritten van een flexlijn: per ritpatroon (route, eerste en laatste halte, aantal haltes) blijft per blok van dit interval, vanaf 00:00 van de GTFS-dag, alleen de eerste rit in het OV-net (LoadFeeds/FlexOptions). Dunt flexlijnen die als rit per minuut zijn ingeroosterd (#116); 0 = niet dunnen.", IntegrityCheck = "this >= 0[min_f]";
+	parameter<min_f>    FlexExtraWaitingTime                      := 30[min_f]              , Descr = "Extra wachttijd per instap op een flexlijn, opgeteld bij de reistijd van het been: de beltijd en de onzekerheid over het aanrijtijdstip (#116). Telt mee in de MaxPTTime-grens en maakt TravelTime een criterium van de ketenrijger (Classifications/ChainJoinerParetoAttr_Candidates/HasTimePenalty).", IntegrityCheck = "this >= 0[min_f]";
+	parameter<Euro>     FlexCallCosts                             := 0.00[Euro]             , Descr = "Belkosten per instap op een flexlijn, opgeteld bij de prijs van het been (in Price_O, dat de ketenrijger bij elke overstap optelt; #116).", IntegrityCheck = "this >= 0[Euro]";
+	unit<uint8> FlexRouteTerms : nrofrows = 4
+	, Descr = "Zoektermen (kleine letters, regex-alternatieven) waarop een GTFS-route als flex geldt; gezocht in lowercase(route_short_name + ' ' + route_long_name). Bewust smal: 'buurtbus'/'wijkbus' (dienstregeling), 'hopper' (Spijkhopper/Maasvlaktehopper zijn gewone EBS-lijnen), 'vlinder' (Arriva-kleinbussen op dienstregeling en de plaatsnaam 'Zaandam De Vlinder') en 'taxibus i.p.v. trein' (treinvervangend) horen er NIET in; die staan als bijna-treffers in FlexNearMissTerms en /Output/FlexReport/NearMiss."
+	{
+		attribute<string> term        : ['flex', 'texelhopper', 'opstapper', 'belbus'];
+		attribute<string> toelichting : ['Bravoflex (Arriva), Connexxion FLEX, Overal Flex, FlexRRReis, SyntusFlex, U-flex', 'Texelhopper (TXL)', 'Opstapper Fryslan (Arriva/Qbuzz)', 'belbus, generiek'];
+	}
+	unit<uint8> FlexNearMissTerms : nrofrows = 5, Descr = "Termen die op flex lijken maar (nu) niet als flex gelden; alleen voor /Output/FlexReport/NearMiss."
+	{
+		attribute<string> term : ['buurtbus', 'wijkbus', 'hopper', 'vlinder', 'taxi'];
+	}
+
+	// RIT-OPSLAG VOOR SPECIALE TREINEN EN NS INTERNATIONAL (#3)
+	// De NS-prijs van een reis volgt uit de tariefeenheden van het stationspaar (begin en eind van de NS-reis), over de
+	// klassieke route: de HSL telt voor het tarief niet mee (SourceData/Infrastructure/OVprijzen/NS/Tariefnet_UitgeslotenKanten).
+	// Wie tussen Schiphol en Rotterdam over de HSL reist (Intercity direct, Eurocity Direct) of binnenlands de ICE neemt,
+	// betaalt daarbovenop per rit een toeslag. Die hangt van de rit af, niet van het stationspaar: hij komt per NS-been bij
+	// de prijs (Price_S in PublicTransport_Prep/OD_L) en de ketenrijger telt hem los van het doorgaande NS-tarief op.
+	parameter<bool>     IsRitOpslagMeenemen                       := TRUE                   , Descr = "Telt de rit-opslag van de treinen in RitOpslagTreinen mee in de prijs, en hun ExtraTijd in de reistijd? FALSE = geen toeslag.";
+	parameter<bool>     IsNSInternationalInLnet                   := TRUE                   , Descr = "Doen de treinen van NS International (Eurocity Direct, EuroCity, ICE, IC Berlijn) mee in het NS-net (L-net) voor binnenlandse reizen, met het NS-tarief en hun rit-opslag? Treinen waarop een NS-kaartje nooit geldt (Eurostar, Nightjet) vallen er toch uit: zie TreinenZonderNSKaartje, en de GTFS staat op hun NL-haltes meestal geen in- of uitstappen toe (pickup_type of drop_off_type 1). FALSE = alle NS International-treinen buiten het net.";
+	unit<uint8> RitOpslagTreinen : nrofrows = 2
+	, Descr = "Treinproducten met een rit-opslag. Station_A en Station_B: NS-stationscodes van het traject waarover de opslag geldt; een been betaalt hem als zijn rit tussen in- en uitstappen beide stations aandoet. Leeg: elk been op het product betaalt hem. ExtraTijd: extra reistijd per instap, zoals FlexExtraWaitingTime (bijvoorbeeld voor reserveren). Het bedrag per jaar staat in SourceData/Infrastructure/OVprijzen/NS/RitOpslag; welke routes bij een product horen in RitOpslagRouteNamen."
+	{
+		attribute<string> name        : ['HSL_Schiphol_Rotterdam', 'ICE_binnenland'];
+		attribute<string> Station_A   : ['shl', ''];
+		attribute<string> Station_B   : ['rtd', ''];
+		attribute<min_f>  ExtraTijd   : [0, 0];
+		attribute<string> toelichting : ['NS-toeslag ICE/IC direct tussen Schiphol Airport en Rotterdam Centraal (sinds 15-12-2013 alleen dit traject), ook in de Eurocity Direct; Breda-Rotterdam over de HSL is toeslagvrij', 'NS-toeslag ICE/IC direct op elk binnenlands traject van de ICE (Amsterdam-Utrecht-Arnhem, Amsterdam-Amersfoort-Hengelo)'];
+	}
+	unit<uint8> RitOpslagRouteNamen : nrofrows = 4
+	, Descr = "De route_short_name's (kleine letters, exact) waaraan een route van het L-net een product van RitOpslagTreinen herkent; zie SourceData/Infrastructure/GTFS/RelevantSelection/Routes/RitOpslag_rel. 'Intercity direct' heet zo bij NS en NS International (2024: HSN-treinen, 2025-2026: ICD-treinen), de ICE heet 'ICE International' (2024-2025) of 'ICE' (2026)."
+	{
+		attribute<string>           route_short_name : ['intercity direct', 'eurocity direct', 'ice', 'ice international'];
+		attribute<RitOpslagTreinen> RitOpslag_rel    : [0, 0, 1, 1];
+	}
+	unit<uint8> TreinenZonderNSKaartje : nrofrows = 4
+	, Descr = "Treinproducten van het L-net waarop een NS-kaartje nooit geldt (alleen een eigen kaartje met reservering), op route_short_name (kleine letters, exact); hun ritten doen niet mee in het L-net (PublicTransport_Prep/Set_L, GTFS/RelevantSelection/Routes/IsZonderNSKaartje). Nodig naast pickup_type/drop_off_type: in de feed van 20241001 laten 4 van de 30 Eurostar-ritten Amsterdam-Parijs uitstappen in Rotterdam toe, met een Eurostar-kaartje."
+	{
+		attribute<string> route_short_name : ['eurostar', 'thalys', 'nightjet', 'european sleeper'];
+	}
+
+	parameter<bool>     IncludeWalkingCostsInPrice                := FALSE                  , Descr = "Wil je reistijdkosten van lopen meenemen in de uiteindelijke 'te bepalen' prijs.";
+	parameter<bool>     IncludeCyclingCostsInPrice                := TRUE                   , Descr = "Wil je reistijdkosten van fietsen meenemen in de uiteindelijke 'te bepalen' prijs.";
+	parameter<bool>     IncludeCarCostsInPrice                    := TRUE                   , Descr = "Telt de kostprijs van de directe autorit (Car_FixedCosts_PerTrip + afstand x Car_CostPerKm) mee in Price? Zo niet, dan is de auto in het front gratis en wint hij op prijs altijd.";
+	
+	// COMPONENTEN (#117): een component is een directe rit (WW, CC of
+	// Car) of een OV-reis <voortransport>_PT_<natransport>, met een voortransporttype uit VoortransportTypen en een natransporttype
+	// uit NatransportTypen; alle 25 combinaties bestaan. Elke component kiest op MinimiseCriteria (prijs en tijd). Samenvoegen is
+	// geen component: dat doet een run met MergeOutput, over de componenten in MergeComponents, met autobezit en fietsbezit als
+	// criteria. Zo is de variant van JC (lopen naar elke halte of fietsen naar trein en metro, lopen na het OV, en
+	// direct fietsen) de samenvoeging van W_PT_W, C_RM_PT_W en CC. Een e-bike is in te stellen met de fietsparameters.
+	unit<uint8> VoortransportTypen : nrofrows = 5
+	, Descr = "De voortransporttypen van de OV-componenten: lopen naar elke halte (W), fietsen naar elke halte (C), naar een trein- of metrohalte (C_RM), naar een trein-, metro- of tramhalte (C_RMT) of naar een IC-station (C_Ric). Namen uit Classifications/TimeInvariantTypes."
+	{
+		attribute<string> name             : ['Org2Stops_Walking', 'Org2Stops_Cycling', 'Org2RM_Stops_Cycling', 'Org2RMT_Stops_Cycling', 'Org2Ric_Stops_Cycling'], IntegrityCheck = "IsDefined(rlookup(this, /Classifications/TimeInvariantTypes/name))";
+		attribute<uint32> BlokkenPerPortie : [50, 25, 25, 25, 25], Descr = "Herkomstblokken per GeoDmsRun in de uitvoerstap (batch/WriteOutputBlocks.ps1) van de OV-componenten met dit voortransport, dat het geheugen bepaalt: een kleinere portie houdt het geheugen lager, een grotere betaalt de opstart minder vaak. 0 = alle blokken in een portie. De omgevingsvariabele OUTPUT_BATCHSIZE gaat hier boven.";
+		attribute</Classifications/TimeInvariantTypes> TimeInvariantTypes_rel := rlookup(name, /Classifications/TimeInvariantTypes/name);
+		attribute<string> code             := /Classifications/TimeInvariantTypes/Mode_abbrev[TimeInvariantTypes_rel] + (/Classifications/TimeInvariantTypes/StopClass[TimeInvariantTypes_rel] != '' ? '_' + /Classifications/TimeInvariantTypes/StopClass[TimeInvariantTypes_rel] : ''), Descr = "W, C, C_RM, C_RMT of C_Ric: zoals in ModeUsed en Impl/OV_PreTransport_Typen/ExportName.";
+	}
+	unit<uint8> NatransportTypen : nrofrows = 5
+	, Descr = "De natransporttypen van de OV-componenten: lopen (W), fietsen van elke halte (C), van een trein- of metrohalte (RM_C) of van een trein-, metro- of tramhalte (RMT_C), of de OV-fiets (OVf_C), alleen van een halte bij een OV-fietslocatie (DistanceOVFietsStops). Alleen de OV-fiets huurt; bij C, RM_C en RMT_C staat een eigen fiets bij de laatste halte (PostTransport_Cycling_Time_Costs). Namen uit Classifications/TimeInvariantTypes."
+	{
+		attribute<string> name             : ['Stops2Dest_Walking', 'Stops2Dest_Cycling', 'RM_Stops2Dest_Cycling', 'RMT_Stops2Dest_Cycling', 'OVF_Stops2Dest_Cycling'], IntegrityCheck = "IsDefined(rlookup(this, /Classifications/TimeInvariantTypes/name))";
+		attribute</Classifications/TimeInvariantTypes> TimeInvariantTypes_rel := rlookup(name, /Classifications/TimeInvariantTypes/name);
+		attribute<string> code             := (/Classifications/TimeInvariantTypes/StopClass[TimeInvariantTypes_rel] != '' ? /Classifications/TimeInvariantTypes/StopClass[TimeInvariantTypes_rel] + '_' : '') + /Classifications/TimeInvariantTypes/Mode_abbrev[TimeInvariantTypes_rel], Descr = "W, C, RM_C, RMT_C of OVf_C: zoals in ModeUsed en Impl/OV_PostTransport_Typen/ExportName.";
+	}
+	unit<uint8> PT_Componenten := combine_uint8(VoortransportTypen, NatransportTypen)
+	, Descr = "De OV-componenten: elke combinatie van een voor- en een natransporttype, zonder directe rit."
+	{
+		attribute<string> name             := VoortransportTypen/code[first_rel] + '_PT_' + NatransportTypen/code[second_rel];
+		attribute<string> Voortransport    := VoortransportTypen/name[first_rel];
+		attribute<string> Natransport      := NatransportTypen/name[second_rel];
+		attribute<uint32> BlokkenPerPortie := VoortransportTypen/BlokkenPerPortie[first_rel];
+		attribute<bool>   NeedsBike        := /Classifications/TimeInvariantTypes/NeedsOwnBike[VoortransportTypen/TimeInvariantTypes_rel[first_rel]] || /Classifications/TimeInvariantTypes/NeedsOwnBike[NatransportTypen/TimeInvariantTypes_rel[second_rel]], Descr = "Vraagt de component een eigen fiets: fietsen in het voortransport, of in het natransport behalve de OV-fiets?";
+		attribute<bool>   UsesCycling      := /Classifications/TimeInvariantTypes/NetworkType[VoortransportTypen/TimeInvariantTypes_rel[first_rel]] == 'Cycling' || /Classifications/TimeInvariantTypes/NetworkType[NatransportTypen/TimeInvariantTypes_rel[second_rel]] == 'Cycling', Descr = "Rijdt de component over het fietsnet: fietsen in voor- of natransport, ook de OV-fiets?";
+	}
+	unit<uint8> DirecteComponenten : nrofrows = 3
+	, Descr = "De directe ritten als component: WW lopen, CC fietsen, Car de auto (in ModeUsed AA), zonder OV."
+	{
+		attribute<string> name             : ['WW', 'CC', 'Car'];
+		attribute<bool>   DirectWalking    : [TRUE, FALSE, FALSE];
+		attribute<bool>   DirectCycling    : [FALSE, TRUE, FALSE];
+		attribute<bool>   DirectCar        : [FALSE, FALSE, TRUE];
+	}
+	unit<uint8> Componenten := union_unit_uint8(DirecteComponenten, PT_Componenten)
+	, Descr = "De componenten, te kiezen met /ModelParameters/Component: de directe ritten en de OV-componenten (#117). De uitvoer van 2023 is geleverd als W_PT (WW en W_PT_W samen) en C_PT (CC, C_PT_W en C_PT_OVf_C samen)."
+	{
+		attribute<string> name             := union_data(., DirecteComponenten/name, PT_Componenten/name);
+		attribute<string> Voortransport    := union_data(., const('Org2Stops_Walking', DirecteComponenten), PT_Componenten/Voortransport), Descr = "Het voortransporttype; bij een directe rit niet gebruikt.";
+		attribute<string> Natransport      := union_data(., const('Stops2Dest_Walking', DirecteComponenten), PT_Componenten/Natransport), Descr = "Het natransporttype; bij een directe rit niet gebruikt.";
+		attribute<bool>   DirectWalking    := union_data(., DirecteComponenten/DirectWalking, const(FALSE, PT_Componenten));
+		attribute<bool>   DirectCycling    := union_data(., DirecteComponenten/DirectCycling, const(FALSE, PT_Componenten));
+		attribute<bool>   DirectCar        := union_data(., DirecteComponenten/DirectCar, const(FALSE, PT_Componenten));
+		attribute<bool>   MetOV            := union_data(., const(FALSE, DirecteComponenten), const(TRUE, PT_Componenten)), Descr = "Doen de OV-ketens mee? Zonder OV leest de eindafweging per vertrekmoment alleen de directe ritten, en hoeft er geen ketenstore te zijn.";
+		attribute<bool>   UsesCycling      := union_data(., DirecteComponenten/DirectCycling, PT_Componenten/UsesCycling), Descr = "Rijdt de component over het fietsnet van CyclingNetwork? CC, en een OV-component met fietsen in voor- of natransport, ook de OV-fiets; voor de component van de run gelijk aan Impl/UsesCycling.";
+		attribute<string> UitvoerAchtervoegsel := '_' + name + (UsesCycling ? /ModelParameters/Impl/CyclingNetwork_DirTag : ''), Descr = "Achter OutputLabel in de naam van de uitvoermap (Impl/OutputDir): _ en de naam van de component, met Impl/CyclingNetwork_DirTag (_fb) als de component over het fietsnet rijdt; het samenvoegen zoekt de componenten zo (NetworkSetup/ComponentMerge).";
+		attribute<uint32> BlokkenPerPortie := union_data(., const(50, DirecteComponenten, uint32), PT_Componenten/BlokkenPerPortie), Descr = "Herkomstblokken per GeoDmsRun in de uitvoerstap: 50 bij een directe rit, bij een OV-component die van zijn voortransport (VoortransportTypen/BlokkenPerPortie).";
+		attribute<bool>   EenVertrekmoment := union_data(., const(TRUE, DirecteComponenten), const(FALSE, PT_Componenten)), Descr = "Rekent en schrijft deze component een vertrekmoment, dat van het congestiemoment van het dagdeel (Impl/CongestionMinute; bij de ochtendspits 07:30), in plaats van vier per kwartier? Zo bij WW en CC, die niet van het vertrekmoment afhangen, en bij Car met een autostore per congestiemoment (#132). Het samenvoegen leest het ene bestand voor elk vertrekmoment.";
+		attribute<bool>   EenVertrekmoment_Eff := EenVertrekmoment && !(DirectCar && /ModelParameters/Impl/CarTimeDependent), Descr = "EenVertrekmoment, behalve bij de tijdafhankelijke autorit (Impl/CarTimeDependent): dan verschillen de vertrekmomenten echt.";
+		attribute<string> ExportKlasse     := union_data(., DirecteComponenten/name == 'Car' ? 'Car' : 'Direct', const('PT', PT_Componenten)), Descr = "De soort kolommen van de parquet-uitvoer van de component (Impl/ExportKlasse): Direct (WW, CC), Car of PT. Het samenvoegen leest ze zo.";
+		attribute<bool>   NeedsCar         := DirectCar, Descr = "Vraagt de component een auto? Alleen Car.";
+		attribute<bool>   NeedsBike        := union_data(., DirecteComponenten/DirectCycling, PT_Componenten/NeedsBike), Descr = "Vraagt de component een eigen fiets? CC, en een OV-component met fietsen in voor- of natransport behalve de OV-fiets.";
+		attribute<bool>   InMerge          := IsDefined(strpos(',' + lowercase(/ModelParameters/MergeComponents) + ',', ',' + lowercase(name) + ',')), Descr = "Staat deze component in MergeComponents?";
+	}
+
+	unit<uint8> DirectModes : nrofrows = 3
+	, Descr = "De directe modaliteiten die naast het OV in het front per HB-paar kunnen meedoen, met hun schakelaar. De naam is de naam van de bron onder NetworkSetup/PublicTransport_Prep/Direct."
+	{
+		attribute<string> name    : ['Walking', 'Cycling', 'Car'];
+		attribute<string> abbrev  : ['W', 'C', 'A'], Descr = "Letter van de modaliteit in ModeUsed (Modes/Selection/name_abbr); een directe rit heet in de uitvoer WW, CC of AA.";
+		attribute<bool>   Allowed := union_data(., /ModelParameters/Impl/AllowDirectWalking, /ModelParameters/Impl/AllowDirectCycling, /ModelParameters/Impl/AllowDirectCar);
+	}
+	parameter<uint32>   NumberOfStopBlocks                        := Impl/IsOD ? 1 : 500         , Descr = "In the generation of the unlinked PT-network, how many stop blocks should be used in the Ketenrijger? Less means more memory usage per unit of time. Bij een HB-paar (Impl/IsOD) een blok: de haltes waar een voortransportbeen van de herkomst eindigt (PublicTransport_Prep/OD_Haltes).";
+	parameter<uint32>   MaxStopBlockSize                          := 104                     , Descr = "In the generation of the unlinked PT-network, what is maximum stop block size? Make sure that the product of this value and the NumberOfStopBlocks is sufficient to include all stops";
+	parameter<uint32>   NumberOfOrgBlocks                         := Impl/IsOD ? 1 : 450         , Descr = "In the generation of PT-output files, how many origin blocks should be used? Less means more memory use, but less overhead. Bij een HB-paar (Impl/IsOD) een blok met de ene herkomst. Het product met MaxOrgBlockSize moet minstens het aantal herkomsten zijn; ChecksBeforeRunning/Check_OriginBlocks meldt welk getal nodig is.";
+	parameter<uint32>   MaxOrgBlockSize                           := IsDefined(Impl/Buurtset_Org) ? 33 : 200, Descr = "In the generation of PT-output files, what is maximum origin block size? 200 herkomsten per blok, 33 bij een buurtvariant als Orgset (#126): 450 x 33 dekt de buurten van 2023 en 2025, zodat alle blokken gevuld zijn. Het product met NumberOfOrgBlocks moet minstens het aantal herkomsten zijn.";
+	parameter<bool>     ParetoLegs_R                              := TRUE                   , Descr = "Use the pareto option of impedance_matrix for the regional public transport legs (OD_R): with equal travel time the shortest, and so cheapest, route is kept (#115).";
+	parameter<bool>     ParetoLegs_L                              := FALSE                  , Descr = "Same for the NS legs (OD_L); off, because the NS fare depends on the first and last station, not on the distance travelled.";
+	// PARETO-FRONT VOOR DE DIRECTE AUTORIT (#115, #88). De auto-Dijkstra
+	// levert per HB-paar EEN route, de snelste. Met de pareto-optie levert dezelfde operator per HB-paar het (reistijd,
+	// afstand)-front: de snelle snelwegroute naast de korte binnenweg. De prijs is afstand x Car_CostPerKm, dus dat is ook
+	// het (tijd, prijs)-front dat de eindafweging per HB-paar tegen OV, lopen en fietsen afweegt. Alleen de directe rit
+	// (PublicTransport_Prep/Direct/Car) gebruikt de pareto-variant; de auto-exports blijven scalair.
+	parameter<bool>     ParetoLegs_Car                            := TRUE                   , Descr = "Gebruik de pareto-optie van impedance_matrix_od64 voor de directe autorit in het front per HB-paar: per HB-paar alle (reistijd, afstand)-optimale routes in plaats van alleen de snelste. Kost meer rekentijd en geheugen dan de scalaire Dijkstra; zie CarFrontEpsilon.";
+	parameter<km>       CarLegDistanceQuantum                     := 0.04[km]               , Descr = "Alleen met CarFrontEpsilon 0: kwantisatie van het tweede pareto-criterium, de afstand per link, met dithering (ImpedanceMatrix_with_AltImp_pareto_T/AltImp_q), zodat de fronten op een wegennet met continue lengtes niet ontsporen. 40 m is 1 ct bij 0,24 euro per km.";
+	parameter<float32>  CarFrontEpsilon                           := 0.01f                  , Descr = "Relatieve epsilon van het autofront (#88, ObjectVision/GeoDMS#1282): het front loopt in volgorde van afstand, de kortste route eerst, en een langere route blijft alleen als ze meer dan deze fractie sneller is dan de snelste kortere route die blijft. De engine past de epsilon per bestemmingszone toe en zoekt exact. 0 = reistijd eerst met de gekwantiseerde afstand (CarLegDistanceQuantum).", IntegrityCheck = "this >= 0f && this <= 1f";
+	parameter<string>   CarTD_Search                              := 'pareto_alt'           , Descr = "De zoektocht van de tijdafhankelijke autorit (Impl/CarTimeDependent): 'pareto_alt' = afstand eerst, zoals de momentopname (CarFrontEpsilon), met het tijdprofiel op de reistijd (timedependent_alt, ObjectVision/GeoDMS#1304); 'scalar' = alleen de snelste route, met het tijdprofiel op het enige criterium (timedependent).", IntegrityCheck = "this == 'pareto_alt' || this == 'scalar'";
+	parameter<uint32>   CarTD_WindowStart                         := (rjoin(/ModelParameters/Dagdeel, Dagdelen/name, Dagdelen/DepartureHour) - 1) * 3600, Descr = "Begin van het venster met tijdvakken van de tijdafhankelijke autorit, in seconden sinds 00:00: een uur voor het uur van de vertrekmomenten (06:00 bij de ochtendspits). De vertrektijd in de zoektocht telt vanaf hier.";
+	parameter<uint32>   CarTD_NrSlots                             := 48                     , Descr = "Aantal tijdvakken van de TomTom Speed Profiles (300 s) in het venster: 4 uur. Het laatste vertrekmoment plus Car_StartTime plus MaxCarTime (bij de ochtendspits 09:17) ligt er binnen; daarna zou het profiel van voren af aan beginnen.", IntegrityCheck = "CarTD_WindowStart + this * 300 <= 86400";
+	parameter<s_f>      CarTD_SlotDuration                        := 300[s_f]               , Descr = "Duur van een tijdvak van de TomTom Speed Profiles (time_slot loopt in stappen van 300 s).";
+	parameter<float32>  ChainParetoTimeEpsilon                    := 0.01f                  , Descr = "Relatieve epsilon op de reistijd in de eindafweging per vertrekmoment, bij het samenvoegen en, met een tijdpenalty, in de ketenrijger (ObjectVision/GeoDMS#1282): de prijs staat voorop, en een duurdere optie blijft alleen als ze meer dan deze fractie sneller is dan de snelste goedkopere optie die blijft. 0.01: 1%; 0 = exact. Op de prijs en op de resttijden van de ketenrijger is de vergelijking exact.", IntegrityCheck = "this >= 0f && this <= 1f";
+	parameter<m>        ExtraLink_MaxSnapDistance                 := 250[m]                 , Descr = "Maximale afstand van een eindpunt van een handmatige verbinding (OSM/NetworkPreperation/ExtraVerbindingen) tot het wegennet; een verbinding met een verder eindpunt doet niet mee.";
+	parameter<float32>  OSM_MaxSpeedQuantile                      := 0.5f
+	, Descr = "Kwantiel van de getagde maxspeed per wegtype en land, over de getagde wegen, voor OSM-wegen zonder bruikbare maxspeed-tag: de mediaan beschrijft een typische ongetagde weg.";
+	parameter<bool>     PT_Chains_PerBlock                       := TRUE
+	, Descr = "De ketenstap schrijft elk haltenblok in een eigen store (PublicTransport_Prep/StorageBlockDir_Str) en de uitvoerstap leest ze samen; FALSE: een store voor alle blokken (ChainGeneration_Single/Write). Per blok blijven de resultaten niet tot het eind in het geheugen, en een onderbroken ketenstap gaat bij het eerste ontbrekende blok verder (batch/WriteChainBlocks.ps1).";
+	parameter<bool>     IFF_Overstaptijd                          := TRUE                   , Descr = "Duurt een overstap tussen twee verschillende treinhaltes (perrons) van hetzelfde NS-station minstens de overstaptijd van dat station uit de IFF-dienstregeling van NS (Infrastructure/IFF_Stations), naast de looptijd over de rechte afstand (#123)? Op hetzelfde perron en tussen trein en bus, tram of metro telt alleen de looptijd. In de handtekening van de ketenstore (_iff<datum>).";
+	parameter<string>   IFF_file_date                             := '20261013'             , Descr = "De levering van de IFF-dienstregeling van NS (%NetworkModel_Dir%/Infrastructuur/IFF/<datum>/stations.csv), voor alle peildata; de overstaptijden per station veranderen weinig.";
+
+	
+	// PRIVATE TRANSPORT
+	parameter<bool>     UseActualCyclingSpeeds                    := FALSE                  , Descr = "In the case of cycling, would you like to use actual cycling speeds (from Fietstelweek) or a constant speed (as defined in BikingSpeed_kmhr)?";
+	parameter<string>   CongestionSpeed_DaySelection              := 'tuesday'              , Descr = "Which day (or day selection) do you choose to use TomTom congenstion data from. Options: 'Weekday' 'Weekend' 'Week' 'monday' 'tuesday' 'wednesday' 'thursday' 'friday' 'saturday' 'sunday' ";
+	parameter<string>   TomTom_StreetTypeSelection                 := 'FuncRoadClass/V/Local_Road_of_Minor_Importance', Descr = "This setting gives to option to exclude certain roadtypes in the TomTom network. Options: 7 FuncRoadClass/V/Local_Road   8 FuncRoadClass/V/Secondary_Road Local_Road_of_Minor_Importance  Local_Road_of_High_Importance ";
+	parameter<m>        Fietstel_OSM_link_dist                    := 8[m]                   , Descr = "De maximale afstand tussen OSM en FietsTelWeek data om te linken ";
+	parameter<float64>  ConnectSearchDist                         := 100d*100d              , Descr = "Zoek gebied voor connect_info operaties, zoals linken NDW aan NWB en NWB aan OSM, en FietsTelWeek aan OSM. Float64: connect_info op dpoint-rdc verwacht een float64 zoekafstand (kwadratisch).";
+	parameter<string>   CyclingNetwork                            := 'OSM'                  , Descr = "Het net van alle fietsbenen en de directe fietsrit: 'OSM' of 'Fietsersbond' (met eenrichtingsfietspaden, zonder Fietstelweek-snelheden). Standaard OSM, op verzoek van PBL: het Fietsersbond-net van 2024 krijgt geen nieuwe versies en wordt eerst met OSM vergeleken (#124). Lopen gaat altijd over OSM.", IntegrityCheck = "CyclingNetwork == 'Fietsersbond' || CyclingNetwork == 'OSM'";
+	parameter<string>   Fietsersbond_file_date                    := '20250525'             , Descr = "De levering van het Fietsersbond-routenetwerk (%NetworkModel_Dir%/Infrastructuur/Fietsersbond_<datum>), voor alle peildata.";
+	parameter<m>        Fietsersbond_MaxVeerpontLengte            := 2000[m]                , Descr = "Een veerpont van de Fietsersbond tot deze lengte doet mee in het fietsnet (217 van de 279 in de levering van 25-05-2025); de langere overtochten (62, 2 tot 39 km) niet: die horen bij het OV of liggen buiten bereik (#124).";
+	parameter<min_f>    Fietsersbond_VeerpontExtraTijd            := 5[min_f]               , Descr = "Wachten en overvaren op een veerpont van de Fietsersbond, bovenop de fietstijd over zijn lengte (#124).";
+	parameter<km_hr>    E_BikingSpeed_kmhr                        := 20[km_hr]              , Descr = "";
+	parameter<km_hr>    E_BikingSpeed_actualspeed_addition_kmhr   := 10[km_hr]              , Descr = "";
+	parameter<km_hr>    CarSpeed_kmhr                             := 130[km_hr]             , Descr = "Alleen relevant bij OSM";
+	parameter<km_hr>    CarSpeed_limit_kmhr                       := 100[km_hr]             , Descr = "Bijvoorbeeld bij 100kmpu op snelwegen overdag. Alleen relevant bij OSM";
+	parameter<km_hr>    CarDefaultSpeed                           := 50[km_hr]              , Descr = "";
+	parameter<km_hr>    CarDefaultSpeed_low                       := 30[km_hr]              , Descr = "";
+	parameter<km_hr>    Ferry_Speed                               := 25[km_hr]              , Descr = "";
+	parameter<bool>     InterpretAllRoadsAsBidirectional          := FALSE                  , Descr = "Should car(!) roads be interpreted as bidirectional, or should the OneDirection property be guiding?";//
+			
+	
+	unit<uint8> PT_DepartureHours : nrofrows = 1
+	, Descr = "Het uur van de vertrekmomenten: dat van Dagdeel (#125). Meer uren in een run: nrofrows ophogen en de uren als lijst geven, bijvoorbeeld [7, 12, 19]; Impl/Car_CongestionMoment_ForDirect volgt dan nog steeds Dagdeel."
+	{
+		attribute<uint32> values := const(rjoin(/ModelParameters/Dagdeel, Dagdelen/name, Dagdelen/DepartureHour), .);
+	}
+	unit<uint8> PT_DepartureMinutes_All : nrofrows = 4
+	, Descr = "De minuten van de vertrekmomenten in het uur van het dagdeel, per kwartier."
+	{
+		attribute<uint32> values : [0,15,30,45];										   
+	}
+	
+	unit<uint8>  AnalysisMomentPresets : nrofrows = 11
+	, Descr = "Per peildatum (AnalysisMoment) de bronnen: OSM, CBS-gebiedsindeling, TomTom, BAG-snapshot, de dag van de OV-analyse en de GTFS-feed (#125). Een jaar zonder Analysis_date of GTFS_file_date is geen peildatum en draait niet."
+	{
+		unit<uint32> Elements  := Range(uint32, 0, nrAttr*#.)
+		{
+			attribute<String> Text:
+			// name, OSM date , Regios, OSM_perProv, CarCongestionSpeed_date_TomTom, BAG_snapshot, Analysis_date, GTFS_file_date, OVFiets_year
+			[
+			'Y2012','20221201', '2012', 'TRUE',  'yr2021_12', '20120101',     '',         '', '2023',      //20140101
+			'Y2013','20140101', '2022', 'FALSE', 'yr2021_12', '20130101',     '',         '', '2023',
+			'Y2015','20240524', '2023', 'TRUE',  'yr2021_12', '20230101', '20151013', '', '2023',
+			'Y2018','20190101', '2020', 'FALSE', 'yxx2021_12','20180101',     '',         '', '2023',
+			'Y2020','20200117', '2020', 'FALSE', 'yr2021_12', '20200101',     '',         '', '2023',
+			'Y2021','20211221', '2021', 'TRUE',  'yr2021_12', '20210101',     '',         '', '2023',
+			'Y2022','20221201', '2022', 'TRUE',  'yr2022_12', '20220101',     '',         '', '2023',
+			'Y2023','20240524', '2023', 'TRUE',  'yr2023_12', '20230101', '20231010', '20231003', '2023',
+			'Y2024','20240524', '2023', 'TRUE',  'yr2024_12', '20230101', '20241008', '20241001', '2023',
+			'Y2025','20260601', '2025', 'TRUE',  'yr2025_12', '20250101', '20251014', '20250930', '2025',
+			'Y2026','20260601', '2025', 'TRUE',  'yr2025_12', '20250101', '20261013', '20260925', '2025'
+			];
+			// PEILDATA (#125): de tweede dinsdag van oktober. De feed van een peildatum dekt de dienstdagen D-1 tot D+1
+			// (LoadFeeds/ServiceDays, MinServiceDayTripShare). Y2015 heeft nog geen feed en draait niet.
+			// OSM: Y2015 tot en met Y2024 rekenen met de uitsnede 20240524, Y2025 en Y2026 met 20260601.
+			// TomTom: de editie van december van het jaar: yr2023_12, yr2024_12 en yr2025_12; Y2026 voorlopig yr2025_12 en
+			// Y2015 yr2021_12 (er is geen oudere). CarCongestionSpeed_date is de map %NetworkModel_PrivDir%/TomTom/<naam>/ met de
+			// vier stores Roads, Junctions, Speednetworks en Speedprofiles.mmd, en het ruwe materiaal (multinet/, speedprofiles/)
+			// om ze te maken (TomTom/Impl/HasRawMaterial; zonder ruw materiaal zet TomTom/Impl/FromFss een oude fss om).
+			// Regios en BAG_snapshot: die van de buurtvariant van de peildatum (Advanced/Buurtsets, #126), CBS 2023 en BAG
+			// 1-1-2023 voor 2015, 2023 en 2024, CBS 2025 en BAG 1-1-2025 voor 2025 en 2026; ook de BAG-herkomsten rekenen zo.
+			// BAG_snapshot is de mapnaam onder %NetworkModel_Dir%/RegioIndelingen/BAG. Regios blijft voor Y2026 op 2025 tot CBS de
+			// buurt- en wijkkaart 2026 publiceert: daarop staan de herkomstensets en de regio-aggregaties.
+		}
+		
+		attribute<string>        name                    := Elements/Text[value(UInt32(ID(.))* nrAttr + 0, Elements)];
+		attribute<string>        OSM_file_date           := Elements/Text[value(UInt32(ID(.))* nrAttr + 1, Elements)];
+		attribute<string>        RegioIndelingen_year    := Elements/Text[value(UInt32(ID(.))* nrAttr + 2, Elements)];
+		attribute<bool>          OSM_NL_prov             := Elements/Text[value(UInt32(ID(.))* nrAttr + 3, Elements)][bool];
+		attribute<string>        CarCongestionSpeed_date := Elements/Text[value(UInt32(ID(.))* nrAttr + 4, Elements)];
+		attribute<string>        BAG_snapshot            := Elements/Text[value(UInt32(ID(.))* nrAttr + 5, Elements)];
+		attribute<string>        Analysis_date           := Elements/Text[value(UInt32(ID(.))* nrAttr + 6, Elements)], Descr = "De peildatum (yyyymmdd, #125); leeg = geen peildatum.";
+		attribute<string>        OVFiets_year            := Elements/Text[value(UInt32(ID(.))* nrAttr + 8, Elements)], Descr = "Het jaar van de OV-fietslocaties (Advanced/OVFiets_Locaties): 2025 voor de peildata 2025 en 2026, anders 2023.";
+		attribute<string>        GTFS_file_date          := Elements/Text[value(UInt32(ID(.))* nrAttr + 7, Elements)], Descr = "De GTFS-feed van de peildatum (yyyymmdd, #125); leeg = (nog) geen feed.";
+
+		parameter<uint32> nrAttr := 9;
+	}
+
+	unit<uint8> Dagdelen : nrofrows = 3
+	, Descr = "De dagdelen van een peildatum (#125), te kiezen met /ModelParameters/Dagdeel: vier vertrekmomenten per kwartier vanaf DepartureHour (Impl/PT_DepartureMinutes), en het congestiemoment van de directe autorit (CongestionTimes), in het midden van dat uur."
+	{
+		attribute<string> name             : ['Ochtendspits', 'Middag', 'Avond'];
+		attribute<uint32> DepartureHour    : [7, 12, 19];
+		attribute<string> CongestionMoment : ['MorningRush', 'NoonRush', 'LateEveningRush'];
+	}
+
+	unit<uint32> org_domain_list : nrofrows = 23 // Hier worden de paden voor elke org set opgegeven. En wanneer er nieuwe bij komen dat hier ook toegevoegd worden.
+	, Descr = ""
+	{
+		unit<uint32> Elements  := Range(uint32, 0, nrAttr*#.)
+		{
+			attribute<String> Text:
+			// Label, Path
+			[
+			'Buurt'                               ,'SourceData/RegioIndelingen/Buurt/Centroiden',
+			'Buurt2023'                           ,'SourceData/RegioIndelingen/Buurt/Centroiden', // #126: CBS 2023 en BAG 1-1-2023 (Buurtsets)
+			'Buurt2025'                           ,'SourceData/RegioIndelingen/Buurt/Centroiden', // #126: CBS 2025 en BAG 1-1-2025
+			'Buurt_perProvincie'                  ,'SourceData/RegioIndelingen/Buurt/Per_Prov/@REGIO@/sub',
+			'Buurt_perCOROP'                      ,'SourceData/RegioIndelingen/Buurt/Per_COROP/@REGIO@/sub',
+			'Buurt_perCOROPp'                      ,'SourceData/RegioIndelingen/Buurt/Per_COROPp/@REGIO@/sub',
+			'Buurt_enkele_buurt'                  ,'SourceData/RegioIndelingen/Buurt/Enkele_buurt',
+			'Buurt_enkele_Gemeente'               ,'SourceData/RegioIndelingen/Buurt/Enkele_Gemeente',
+			'Buurt_enkele_Prov'                   ,'SourceData/RegioIndelingen/buurt/Enkele_Prov',
+			'Buurt_enkele_Corop'                  ,'SourceData/RegioIndelingen/buurt/Enkele_Corop',
+			
+			'Wijk'                                ,'SourceData/RegioIndelingen/Wijk/Centroiden',
+			'Wijk_perProvincie'                   ,'SourceData/RegioIndelingen/Wijk/Per_Prov/@REGIO@/sub',
+			'Wijk_perCOROP'                       ,'SourceData/RegioIndelingen/Wijk/Per_COROP/@REGIO@/sub',
+			
+			'Gemeente'                            ,'SourceData/RegioIndelingen/Gemeente/Centroiden',
+			'Gemeente_perProvincie'               ,'SourceData/RegioIndelingen/Gemeente/Per_Prov/@REGIO@/sub',
+			'Gemeente_perCOROP'                   ,'SourceData/RegioIndelingen/Gemeente/Per_COROP/@REGIO@/sub',
+			'Gemeente_enkele_gemeente'            ,'SourceData/RegioIndelingen/Gemeente/Enkele_gemeente',
+			
+			'PC4'                                 ,'SourceData/BAG/Adressen/Woon_Voorraad/PC4_centroids',
+			'PC4_perCOROP'                        ,'SourceData/BAG/Adressen/Woon_Voorraad/PC4_centroids/Per_COROP/@REGIO@/sub',
+			
+			'PC6'                                 ,'SourceData/BAG/Adressen/Woon_Voorraad/PC6_centroids',
+			'PC6_sub'                             ,'SourceData/BAG/Adressen/Woon_Voorraad/PC6_centroids/sub',
+			
+			'BAG_woonpanden'                      ,'SourceData/BAG/Panden/pand/pand_woon_vbo',
+			'BAG_woonpanden_Clustered'            ,'SourceData/BAG/Panden/pand/pand_woon_vbo/HeeftPanden'
+			]; 
+		}
+		
+		attribute<uint32>        id              := id(.);
+		attribute<string>        label          := Elements/Text[value(UInt32(ID(.))* nrAttr + 0, Elements)];
+		attribute<string>        path           := Elements/Text[value(UInt32(ID(.))* nrAttr + 1, Elements)], DialogType = "LabelText";
+		
+		parameter<uint32> nrAttr := 2;
+	}
+	
+	unit<uint32> dest_domain_list : nrofrows = 9 // Hier worden de paden voor elke dest set opgegeven. En wanneer er nieuwe bij komen dat hier ook toegevoegd worden.
+	, Descr = ""
+	{ 
+		unit<uint32> Elements  := Range(uint32, 0, nrAttr*#.)
+		{
+			attribute<String> Text:
+			// Label, Path
+			[
+			 'LISA'                                                           ,'SourceData/locaties/LISA/ReadFSS/y@LISAJAAR@/PerYear/HeeftBanen'                                                  , 'nr_banen'
+			,'Buurt'                                                          ,'SourceData/RegioIndelingen/Buurt/Centroiden'                                                                      , 'nr_banen'
+			,'Buurt2023'                                                      ,'SourceData/RegioIndelingen/Buurt/Centroiden'                                                                      , 'nr_banen'
+			,'Buurt2025'                                                      ,'SourceData/RegioIndelingen/Buurt/Centroiden'                                                                      , 'nr_banen'
+			,'Buurt_enkele_Buurt'                                             ,'SourceData/RegioIndelingen/Buurt/Enkele_buurt_Dest'                                                               , 'nr_banen'
+			,'Buurt_enkele_Prov'                                              ,'SourceData/RegioIndelingen/Buurt/Enkele_Prov_dest'                                                                   , 'nr_banen'
+			,'Buurt_enkele_Corop'                                             ,'SourceData/RegioIndelingen/Buurt/Enkele_Corop_dest'                                                                  , 'nr_banen'
+			,'Wijk'                                                           ,'SourceData/RegioIndelingen/Wijk/Centroiden'                                                                       , 'nr_banen'
+			,'OV_Knooppunten'                                                 ,'SourceData/Infrastructure/GTFS/OV_Knooppunten/Export_Knooppunten'                                                                       , 'nr_stops'
+			];  
+			// items_of_interest is het gewicht w_j in de interactiebepaling (NetworkSetup.dms, de Decay met
+			// dist_logit). Dat veronderstelt ULTIEME bestemmingen: de keten loopt van de primaire herkomst
+			// via voortransport (Org2Stops) over het OV-netwerk en natransport (Stops2Dest) naar de
+			// bestemming, en pas daarover wordt de interactie bepaald. LISA (banen) en de regioindelingen
+			// (nr_banen) zijn zulke bestemmingen.
+			//
+			// OV_Knooppunten is dat NIET: een knooppunt is een doorgaanspunt in de keten, geen eindbestemming.
+			// Die rij is bedoeld voor bereikbaarheidsvragen OVER de knooppunten zelf (hoe lang doe je erover
+			// om er een te bereiken, zie GTFS/OV_Knooppunten/Bereikbaarheid_Auto), niet voor een
+			// interactiebepaling. Het gewicht staat daarom op nr_stops, een echt kenmerk van het knooppunt;
+			// er bestaat geen nr_banen op die laag en een decay-uitkomst over knooppunten is inhoudelijk
+			// niet te lezen als bereikbaarheid van bestemmingen.
+		}
+		
+		attribute<uint32>        id                := id(.);
+		attribute<string>        label             := Elements/Text[value(UInt32(ID(.))* nrAttr + 0, Elements)];
+		attribute<string>        path              := replace(Elements/Text[value(UInt32(ID(.))* nrAttr + 1, Elements)], '@LISAJAAR@', LISA_year), DialogType = "LabelText";
+		attribute<string>        items_of_interest := Elements/Text[value(UInt32(ID(.))* nrAttr + 2, Elements)];
+		
+		parameter<uint32> nrAttr := 3;
+	}
+	
+	unit<uint8> CongestionTimes : nrofrows = 3
+	, Descr = ""
+	{
+		attribute<string> name : ['MorningRush','NoonRush','LateEveningRush'];
+		attribute<string> Time : ['0730', '1230', '1930'];
+		attribute<km_hr>  MaxSpeed : [100, 100, 0], Descr = "Plafond op de autosnelheid per congestiemoment, voor TomTom en OSM; 0 = geen plafond. Overdag (06-19 uur) is de maximumsnelheid op de snelweg 100 km/u; Freeflow heeft geen plafond.";
+	}
+	
+	container Distance_decay //distance decay parameters, calculated and provided by PBL
+	: Descr = ""
+	{
+		parameter<float32> car_a   := -8.65786f;
+		parameter<float32> car_b   := 2.492099f;
+		parameter<float32> car_c   := 0.011641f;
+		parameter<float32> bike_a  := -7.95686f;
+		parameter<float32> bike_b  := 2.675059f;
+		parameter<float32> bike_c  := 0.011981f;
+		// Voor lopen heeft PBL (nog) geen parameters geleverd; voorlopig die van de fiets, door PBL te zetten.
+		parameter<float32> walk_a  := bike_a;
+		parameter<float32> walk_b  := bike_b;
+		parameter<float32> walk_c  := bike_c;
+		parameter<float32> ov_a    := -12.3301f;
+		parameter<float32> ov_b    := 2.907621f;
+		parameter<float32> ov_c    := 0.012824f;
+	}
+
+	
+	container Junction_Penalties
+	: Descr = "bij het reizen over door een netwerk kun je meestal niet zonder vertraging voorbij een kruispunt komen. Daarom geven we hiervoor een penalty afhankelijk van het aantal benen van het kruispunt.
+				De set met lower in de prefix, gaat erom dat je andere penalties hanteerd wanneer het kruis benen heeft waarop de snelheid relatief laag is. In dat geval zou de penalty lager kunnen zijn. 
+				Neem een kruispunt in een bloemkoolwijk, dan hoef je wellicht niet voor elke zijstraat te stoppen. Nu (sept '25) staat dit op roadType <= 30kmpu (/Classifications/OSM/roadType/IsSlowTrafficRoad)." 
+	{
+		parameter<s>        with_2Links_Walking                  := 0[s]; // 0
+		parameter<s>        with_3Links_Walking                  := 2[s]; // 1
+		parameter<s>        with_4Links_Walking                  := 5[s]; // 2
+		parameter<s>        with_gt4Links_Walking                := 6[s]; // 3
+		
+		parameter<s>        with_2Links_Cycling                  := 0[s]; // 0
+		parameter<s>        with_3Links_Cycling                  := 2[s]; // 1
+		parameter<s>        with_4Links_Cycling                  := 5[s]; // 2
+		parameter<s>        with_gt4Links_Cycling                := 6[s]; // 3
+		
+		parameter<s>        with_2Links_E_Biking                 := 0[s]; // 0
+		parameter<s>        with_3Links_E_Biking                 := 2[s]; // 1
+		parameter<s>        with_4Links_E_Biking                 := 5[s]; // 2
+		parameter<s>        with_gt4Links_E_Biking               := 6[s]; // 3
+		
+		parameter<s>        with_2Links_Car                      := 0[s]; // 0
+		parameter<s>        with_3Links_Car                      := 2[s]; // 2
+		parameter<s>        with_4Links_Car                      := 5[s]; // 5
+		parameter<s>        with_gt4Links_Car                    := 6[s]; // 6
+		
+		parameter<s>        with_2_lowerSpeedLinks_Walking       := 0[s]; // 0
+		parameter<s>        with_3_lowerSpeedLinks_Walking       := 0[s]; // 1
+		parameter<s>        with_4_lowerSpeedLinks_Walking       := 0[s]; // 2
+		parameter<s>        with_gt4_lowerSpeedLinks_Walking     := 0[s]; // 3
+		
+		parameter<s>        with_2_lowerSpeedLinks_Cycling       := 0[s]; // 0
+		parameter<s>        with_3_lowerSpeedLinks_Cycling       := 0[s]; // 1
+		parameter<s>        with_4_lowerSpeedLinks_Cycling       := 0[s]; // 2
+		parameter<s>        with_gt4_lowerSpeedLinks_Cycling     := 0[s]; // 3
+		
+		parameter<s>        with_2_lowerSpeedLinks_E_Biking      := 0[s]; // 0
+		parameter<s>        with_3_lowerSpeedLinks_E_Biking      := 0[s]; // 1
+		parameter<s>        with_4_lowerSpeedLinks_E_Biking      := 0[s]; // 2
+		parameter<s>        with_gt4_lowerSpeedLinks_E_Biking    := 0[s]; // 3
+		
+		parameter<s>        with_2_lowerSpeedLinks_Car           := 0[s]; // 0
+		parameter<s>        with_3_lowerSpeedLinks_Car           := 0[s]; // 2
+		parameter<s>        with_4_lowerSpeedLinks_Car           := 0[s]; // 5
+		parameter<s>        with_gt4_lowerSpeedLinks_Car         := 0[s]; // 6
+	}
+	
+	container OSM_impl
+	: Descr = ""
+	{
+		unit<uint32> InEenBestand : nrofrows = 4
+		{
+			unit<uint32> Elements  := Range(uint32, 0, nrAttr*#.)
+			{
+				attribute<String> Text:
+				// Regio             , OrgSet , OrgPath, Land, Type, 
+				[
+				'Netherlands'             ,'NL', 'OD',
+
+				'Belgium'                 ,'BE', 'OD',
+
+				'Niedersachsen'           ,'DE', 'OD',
+				'Nordrhein-Westfalen'     ,'DE', 'OD'
+				]; 
+			}
+			
+			attribute<string>        label          := Elements/Text[value(UInt32(ID(.))* nrAttr + 0, Elements)], DialogType = "LabelText";
+			attribute<string>        name           := replace(label, '-', '_');
+			attribute<string>        Country        := Elements/Text[value(UInt32(ID(.))* nrAttr + 1, Elements)];
+			attribute<string>        Type_src       := Elements/Text[value(UInt32(ID(.))* nrAttr + 2, Elements)];
+			
+			parameter<uint32> nrAttr := 3;
+		}
+		unit<uint32> InProvincies : nrofrows = 17
+		{
+			unit<uint32> Elements  := Range(uint32, 0, nrAttr*#.)
+			{
+				attribute<String> Text:
+				// Regio             , OrgSet , OrgPath, Land, Type, 
+				[
+				'Drenthe'                 ,'NL', 'OD',
+				'Flevoland'               ,'NL', 'OD',
+				'Friesland'               ,'NL', 'OD',
+				'Gelderland'              ,'NL', 'OD',
+				'Groningen'               ,'NL', 'OD',
+				'Limburg'                 ,'NL', 'OD',
+				'Noord-Brabant'           ,'NL', 'OD',
+				'Noord-Holland'           ,'NL', 'OD',
+				'Overijssel'              ,'NL', 'OD',
+				'Utrecht'                 ,'NL', 'OD',
+				'Zeeland'                 ,'NL', 'OD',
+				'Zuid-Holland'            ,'NL', 'OD',
+
+				'Belgium'                 ,'BE', 'OD',
+
+				'Niedersachsen'           ,'DE', 'OD',
+				'Duesseldorf-regbez'       ,'DE', 'OD',
+				'Koeln-regbez'             ,'DE', 'OD',
+				'Muenster-regbez'          ,'DE', 'OD'
+				]; 
+			}
+			
+			attribute<string>        label          := Elements/Text[value(UInt32(ID(.))* nrAttr + 0, Elements)], DialogType = "LabelText";
+			attribute<string>        name           := replace(label, '-', '_');
+			attribute<string>        Country        := Elements/Text[value(UInt32(ID(.))* nrAttr + 1, Elements)];
+			attribute<string>        Type_src       := Elements/Text[value(UInt32(ID(.))* nrAttr + 2, Elements)];
+			
+			parameter<uint32> nrAttr := 3;
+		}
+	}
+}

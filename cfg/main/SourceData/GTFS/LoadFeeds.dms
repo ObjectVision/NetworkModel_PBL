@@ -28,7 +28,7 @@ container LoadFeeds
 		//
 		
 		unit<uint32> ReadCSV
-		: StorageName     = "= '%NetworkModel_dir%/Infrastructuur/GTFS/'+ModelParameters/Advanced/GTFS_file_date+'/'+File_Structure/Name[inFile]+'.csv'"
+		: StorageName     = "= '%NetworkModel_dir%/Infrastructuur/GTFS/'+ModelParameters/Impl/GTFS_file_date+'/'+File_Structure/Name[inFile]+'.csv'"
 		, StorageType     = "gdal.vect"
 		, StorageReadOnly = "True";
 
@@ -50,7 +50,7 @@ container LoadFeeds
 	// met exit 0 zonder store. Vandaar de acht expliciete blokken; de tabelnamen staan als
 	// File_Structure/StoreName ook in de lijst hierboven.
 	container Write
-	:	StorageName = "= '%NetworkModel_dir%/Infrastructuur/GTFS/'+ModelParameters/Advanced/GTFS_file_date+'.mmd'"
+	:	StorageName = "= '%NetworkModel_dir%/Infrastructuur/GTFS/'+ModelParameters/Impl/GTFS_file_date+'.mmd'"
 	{
 		container agency
 		{
@@ -151,7 +151,7 @@ container LoadFeeds
 	}
 		
 	container Read 
-	: StorageName = "= '%NetworkModel_dir%/Infrastructuur/GTFS/'+ModelParameters/Advanced/GTFS_file_date+'.mmd'"
+	: StorageName = "= '%NetworkModel_dir%/Infrastructuur/GTFS/'+ModelParameters/Impl/GTFS_file_date+'.mmd'"
 	, StorageReadOnly = "true";
 		
 	unit<uint32> Calendar_dates := Read/Calendar_dates/domain  
@@ -183,7 +183,7 @@ container LoadFeeds
 	{
 		unit<uint32> AnalysisDay : nrofrows = 1
 		{
-			attribute<uint32> yyyymmdd := const(uint32(ModelParameters/Advanced/Analysis_date), .);
+			attribute<uint32> yyyymmdd := const(uint32(ModelParameters/Impl/Analysis_date), .);
 		}
 		container AnalysisDayNr := /Templates/DayNr_T(AnalysisDay, AnalysisDay/yyyymmdd);
 
@@ -197,8 +197,8 @@ container LoadFeeds
 			attribute<Weekdays>      Weekday_rel          := value((DayNr + 3) % 7, Weekdays);
 			attribute<bool>          IsDSTChange          := Weekday_rel == Weekdays/V/sunday && (Civil/M == 3 || Civil/M == 10) && Civil/D >= 25, Descr = "Laatste zondag van maart of oktober: de GTFS-tijden van die dag tellen vanaf 12:00 min 12 uur, en dat is dan geen middernacht.";
 			attribute<bool>          IsNeeded             := id(.) == 1
-			                                                 || (id(.) == 0 && ModelParameters/Advanced/PT_FirstDepartureMoment < ModelParameters/Advanced/PrevServiceDayTailEnd)
-			                                                 || (id(.) == 2 && uint32(ModelParameters/Advanced/PT_LastArrivalMoment) > 86400)
+			                                                 || (id(.) == 0 && ModelParameters/Impl/PT_FirstDepartureMoment < ModelParameters/Impl/PrevServiceDayTailEnd)
+			                                                 || (id(.) == 2 && uint32(ModelParameters/Impl/PT_LastArrivalMoment) > 86400)
 			, Descr = "D altijd; D-1 als het venster voor PrevServiceDayTailEnd begint; D+1 als het venster na middernacht doorloopt.";
 			attribute<CalendarDates> CalendarDate_rel     := rlookup(yyyymmdd, CalendarDates/yyyymmdd);
 			attribute<uint32>        NrTrips              := MakeDefined(CalendarDates/NrTrips[CalendarDate_rel], 0);
@@ -263,14 +263,14 @@ container LoadFeeds
 		attribute<bool>                    sel_yesterday   := Services/Yesterday_exc[Services_rel] = 1;
 		attribute<bool>                    sel_tomorrow    := Services/Tomorrow_exc[Services_rel] = 1;
 		attribute<Time>                    StartTime       := min(protoStopTimes/departureTime/TimesVector/Time_rel, protoStopTimes/protoTrip_rel);
-		attribute<bool>                    sel_tomorrow_window := sel_tomorrow && uint32(StartTime) + 86400 < uint32(ModelParameters/Advanced/PT_LastArrivalMoment), Descr = "Ritten van D+1 die beginnen voor het einde van het analysevenster; bij een venster voor middernacht geen enkele.";
+		attribute<bool>                    sel_tomorrow_window := sel_tomorrow && uint32(StartTime) + 86400 < uint32(ModelParameters/Impl/PT_LastArrivalMoment), Descr = "Ritten van D+1 die beginnen voor het einde van het analysevenster; bij een venster voor middernacht geen enkele.";
 		attribute<Trips_x_order_uq>        first_txo       := min_index(Trips_x_order_uq/ord, Trips_x_order_uq/protoTrip_rel);
 		attribute<shapes>                  shape_rel       := rlookup(shape_id, shapes/shape_id);
 		// Flexvervoer (sinds 2026-09-30): een rit van een flexlijn die in hetzelfde blok van ModelParameters/Advanced/FlexMinInterval
 		// vertrekt als een eerdere rit van hetzelfde ritpatroon, doet niet mee in het OV-net (FlexOptions, protoStopTimes/Sel*Net).
 		// De OV-knooppunten tellen alle ritten (StopTimes/SelToday), zodat de bestemmingen niet van de flexparameters afhangen.
 		attribute<bool>                    IsFlex          := MakeDefined(RelevantSelection/Routes/IsFlex[RelevantSelection/Trips/Route_rel], false);
-		attribute<bool>                    KeepFlexOption  := = ModelParameters/Advanced/IsFlexMeenemen && ModelParameters/Advanced/FlexMinInterval_sec > 0
+		attribute<bool>                    KeepFlexOption  := = ModelParameters/Advanced/IsFlexMeenemen && ModelParameters/Impl/FlexMinInterval_sec > 0
 			? 'not(IsFlex) || MakeDefined(FlexOptions/Keep[invert(FlexOptions/org_rel)], true)'
 			: 'const(true, ., bool)'
 			, Descr = "Doet de rit mee in het OV-net? Alleen ritten van flexlijnen kunnen afvallen, zie FlexOptions.";
@@ -329,7 +329,7 @@ container LoadFeeds
 		unit<uint32>              Pattern       := unique_uint32(PatternKey);
 		attribute<Pattern>        Pattern_rel   := rlookup(PatternKey, Pattern/values);
 		attribute<uint32>         StartSec      := uint32(protoTrips/StartTime[org_rel]);
-		attribute<uint64>         GroupKey      := uint64(Pattern_rel) * uint64(65536) + uint64(StartSec / ModelParameters/Advanced/FlexMinInterval_sec);
+		attribute<uint64>         GroupKey      := uint64(Pattern_rel) * uint64(65536) + uint64(StartSec / ModelParameters/Impl/FlexMinInterval_sec);
 		unit<uint32>              Group         := unique_uint32(GroupKey);
 		attribute<Group>          Group_rel     := rlookup(GroupKey, Group/values);
 		attribute<.>              First (Group) := min_index(StartSec, Group_rel), Descr = "de eerste rit van elk blok; bij gelijke starttijd de eerste in de feed";

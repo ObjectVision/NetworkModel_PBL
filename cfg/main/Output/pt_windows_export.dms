@@ -7,8 +7,8 @@ container PT_Windows_export
 ,	Descr = "Het OV-net in een tijdvenster (#57): de ritten van Dag die het venster Begin-Eind overlappen (Kaart/Ritten), per lijnvoering (Kaart/Lijnvoeringen), per segment tussen knopen van haltes (Kaart/Segmenten) en de knopen zelf (Kaart/Knopen). Bekijk de tabellen in de GUI, of schrijf ze met Generate naar %LocalDataProjDir%/Output/ptwindow_<feed>_<dag>_<venster>_<laag>.<ExportFormaat>, met het rapport ernaast."
 {
 	// INSTELLINGEN
-	parameter<string> Dag                  := ModelParameters/Advanced/Analysis_date
-	,	Descr = "De dag (jjjjmmdd) waarvan de ritten worden gezocht: elke dag die de geladen feed dekt. De feed is die van de peildatum van het model (ModelParameters/AnalysisMoment, Advanced/GTFS_file_date); het rapport noemt de eerste en laatste datum ervan. Standaard de peildatum zelf."
+	parameter<string> Dag                  := ModelParameters/Impl/Analysis_date
+	,	Descr = "De dag (jjjjmmdd) waarvan de ritten worden gezocht: elke dag die de geladen feed dekt. De feed is die van de peildatum van het model (ModelParameters/AnalysisMoment, ModelParameters/Impl/GTFS_file_date); het rapport noemt de eerste en laatste datum ervan. Standaard de peildatum zelf."
 	,	IntegrityCheck = "strlen(this) == 8";
 	parameter<string> Begin                := '07:00'
 	,	Descr = "Begin van het venster, HH:MM op de tijdas van Dag (seconden sinds 00:00; na 24:00 de nacht erna, tot 47:59)."
@@ -32,7 +32,7 @@ container PT_Windows_export
 	,	IntegrityCheck = "BeginMoment < this && uint32(this) < #Time";
 	parameter<float32> VensterUren := float32(uint32(EindMoment) - uint32(BeginMoment)) / 3600f;
 	parameter<string>  Venster     := Time/TemplatableTextShrt[BeginMoment] + '-' + Time/TemplatableTextShrt[EindMoment];
-	parameter<string>  FileStem    := '%LocalDataProjDir%/Output/ptwindow_' + ModelParameters/Advanced/GTFS_file_date + '_' + Dag + '_' + Venster;
+	parameter<string>  FileStem    := '%LocalDataProjDir%/Output/ptwindow_' + ModelParameters/Impl/GTFS_file_date + '_' + Dag + '_' + Venster;
 
 	unit<uint32> Trips  := SourceData/Infrastructure/GTFS/RelevantSelection/Trips;
 	unit<uint32> Routes := SourceData/Infrastructure/GTFS/RelevantSelection/Routes;
@@ -79,8 +79,8 @@ container PT_Windows_export
 			attribute<uint32>        yyyymmdd             := Civil/yyyymmdd;
 			attribute<Weekdays>      Weekday_rel          := value((DayNr + 3) % 7, Weekdays);
 			attribute<bool>          IsDSTChange          := Weekday_rel == Weekdays/V/sunday && (Civil/M == 3 || Civil/M == 10) && Civil/D >= 25;
-			attribute<bool>          IsNodig              := union_data(., BeginMoment < ModelParameters/Advanced/PrevServiceDayTailEnd, true, uint32(EindMoment) > 86400)
-			,	Descr = "D altijd; D-1 als het venster voor ModelParameters/Advanced/PrevServiceDayTailEnd begint; D+1 als het na middernacht doorloopt.";
+			attribute<bool>          IsNodig              := union_data(., BeginMoment < ModelParameters/Impl/PrevServiceDayTailEnd, true, uint32(EindMoment) > 86400)
+			,	Descr = "D altijd; D-1 als het venster voor ModelParameters/Impl/PrevServiceDayTailEnd begint; D+1 als het na middernacht doorloopt.";
 			attribute<CalendarDates> CalendarDate_rel     := rlookup(yyyymmdd, CalendarDates/yyyymmdd);
 			attribute<uint32>        NrTrips              := MakeDefined(CalendarDates/NrTrips[CalendarDate_rel], 0);
 			attribute<uint32>        MaxTrips_SameWeekday := MakeDefined(CalendarDates/MaxTrips_PerWeekday[Weekday_rel], 0);
@@ -99,7 +99,7 @@ container PT_Windows_export
 		,	IntegrityCheck = "Check_GeenZomertijdwissel == True"
 		,	Descr = "Geen dag die het venster nodig heeft (D-1 uitgezonderd), is een dag van een zomertijdwissel.";
 		parameter<string> DagenReport := asList(Dagen/Report, '; ');
-		parameter<string> FeedReport  := 'feed ' + ModelParameters/Advanced/GTFS_file_date + ' met datums van ' + string(min(CalendarDates/yyyymmdd)) + ' tot en met ' + string(max(CalendarDates/yyyymmdd));
+		parameter<string> FeedReport  := 'feed ' + ModelParameters/Impl/GTFS_file_date + ' met datums van ' + string(min(CalendarDates/yyyymmdd)) + ' tot en met ' + string(max(CalendarDates/yyyymmdd));
 
 		// DE LINKS VAN DE RITTEN OP DE TIJDAS VAN DAG
 		attribute<Time>   RitEinde    (protoTrips)     := max(protoStopTimes/arrivalTime/TimesVector/Time_rel, protoStopTimes/protoTrip_rel), Descr = "De laatste aankomst van de rit, in GTFS-tijd; protoTrips/StartTime is het eerste vertrek.";
