@@ -433,8 +433,10 @@ container PublicTransport_Prep
 	,	Descr = "The base sets of the pre- and post-transport connections, each a Dijkstra over the whole walking or cycling network with the maximum time of its type.";
 	container PrePostTransport := for_each_ne(BaseSets/name, 'PrePostTransport_T(' + quote(BaseSets/name) + ')')
 	,	Descr = "Per base set the pre- and post-transport connections: Calc, Write, Read, and Connections, the one the model uses (ModelParameters/Advanced/PrePostTransportDecoupled).";
-	parameter<string> Write_PrePostTransport := 'Ready', ExplicitSuppliers = "=/ModelParameters/Advanced/PrePostTransportDecoupled ? asList('PrePostTransport/' + BaseSets/name + '/Write/Data', ';') + (/ModelParameters/Impl/IsOD ? ';' + asList('PrePostTransport/' + BaseSets/name + '/Write_Links/links', ';') : '') : ''"
-	,	Descr = "Writes the stores of the pre- and post-transport connections (batch/UpdateAll.cmd legs), in the OD pair mode also their links; writes nothing without ModelParameters/Advanced/PrePostTransportDecoupled.";
+	unit<uint8> BaseSets_ToDo := ='select_with_attr_by_cond(BaseSets, not(union_data(BaseSets, ' + AsItemList('PrePostTransport/' + BaseSets/name + '/IsWritten') + ')))'
+	,	Descr = "The base sets without a store with the current signature, which Write_PrePostTransport writes.";
+	parameter<string> Write_PrePostTransport := 'Ready', ExplicitSuppliers = "=/ModelParameters/Advanced/PrePostTransportDecoupled ? asList('PrePostTransport/' + BaseSets_ToDo/name + '/Write/Data', ';') + (/ModelParameters/Impl/IsOD && #BaseSets_ToDo > 0 ? ';' + asList('PrePostTransport/' + BaseSets_ToDo/name + '/Write_Links/links', ';') : '') : ''"
+	,	Descr = "Writes the stores of the base sets that have none yet (BaseSets_ToDo; batch/UpdateAll.cmd legs, and output before its portions), in the OD pair mode also their links; writes nothing without ModelParameters/Advanced/PrePostTransportDecoupled.";
 
 	Template PrePostTransport_T : Descr = "Template for one base set of pre- and post-transport connections: Calc calculates them, Write and Read store them with their signature, Connections is the one the model uses, and in the OD pair mode the links of their routes."
 	{
@@ -459,6 +461,7 @@ container PublicTransport_Prep
 		parameter<string> StorageName_Str := StorageBase_Str + '.parquet';
 		container Sig := /Templates/Signature_T(StorageName_Str, StorageBase_Str + '.signature.txt', Signature, strlen('.signature.txt') - strlen('.parquet'))
 		,	Descr = "The signature beside the store, in <name>.signature.txt: Write writes it, Read checks it.";
+		parameter<bool> IsWritten := Sig/IsChecked, Descr = "Is there a store with the signature of the current settings?";
 		unit<uint64> Src := ='TimeInvariantConnections/' + TypeName + '/Create_Routes/ODMatrix';
 		attribute<impl/Places> Neighbourhood_Place_rel (Src) := = IsPre ? 'Src/From_Place_rel' : 'Src/To_Place_rel';
 		attribute<impl/Places> Stop_Place_rel  (Src) := = IsPre ? 'Src/To_Place_rel' : 'Src/From_Place_rel';
@@ -493,8 +496,8 @@ container PublicTransport_Prep
 			attribute<float64> Traveltime;
 			attribute<float64> TravelDist;
 		}
-		unit<uint32> Connections := = /ModelParameters/Advanced/PrePostTransportDecoupled ? 'Read' : 'Calc'
-		,	Descr = "The connections the model uses: read from the store with ModelParameters/Advanced/PrePostTransportDecoupled, otherwise calculated in the run.";
+		unit<uint32> Connections := = /ModelParameters/Advanced/PrePostTransportDecoupled && IsWritten ? 'Read' : 'Calc'
+		,	Descr = "The connections the model uses: read from the store with ModelParameters/Advanced/PrePostTransportDecoupled when it exists, otherwise calculated in the run.";
 
 		// THE LINKS OF THE CONNECTIONS (#129), only in the OD pair mode (ModelParameters/Impl/IsOD): per connection, in the order of the journey, the links
 		// of its route over the simplified network (Create_Routes/Links), each with its straight line, as a gpkg beside the store.
@@ -532,8 +535,9 @@ container PublicTransport_Prep
 				attribute<rdc>     geometry (arc);
 			}
 		}
-		container Links := = /ModelParameters/Advanced/PrePostTransportDecoupled ? 'Read_Links' : 'Calc_Links'
-		,	Descr = "The links the model uses: read with ModelParameters/Advanced/PrePostTransportDecoupled, otherwise calculated in the run.";
+		parameter<bool> LinksWritten := IsWritten && ExistingFile('', expand(., LinksName_Str)) != '';
+		container Links := = /ModelParameters/Advanced/PrePostTransportDecoupled && LinksWritten ? 'Read_Links' : 'Calc_Links'
+		,	Descr = "The links the model uses: read with ModelParameters/Advanced/PrePostTransportDecoupled when they exist, otherwise calculated in the run.";
 	}
 
 	container Legs :=

@@ -17,14 +17,15 @@ REM   UpdateAll.cmd chains          the public transport chain store per stop bl
 REM                                 environment variable CHAINSTORE_SINGLE the single store of
 REM                                 PublicTransport_Prep/ChainGeneration_Single/Write), after the pre-check of the stop
 REM                                 blocks and the price coverage; takes hours and much memory
-REM   UpdateAll.cmd legs            the stores of the legs of pre- and post-transport: the four base sets, walking and
-REM                                 cycling to and from every stop (PublicTransport_Prep/Write_PrePostTransport); writes only
-REM                                 with ModelParameters/Advanced/PrePostTransportDecoupled
+REM   UpdateAll.cmd legs            the stores of the pre- and post-transport connections: the base sets without a store,
+REM                                 walking and cycling to and from every stop (PublicTransport_Prep/Write_PrePostTransport);
+REM                                 writes only with ModelParameters/Advanced/PrePostTransportDecoupled (on by default)
 REM   UpdateAll.cmd output          the public transport output: a file per origin block and departure moment in
 REM                                 %LocalDataProjDir%\Output\<Analysis_date>_<OutputLabel><_component>[_fb]\PerBlock
 REM                                 (_fb: a component on the cycling network with CyclingNetwork 'Fietsersbond')
 REM                                 (ConfigurationPerBlock/Generate_Output), with the chain store of the departure moments
-REM                                 in PT_DepartureHours/Minutes. The step first empties that folder (#118), removing only
+REM                                 in PT_DepartureHours/Minutes. The step first writes the missing pre- and post-transport
+REM                                 stores, as legs does, and empties that folder (#118), removing only
 REM                                 the files of the model: tt_*.csv, tt_*.parquet and tt_*.xml, also the merged ones,
 REM                                 signature.txt/.xml, the counts od_tellingen.csv and unieke_od_tellingen.csv (with .xml)
 REM                                 and Tellingen\tellingen_*.*. With ModelParameters/OutputFormat 'parquet' the output is
@@ -171,16 +172,7 @@ if /I not "%SECTION%"=="all" goto done
 
 :legs
 if "%SKIP_LEGS%"=="1" goto legs_done
-REM Without public transport (ModelParameters/Impl/WithPT FALSE) no legs are needed.
-call :run legs_check /ModelParameters/Impl/WithPT
-if not "!RC!"=="0" goto failed
-findstr /R "^Minimum.0" "%LOGDIR%\UpdateAll_legs_check.txt" >nul
-if not errorlevel 1 (
-  echo === legs: public transport is not part of this component, no pre- and post-transport stores ===
-  goto legs_done
-)
-echo === legs: the stores (parquet in IntermediateResults) ===
-call :run legs %PREP%/Write_PrePostTransport
+call :legs_write
 if not "!RC!"=="0" goto failed
 :legs_done
 if /I not "%SECTION%"=="all" goto done
@@ -197,6 +189,12 @@ ping -n 61 127.0.0.1 >nul
 if exist "%PAUSEFLAG%" goto output_wait
 echo %DATE% %TIME% pause over, the output step starts
 :output_go
+REM Every portion reads the pre- and post-transport connections from their stores (ModelParameters/Advanced/PrePostTransportDecoupled),
+REM so the base sets without a store are written first, once; with section all the legs section has done that already.
+if /I not "%SECTION%"=="all" if not "%SKIP_LEGS%"=="1" (
+  call :legs_write
+  if not "!RC!"=="0" goto failed
+)
 REM Empty the output folder (NetworkModel_PBL#118): the file names carry only the moment and the block, and the parameters
 REM are in signature.txt in the folder, so without emptying a run after a code change would put its blocks next to those
 REM of the previous run. The model gives the folder (NetworkSetup/GenerateOutput/OutputDir_ForBatch, written to
@@ -246,6 +244,22 @@ echo === output: a file per origin block and departure moment, one request (OUTP
 call :run output /NetworkSetup/GenerateOutput/Generate_Output
 if not "!RC!"=="0" goto failed
 goto done
+
+:legs_write
+REM Writes the stores of the base sets of pre- and post-transport that have none with the current signature
+REM (PublicTransport_Prep/Write_PrePostTransport); nothing without public transport (ModelParameters/Impl/WithPT FALSE)
+REM or without ModelParameters/Advanced/PrePostTransportDecoupled. RC holds the exit code.
+call :run legs_check /ModelParameters/Impl/WithPT
+if not "!RC!"=="0" exit /b !RC!
+findstr /R "^Minimum.0" "%LOGDIR%\UpdateAll_legs_check.txt" >nul
+if not errorlevel 1 (
+  echo === legs: public transport is not part of this component, no pre- and post-transport stores ===
+  set RC=0
+  exit /b 0
+)
+echo === legs: the stores of the base sets without one (parquet in IntermediateResults) ===
+call :run legs %PREP%/Write_PrePostTransport
+exit /b !RC!
 
 :run
 REM %1 = step name, %2.. = items; each GeoDmsRun call requests the items with @statistics, which
