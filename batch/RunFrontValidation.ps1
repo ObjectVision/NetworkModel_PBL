@@ -43,7 +43,7 @@ param(
 	[int]   $NrOrgBlocks  = 450,
 	[ValidateSet('others', 'base', 'none')][string]$WaitFor = '',
 	[int]   $MinFreeRamGB = 24,
-	[string]$Exe          = 'C:\LocalData\GeoDMS_engine\20.22.1_e04ad20f0\GeoDmsRun.exe',
+	[string]$Exe          = 'C:\Program Files\ObjectVision\GeoDms20.26.0.m\GeoDmsRun.exe',
 	[string]$RunsDir      = 'C:\LocalData\NM_PBL_runs',
 	[string]$OutRoot      = 'C:\LocalData\NetworkModel_PBL\Output',
 	[switch]$DryRun
@@ -85,13 +85,30 @@ function WaitTurn {
 	$disk = (Get-PSDrive C).Free / 1GB
 	if ($disk -lt 15) { Say ('STOP: C: has only {0:N0} GB free' -f $disk); exit 2 }
 }
+# The file that declares parameter $name: ModelParameters.dms, or ModelParameters\Advanced.dms beside it.
+function ParamFile($file, $name) {
+	$re = "parameter<\w+>\s+$name\s+:="
+	if ([IO.File]::ReadAllText($file) -match $re) { return $file }
+	$adv = Join-Path ([IO.Path]::GetDirectoryName($file)) 'ModelParameters\Advanced.dms'
+	if ((Test-Path $adv) -and ([IO.File]::ReadAllText($adv) -match $re)) { return $adv }
+	return $file
+}
+# The text of ModelParameters.dms and, when it exists, of ModelParameters\Advanced.dms beside it, with the preset table.
+function ParamText($file) {
+	$t = [IO.File]::ReadAllText($file)
+	$adv = Join-Path ([IO.Path]::GetDirectoryName($file)) 'ModelParameters\Advanced.dms'
+	if (Test-Path $adv) { $t += "`n" + [IO.File]::ReadAllText($adv) }
+	return $t
+}
 function GetParam($file, $name) {
+	$file = ParamFile $file $name
 	$m = [regex]::Match([IO.File]::ReadAllText($file), "parameter<\w+>\s+$name\s+:=\s+('([^']*)'|TRUE|FALSE)")
 	if (-not $m.Success) { Say "STOP: parameter $name not found in $file"; exit 3 }
 	if ($m.Groups[2].Success) { return $m.Groups[2].Value } else { return $m.Groups[1].Value }
 }
 # Sets the value of a parameter in ModelParameters.dms: "parameter<type>   Name   := <value>", with value 'text', TRUE or FALSE.
 function SetParam($file, $name, $value) {
+	$file = ParamFile $file $name
 	$t = [IO.File]::ReadAllText($file)
 	$re = "(parameter<\w+>\s+$name\s+:=\s+)('[^']*'|TRUE|FALSE)"
 	$n = ([regex]::Matches($t, $re)).Count
@@ -147,7 +164,7 @@ if ($BaseRun) {
 		$AnalysisDate = GetParam $bmp 'Analysis_date'
 		$GtfsDate = GetParam $bmp 'GTFS_file_date'
 	} else {
-		$AnalysisDate, $GtfsDate = PresetDates $bmpText (GetParam $bmp 'AnalysisMoment')
+		$AnalysisDate, $GtfsDate = PresetDates (ParamText $bmp) (GetParam $bmp 'AnalysisMoment')
 	}
 	$CritB = GetParam $bmp 'MinimiseCriteria'
 	$bLabel = GetParam $bmp 'OutputLabel'
@@ -158,7 +175,7 @@ if ($BaseRun) {
 	Say "start: B = base run $BaseRun (commit $commit, '$CritB', component $Component, output $bOut), A '$CritA', feed $GtfsDate, day $AnalysisDate, blocks $($Blocks -join ','), waiting for $WaitFor"
 	$runs += @{ Name = 'A'; Crit = $CritA; From = $BaseRun }
 } else {
-	$AnalysisDate, $GtfsDate = PresetDates ((& git -C $repo show HEAD:cfg/main/ModelParameters.dms) -join "`n") $AnalysisMoment
+	$AnalysisDate, $GtfsDate = PresetDates (((& git -C $repo show HEAD:cfg/main/ModelParameters.dms) + (& git -C $repo show HEAD:cfg/main/ModelParameters/Advanced.dms 2>$null)) -join "`n") $AnalysisMoment
 	Say "start: commit $head, A '$CritA', B '$CritB', analysis moment $AnalysisMoment (feed $GtfsDate, day $AnalysisDate), PartOfDay $PartOfDay, component $Component, blocks $($Blocks -join ','), waiting for $WaitFor, engine $Exe"
 	$runs += @{ Name = 'A'; Crit = $CritA }, @{ Name = 'B'; Crit = $CritB }
 }
@@ -192,7 +209,7 @@ foreach ($r in $runs) {
 	$r.Dst = $dst
 	$r.Out = Join-Path $OutRoot "$($AnalysisDate)_$($Label)_$($r.Name)$(ComponentSuffix $Component)"
 	if ($DryRun) {
-		Select-String -Path (Join-Path $dst 'cfg\main\ModelParameters.dms') -Pattern 'parameter<\w+>\s+(AnalysisMoment|PartOfDay|Component|MinimiseCriteria|OutputLabel|Export_PriceInformation)\s+:=\s+\S+' |
+		Select-String -Path (Join-Path $dst 'cfg\main\ModelParameters.dms'), (Join-Path $dst 'cfg\main\ModelParameters\Advanced.dms') -Pattern 'parameter<\w+>\s+(AnalysisMoment|PartOfDay|Component|MinimiseCriteria|OutputLabel|Export_PriceInformation)\s+:=\s+\S+' |
 			ForEach-Object { '  {0}: {1}' -f $r.Name, $_.Matches[0].Value }
 	}
 }
