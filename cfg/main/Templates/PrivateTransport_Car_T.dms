@@ -8,10 +8,8 @@ Template PrivateTransport_Car_T
 
 	container Settings
 	{
-		parameter<string>  netwerk_type_Logit := netwerk_type_OSM == classifications/OSM/netwerk_type/name[classifications/OSM/netwerk_type/V/Pedestrian] ? classifications/OSM/netwerk_type/name[classifications/OSM/netwerk_type/V/Bike] : netwerk_type_OSM;
 		
 		parameter<min_f>   max_traveldistance_min  := ModelParameters/MaxCarTime;
-		attribute<uint32>  dest_mass (dest) := ='dest/'+ModelParameters/Impl/items_of_interest;
 		
 		parameter<string>  netwerk_type_suffix := ModelParameters/UseTomTomNetworkForCars ? '-TomTom' : '-OSM';
 		parameter<string>  fileNamePrefix :=  ModelParameters/Impl/fileNamePrefix;
@@ -22,8 +20,6 @@ Template PrivateTransport_Car_T
 			'_DayGroup-'+ModelParameters/Advanced/CongestionSpeed_DaySelection +
 			'_MaxTime-' + string(ModelParameters/MaxCarTime)+'min';
 
-		parameter<string> logit_weight_prefix := 'ModelParameters/Advanced/Distance_Decay/' + netwerk_type_Logit;
-		parameter<string> logit_weights_expr  := logit_weight_prefix+'_a, ' + logit_weight_prefix+'_b, ' + logit_weight_prefix+'_c';
 	}
 
 	unit<uint32> RoadDomain_OSM        := SourceData/Infrastructure/OSM/Network_Car/isVerbonden;
@@ -320,73 +316,8 @@ Template PrivateTransport_Car_T
 		}
 	}
 	
-	container Decayed
-	{
-		//OSM
-		unit<uint64> MorningRush_OSM                  := ImpedanceMatrix_Decayed_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Morning_car);
-		unit<uint64> NoonRush_OSM                     := ImpedanceMatrix_Decayed_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Noon_car);
-		unit<uint64> LateEveningRush_OSM              := ImpedanceMatrix_Decayed_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Late_car);
-		unit<uint64> MaxSpeed_OSM                     := ImpedanceMatrix_Decayed_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/max_limit_car);
-
-		///TOMTOM
-		unit<uint64> MorningRush_TomTom               := ImpedanceMatrix_Decayed_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/MorningRush);
-		unit<uint64> NoonRush_TomTom                  := ImpedanceMatrix_Decayed_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/NoonRush);
-		unit<uint64> LateEveningRush_TomTom           := ImpedanceMatrix_Decayed_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/LateEveningRush);
-		unit<uint64> Freeflow_TomTom                  := ImpedanceMatrix_Decayed_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/Freeflow);
-
-		Template ImpedanceMatrix_Decayed_T
-		{
-			unit<uint32>      LinkSet_dom;
-			unit<uint32>      NodeSet_dom;
-			attribute<s_f>    Impedance (LinkSet_dom);
-			//
-			unit<uint64> impedanceMatrix := =
-				ModelParameters/Advanced/InterpretAllRoadsAsBidirectional 
-					? 	'impedance_matrix_od64(''bidirectional;startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);interaction(v_i,w_j,dist_logit(alpha,beta,gamma)):D_i''
-							, Impedance
-							, LinkSet_dom/F1
-							, LinkSet_dom/F2
-							, NodeSet_dom/OrgNode_rel
-							, NodeSet_dom/DestNode_rel
-							, convert(settings/max_traveldistance_min, s_f)
-							, 1f                                 // v_i
-							, settings/dest_mass[float32]        // w_j
-							, ModelParameters/Advanced/Distance_Decay/car_a , ModelParameters/Advanced/Distance_Decay/car_b , ModelParameters/Advanced/Distance_Decay/car_c
-						)'
-					: 	'impedance_matrix_od64(''bidirectional(link_flag);startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);interaction(v_i,w_j,dist_logit(alpha,beta,gamma)):D_i''
-							, Impedance
-							, LinkSet_dom/F1
-							, LinkSet_dom/F2
-							, not(LinkSet_dom/IsOneDirection)
-							, NodeSet_dom/OrgNode_rel
-							, NodeSet_dom/DestNode_rel
-							, convert(settings/max_traveldistance_min, s_f)
-							, 1f                                 // v_i
-							, settings/dest_mass[float32]        // w_j
-							, ModelParameters/Advanced/Distance_Decay/car_a , ModelParameters/Advanced/Distance_Decay/car_b , ModelParameters/Advanced/Distance_Decay/car_c
-						)';
-		}
-	}
 	
 	
-	container ExportTable_Decayed
-	{
-		attribute<float32> nr_items_of_interest_decayed_MaxSpeed_OSM        (org) := Decayed/MaxSpeed_OSM/impedanceMatrix/D_i;
-		attribute<float32> nr_items_of_interest_decayed_MorningRush_OSM     (org) := Decayed/MorningRush_OSM/impedanceMatrix/D_i;
-		attribute<float32> nr_items_of_interest_decayed_NoonRush_OSM        (org) := Decayed/NoonRush_OSM/impedanceMatrix/D_i;
-		attribute<float32> nr_items_of_interest_decayed_LateEveningRush_OSM (org) := Decayed/LateEveningRush_OSM/impedanceMatrix/D_i;
-		
-		attribute<float32> nr_items_of_interest_decayed_Freeflow_TomTom        (org) := Decayed/Freeflow_TomTom/impedanceMatrix/D_i;
-		attribute<float32> nr_items_of_interest_decayed_MorningRush_TomTom     (org) := Decayed/MorningRush_TomTom/impedanceMatrix/D_i;
-		attribute<float32> nr_items_of_interest_decayed_NoonRush_TomTom        (org) := Decayed/NoonRush_TomTom/impedanceMatrix/D_i;
-		attribute<float32> nr_items_of_interest_decayed_LateEveningRush_TomTom (org) := Decayed/LateEveningRush_TomTom/impedanceMatrix/D_i;
-		
-		attribute<string> BodyLines_OSM (org)    := org/name + ';' + string(nr_items_of_interest_decayed_MaxSpeed_OSM) + ';' + string(nr_items_of_interest_decayed_MorningRush_OSM)+';'+string(nr_items_of_interest_decayed_NoonRush_OSM)+';'+string(nr_items_of_interest_decayed_LateEveningRush_OSM);
-		parameter<string> File_OSM               := 'Org;freeflow;MorningRush;NoonRush;LateEveningRush\n'++asList(BodyLines_OSM, '\n'), StorageName = "=settings/fileNamePrefix+''+ModelParameters/Impl/items_of_interest+'_decayed'+replace(settings/fileNameSuffix, '@@', 'Car', '##',  string(ModelParameters/MaxCarTime))+'.csv'", StorageType = "str";
-		attribute<string> BodyLines_TomTom (org) := org/name + ';' + string(nr_items_of_interest_decayed_Freeflow_TomTom) + ';' + string(nr_items_of_interest_decayed_MorningRush_TomTom)+';'+string(nr_items_of_interest_decayed_NoonRush_TomTom)+';'+string(nr_items_of_interest_decayed_LateEveningRush_TomTom);
-		parameter<string> File_TomTom            := 'Org;freeflow;MorningRush;NoonRush;LateEveningRush\n'++asList(BodyLines_TomTom, '\n'), StorageName = "=settings/fileNamePrefix+''+ModelParameters/Impl/items_of_interest+'_decayed'+replace(settings/fileNameSuffix, '@@', 'Car', '##',  string(ModelParameters/MaxCarTime))+'.csv'", StorageType = "str";
-		parameter<string> File                   := =ModelParameters/UseTomTomNetworkForCars ? 'File_TomTom' : 'File_OSM'; 
-	}
 	
 	
 	parameter<string> ExportTable_Traveltimes_str := 	 switch(

@@ -7,7 +7,7 @@ REM de stappen vrijkomt, en stopt bij een fout. Logs in batch\log\UpdateAll_<sta
 REM
 REM   UpdateAll.cmd                 alle secties (bronnen, autoritten, ketens, uitvoer); reken op meer dan een nacht
 REM   UpdateAll.cmd all -nosources  alles behalve de genoemde secties: -nosources, -nocars, -nochains, -nolegs, -nooutput
-REM   UpdateAll.cmd sources         OSM-netwerk, TomTom-stores, GTFS-store, LISA (alleen bij een
+REM   UpdateAll.cmd sources         OSM-netwerk, TomTom-stores, GTFS-store (alleen bij een
 REM                                 nieuwe editie nodig; ca. 15 min)
 REM   UpdateAll.cmd cars [moment..] de stores van de directe autorit per vertrekmoment
 REM                                 (PublicTransport_Prep/Direct/CarPerMoment/<moment>/Write_Car);
@@ -118,9 +118,6 @@ call :run tomtom_speedprofiles /SourceData/Infrastructure/TomTom/Impl/Write_Spee
 if not "!RC!"=="0" goto failed
 echo === bronnen: GTFS-store van de feed GTFS_file_date ===
 call :run gtfs /SourceData/Infrastructure/GTFS/LoadFeeds/Write
-if not "!RC!"=="0" goto failed
-echo === bronnen: LISA-mmd naast de fss (jaar LISA_year, hier y2018) ===
-call :run lisa /SourceData/Locaties/LISA/ReadFSS/y2018/Make_PerYear_mmd
 if not "!RC!"=="0" goto failed
 :sources_done
 if /I not "%SECTION%"=="all" goto done
