@@ -11,12 +11,18 @@ container TomTom : Descr = "The TomTom MultiNet road network with its historical
 	{
 		parameter<string> dir       := '%NetworkModel_PrivDir%/TomTom/'+file_date+''; //must have forward slashes!
 		
-		parameter<string> Generate_FileList_CSVs := 'Ready', ExplicitSuppliers = "GetFileNames_Network/WriteFilesCSV;GetFileNames_Speedprofiles/WriteFilesCSV";
+		// A reference and not 'Ready' with ExplicitSuppliers: the engine does not calculate such a supplier, so the dir command would not run.
+		parameter<bool>   Generate_FileList_CSVs := GetFileNames_Network/WriteFilesCSV && GetFileNames_Speedprofiles/WriteFilesCSV, Descr = "Writes the lists of the delivered shapefiles and dbf files to %LocalDataProjDir%/TomTom; the stores read them, so make them first, in a process of their own.";
 		parameter<string> Generate_Stores        := 'Ready', ExplicitSuppliers = "Write_Roads;Write_Junctions;Write_Speednetworks;Write_Speedprofiles";
 
 		// The four stores come from the raw material (Merge_*, folder multinet/ of the edition) or, for an edition that only exists as an old fss,
 		// from that fss (FromFss). UpdateAll.cmd sources calls these four.
 		parameter<bool>   HasRawMaterial         := ExistingFile('', expand(., dir + '/multinet')) != '', Descr = "True when the edition has the raw material (multinet/); otherwise the stores come from the fss (FromFss).";
+		parameter<bool>   HasFss                 := ExistingFile('', expand(., dir + '/Roads_FSS.fss')) != '', Descr = "True when the edition has the old fss, from which FromFss makes the stores.";
+		parameter<bool>   HasStores              := ExistingFile('', expand(., dir + '/Speedprofiles.mmd/0Dictionary.dms')) != '', Descr = "True when the four stores of the edition exist already; Speedprofiles.mmd is written last.";
+		parameter<string> Source_ForBatch        := (!ModelParameters/UseTomTomNetworkForCars ? 'osm ' : HasRawMaterial ? 'raw ' : HasFss ? 'fss ' : HasStores ? 'stores ' : 'missing ') + replace(expand(., dir), '/', '\\')
+		, StorageName = "%ConfigDir%/../../batch/log/tomtom_source.txt", StorageType = "str"
+		, Descr = "What batch/UpdateAll.cmd sources makes the TomTom stores of the edition from, followed by the folder of the edition: osm (the car uses the OSM network, no TomTom needed), raw (multinet/, first the file lists), fss (FromFss), stores (made already, with no source to make them again) or missing.";
 		parameter<string> Write_Roads            := 'Ready', ExplicitSuppliers = "=HasRawMaterial ? 'Merge_Roads' : 'FromFss/Roads'";
 		parameter<string> Write_Junctions        := 'Ready', ExplicitSuppliers = "=HasRawMaterial ? 'Merge_Junctions' : 'FromFss/Junctions'";
 		parameter<string> Write_Speednetworks    := 'Ready', ExplicitSuppliers = "=HasRawMaterial ? 'Merge_Speednetworks' : 'FromFss/Speednetworks'";
