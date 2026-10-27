@@ -1,7 +1,12 @@
 container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 20.2402" // 20.24.2: pareto_optimal_eps with a relative epsilon; format 17.1.2 -> 17.0102
 { 	
-	// DE STAPPEN VAN EEN RUN: zie de wiki, How to run the model, stap 1 tot en met 6. In GeoDmsGui staan ze onder
-	// MakeUnlinkedData (GTFS, LegStores, PT_Chains) en NetworkSetup/GenerateOutput/Generate_Output; buiten de GUI met batch/UpdateAll.cmd.
+	// HOW TO RUN THE MODEL (the wiki, How to run the model, has the details):
+	// 1. Choose in ModelParameters the analysis moment, the origins and destinations, and the component, or the components to merge.
+	// 2. Make the decoupled data with the steps under MakeUnlinkedData, in order. A store is made once per edition or setting, and its signature tells whether it fits.
+	// 3. Calculate the results with batch\UpdateAll.cmd output. It runs the origin blocks in portions, each in its own GeoDmsRun, so that memory is freed in between;
+	//    NetworkSetup/GenerateOutput/Generate_Output does the same in the GUI in one process, which only suits a small set or one OD pair.
+	// 4. To merge components into one front, set MergeOutput in ModelParameters and run batch\UpdateAll.cmd output again.
+	// Outside the GUI, batch\UpdateAll.cmd sources, legs, chains and cars make the same stores as step 2.
 
 	container ChecksBeforeRunning
 	{
@@ -18,40 +23,18 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 20.2402" // 20.24.
 	}
 
 	container MakeUnlinkedData
+	:	Descr = "The preparation steps, in order: each step writes stores that the runs read back."
 	{
-		container OSM
-		{   
-			parameter<String> Step1_Generate_roads_Final_Network             := 'Ready', ExplicitSuppliers = "SourceData/Infrastructure/OSM/Make_Final_Network";
-		}
-		
-		container TomTom
+		container Step1_Sources
+		:	Descr = "Once per edition of the source data: the OSM network, the TomTom networks (only needed for the component Car) and the GTFS store."
 		{
-			parameter<String> GetFilesName_network                           := 'Ready', ExplicitSuppliers = "SourceData/Infrastructure/TomTom/impl/GetFileNames_Network/WriteFilesCSV";
-			parameter<String> GetFilesName_profiles                          := 'Ready', ExplicitSuppliers = "SourceData/Infrastructure/TomTom/impl/GetFileNames_Speedprofiles/WriteFilesCSV";
-			parameter<String> Generate                                       := 'Ready', ExplicitSuppliers = "SourceData/Infrastructure/TomTom/impl/Generate_Stores";
-		} 
-		
-		container GTFS
-		{
-			parameter<String> Generate_GTFS                              := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/GTFS/LoadFeeds/store";
-			parameter<String> Export_OV_Knooppunten                      := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/GTFS/OV_Knooppunten/Export_Knooppunten";
-			parameter<String> Export_Reistijd_OV_Knooppunt_tif          := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/GTFS/OV_Knooppunten/Bereikbaarheid_Auto/Reistijd";
-			parameter<String> Export_OV_Net_Venster                      := 'Ready', ExplicitSuppliers = "/Output/pt_windows_export/Generate", Descr = "Het OV-net in een tijdvenster als lagen voor GIS (#57); dag, venster en formaat bovenin /Output/pt_windows_export.";
-		}
-		
-		container ExportNetworks
-		{
-			parameter<string> Car_TomTom  := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/TomTom/Roads_selection/Export/Network"; 
-			parameter<string> Cycling_OSM := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/OSM/OSM_Netwerken_Export/Cycling/Generate"; 
-			parameter<string> Walking_OSM := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/OSM/OSM_Netwerken_Export/Walking/Generate"; 
-			parameter<string> Car_OSM     := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/OSM/OSM_Netwerken_Export/Car/Generate";
-
+			parameter<String> OSM_Network      := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/OSM/Make_Final_Network";
+			parameter<String> TomTom_FileLists := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/TomTom/impl/GetFileNames_Network/WriteFilesCSV;/SourceData/Infrastructure/TomTom/impl/GetFileNames_Speedprofiles/WriteFilesCSV", Descr = "Lists the files of the raw TomTom delivery, which TomTom_Networks reads.";
+			parameter<String> TomTom_Networks  := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/TomTom/impl/Generate_Stores";
+			parameter<String> GTFS_Feed        := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/GTFS/LoadFeeds/store";
 		}
 
-		// De stores van de benen en de ketenstore als aan te klikken stappen; buiten de GUI doen batch/UpdateAll.cmd legs en chains hetzelfde.
-		// Een schrijver schrijft eerst de handtekening van zijn store en stopt als er al een andere staat; zie de wiki, How to run the model,
-		// stap 3 en 4.
-		container LegStores
+		container Step2_Legs
 		:	Descr = "The legs of pre- and post-transport as a parquet store per base set in IntermediateResults, which the runs read with ModelParameters/Advanced/LegsDecoupled; Generate_All writes nothing without it."
 		{
 			parameter<String> Generate_All       := 'Ready', ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/LegStores_Write"
@@ -64,14 +47,14 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 20.2402" // 20.24.
 			,	Descr = "Fietsen van elke halte naar elke bestemming: Legs_Stops2<set>_Cycling_<hash>.parquet. Een eigen store, want het Fietsersbond-net heeft eenrichtingsfietspaden.";
 		}
 
-		container PT_Chains
+		container Step3_PT_Chains
 		:	Descr = "De OV-ketenstore van het dagdeel: een store per haltenblok in %LocalDataProjDir%/IntermediateResults/PT_Chains_<datum>_<venster>_<hash>, dezelfde als UpdateAll.cmd chains maakt."
 		{
-			parameter<String> Step1_CheckBlocks        := /ChecksBeforeRunning/PT_CheckBlocks, Descr = "Passen alle haltes in de haltenblokken (MaxStopBlockSize x NumberOfStopBlocks)?";
-			parameter<String> Step2_CheckPriceCoverage := /ChecksBeforeRunning/PT_CheckPriceCoverage, Descr = "Dekt de prijstabel alle combinaties van modaliteit en vervoerder in de feed? Seconden; draai hem voor de ketens.";
-			parameter<String> Step3_BlocksWritten      := string(/NetworkSetup/PublicTransport_Prep/PT_Chains_Blocks/NrWritten) + ' van ' + string(/NetworkSetup/PublicTransport_Prep/PT_Chains_Blocks/NrBlocks) + ' haltenblokken hebben een store'
+			parameter<String> Check_Blocks             := /ChecksBeforeRunning/PT_CheckBlocks, Descr = "Passen alle haltes in de haltenblokken (MaxStopBlockSize x NumberOfStopBlocks)?";
+			parameter<String> Check_PriceCoverage      := /ChecksBeforeRunning/PT_CheckPriceCoverage, Descr = "Dekt de prijstabel alle combinaties van modaliteit en vervoerder in de feed? Seconden; draai hem voor de ketens.";
+			parameter<String> BlocksWritten            := string(/NetworkSetup/PublicTransport_Prep/PT_Chains_Blocks/NrWritten) + ' van ' + string(/NetworkSetup/PublicTransport_Prep/PT_Chains_Blocks/NrBlocks) + ' haltenblokken hebben een store'
 			,	Descr = "Hoeveel blokken van de ketenstore met de huidige handtekening er al zijn (een blok telt als zijn 0Dictionary.dms bestaat).";
-			parameter<String> Step4_Generate_ToDo      := 'Ready', ExplicitSuppliers = "=AsList(/NetworkSetup/PublicTransport_Prep/PT_Chains_Blocks/ToDo/Item, ';')"
+			parameter<String> Generate_ToDo            := 'Ready', ExplicitSuppliers = "=AsList(/NetworkSetup/PublicTransport_Prep/PT_Chains_Blocks/ToDo/Item, ';')"
 			,	Descr = "Rekent en schrijft de blokken zonder store in een opvraging; UpdateAll.cmd chains rekent ze in porties, elk in een eigen GeoDmsRun, zodat het geheugen tussen de porties vrijkomt.";
 			container PerBlock := for_each_ne(/NetworkSetup/PublicTransport_Prep/impl/BlockDomain/name, 'WriteBlock_T(' + quote(/NetworkSetup/PublicTransport_Prep/impl/BlockDomain/name) + ')')
 			,	Descr = "Per haltenblok: Write rekent en schrijft de store van dat blok, bijvoorbeeld om een blok te proberen.";
@@ -83,8 +66,19 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 20.2402" // 20.24.
 				parameter<String> Write := 'Ready', ExplicitSuppliers = "='/NetworkSetup/PublicTransport_Prep/ChainGeneration_PerBlock/' + BlockName + '/Write'";
 			}
 		}
+
+		container Step4_CarStores
+		:	Descr = "Only for the component Car: per departure moment the travel times and distances of the direct car trip between all origins and destinations (#132)."
+		{
+			parameter<string> Moments := /ModelParameters/Advanced/CarTimeDependent ? AsList('TD' + /ModelParameters/Advanced/MeasureMoments/TemplatableTextShrt, ' ') : /ModelParameters/Advanced/Car_CongestionMoment_ForDirect
+			,	StorageName = "%ConfigDir%/../../batch/log/car_moments.txt", StorageType = "str"
+			,	Descr = "The moments whose car store the model reads; batch/UpdateAll.cmd cars makes these when it is given no moments.";
+			parameter<string> Writers := '/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/' + replace(Moments, ' ', '/Write_Car;/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/') + '/Write_Car';
+			parameter<String> Generate_All := 'Ready', ExplicitSuppliers = "=/ModelParameters/Advanced/AllowDirectCar ? Writers : ''"
+			,	Descr = "Makes the car stores of all Moments, in one process; batch/UpdateAll.cmd cars makes them one by one.";
+		}
 	}
-	
+
 	#include<ModelParameters.dms>
 	#include<units.dms>
 	#include<Geography.dms>
@@ -92,7 +86,6 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 20.2402" // 20.24.
 	#include<SourceData.dms>
 	#include<NetworkSetup.dms>
 	#include<Templates.dms>
-	#include<PostAnalysis.dms>
 	#include<Output.dms>
 	#include<ExportSettings.dms>
 	#include<ConfigSettings.dms>

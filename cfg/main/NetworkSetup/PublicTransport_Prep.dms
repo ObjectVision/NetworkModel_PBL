@@ -203,8 +203,8 @@ container PublicTransport_Prep
 		// lezen: afstand x Car_CostPerKm + Car_FixedCosts_PerTrip (sinds 2026-10-05, #88). Tot dan droeg de store de
 		// linkkosten (kilometerprijs per wegklasse en optrekkosten) als tweede criterium, en was de afstand onbekend.
 		//
-		// Per congestiemoment een store volgens de MMD-regels van 20.19.0 (#1245), zoals de ketens: Car_src is de
-		// rekenkant, Write_Car de holder die alleen de vier kolommen bewaart, Car_store de kale lezer (declareert
+		// Per congestiemoment een store volgens de MMD-regels van 20.19.0 (#1245), zoals de ketens: Calc_Car is de
+		// rekenkant, Write_Car de holder die alleen de vier kolommen bewaart, Read_Car de kale lezer (declareert
 		// niets, de dictionary van de mmd levert de kolommen) en Car (CarFront_T) de afgeleiden, de samenvatting per
 		// HB-paar en het uitgedunde front (Car/Front). De handtekening (Signature) draagt alles wat de inhoud bepaalt; de naam sinds 2026-10-03
 		// alleen het moment, de herkomst- en bestemmingenset en een hash van de handtekening (NetworkModel_PBL#118). Eerst Write_Car berekenen
@@ -216,14 +216,14 @@ container PublicTransport_Prep
 				+ (/ModelParameters/Advanced/CarTimeDependent ? ', ' + asList(quote('TD' + /ModelParameters/Advanced/MeasureMoments/TemplatableTextShrt), ', ') : '') + ')';
 		}
 		container CarPerMoment := for_each_ne(CarMoments/name, 'DirectCarStore_T('+quote(CarMoments/name)+')')
-		,	Descr = "Per congestiemoment: Write_Car (schrijft de store), Car_store (leest hem) en Car (met prijs, Summary per HB-paar en het front, Car/Front).";
+		,	Descr = "Per congestiemoment: Write_Car (schrijft de store), Read_Car (leest hem) en Car (met prijs, Summary per HB-paar en het front, Car/Front).";
 
 		Template DirectCarStore_T
 		{
 			parameter<string> Moment;
 			///
 			parameter<bool>   IsTD := substr(Moment, 0, 2) == 'TD', Descr = "Een tijdafhankelijke store van een vertrekmoment (CarTimeDependent, sinds 2026-10-09)?";
-			unit<uint64> Car_src := = IsTD
+			unit<uint64> Calc_Car := = IsTD
 				? '/NetworkSetup/PrivateTransport/Car/Traveltimes/TD/' + Moment + '/impedanceMatrix'
 				: '/NetworkSetup/PrivateTransport/Car/Traveltimes/'+Moment+(/ModelParameters/UseTomTomNetworkForCars ? '_TomTom' : '_OSM')+'_w_AltImp'+(/ModelParameters/Advanced/ParetoLegs_Car ? '_pareto' : '')+'/impedanceMatrix'
 			,	Descr = "Rekenkant: de (pareto-)afstandsmatrix van PrivateTransport_Car_T op dit moment, of de tijdafhankelijke zoektocht van dit vertrekmoment (Traveltimes/TD). Niet zelf gebruiken; Write_Car schrijft hem weg en Car leest hem terug.";
@@ -250,14 +250,14 @@ container PublicTransport_Prep
 			,	Descr = "Naam van de store zonder extensie: het wegennet (NetTag, sinds 2026-10-21), het congestiemoment, de herkomst- en bestemmingenset leesbaar (sinds 2026-10-20 kort, OrgSet_PathTag: b2025 voor buurt2025), de rest als hash van Signature. Bijvoorbeeld DirectCar_TT2025-12_TD07h00m_b2025_b2025_3dc99b97.mmd.";
 			parameter<string> StorageName_Str := StorageBase_Str + '.mmd';
 			container Sig := /Templates/StoreSignature_T(StorageName_Str, StorageName_Str + '/signature.txt', Signature, strlen('/0Dictionary.dms'))
-			,	Descr = "De handtekening in de map van de store (signature.txt, naast 0Dictionary.dms; sinds 2026-10-06, tot dan <naam>.signature.txt ernaast in IntermediateResults): Write_Car schrijft hem, Car_store controleert hem.";
-			unit<uint64> Write_Car := Car_src, StorageName = "=StorageName_Str", ExplicitSuppliers = "='Sig/ForWriting' + (/ModelParameters/Advanced/IsOD && IsTD ? ';Write_CarLinks/links' : '')"
+			,	Descr = "De handtekening in de map van de store (signature.txt, naast 0Dictionary.dms; sinds 2026-10-06, tot dan <naam>.signature.txt ernaast in IntermediateResults): Write_Car schrijft hem, Read_Car controleert hem.";
+			unit<uint64> Write_Car := Calc_Car, StorageName = "=StorageName_Str", ExplicitSuppliers = "='Sig/ForWriting' + (/ModelParameters/Advanced/IsOD && IsTD ? ';Write_CarLinks/links' : '')"
 			,	Descr = "Schrijft de afstandsmatrix van de directe autorit op dit moment naar StorageName_Str, en de handtekening ernaast (Sig); bereken dit item om de store (opnieuw) te maken."
 			{
-				attribute<s_f>        impedance   := Car_src/Car_Time, Descr = "De reistijd van de route; met de relatieve epsilon (sinds 2026-10-05) het tweede zoekcriterium, de afstand het eerste.";
-				attribute<km>         alt_imp     := Car_src/Car_Distance, Descr = "De afstand van de route (sinds 2026-10-05, #88; tot dan de linkkosten in euro).";
-				attribute<impl/org>   OrgZone_rel := Car_src/OrgZone_rel;
-				attribute<impl/dest>  DstZone_rel := Car_src/DstZone_rel;
+				attribute<s_f>        impedance   := Calc_Car/Car_Time, Descr = "De reistijd van de route; met de relatieve epsilon (sinds 2026-10-05) het tweede zoekcriterium, de afstand het eerste.";
+				attribute<km>         alt_imp     := Calc_Car/Car_Distance, Descr = "De afstand van de route (sinds 2026-10-05, #88; tot dan de linkkosten in euro).";
+				attribute<impl/org>   OrgZone_rel := Calc_Car/OrgZone_rel;
+				attribute<impl/dest>  DstZone_rel := Calc_Car/DstZone_rel;
 			}
 			// DE LINKS VAN DE ROUTES (sinds 2026-10-21, #129), alleen in de HB-paarmodus met een tijdafhankelijke store: per route (een rij van de
 			// store) de links in de volgorde van de rit, met de vorm van de weg uit TomTom.
@@ -273,7 +273,7 @@ container PublicTransport_Prep
 					attribute<rdc>    geometry (arc) := =Links_Src + '/LinkGeometrie';
 				}
 			}
-			container CarLinks_store : StorageName = "=LinksName_Str", StorageType = "gdal.vect", StorageReadOnly = "true"
+			container Read_CarLinks : StorageName = "=LinksName_Str", StorageType = "gdal.vect", StorageReadOnly = "true"
 			{
 				unit<uint32> links
 				{
@@ -282,9 +282,9 @@ container PublicTransport_Prep
 					attribute<rdc>    geometry (arc);
 				}
 			}
-			unit<uint64> Car_store : StorageName = "=Sig/ForReading", StorageReadOnly = "true"
+			unit<uint64> Read_Car : StorageName = "=Sig/ForReading", StorageReadOnly = "true"
 			,	Descr = "Kale lezer van de store; declareert niets. Faalt als de handtekening ontbreekt of afwijkt (Sig/CheckGate); bestaat de store niet, bereken dan eerst Write_Car.";
-			container Car := CarFront_T(Car_store, Car_store/impedance, Car_store/alt_imp, Car_store/OrgZone_rel, Car_store/DstZone_rel)
+			container Car := CarFront_T(Read_Car, Read_Car/impedance, Read_Car/alt_imp, Read_Car/OrgZone_rel, Read_Car/DstZone_rel)
 			,	Descr = "De directe autorit uit de hele store: per HB-paar de snelste route (scalair) of het (reistijd, afstand)-front (ParetoLegs_Car), met prijs, de samenvatting per HB-paar in Summary en het uitgedunde front in Front (tot 2026-10-12 Car_Front, naast Car).";
 		}
 

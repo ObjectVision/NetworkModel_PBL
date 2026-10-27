@@ -9,9 +9,10 @@ REM   UpdateAll.cmd                 alle secties (bronnen, autoritten, ketens, u
 REM   UpdateAll.cmd all -nosources  alles behalve de genoemde secties: -nosources, -nocars, -nochains, -nolegs, -nooutput
 REM   UpdateAll.cmd sources         OSM-netwerk, TomTom-stores, GTFS-store, LISA (alleen bij een
 REM                                 nieuwe editie nodig; ca. 15 min)
-REM   UpdateAll.cmd cars [moment..] de stores van de directe autorit per congestiemoment
+REM   UpdateAll.cmd cars [moment..] de stores van de directe autorit per vertrekmoment
 REM                                 (PublicTransport_Prep/Direct/CarPerMoment/<moment>/Write_Car);
-REM                                 zonder momenten alle vier: MorningRush NoonRush LateEveningRush
+REM                                 zonder momenten die het model leest (MakeUnlinkedData/Step4_CarStores/Moments);
+REM                                 met momenten bijvoorbeeld MorningRush NoonRush LateEveningRush
 REM                                 en Freeflow (TomTom) of MaxSpeed (OSM); 40 min scalair per
 REM                                 moment, langer met ParetoLegs_Car
 REM   UpdateAll.cmd chains          de OV-ketenstore per haltenblok (WriteChainBlocks.ps1; met de omgevingsvariabele
@@ -134,7 +135,11 @@ if not errorlevel 1 (
   echo === directe autorit: AllowDirectCar is FALSE voor deze component, geen autostores ===
   goto cars_done
 )
-if "%MOMENTS%"=="" set MOMENTS=MorningRush NoonRush LateEveningRush Freeflow
+if "%MOMENTS%"=="" (
+  call :run car_moments /MakeUnlinkedData/Step4_CarStores/Moments
+  if not "!RC!"=="0" goto failed
+  set /p MOMENTS=<"%LOGDIR%\car_moments.txt"
+)
 for %%M in (%MOMENTS%) do (
   echo === directe autorit: store voor %%M ===
   call :run car_%%M %PREP%/Direct/CarPerMoment/%%M/Write_Car
