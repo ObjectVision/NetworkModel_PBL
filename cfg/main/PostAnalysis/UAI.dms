@@ -50,31 +50,30 @@ container UAI
 		parameter<string> SnapshotDir                     := SnapshotBaseDir+'/'+jaar+'0101_RS';
 		parameter<string> bouwjaar_truncation_expr        := 'bouwjaar <= 1000w || bouwjaar > @YYYY@[yr] ? (0/0)[uint16] : bouwjaar < 1500w ? 1500w : bouwjaar';
 
-		unit<spoint> grid := geometries/rdc_100m;
+		unit<spoint> grid := Geography/rdc_100m;
 
 		container BAG
 		: Descr = "Leest per jaar de benodigde BAG-onderdelen rechtstreeks uit de RS-snapshot (zelfde schema als SourceData/Vastgoed/BAG in RSopen)."
 		{
-			// De externe fss blijft staan voor de andere configuraties; hier leest NetworkModel_PBL de
-			// mmd-kopie ernaast. Snapshot maakt en leest die kopie (zie SourceData/BAG/Snapshot_T);
-			// genereren: PerJaar/Y<jaar>/BAG/Snapshot/Make_mmd/Generate.
-			container Snapshot := /SourceData/BAG/Snapshot_T(SnapshotDir);
-
-			unit<uint32> vbo_import := Snapshot/store/vbo
+			unit<uint32> vbo_import
+			:	StorageName     = "= SnapshotDir+'/vbo.fss'"
+			,	StorageReadOnly = "True"
 			{
-				attribute<rdc_mm>  geometry_mm := Snapshot/store/vbo/geometry_mm;
-				attribute<string>  pand_id     := Snapshot/store/vbo/pand_id;
-				attribute<string>  status      := Snapshot/store/vbo/status;
+				attribute<rdc_mm>  geometry_mm;
+				attribute<string>  pand_id;
+				attribute<string>  status;
 
-				container gebruiksdoelen := for_each_nedv(Classifications/vbo_gebruiksdoel/name, 'Snapshot/store/vbo/gebruiksdoelen/'+Classifications/vbo_gebruiksdoel/name, vbo_import, bool);
+				container gebruiksdoelen := for_each_ndv(Classifications/vbo_gebruiksdoel/name, vbo_import, bool);
 			}
 
-			unit<uint32> pand_import := Snapshot/store/pand
+			unit<uint32> pand_import
+			:	StorageName     = "= SnapshotDir+'/pand.fss'"
+			,	StorageReadOnly = "True"
 			{
-				attribute<rdc_mm>  geometry_mm (polygon) := Snapshot/store/pand/geometry_mm;
-				attribute<string>  identificatie         := Snapshot/store/pand/identificatie;
-				attribute<int16>   bouwjaar              := Snapshot/store/pand/bouwjaar;
-				attribute<string>  status                := Snapshot/store/pand/status;
+				attribute<rdc_mm>  geometry_mm (polygon);
+				attribute<string>  identificatie;
+				attribute<int16>   bouwjaar;
+				attribute<string>  status;
 			}
 
 			unit<uint32> vbo := vbo_import
@@ -155,7 +154,7 @@ container UAI
 			}
 		}
 
-		unit<uint32> Herkomsten := geometries/perGridsize/size_100m/points
+		unit<uint32> Herkomsten := Geography/perGridsize/size_100m/points
 		, Descr = "Alle 100m-celmiddens binnen Nederland (incl. cellen zonder bebouwing: RSopen heeft op elke AllocDomain-cel een UAI-waarde nodig).";
 
 		container Netwerk := Templates/CreateNetwork_Efficient_T(Herkomsten, VoorzieningCellen, SourceData/Infrastructure/OSM/Network_Walking, 'Walking', FALSE)
