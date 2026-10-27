@@ -18,7 +18,7 @@ Template PerDepartureMoment_T : Descr = "Calculates for one departure moment of 
 		attribute<ct>                Price_augm                  := collect_by_cond(., Within_VW_Window_SelectionCriterium, PT_InBlock/Price_augm);
 		attribute<s>                 Traveltime                  := collect_by_cond(., Within_VW_Window_SelectionCriterium, PT_InBlock/Traveltime);
 		attribute<uint32>            ModeCode                    := collect_by_cond(., Within_VW_Window_SelectionCriterium, PT_InBlock/ModeCode);
-		// The mode letters per leg, decoded from the uint32 ModeCode of the chain store once per distinct code.
+		// The mode letters per leg, decoded from the uint32 ModeCode of the chain cache once per distinct code.
 		unit<uint32>                 UqModeCode                  := unique_uint32(ModeCode)
 		{
 			unit<uint8>                CD                          := /Classifications/GTFS_Modes/CodeDigits;
@@ -222,28 +222,28 @@ Template PerDepartureMoment_T : Descr = "Calculates for one departure moment of 
 	parameter<bool>   WithPT := /ModelParameters/Impl/WithPT;
 
 	// The direct trips of this departure moment (#132): those of the block (Direct_OD, independent of the moment) and, with the time-dependent
-	// car trip (ModelParameters/Impl/CarTimeDependent), the car trips of this moment from the store of this moment.
+	// car trip (ModelParameters/Impl/CarTimeDependent), the car trips of this moment from the cache of this moment.
 	parameter<bool>   CarTD       := /ModelParameters/Impl/CarTimeDependent && /ModelParameters/Impl/AllowDirectCar;
 	parameter<string> TDName      := 'TD' + Time/TemplatableTextShrt[inTime[Time]];
-	parameter<string> CarTD_Store := '/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/' + TDName + '/Read_Car';
+	parameter<string> CarTD_Cache := '/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/' + TDName + '/Read_Car';
 
-	// The block selects its rows from the store itself and calculates price, front (CarFront_T) and places only for those rows, so that no table
-	// with all rows and their derived attributes stays in memory. The selection works per tile of the store (64K rows): collect_by_cond reads only
-	// the tiles in which the block has rows. A lookup in the store (<column>[row]) would first make a contiguous copy of the whole column, per
+	// The block selects its rows from the cache itself and calculates price, front (CarFront_T) and places only for those rows, so that no table
+	// with all rows and their derived attributes stays in memory. The selection works per tile of the cache (64K rows): collect_by_cond reads only
+	// the tiles in which the block has rows. A lookup in the cache (<column>[row]) would first make a contiguous copy of the whole column, per
 	// block, moment and column, which is much slower.
 	attribute<bool> Org_InBlock (/NetworkSetup/impl/OrgBlockSelections) := /NetworkSetup/impl/OrgBlockSelections/OrgBlock_rel == BlockDomain_id, Descr = "Whether the origin is in this block, as in ConfigurationPerOrgBlock_T/org.";
-	unit<uint64> CarStore := = CarTD ? CarTD_Store : 'range(uint64, 0u64, 0u64)'
+	unit<uint64> CarCache := = CarTD ? CarTD_Cache : 'range(uint64, 0u64, 0u64)'
 	{
-		attribute<bool> InBlock := = CarTD ? '../Org_InBlock[' + CarTD_Store + '/OrgZone_rel]' : 'const(FALSE, .)';
+		attribute<bool> InBlock := = CarTD ? '../Org_InBlock[' + CarTD_Cache + '/OrgZone_rel]' : 'const(FALSE, .)';
 	}
-	unit<uint64> CarRows := select(CarStore/InBlock)
-	,	Descr = "The rows of the car store of this moment for the origins of this block, in the order of the store."
+	unit<uint64> CarRows := select(CarCache/InBlock)
+	,	Descr = "The rows of the car cache of this moment for the origins of this block, in the order of the cache."
 	{
-		attribute<s_f>                                          impedance   := = CarTD ? 'collect_by_cond(., CarStore/InBlock, ' + CarTD_Store + '/impedance)'   : 'const(0[s_f], .)';
-		attribute<km>                                           alt_imp     := = CarTD ? 'collect_by_cond(., CarStore/InBlock, ' + CarTD_Store + '/alt_imp)'     : 'const(0[km], .)';
-		attribute</NetworkSetup/PublicTransport_Prep/impl/org>  OrgZone_rel := = CarTD ? 'collect_by_cond(., CarStore/InBlock, ' + CarTD_Store + '/OrgZone_rel)' : 'const(value(null_u, /NetworkSetup/PublicTransport_Prep/impl/org), .)';
-		attribute</NetworkSetup/PublicTransport_Prep/impl/dest> DstZone_rel := = CarTD ? 'collect_by_cond(., CarStore/InBlock, ' + CarTD_Store + '/DstZone_rel)' : 'const(value(null_u, /NetworkSetup/PublicTransport_Prep/impl/dest), .)';
-		attribute<CarStore>                                     Store_rel   := collect_by_cond(., CarStore/InBlock, id(CarStore)), Descr = "The row of the car store (only requested in the OD pair mode, OD_Output).";
+		attribute<s_f>                                          impedance   := = CarTD ? 'collect_by_cond(., CarCache/InBlock, ' + CarTD_Cache + '/impedance)'   : 'const(0[s_f], .)';
+		attribute<km>                                           alt_imp     := = CarTD ? 'collect_by_cond(., CarCache/InBlock, ' + CarTD_Cache + '/alt_imp)'     : 'const(0[km], .)';
+		attribute</NetworkSetup/PublicTransport_Prep/impl/org>  OrgZone_rel := = CarTD ? 'collect_by_cond(., CarCache/InBlock, ' + CarTD_Cache + '/OrgZone_rel)' : 'const(value(null_u, /NetworkSetup/PublicTransport_Prep/impl/org), .)';
+		attribute</NetworkSetup/PublicTransport_Prep/impl/dest> DstZone_rel := = CarTD ? 'collect_by_cond(., CarCache/InBlock, ' + CarTD_Cache + '/DstZone_rel)' : 'const(value(null_u, /NetworkSetup/PublicTransport_Prep/impl/dest), .)';
+		attribute<CarCache>                                     Cache_rel   := collect_by_cond(., CarCache/InBlock, id(CarCache)), Descr = "The row of the car cache (only requested in the OD pair mode, OD_Output).";
 	}
 	container DirectCar := /NetworkSetup/PublicTransport_Prep/Direct/CarFront_T(CarRows, CarRows/impedance, CarRows/alt_imp, CarRows/OrgZone_rel, CarRows/DstZone_rel);
 	unit<uint64> DirectCar_M := DirectCar/Front

@@ -8,7 +8,7 @@
 //   long, and with ParetoLegs the choice at equal time is the shortest, Length);
 // - a transfer: the straight walking line between the stops;
 // - the direct walking and cycling trip: the links of the search (PrivateTransport/<mode>/Calc_Traveltimes_maxspeed_<mode>/Links);
-// - the direct car trip of the moment: the links of its route from the car store of the moment (see CarOptions).
+// - the direct car trip of the moment: the links of its route from the car cache of the moment (see CarOptions).
 // Write writes them as three layers of <OutputDir>/PerBlock/od_<moment>.gpkg (od_opties, od_onderdelen and od_links; GeoDMS names are
 // case-insensitive, so a layer opties := Options would refer to itself), in the request of the output (Results_Traveltime/Generate).
 container OD_Output : Descr = "The options of the OD pair per departure moment with their parts and links, written as three layers of a gpkg (only in the OD pair mode, #129)."
@@ -26,7 +26,7 @@ container OD_Output : Descr = "The options of the OD pair per departure moment w
 		attribute<string>                         label        := string(Option) + ' ' + Departure + ' ' + ModeUsed + ' ' + string(Traveltime_min) + ' min ' + string(Price_euro) + ' euro';
 	}
 
-	// THE PUBLIC TRANSPORT OPTIONS: each traced back through the final front to the chain in the chain store of the pair.
+	// THE PUBLIC TRANSPORT OPTIONS: each traced back through the final front to the chain in the chain cache of the pair.
 	unit<uint64> PT := = WithPT ? 'select_with_org_rel(!Options/IsDirect)' : 'range(uint64, 0u64, 0u64)'
 	{
 		attribute<Options> Option_rel := = WithPT ? 'org_rel' : 'const(value(null_u, Options), .)';
@@ -38,7 +38,7 @@ container OD_Output : Descr = "The options of the OD pair per departure moment w
 		attribute<uint64> V_row     := = WithPT ? 'uint64(Add_V_to_PT/V_rel[value(VPT, Add_V_to_PT)])' : 'const(0u64, .)';
 		attribute<uint64> W_row     := = WithPT ? 'uint64(Add_V_to_PT/PT_rel[value(VPT, Add_V_to_PT)])' : 'const(0u64, .)';
 		attribute<uint64> ChainRow     := = WithPT ? '/NetworkSetup/PublicTransport_Prep/PT_V/ChainRow[PT_InBlock/PT_V_rel[Within_VW_Window/PT_InBlock_rel[value(W_row, Within_VW_Window)]]]' : 'const(0u64, .)'
-		,	Descr = "The row number of the chain in the chain store of the pair, as OD_Chains/Read_ChainLegs/Keten.";
+		,	Descr = "The row number of the chain in the chain cache of the pair, as OD_Chains/Read_ChainLegs/Keten.";
 		attribute<Places> V_Stop_Place := = WithPT ? 'V/To_Place_rel[value(V_row, V)]' : 'const(value(null_u, Places), .)';
 		attribute<Places> N_Stop_Place := = WithPT ? 'N/From_Place_rel[value(N_row, N)]' : 'const(value(null_u, Places), .)';
 		attribute<Modes>  V_Mode       := = WithPT ? 'V/Mode_rel[value(V_row, V)]' : 'const(value(null_b, Modes), .)';
@@ -52,8 +52,8 @@ container OD_Output : Descr = "The options of the OD pair per departure moment w
 		attribute<ct>     V_price      := Result_AfterSecondCondensation/Price_V[Option_rel];
 		attribute<ct>     N_price      := Result_AfterSecondCondensation/Price_N[Option_rel];
 	}
-	// The parts of the chain of every public transport option, from the legs of the chain store of the pair.
-	unit<uint64> ChainLegs := = WithPT ? '/NetworkSetup/PublicTransport_Prep/OD_Chains/Read_ChainLegs' : '/NetworkSetup/PublicTransport_Prep/OD_Chains/ChainLegs_Empty', Descr = "The legs of the chain store of the pair, or without public transport the empty legs, because then there is no chain store.";
+	// The parts of the chain of every public transport option, from the legs of the chain cache of the pair.
+	unit<uint64> ChainLegs := = WithPT ? '/NetworkSetup/PublicTransport_Prep/OD_Chains/Read_ChainLegs' : '/NetworkSetup/PublicTransport_Prep/OD_Chains/ChainLegs_Empty', Descr = "The legs of the chain cache of the pair, or without public transport the empty legs, because then there is no chain cache.";
 	unit<uint64> PT_Parts := join_equal_values_uint64(PT/ChainRow, ChainLegs/Keten)
 	{
 		attribute<PT>     PT_rel   := first_rel;
@@ -208,18 +208,18 @@ container OD_Output : Descr = "The options of the OD pair per departure moment w
 	container D_Walking   := DirectLinks_T('Walking');
 	container D_Cycling := DirectLinks_T('Cycling');
 
-	// The direct car trip of this departure moment (CarTD): the links of its route from the car store of the moment (Read_CarLinks), joined on
-	// the row of the store: option -> Direct_OD_M -> DirectCar_M = DirectCar/Front -> CarRows -> row of the store.
+	// The direct car trip of this departure moment (CarTD): the links of its route from the car cache of the moment (Read_CarLinks), joined on
+	// the row of the cache: option -> Direct_OD_M -> DirectCar_M = DirectCar/Front -> CarRows -> row of the cache.
 	unit<uint64> CarOptions := = CarTD ? 'select_with_org_rel(Options/IsDirect && Direct_OD_M/IsCarTD[value(Options/Source_rel, Direct_OD_M)])' : 'range(uint64, 0u64, 0u64)'
 	{
 		attribute<Options> Option_rel := = CarTD ? 'org_rel' : 'const(value(null_u, Options), .)';
-		attribute<uint32> StoreRow  := = CarTD ? 'uint32(CarRows/Store_rel[DirectCar/Front/org_rel[value(Direct_OD_M/Source_rel[value(Options/Source_rel[Option_rel], Direct_OD_M)], DirectCar/Front)]])' : 'const(0, ., uint32)';
+		attribute<uint32> CacheRow  := = CarTD ? 'uint32(CarRows/Cache_rel[DirectCar/Front/org_rel[value(Direct_OD_M/Source_rel[value(Options/Source_rel[Option_rel], Direct_OD_M)], DirectCar/Front)]])' : 'const(0, ., uint32)';
 	}
 	unit<uint32> CarLinks_Src := = CarTD ? '/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/' + TDName + '/Read_CarLinks/links' : 'range(uint32, 0, 0)'
 	{
 		attribute<uint32> Route  := = CarTD ? '/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/' + TDName + '/Read_CarLinks/links/Route' : 'const(0, ., uint32)';
 	}
-	unit<uint64> A_Car := join_equal_values_uint64(CarOptions/StoreRow, CarLinks_Src/Route)
+	unit<uint64> A_Car := join_equal_values_uint64(CarOptions/CacheRow, CarLinks_Src/Route)
 	{
 		attribute<Options> Option_rel := CarOptions/Option_rel[first_rel];
 		attribute<uint32> Part := const(0, ., uint32);
@@ -229,7 +229,7 @@ container OD_Output : Descr = "The options of the OD pair per departure moment w
 	}
 
 	// The parts of Links that this run has: public transport with WithPT, the direct trips of the allowed modes, and pre-transport and
-	// post-transport of the types of the component (the others give no rows, but this way the run does not read their store).
+	// post-transport of the types of the component (the others give no rows, but this way the run does not read their cache).
 	unit<uint8> LinkParts : nrofrows = 10
 	{
 		attribute<string> name  : ['V_Walking/Sel', 'V_Cycling/Sel', 'PT_L/Rows', 'PT_R/Rows', 'TransferLinks', 'N_Walking/Sel', 'N_Cycling/Sel', 'D_Walking/Rows', 'D_Cycling/Rows', 'A_Car'];

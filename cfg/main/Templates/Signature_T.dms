@@ -1,11 +1,11 @@
-// Names of stores and output (NetworkModel_PBL#118).
+// Names of caches and output (NetworkModel_PBL#118).
 //
-// The name of a store or output folder holds only what must be readable (date, time window or departure moment, origin and destination
+// The name of a cache or output folder holds only what must be readable (date, time window or departure moment, origin and destination
 // set, block), and for the caches a hash of 8 characters over the signature: the text with all parameters that determine the content.
-// For a store the name is the cache key: a store that exists is read. Putting all those parameters in the name itself would bring the
-// longest path close to the 259 characters Windows allows. The signature is in signature.txt in the folder of the store or output.
+// For a cache the name is the cache key: a cache that exists is read. Putting all those parameters in the name itself would bring the
+// longest path close to the 259 characters Windows allows. The signature is in signature.txt in the folder of the cache or output.
 // A writer writes it when it is not there yet and refuses to write when another one is there; a reader refuses to read when it is
-// missing or different. A hash collision thus gives an error instead of silently a wrong store.
+// missing or different. A hash collision thus gives an error instead of silently a wrong cache.
 
 // Polynomial hash of a text: the sum over the characters of code(character) x 16807^position, modulo 2^31 - 1, as 8 hexadecimal characters.
 // GeoDMS has no string hash; this one uses only plain integer arithmetic, so it is stable across versions and platforms, which a cache key
@@ -14,7 +14,7 @@
 // is a primitive root modulo 2^31 - 1, so the powers are distinct; two different texts of n characters collide with a probability of
 // order n / 2^31. The powers follow from the bits of the position (B1 up to B1024), so that everything can be calculated per element;
 // hence at most 2047 characters. A Python implementation of the same formula gives 57154c6e for 'Ab_9-x,=;'.
-Template StringHash_T : Descr = "Calculates a hash of 8 hexadecimal characters over Text, for short names of stores and output folders."
+Template StringHash_T : Descr = "Calculates a hash of 8 hexadecimal characters over Text, for short names of caches and output folders."
 {
 	parameter<string> Text;
 	///
@@ -60,10 +60,10 @@ Template StringHash_T : Descr = "Calculates a hash of 8 hexadecimal characters o
 		+ substr(HexDigits, (Value /   1048576) % 16, 1) + substr(HexDigits, (Value /    65536) % 16, 1)
 		+ substr(HexDigits, (Value /      4096) % 16, 1) + substr(HexDigits, (Value /      256) % 16, 1)
 		+ substr(HexDigits, (Value /        16) % 16, 1) + substr(HexDigits,  Value             % 16, 1)
-	,	Descr = "The hash as 8 hexadecimal characters, for use in the name of a store.";
+	,	Descr = "The hash as 8 hexadecimal characters, for use in the name of a cache.";
 }
 
-// The signature of a store or output folder: writing, reading and checking it, plus the path length check beforehand.
+// The signature of a cache or output folder: writing, reading and checking it, plus the path length check beforehand.
 // - A writer includes ForWriting in its ExplicitSuppliers. If SignatureFile does not exist, ForWriting writes it with Signature; if it
 //   exists, it must equal Signature. The longest path (PathLength) must also stay within ModelParameters/Advanced/MaxPathLength, so that
 //   a path that is too long fails before anything is calculated.
@@ -71,15 +71,15 @@ Template StringHash_T : Descr = "Calculates a hash of 8 hexadecimal characters o
 // Writing must go through ExplicitSuppliers: a StorageName expression does calculate Written, but does not write the file. And the
 // IntegrityCheck is on a supplier (EnsureGate, CheckGate) and not on the item in the StorageName expression, because only then does a
 // mismatch stop the reading.
-Template Signature_T : Descr = "Writes, reads and checks the signature of a store or output folder, and checks the path length beforehand."
+Template Signature_T : Descr = "Writes, reads and checks the signature of a cache or output folder, and checks the path length beforehand."
 {
-	parameter<string> Path;             // the store or folder that the signature protects, with %LocalDataProjDir%
+	parameter<string> Path;             // the cache or folder that the signature protects, with %LocalDataProjDir%
 	parameter<string> SignatureFile;    // the text file with the signature
 	parameter<string> Signature;        // the signature of the current parameters
-	parameter<uint32> MaxSubPathLength; // the length of the longest part after Path: the files in the store or folder
+	parameter<uint32> MaxSubPathLength; // the length of the longest part after Path: the files in the cache or folder
 	///
 	parameter<uint32> PathLength := strlen(expand(., Path)) + MaxSubPathLength
-	,	Descr = "Length of the longest file path in the store or folder; Windows allows 259 characters (ModelParameters/Advanced/MaxPathLength).";
+	,	Descr = "Length of the longest file path in the cache or folder; Windows allows 259 characters (ModelParameters/Advanced/MaxPathLength).";
 	parameter<bool>   Exists     := ExistingFile('', expand(., SignatureFile)) != '';
 	parameter<string> Written    := Signature, StorageName = "=SignatureFile", StorageType = "str"
 	,	Descr = "Writes the signature; only through IsEnsured, when SignatureFile does not exist yet.";
@@ -95,7 +95,7 @@ Template Signature_T : Descr = "Writes, reads and checks the signature of a stor
 	,	Descr = "Fails when SignatureFile holds another signature than Signature (Stored against Signature): for output choose another OutputLabel or empty the output folder (batch/UpdateAll.cmd output does that), for a cache it means a hash collision or a file changed by hand.";
 	parameter<string> CheckGate  := IsChecked ? 'ok' : 'geen of andere handtekening'
 	,	IntegrityCheck = "IsChecked"
-	,	Descr = "Fails when SignatureFile is missing or holds another signature than Signature (Stored against Signature): the store or output was not made, or made with other parameters, so make it first or restore the parameters.";
+	,	Descr = "Fails when SignatureFile is missing or holds another signature than Signature (Stored against Signature): the cache or output was not made, or made with other parameters, so make it first or restore the parameters.";
 	parameter<string> ForWriting := PathGate == 'ok' && EnsureGate == 'ok' ? Path : ''
 	,	Descr = "For the ExplicitSuppliers of a writer: writes the signature when it is not there yet, and fails on a path that is too long or on another signature.";
 	parameter<string> ForReading := CheckGate == 'ok' ? Path : ''

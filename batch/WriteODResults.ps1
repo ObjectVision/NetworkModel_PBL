@@ -4,7 +4,7 @@
 # these copies calculates one after the other, each with batch\UpdateAll.cmd of the copy:
 #   1. the legs of pre- and post-transport, with their links (legs), and
 #   2. the chains of the pair with their legs (chains), both once, in the copy of the first public transport component;
-#   3. per component the car store of the departure moment (cars, only Car) and the output (output):
+#   3. per component the car cache of the departure moment (cars, only Car) and the output (output):
 #      PerBlock/tt_<moment>_1of1.parquet and PerBlock/od_<moment>.gpkg with options, parts and links;
 #   4. the merging (a copy with MergeOutput TRUE, output).
 # Intermediate results go to %LocalDataProjDir%\IntermediateResults_<O>_<D>, output to Output_<O>_<D>; /Output/OD_PairRoutes
@@ -13,7 +13,7 @@
 # Call, for example for the trip Laapersweg 1 Hilversum -> De Boelelaan 1085 at 07:30 (the wiki, Routes of an OD pair):
 #   powershell -ExecutionPolicy Bypass -File batch\WriteODResults.ps1 -Org BU04020501 -Dest BU0363KP03 -Moment 07:30
 # The engine must know pareto with LinkSet (ObjectVision/GeoDMS#1325) for the car routes: GeoDMS 20.26.0 or later.
-# -AlleenUitvoer skips the legs and the chains when their stores already exist (to repeat the output after a change to it).
+# -AlleenUitvoer skips the legs and the chains when their caches already exist (to repeat the output after a change to it).
 # Run long runs as a one-off scheduled task (see the wiki, How to run the model). -WaitForMemoryGB waits until that much
 # memory is available before a step starts, so that the pair does not make other runs page; the chain step calculates all
 # public transport legs of the network (20 to 30 GB).

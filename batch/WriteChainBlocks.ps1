@@ -1,17 +1,17 @@
 # WriteChainBlocks.ps1: the chain step per stop block, with resume.
 #
-# First requests the list of the blocks whose store is still missing (PublicTransport_Prep/PT_Chains_Blocks/ToDo_List,
+# First requests the list of the blocks whose cache is still missing (PublicTransport_Prep/PT_Chains_Blocks/ToDo_List,
 # written to batch\log\chain_blocks_todo.txt; a block counts as done when its 0Dictionary.dms exists, which the MMD writer
 # writes last) and then calculates them in portions of BatchSize blocks per GeoDmsRun. Each portion is a separate process,
 # so that memory is freed between the portions; an interrupted or failed chain step continues at the next call with the
-# first block without a store.
+# first block without a cache.
 #
 # Call (by UpdateAll.cmd chains): WriteChainBlocks.ps1 -Exe <GeoDmsRun.exe> -Cfg <cfg\main.dms> -LogDir <batch\log>
 #   -BatchSize  blocks per GeoDmsRun (default 20). The blocks of a portion share only the start-up of about half a
 #               minute, so the size makes little difference to the calculation time. A few slow blocks need 150 to 200 GB
 #               of live data and page on a machine with 128 GB, whatever the portion size.
 #   -MaxBlocks  at most this many blocks in this call (0 = all; for testing)
-# Exit code 0 when all blocks have a store (or MaxBlocks is reached), otherwise 1.
+# Exit code 0 when all blocks have a cache (or MaxBlocks is reached), otherwise 1.
 param(
 	[Parameter(Mandatory=$true)][string]$Exe,
 	[Parameter(Mandatory=$true)][string]$Cfg,
@@ -32,7 +32,7 @@ function Get-ToDo {
 }
 
 $todo = @(Get-ToDo)   # @(): otherwise a list with one line (the OD pair mode, #129) becomes a string, and $todo[0..0] its first character
-Say ("chain step per block: {0} blocks without a store" -f $todo.Count)
+Say ("chain step per block: {0} blocks without a cache" -f $todo.Count)
 if ($MaxBlocks -gt 0 -and $todo.Count -gt $MaxBlocks) { $todo = $todo[0..($MaxBlocks - 1)] }
 $nb = [Math]::Ceiling($todo.Count / [double]$BatchSize)
 for ($b = 0; $b -lt $nb; $b++) {
@@ -45,5 +45,5 @@ for ($b = 0; $b -lt $nb; $b++) {
 	if ($p.ExitCode -ne 0) { Say "FAILED, see $out and $LogDir\UpdateAll_chains.log"; exit 1 }
 }
 $rest = @(Get-ToDo)
-Say ("done: {0} blocks still without a store" -f $rest.Count)
+Say ("done: {0} blocks still without a cache" -f $rest.Count)
 if ($rest.Count -eq 0 -or $MaxBlocks -gt 0) { exit 0 } else { exit 1 }

@@ -65,9 +65,9 @@ De SourceData-mappen die met de Nextcloud-share van PBL synchroniseren, delen al
 
 ## 8. Opslag: mmd en parquet, geen fss
 
-Geen nieuwe fss meer. Een grote dataset die alleen GeoDMS terugleest (zoals de ketenstore of een groot netwerk), wordt een mmd. Iets kleins wordt een open bestand dat ook QGIS, R, Python of een collega kan lezen: een tif voor een raster (altijd met zijn `.tfw`), een gpkg voor vlakken en punten, een parquet voor een tabel. Een grote csv die elke run opnieuw inleest, wordt parquet: in RSopen las LISA als csv in 17 s per proces en als parquet in 1,2 s. Een bestaande fss zet je om zodra je hem toch opnieuw maakt.
+Geen nieuwe fss meer. Een grote dataset die alleen GeoDMS terugleest (zoals de ketencache of een groot netwerk), wordt een mmd. Iets kleins wordt een open bestand dat ook QGIS, R, Python of een collega kan lezen: een tif voor een raster (altijd met zijn `.tfw`), een gpkg voor vlakken en punten, een parquet voor een tabel. Een grote csv die elke run opnieuw inleest, wordt parquet: in RSopen las LISA als csv in 17 s per proces en als parquet in 1,2 s. Een bestaande fss zet je om zodra je hem toch opnieuw maakt.
 
-Waarom: een fss is geen uitwisselformaat tussen GeoDMS-versies (een fss uit 14.7 las in 20.23.1 zonder foutmelding met de polygonen als ruis), en niemand anders kan hem openen. Bij een mmd gelden drie valkuilen: een alleen-lezen holder declareert zijn items niet zelf, het bestand past exact op het domein, en een IntegrityCheck hoort op de store-unit. gpkg en parquet lopen via `gdal.vect`; toets een kleine store die een run op veel plekken tegelijk leest eerst in een volledige run.
+Waarom: een fss is geen uitwisselformaat tussen GeoDMS-versies (een fss uit 14.7 las in 20.23.1 zonder foutmelding met de polygonen als ruis), en niemand anders kan hem openen. Bij een mmd gelden drie valkuilen: een alleen-lezen holder declareert zijn items niet zelf, het bestand past exact op het domein, en een IntegrityCheck hoort op de cache-unit. gpkg en parquet lopen via `gdal.vect`; toets een kleine cache die een run op veel plekken tegelijk leest eerst in een volledige run.
 
 ## 9. Commits
 

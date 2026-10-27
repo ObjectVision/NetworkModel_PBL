@@ -1,5 +1,5 @@
 container Impl : using = "classifications"
-,	Descr = "What follows from the settings and is not set by hand: the effective dates and years, the selections of this run, and the tags, signatures, folders and file names of the stores and the output."
+,	Descr = "What follows from the settings and is not set by hand: the effective dates and years, the selections of this run, and the tags, signatures, folders and file names of the caches and the output."
 {
 	// DERIVED FROM THE SETTINGS AT THE TOP, not to be set by hand
 	parameter<string>   GTFS_file_date := rjoin(AnalysisMoment, Advanced/AnalysisMomentPresets/name, Advanced/AnalysisMomentPresets/GTFS_file_date)
@@ -14,7 +14,7 @@ container Impl : using = "classifications"
 	parameter<string>   Car_CongestionMoment_ForDirect := UseTomTomNetworkForCars ? rjoin(PartOfDay, Advanced/PartsOfDay/name, Advanced/PartsOfDay/CongestionMoment) : 'MaxSpeed'
 	, Descr = "Which car travel time the direct trip uses: 'MorningRush', 'NoonRush', 'LateEveningRush' or 'Freeflow' with TomTom, 'MaxSpeed' with OSM; it follows from PartOfDay (#125).", IntegrityCheck = "UseTomTomNetworkForCars ? Car_CongestionMoment_ForDirect != 'MaxSpeed' : Car_CongestionMoment_ForDirect == 'MaxSpeed'"; // TomTom has Freeflow, MorningRush, NoonRush and LateEveningRush; OSM only MaxSpeed, because the OSM rush hours are null placeholders
 	parameter<bool>     CarTimeDependent := UseTomTomNetworkForCars
-	, Descr = "Does the direct car trip use time-dependent link times, with a car store per departure moment in which every road section has the TomTom speed of the moment the trip enters it (#132)?", IntegrityCheck = "!this || UseTomTomNetworkForCars";
+	, Descr = "Does the direct car trip use time-dependent link times, with a car cache per departure moment in which every road section has the TomTom speed of the moment the trip enters it (#132)?", IntegrityCheck = "!this || UseTomTomNetworkForCars";
 	parameter<Advanced/NeighbourhoodSets> NeighbourhoodSet_Org  := rlookup(lowercase(/ModelParameters/Orgset), lowercase(Advanced/NeighbourhoodSets/name)), Descr = "The neighbourhood variant of the origins, or null.";
 	parameter<Advanced/NeighbourhoodSets> NeighbourhoodSet_Dest := rlookup(lowercase(/ModelParameters/Destset), lowercase(Advanced/NeighbourhoodSets/name)), Descr = "The neighbourhood variant of the destinations, or null.";
 	parameter<Advanced/NeighbourhoodSets> NeighbourhoodSet      := MakeDefined(NeighbourhoodSet_Org, NeighbourhoodSet_Dest)
@@ -27,14 +27,14 @@ container Impl : using = "classifications"
 	,	Descr = "The year of the CBS area division: that of the neighbourhood variant, else that of AnalysisMoment in the presets.";
 	// THE OD PAIR (#129): see group 6 at the top of ModelParameters.
 	parameter<bool>     IsOD := /ModelParameters/OD_Origin != '' && /ModelParameters/OD_Destination != ''
-	,	Descr = "Does this run calculate one OD pair (OD_Origin and OD_Destination)? Then the origins and destinations are one element each, the stores and output get their own folders (OD_Tag), and the routes keep their links.",	IntegrityCheck = "(/ModelParameters/OD_Origin == '') == (/ModelParameters/OD_Destination == '') && (this || /ModelParameters/OD_DepartureTime == '')";
+	,	Descr = "Does this run calculate one OD pair (OD_Origin and OD_Destination)? Then the origins and destinations are one element each, the caches and output get their own folders (OD_Tag), and the routes keep their links.",	IntegrityCheck = "(/ModelParameters/OD_Origin == '') == (/ModelParameters/OD_Destination == '') && (this || /ModelParameters/OD_DepartureTime == '')";
 	parameter<string>   OD_Tag := IsOD ? '_' + /ModelParameters/OD_Origin + '_' + /ModelParameters/OD_Destination : ''
 	,	Descr = "Suffix _<O>_<D> after IntermediateResults and Output in the folder names of an OD pair; empty for the whole model.",	IntegrityCheck = "strcount(this, ' ') == 0 && strcount(this, '/') == 0 && strcount(this, ':') == 0 && strcount(this, '.') == 0";
 	parameter<bool>     IsODMoment := IsOD && /ModelParameters/OD_DepartureTime != '', Descr = "Does the OD pair choose one departure moment (OD_DepartureTime)?";
 	parameter<uint32>   OD_Minute  := IsODMoment ? uint32(substr(/ModelParameters/OD_DepartureTime, 3, 2)) : 0
 	,	Descr = "The minute of OD_DepartureTime; the hour must be that of PartOfDay and the minute one of Advanced/PT_DepartureMinutes_All.",	IntegrityCheck = "!IsODMoment || (uint32(substr(/ModelParameters/OD_DepartureTime, 0, 2)) == rjoin(/ModelParameters/PartOfDay, Advanced/PartsOfDay/name, Advanced/PartsOfDay/DepartureHour) && any(Advanced/PT_DepartureMinutes_All/values == this))";
 	parameter<string>   IntermediateResultsDir := '%LocalDataProjDir%/IntermediateResults' + OD_Tag
-	,	Descr = "The folder of the stores of the car trips, legs and chains; for an OD pair IntermediateResults_<O>_<D> (#129).";
+	,	Descr = "The folder of the caches of the car trips, legs and chains; for an OD pair IntermediateResults_<O>_<D> (#129).";
 	parameter<string>   OutputDir := '%LocalDataProjDir%/Output' + OD_Tag + '/' + Analysis_date + '_' + /ModelParameters/OutputLabel + (IsMerged ? '_Merged' + string(/ModelParameters/MergeRunNr) + (any(Advanced/Components/InMerge && Advanced/Components/UsesCycling) ? CyclingNetwork_DirTag : '') : rjoin(ComponentName, Advanced/Components/name, Advanced/Components/OutputSuffix))
 	,	Descr = "The folder with the output of this run (#118): <Analysis_date>_<OutputLabel> with the suffix of the component (Advanced/Components/OutputSuffix) or _Merged<MergeRunNr>.";
 	parameter<string>   fileNamePrefix          := OutputDir + '/PerBlock/', Descr = "The folder of the output per origin block.";
@@ -59,13 +59,13 @@ container Impl : using = "classifications"
 	parameter<Time>     PrevServiceDayTailEnd       := 21600[Time]           , Descr = "The trips of the service day before Analysis_date that run past midnight leave almost all before 06:00; a window starting earlier needs that day complete in the feed.";
 	parameter<uint32>   FlexMinInterval_sec         := uint32(round(convert(Advanced/FlexMinInterval, s_f))), Descr = "Advanced/FlexMinInterval in whole seconds, for the blocks of LoadFeeds/FlexOptions.";
 	parameter<bool>     FlexHasTimePenalty          := Advanced/IncludeFlex && Advanced/FlexExtraWaitingTime > 0[min_f], Descr = "Does a flex leg get extra waiting time on its travel time?";
-	parameter<string>   Flex_FileTag                := not(Advanced/IncludeFlex) ? '_noflex' : (Advanced/FlexMinInterval > 0[min_f] || Advanced/FlexExtraWaitingTime > 0[min_f] || Advanced/FlexCallCosts > 0[Euro] ? '_flex' + string(round(Advanced/FlexMinInterval)) + 'i' + string(round(Advanced/FlexExtraWaitingTime)) + 'w' + string(round(Advanced/FlexCallCosts * 100f)) + 'ct' : ''), Descr = "Part of the signatures of the chain store and the output: '_noflex' without flex, '_flex<interval>i<waiting time>w<call costs in ct>ct' with the flex parameters.";
+	parameter<string>   Flex_FileTag                := not(Advanced/IncludeFlex) ? '_noflex' : (Advanced/FlexMinInterval > 0[min_f] || Advanced/FlexExtraWaitingTime > 0[min_f] || Advanced/FlexCallCosts > 0[Euro] ? '_flex' + string(round(Advanced/FlexMinInterval)) + 'i' + string(round(Advanced/FlexExtraWaitingTime)) + 'w' + string(round(Advanced/FlexCallCosts * 100f)) + 'ct' : ''), Descr = "Part of the signatures of the chain cache and the output: '_noflex' without flex, '_flex<interval>i<waiting time>w<call costs in ct>ct' with the flex parameters.";
 	parameter<string>   FlexRoutePattern            := asList(Advanced/FlexRouteTerms/term, '|'), Descr = "Advanced/FlexRouteTerms as one search pattern.";
 	parameter<string>   FlexNearMissPattern         := asList(Advanced/FlexNearMissTerms/term, '|'), Descr = "Advanced/FlexNearMissTerms as one search pattern.";
 	parameter<bool>     TripSurchargeHasTimePenalty := Advanced/IncludeTripSurcharge && max(Advanced/TripSurchargeTrains/ExtraTime) > 0[min_f], Descr = "Does a leg with a trip surcharge get extra travel time?";
 	parameter<string>   TripSurcharge_Flags         := (Advanced/IsNSInternationalInLnet ? '' : 'I') + (Advanced/IncludeTripSurcharge ? (TripSurchargeHasTimePenalty ? 'w' + string(round(sum(Advanced/TripSurchargeTrains/ExtraTime))) : '') : 'R'), Descr = "The trip surcharge settings as flags, for TripSurcharge_FileTag.";
 	parameter<string>   TripSurcharge_FileTag       := TripSurcharge_Flags == '' ? '' : '_' + TripSurcharge_Flags
-	, Descr = "Part of the signatures of the chain store and the output: empty with the default (NS International and trip surcharge included, no extra time), else '_' with the deviating flags.";
+	, Descr = "Part of the signatures of the chain cache and the output: empty with the default (NS International and trip surcharge included, no extra time), else '_' with the deviating flags.";
 	parameter<bool>     IsMerged      := /ModelParameters/MergeOutput, Descr = "Does this run merge the components (MergeOutput)?";
 	parameter<bool>     WithPT        := !IsMerged && /ModelParameters/Component == 'PT', Descr = "Do the public transport chains take part in this run (Advanced/Components/WithPT)? Not for a direct trip and not when merging.";
 	parameter<string>   ComponentName := /ModelParameters/Component == 'PT' ? Advanced/PreTransportTypes/code[rlookup(/ModelParameters/PreTransport, Advanced/PreTransportTypes/TimeInvariantTypes_rel)] + '_PT_' + Advanced/PostTransportTypes/code[rlookup(/ModelParameters/PostTransport, Advanced/PostTransportTypes/TimeInvariantTypes_rel)] : /ModelParameters/Component
@@ -84,7 +84,7 @@ container Impl : using = "classifications"
 	parameter<bool>     PriceExportsAndIntegrityChecksNeeded := IsDefined(strpos(lowercase(Advanced/MinimiseCriteria), 'price')) || Export_PriceInformation, Descr = "Does the run need prices, for the criteria or the export, and so the price checks?";
 	parameter<km>       CarFrontMaxDistance                  := value(MaxCarTime / 1[min_f] * 2.5f, km), Descr = "The bound on the first criterium of the distance-first search, which the engine requires: the distance reachable at 150 km/h in MaxCarTime, so that it cuts off nothing.";
 	parameter<string>   Car_PriceTag                         := AllowDirectCar ? '_car' + (Advanced/IncludeCarCostsInPrice ? string(round(Car_CostPerKm * 100f)) + 'ctkm' + (Car_FixedCosts_PerTrip > 0[Euro] ? '-p' + string(round(Car_FixedCosts_PerTrip * 100f)) + 'ct' : '') : '0') : '', Descr = "Part of the output signature (#88): the price of the direct car trip in ct per km and, when not 0, per trip; _car0 when Advanced/IncludeCarCostsInPrice is off.";
-	parameter<string>   ChainPareto_FileTag                  := Advanced/ChainParetoTimeEpsilon > 0f ? '_chainrel' + string(Advanced/ChainParetoTimeEpsilon * 100f) + 'pct' : '', Descr = "Part of the signatures of the chain store and the output: the relative epsilon on the travel time in percent, empty when it is 0.";
+	parameter<string>   ChainPareto_FileTag                  := Advanced/ChainParetoTimeEpsilon > 0f ? '_chainrel' + string(Advanced/ChainParetoTimeEpsilon * 100f) + 'pct' : '', Descr = "Part of the signatures of the chain cache and the output: the relative epsilon on the travel time in percent, empty when it is 0.";
 	parameter<string>   PT_Chains_ParamTag                   :=
 		  '_' + lowercase(PriceMethod_effective)
 		+ (Advanced/NS_TariffChoice == 'Price_20pct_Discount' ? '-ns20' : (Advanced/NS_TariffChoice == 'Price_40pct_Discount' ? '-ns40' : ''))
@@ -93,16 +93,16 @@ container Impl : using = "classifications"
 		+ '_h' + string(round(Advanced/DistanceStopClusters)) + '-' + string(round(Advanced/DistanceTrainStationsSelection))
 		+ '_v' + string(round(PT_Max_V_Time))
 		+ (Advanced/IFF_TransferTime ? '_iff' + Advanced/IFF_file_date : '')
-	, Descr = "Part of the chain store signature with the parameters the chains depend on that the rest of the signature does not name, such as the fare method and the transfer settings.";
+	, Descr = "Part of the chain cache signature with the parameters the chains depend on that the rest of the signature does not name, such as the fare method and the transfer settings.";
 	parameter<string>   CarNetwork_Revision := '_r3'
-	, Descr = "Revision of the TomTom car network in the signature of the car stores; raise it with every code change that changes the car network, else the old store is read.";
+	, Descr = "Revision of the TomTom car network in the signature of the car caches; raise it with every code change that changes the car network, else the old cache is read.";
 	parameter<string>   PT_Chains_Revision := '_r12'
-	, Descr = "Revision of the chain construction in the signature of the chain store; raise it with every code change that changes the chains, else the old store is read.";
-	parameter<string>   ParetoLegs_Car_FileTag := Advanced/ParetoLegs_Car ? '_paretoCar' + (Advanced/CarFrontEpsilon > 0f ? 'D-r'+string(Advanced/CarFrontEpsilon * 100f)+'pct' : (Advanced/CarLegDistanceQuantum > 0[km] ? 'q'+string(round(Advanced/CarLegDistanceQuantum * 1000f))+'m' : '')) : '', Descr = "Part of the signatures of the car stores and the output (#88): 'D-r1pct' for distance first with the relative epsilon in percent, or the quantisation in m; empty without ParetoLegs_Car.";
+	, Descr = "Revision of the chain construction in the signature of the chain cache; raise it with every code change that changes the chains, else the old cache is read.";
+	parameter<string>   ParetoLegs_Car_FileTag := Advanced/ParetoLegs_Car ? '_paretoCar' + (Advanced/CarFrontEpsilon > 0f ? 'D-r'+string(Advanced/CarFrontEpsilon * 100f)+'pct' : (Advanced/CarLegDistanceQuantum > 0[km] ? 'q'+string(round(Advanced/CarLegDistanceQuantum * 1000f))+'m' : '')) : '', Descr = "Part of the signatures of the car caches and the output (#88): 'D-r1pct' for distance first with the relative epsilon in percent, or the quantisation in m; empty without ParetoLegs_Car.";
 	parameter<string>   CyclingNetwork_FileTag := Advanced/CyclingNetwork == 'OSM' ? '' : '_fb' + Advanced/Fietsersbond_file_date + '-veer' + string(round(Advanced/Fietsersbond_MaxFerryLength / 1[m])) + 'm' + string(round(Advanced/Fietsersbond_FerryExtraTime / 1[min_f])) + 'min', Descr = "Part of the output signature when a cycling leg or the direct cycling trip takes part; empty with OSM.";
 	parameter<string>   CyclingNetwork_DirTag  := Advanced/CyclingNetwork == 'Fietsersbond' ? '_fb' : '', Descr = "Suffix of the output folder of a component that uses the cycling network: '_fb' with the Fietsersbond, empty with OSM, so that the output of both networks can stand side by side.";
 	parameter<string>   OrgSet_SelectionTag    := IsOD ? '-' + lowercase(/ModelParameters/OD_Origin) : switch(case(lowercase(Orgset) == 'buurt_enkele_buurt', '-' + lowercase(Orgset_SingleNeighbourhood_Selection)), case(lowercase(Orgset) == 'buurt_enkele_gemeente' || lowercase(Orgset) == 'gemeente_enkele_gemeente', '-' + lowercase(Orgset_SingleMunicipality_Selection)), case(lowercase(Orgset) == 'buurt_enkele_prov', '-' + lowercase(Orgset_SingleProvince_Selection)), case(lowercase(Orgset) == 'buurt_enkele_corop', '-' + lowercase(Orgset_SingleCorop_Selection)), '')
-	, Descr = "The chosen area of a single-area origin set in the file names, or for an OD pair the origin, so that two selections share no store or output file.";
+	, Descr = "The chosen area of a single-area origin set in the file names, or for an OD pair the origin, so that two selections share no cache or output file.";
 	parameter<string>   DestSet_SelectionTag := IsOD ? '-' + lowercase(/ModelParameters/OD_Destination) : switch(case(lowercase(Destset) == 'buurt_enkele_buurt', '-' + lowercase(Destset_SingleNeighbourhood_Selection)), case(lowercase(Destset) == 'buurt_enkele_prov', '-' + lowercase(Destset_SingleProvince_Selection)), case(lowercase(Destset) == 'buurt_enkele_corop', '-' + lowercase(Destset_SingleCorop_Selection)), '')
 	, Descr = "The chosen area of a single-area destination set in the file names, or for an OD pair the destination.";
 	parameter<string>   DestSet_DateTag := lowercase(Destset) == 'ov_knooppunten' ? '_' + Analysis_date + (GTFS_file_date == Analysis_date ? '' : '_gtfs' + GTFS_file_date) : ''
@@ -122,10 +122,10 @@ container Impl : using = "classifications"
 												? lowercase(Orgset) + '_' + lowercase(Advanced/Org_location_scale)
 												: lowercase(Orgset)) + OrgSet_SelectionTag
 	,	Descr = "The origin set as it appears in file names, with OrgSet_SelectionTag for a single area and the cell size for a clustered set.";
-	parameter<string>   OrgSet_PathTag  := replace(OrgSet_string, 'buurt', 'b'), Descr = "The origin set in the names of stores and files, short for the path length, with b for buurt (b2025); the signatures keep OrgSet_string.";
-	parameter<string>   DestSet_PathTag := replace(DestSet_string, 'buurt', 'b'), Descr = "The destination set in the names of stores and files, with b for buurt; the signatures keep DestSet_string.";
-	parameter<string>   OrgSet_NameTag  := UpperCase(substr(OrgSet_PathTag, 0, 1)) + substr(OrgSet_PathTag, 1, strlen(OrgSet_PathTag)), Descr = "The origin set in the name of a store of pre-transport connections, with a capital: Legs_B2025toStops_Walking.";
-	parameter<string>   DestSet_NameTag := UpperCase(substr(DestSet_PathTag, 0, 1)) + substr(DestSet_PathTag, 1, strlen(DestSet_PathTag)), Descr = "The destination set in the name of a store of post-transport connections, with a capital: Legs_Stops2B2025_Walking.";
+	parameter<string>   OrgSet_PathTag  := replace(OrgSet_string, 'buurt', 'b'), Descr = "The origin set in the names of caches and files, short for the path length, with b for buurt (b2025); the signatures keep OrgSet_string.";
+	parameter<string>   DestSet_PathTag := replace(DestSet_string, 'buurt', 'b'), Descr = "The destination set in the names of caches and files, with b for buurt; the signatures keep DestSet_string.";
+	parameter<string>   OrgSet_NameTag  := UpperCase(substr(OrgSet_PathTag, 0, 1)) + substr(OrgSet_PathTag, 1, strlen(OrgSet_PathTag)), Descr = "The origin set in the name of a cache of pre-transport connections, with a capital: Legs_B2025toStops_Walking.";
+	parameter<string>   DestSet_NameTag := UpperCase(substr(DestSet_PathTag, 0, 1)) + substr(DestSet_PathTag, 1, strlen(DestSet_PathTag)), Descr = "The destination set in the name of a cache of post-transport connections, with a capital: Legs_Stops2B2025_Walking.";
 	
 	unit<uint8> PT_PreTransport_Types := select_with_org_rel(TimeInvariantTypes/name == Component_PreTransport)
 	, Descr = "The pre-transport type of this run, from Component (#117)."

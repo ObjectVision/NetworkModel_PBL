@@ -1,31 +1,31 @@
 @echo off
 setlocal EnableDelayedExpansion
 REM ---------------------------------------------------------------------------------------------
-REM UpdateAll.cmd: updates the stores of NetworkModel_PBL with GeoDmsRun, in the order in which they depend on
+REM UpdateAll.cmd: updates the caches of NetworkModel_PBL with GeoDmsRun, in the order in which they depend on
 REM each other. Each step is a separate GeoDmsRun call, so that memory is freed between the steps, and the script
 REM stops at an error. Logs in batch\log\UpdateAll_<step>.log.
 REM
 REM   UpdateAll.cmd                 all sections (sources, cars, chains, legs, output); expect more than a night
 REM   UpdateAll.cmd all -nosources  everything except the named sections: -nosources, -nocars, -nochains, -nolegs, -nooutput
-REM   UpdateAll.cmd sources         the OSM network, TomTom and GTFS stores (only needed for a new edition; about 15 min)
-REM   UpdateAll.cmd cars [moment..] the stores of the direct car trip per departure moment
+REM   UpdateAll.cmd sources         the OSM network, TomTom and GTFS caches (only needed for a new edition; about 15 min)
+REM   UpdateAll.cmd cars [moment..] the caches of the direct car trip per departure moment
 REM                                 (PublicTransport_Prep/Direct/CarPerMoment/<moment>/Write_Car); without moments the
 REM                                 moments the model reads (MakeUnlinkedData/Step4_DirectCar/Moments); with moments, for
 REM                                 example MorningRush NoonRush LateEveningRush and Freeflow (TomTom) or MaxSpeed (OSM);
 REM                                 about 40 min per moment with a scalar search, longer with ParetoLegs_Car
-REM   UpdateAll.cmd chains          the public transport chain store per stop block (WriteChainBlocks.ps1; with the
-REM                                 environment variable CHAINSTORE_SINGLE the single store of
+REM   UpdateAll.cmd chains          the public transport chain cache per stop block (WriteChainBlocks.ps1; with the
+REM                                 environment variable CHAINCACHE_SINGLE the single cache of
 REM                                 PublicTransport_Prep/ChainGeneration_Single/Write), after the pre-check of the stop
 REM                                 blocks and the price coverage; takes hours and much memory
-REM   UpdateAll.cmd legs            the stores of the pre- and post-transport connections: the base sets without a store,
+REM   UpdateAll.cmd legs            the caches of the pre- and post-transport connections: the base sets without a cache,
 REM                                 walking and cycling to and from every stop (PublicTransport_Prep/Write_PrePostTransport);
 REM                                 writes only with ModelParameters/Advanced/PrePostTransportDecoupled (on by default)
 REM   UpdateAll.cmd output          the public transport output: a file per origin block and departure moment in
 REM                                 %LocalDataProjDir%\Output\<Analysis_date>_<OutputLabel><_component>[_fb]\PerBlock
 REM                                 (_fb: a component on the cycling network with CyclingNetwork 'Fietsersbond')
-REM                                 (ConfigurationPerBlock/Generate_Output), with the chain store of the departure moments
+REM                                 (ConfigurationPerBlock/Generate_Output), with the chain cache of the departure moments
 REM                                 in PT_DepartureHours/Minutes. The step first writes the missing pre- and post-transport
-REM                                 stores, as legs does, and empties that folder (#118), removing only
+REM                                 caches, as legs does, and empties that folder (#118), removing only
 REM                                 the files of the model: tt_*.csv, tt_*.parquet and tt_*.xml, also the merged ones,
 REM                                 signature.txt/.xml, the counts od_tellingen.csv and unieke_od_tellingen.csv (with .xml)
 REM                                 and Tellingen\tellingen_*.*. With ModelParameters/OutputFormat 'parquet' the output is
@@ -34,8 +34,8 @@ REM                                 The step runs in portions of blocks (WriteOu
 REM                                 then the counts with OdTellingen.py); blocks per portion per component in
 REM                                 ModelParameters/Advanced/Components/BlocksPerPortion, or set with OUTPUT_BATCHSIZE;
 REM                                 with OUTPUT_SINGLE in one request.
-REM A run calculates one component (ModelParameters/Component, #117): cars skips the car stores when the component has
-REM no direct car trip (everything except Car), chains skips the chain store when public transport is not part of it
+REM A run calculates one component (ModelParameters/Component, #117): cars skips the car caches when the component has
+REM no direct car trip (everything except Car), chains skips the chain cache when public transport is not part of it
 REM (WW, CC, Car, MergeOutput), and with MergeOutput, output merges the output of the Components in MergeComponents.
 REM Run the output steps of the components one after the other, not at the same time: each needs up to about 100 GB of
 REM memory, and two at once make the machine page.
@@ -58,7 +58,7 @@ if not defined EXE (
   exit /b 1
 )
 REM The full path name without "..": GeoDMS derives %LocalDataProjDir% from the name of the folder above cfg, and
-REM with batch\..\cfg\main.dms that name is "..", which puts the stores in C:\LocalData\..\IntermediateResults, that is C:\.
+REM with batch\..\cfg\main.dms that name is "..", which puts the caches in C:\LocalData\..\IntermediateResults, that is C:\.
 for %%I in ("%~dp0..\cfg\main.dms") do set CFG=%%~fI
 REM Store the batch folder for the argument loop: after shift, %~dp0 no longer points to this folder.
 set "BATCHDIR=%~dp0"
@@ -97,10 +97,10 @@ exit /b 1
 
 :sources
 if "%SKIP_SOURCES%"=="1" goto sources_done
-echo === sources: OSM network store ===
+echo === sources: OSM network cache ===
 call :run osm_network /SourceData/Infrastructure/OSM/Make_Final_Network
 if not "!RC!"=="0" goto failed
-echo === sources: TomTom stores (roads, junctions, speed profile network, speed profiles) ===
+echo === sources: TomTom caches (roads, junctions, speed profile network, speed profiles) ===
 call :run tomtom_roads         /SourceData/Infrastructure/TomTom/Impl/Write_Roads
 if not "!RC!"=="0" goto failed
 call :run tomtom_junctions     /SourceData/Infrastructure/TomTom/Impl/Write_Junctions
@@ -109,7 +109,7 @@ call :run tomtom_speednetworks /SourceData/Infrastructure/TomTom/Impl/Write_Spee
 if not "!RC!"=="0" goto failed
 call :run tomtom_speedprofiles /SourceData/Infrastructure/TomTom/Impl/Write_Speedprofiles
 if not "!RC!"=="0" goto failed
-echo === sources: GTFS store of the feed GTFS_file_date ===
+echo === sources: GTFS cache of the feed GTFS_file_date ===
 call :run gtfs /SourceData/Infrastructure/GTFS/LoadFeeds/Write
 if not "!RC!"=="0" goto failed
 :sources_done
@@ -117,12 +117,12 @@ if /I not "%SECTION%"=="all" goto done
 
 :cars
 if "%SKIP_CARS%"=="1" goto cars_done
-REM Without a direct car trip (AllowDirectCar FALSE: every component except Car, #117) there are no car stores.
+REM Without a direct car trip (AllowDirectCar FALSE: every component except Car, #117) there are no car caches.
 call :run cars_check /ModelParameters/Impl/AllowDirectCar
 if not "!RC!"=="0" goto failed
 findstr /R "^Minimum.0" "%LOGDIR%\UpdateAll_cars_check.txt" >nul
 if not errorlevel 1 (
-  echo === direct car trip: AllowDirectCar is FALSE for this component, no car stores ===
+  echo === direct car trip: AllowDirectCar is FALSE for this component, no car caches ===
   goto cars_done
 )
 if "%MOMENTS%"=="" (
@@ -131,7 +131,7 @@ if "%MOMENTS%"=="" (
   set /p MOMENTS=<"%LOGDIR%\car_moments.txt"
 )
 for %%M in (%MOMENTS%) do (
-  echo === direct car trip: store for %%M ===
+  echo === direct car trip: cache for %%M ===
   call :run car_%%M %PREP%/Direct/CarPerMoment/%%M/Write_Car
   if not "!RC!"=="0" goto failed
 )
@@ -140,12 +140,12 @@ if /I not "%SECTION%"=="all" goto done
 
 :chains
 if "%SKIP_CHAINS%"=="1" goto chains_done
-REM Without public transport (ModelParameters/Impl/WithPT FALSE: the direct trips WW, CC and Car, and MergeOutput, #117) there is no chain store.
+REM Without public transport (ModelParameters/Impl/WithPT FALSE: the direct trips WW, CC and Car, and MergeOutput, #117) there is no chain cache.
 call :run chains_check /ModelParameters/Impl/WithPT
 if not "!RC!"=="0" goto failed
 findstr /R "^Minimum.0" "%LOGDIR%\UpdateAll_chains_check.txt" >nul
 if not errorlevel 1 (
-  echo === chains: public transport is not part of this component, no chain store ===
+  echo === chains: public transport is not part of this component, no chain cache ===
   goto chains_done
 )
 echo === chains: pre-check of the stop blocks and the price coverage ===
@@ -156,15 +156,15 @@ if errorlevel 1 (
   echo ABORT: the price coverage is not OK, see %LOGDIR%\UpdateAll_chains_precheck.txt
   goto failed
 )
-if defined CHAINSTORE_SINGLE goto chains_single
-echo === chains: the stop blocks without a store, in portions (WriteChainBlocks.ps1) ===
+if defined CHAINCACHE_SINGLE goto chains_single
+echo === chains: the stop blocks without a cache, in portions (WriteChainBlocks.ps1) ===
 set STEP=chains
 powershell -NoProfile -ExecutionPolicy Bypass -File "%BATCHDIR%WriteChainBlocks.ps1" -Exe "%EXE%" -Cfg "%CFG%" -LogDir "%LOGDIR%"
 set RC=!ERRORLEVEL!
 if not "!RC!"=="0" goto failed
 goto chains_done
 :chains_single
-echo === chains: ChainGeneration_Single/Write, one store for all blocks (CHAINSTORE_SINGLE; also set PT_Chains_PerBlock to FALSE) ===
+echo === chains: ChainGeneration_Single/Write, one cache for all blocks (CHAINCACHE_SINGLE; also set PT_Chains_PerBlock to FALSE) ===
 call :run chains %PREP%/ChainGeneration_Single/Write
 if not "!RC!"=="0" goto failed
 :chains_done
@@ -189,8 +189,8 @@ ping -n 61 127.0.0.1 >nul
 if exist "%PAUSEFLAG%" goto output_wait
 echo %DATE% %TIME% pause over, the output step starts
 :output_go
-REM Every portion reads the pre- and post-transport connections from their stores (ModelParameters/Advanced/PrePostTransportDecoupled),
-REM so the base sets without a store are written first, once; with section all the legs section has done that already.
+REM Every portion reads the pre- and post-transport connections from their caches (ModelParameters/Advanced/PrePostTransportDecoupled),
+REM so the base sets without a cache are written first, once; with section all the legs section has done that already.
 if /I not "%SECTION%"=="all" if not "%SKIP_LEGS%"=="1" (
   call :legs_write
   if not "!RC!"=="0" goto failed
@@ -246,24 +246,24 @@ if not "!RC!"=="0" goto failed
 goto done
 
 :legs_write
-REM Writes the stores of the base sets of pre- and post-transport that have none with the current signature
+REM Writes the caches of the base sets of pre- and post-transport that have none with the current signature
 REM (PublicTransport_Prep/Write_PrePostTransport); nothing without public transport (ModelParameters/Impl/WithPT FALSE)
 REM or without ModelParameters/Advanced/PrePostTransportDecoupled. RC holds the exit code.
 call :run legs_check /ModelParameters/Impl/WithPT
 if not "!RC!"=="0" exit /b !RC!
 findstr /R "^Minimum.0" "%LOGDIR%\UpdateAll_legs_check.txt" >nul
 if not errorlevel 1 (
-  echo === legs: public transport is not part of this component, no pre- and post-transport stores ===
+  echo === legs: public transport is not part of this component, no pre- and post-transport caches ===
   set RC=0
   exit /b 0
 )
-echo === legs: the stores of the base sets without one (parquet in IntermediateResults) ===
+echo === legs: the caches of the base sets without one (parquet in IntermediateResults) ===
 call :run legs %PREP%/Write_PrePostTransport
 exit /b !RC!
 
 :run
 REM %1 = step name, %2.. = items; each GeoDmsRun call requests the items with @statistics, which
-REM for a store holder writes the whole store. RC holds the exit code (also a negative one, for an
+REM for a cache holder writes the whole cache. RC holds the exit code (also a negative one, for an
 REM aborted process; "if errorlevel 1" does not see that).
 set STEP=%1
 set ITEMS=

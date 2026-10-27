@@ -1,12 +1,12 @@
 // THE CHAINS OF AN OD PAIR WITH THEIR LEGS (#129; only in the OD pair mode, ModelParameters/Impl/IsOD).
 // The chain step then calculates one stop block: the chains that depart from a stop that the origin reaches with a pre-transport type, with
 // as last leg of the longest chains only legs to a stop from which the destination can be reached, and it keeps only the chains to such
-// stops (ChainGeneration_PerBlock_T, BlockResultContainer/Result). For those stops they are the same chains as in the generic store: the
+// stops (ChainGeneration_PerBlock_T, BlockResultContainer/Result). For those stops they are the same chains as in the generic cache: the
 // chain joiner groups per (boarding moment, alighting moment, first NS station), the block front per (boarding moment, destination stop),
-// and the right legs, transfers and LastBoardingMoment cover the whole network. One chain store thus serves all public transport Components
+// and the right legs, transfers and LastBoardingMoment cover the whole network. One chain cache thus serves all public transport Components
 // of the pair.
 //
-// ChainLegs: per chain of the store, in the order of the journey, the public transport legs and the transfers between them, traced back through
+// ChainLegs: per chain of the cache, in the order of the journey, the public transport legs and the transfers between them, traced back through
 // the chain joiner: the last leg of a chain of type K is Right_rel (a row of OD_<letter>/Result or Result_ToD), the transfer before it
 // Valid1_rel->Transfers_rel, and the rest is Left_rel, a chain of the type without the last letter (Classifications/Chains/left), down to
 // the first leg in Chain_Generation/L or R. Every public transport leg keeps its begin and end node in Set_<letter>/Set/NodeSet, from which
@@ -20,7 +20,7 @@ container OD_Stops
 	parameter<bool>   CyclingV   := any(IsDefined(strpos(PT_Comps/PreTransport, 'Cycling'))), Descr = "Does a public transport component in MergeComponents cycle to the first stop?";
 	parameter<bool>   WalkingN   := any(IsDefined(strpos(PT_Comps/PostTransport, 'Walking'))), Descr = "Does a public transport component in MergeComponents walk from the last stop?";
 	parameter<bool>   CyclingN   := any(IsDefined(strpos(PT_Comps/PostTransport, 'Cycling'))), Descr = "Does a public transport component in MergeComponents cycle from the last stop?";
-	parameter<string> TypeTag  := '-v' + (WalkingV ? 'w' : '') + (CyclingV ? 'c' : '') + '-n' + (WalkingN ? 'w' : '') + (CyclingN ? 'c' : ''), Descr = "The types in the signature of the chain store of the pair.";
+	parameter<string> TypeTag  := '-v' + (WalkingV ? 'w' : '') + (CyclingV ? 'c' : '') + '-n' + (WalkingN ? 'w' : '') + (CyclingN ? 'c' : ''), Descr = "The types in the signature of the chain cache of the pair.";
 	attribute<bool>   IsVStop (impl/Places) := (WalkingV && pcount_uint32(Legs/Org2Stops_Walking/ODMatrix/To_Place_rel) > 0) || (CyclingV && pcount_uint32(Legs/Org2Stops_Cycling/ODMatrix/To_Place_rel) > 0);
 	attribute<bool>   IsNStop (impl/Places) := (WalkingN && pcount_uint32(Legs/Stops2Dest_Walking/ODMatrix/From_Place_rel) > 0) || (CyclingN && pcount_uint32(Legs/Stops2Dest_Cycling/ODMatrix/From_Place_rel) > 0);
 	parameter<uint32> NrVStops := sum_uint32(IsVStop);
@@ -30,7 +30,7 @@ container OD_Stops
 container OD_Chains : using = "impl", Descr = "The chains of the OD pair with their legs, which Write calculates and writes in one request (only in the OD pair mode, #129)."
 {
 	container Block := ChainGeneration_PerBlock/Block_1of1, Descr = "The one stop block of the OD pair mode (ModelParameters/Advanced/NumberOfStopBlocks).";
-	unit<uint64> BlockChains := Block/Fence/Result, Descr = "The chains of the block, in the order of the store (Write_Block).";
+	unit<uint64> BlockChains := Block/Fence/Result, Descr = "The chains of the block, in the order of the cache (Write_Block).";
 	attribute<Allowed_ChainsK> K_rel     (BlockChains) := BlockChains/Allowed_ChainsK_rel;
 	attribute<uint32>          Chain_rel (BlockChains) := Block/Allowed_Chains/Chain_rel[BlockChains/Allowed_Chains_rel], Descr = "The row number of the chain in Block/Chain_Generation/<K_rel>/Result.";
 
@@ -97,7 +97,7 @@ container OD_Chains : using = "impl", Descr = "The chains of the OD pair with th
 
 	parameter<string> PieceNames := AsItemList('LegPieces/' + Pieces/name + '/Rows') + ',' + AsItemList('TransferPieces_/' + TransferPieces/name + '/Rows');
 	unit<uint64> ChainLegs := ='union_unit_uint64(' + PieceNames + ')'
-	,	Descr = "Per chain of the store the public transport legs and the transfers, unsorted; BlockChain_rel and Volgnr give the order."
+	,	Descr = "Per chain of the cache the public transport legs and the transfers, unsorted; BlockChain_rel and Volgnr give the order."
 	{
 		attribute<BlockChains>   BlockChain_rel     := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/BlockChain_rel') + ')';
 		attribute<uint32>   Volgnr        := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Volgnr') + ')';
@@ -118,12 +118,12 @@ container OD_Chains : using = "impl", Descr = "The chains of the OD pair with th
 		attribute<uint32>   EindKnoop     := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/EindKnoop') + ')';
 	}
 
-	// The store of the legs, next to the chain store of the block (StorageBlockDir_Str), with the same signature.
+	// The cache of the legs, next to the chain cache of the block (StorageBlockDir_Str), with the same signature.
 	unit<uint64> Write_ChainLegs := ChainLegs
 	, StorageName = "=/NetworkSetup/PublicTransport_Prep/StorageBlockDir_Str + '/benen.mmd'"
 	, ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/PT_Chains_Sig/ForWriting"
 	{
-		attribute<uint64>   Keten         := uint64(ChainLegs/BlockChain_rel), Descr = "The row number of the chain in the chain store of the block (Write_Block).";
+		attribute<uint64>   Keten         := uint64(ChainLegs/BlockChain_rel), Descr = "The row number of the chain in the chain cache of the block (Write_Block).";
 		attribute<uint32>   Volgnr        := ChainLegs/Volgnr;
 		attribute<bool>     IsOverstap    := ChainLegs/IsOverstap;
 		attribute<bool>     IsL           := ChainLegs/IsL;
@@ -144,7 +144,7 @@ container OD_Chains : using = "impl", Descr = "The chains of the OD pair with th
 	unit<uint64> Read_ChainLegs : StorageName = "=/NetworkSetup/PublicTransport_Prep/PT_Chains_Sig/ForReading + '/benen.mmd'", StorageReadOnly = "true"
 	, Descr = "Bare reader of the legs of the chains of the OD pair, without declared attributes.";
 	unit<uint64> ChainLegs_Empty := range(uint64, 0u64, 0u64)
-	, Descr = "The legs in a run without public transport (WW, CC, Car), with the columns of Read_ChainLegs, because there is no chain store there."
+	, Descr = "The legs in a run without public transport (WW, CC, Car), with the columns of Read_ChainLegs, because there is no chain cache there."
 	{
 		attribute<uint64>   Keten         := const(0u64, .);
 		attribute<uint32>   Volgnr        := const(0, ., uint32);

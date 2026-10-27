@@ -2,11 +2,11 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 20.2402" // 20.24.
 { 	
 	// HOW TO RUN THE MODEL (the wiki, How to run the model, has the details):
 	// 1. Choose in ModelParameters the analysis moment, the origins and destinations, and the component, or the components to merge.
-	// 2. Make the decoupled data with the steps under MakeUnlinkedData, in order. A store is made once per edition or setting, and its signature tells whether it fits.
+	// 2. Make the decoupled data with the steps under MakeUnlinkedData, in order. A cache is made once per edition or setting, and its signature tells whether it fits.
 	// 3. Calculate the results with batch\UpdateAll.cmd output. It runs the origin blocks in portions, each in its own GeoDmsRun, so that memory is freed in between;
 	//    NetworkSetup/GenerateOutput/Generate_Output does the same in the GUI in one process, which only suits a small set or one OD pair.
 	// 4. To merge components into one front, set MergeOutput in ModelParameters and run batch\UpdateAll.cmd output again.
-	// Outside the GUI, batch\UpdateAll.cmd sources, legs, chains and cars make the same stores as step 2.
+	// Outside the GUI, batch\UpdateAll.cmd sources, legs, chains and cars make the same caches as step 2.
 
 	container ChecksBeforeRunning : Descr = "Checks to run before the chain and output steps; each gives PASS or FAIL with what to change."
 	{
@@ -23,41 +23,41 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 20.2402" // 20.24.
 	}
 
 	container MakeUnlinkedData
-	:	Descr = "The preparation steps, in order: each step writes stores that the runs read back."
+	:	Descr = "The preparation steps, in order: each step writes caches that the runs read back."
 	{
 		container Step1_Sources
-		:	Descr = "Once per edition of the source data: the OSM network, the TomTom networks (only needed for the component Car) and the GTFS store."
+		:	Descr = "Once per edition of the source data: the OSM network, the TomTom networks (only needed for the component Car) and the GTFS cache."
 		{
-			parameter<String> OSM_Network      := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/OSM/Make_Final_Network", Descr = "Makes the OSM network store, for walking and for cycling over OSM.";
+			parameter<String> OSM_Network      := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/OSM/Make_Final_Network", Descr = "Makes the OSM network cache, for walking and for cycling over OSM.";
 			parameter<String> TomTom_FileLists := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/TomTom/impl/GetFileNames_Network/WriteFilesCSV;/SourceData/Infrastructure/TomTom/impl/GetFileNames_Speedprofiles/WriteFilesCSV", Descr = "Lists the files of the raw TomTom delivery, which TomTom_Networks reads.";
-			parameter<String> TomTom_Networks  := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/TomTom/impl/Write_All", Descr = "Makes the four TomTom stores of the edition of the analysis moment.";
-			parameter<String> GTFS_Feed        := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/GTFS/LoadFeeds/Write_All", Descr = "Makes the GTFS store of the feed of the analysis moment.";
+			parameter<String> TomTom_Networks  := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/TomTom/impl/Write_All", Descr = "Makes the four TomTom caches of the edition of the analysis moment.";
+			parameter<String> GTFS_Feed        := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/GTFS/LoadFeeds/Write_All", Descr = "Makes the GTFS cache of the feed of the analysis moment.";
 		}
 
 		container Step2_PrePostTransport
-		:	Descr = "The pre- and post-transport connections as a parquet store per base set in IntermediateResults, which the runs read with ModelParameters/Advanced/PrePostTransportDecoupled; Generate_All writes the base sets without a store, and nothing without that switch."
+		:	Descr = "The pre- and post-transport connections as a parquet cache per base set in IntermediateResults, which the runs read with ModelParameters/Advanced/PrePostTransportDecoupled; Generate_All writes the base sets without a cache, and nothing without that switch."
 		{
 			parameter<String> Generate_All       := 'Ready', ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/Write_PrePostTransport"
-			,	Descr = "Writes all base sets without a store at once, as batch/UpdateAll.cmd legs does: the three below, and Stops2Dest_Walking when origins and destinations differ.";
+			,	Descr = "Writes all base sets without a cache at once, as batch/UpdateAll.cmd legs does: the three below, and Stops2Dest_Walking when origins and destinations differ.";
 			parameter<String> Org2Stops_Walking  := 'Ready', ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/PrePostTransport/Org2Stops_Walking/Write/Data"
 			,	Descr = "Writes walking from every origin to every stop, over OSM.";
 			parameter<String> Org2Stops_Cycling  := 'Ready', ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/PrePostTransport/Org2Stops_Cycling/Write/Data"
 			,	Descr = "Writes cycling from every origin to every stop, over the network of ModelParameters/Advanced/CyclingNetwork.";
 			parameter<String> Stops2Dest_Cycling := 'Ready', ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/PrePostTransport/Stops2Dest_Cycling/Write/Data"
-			,	Descr = "Writes cycling from every stop to every destination; a store of its own, because the Fietsersbond network has one-way cycle paths.";
+			,	Descr = "Writes cycling from every stop to every destination; a cache of its own, because the Fietsersbond network has one-way cycle paths.";
 		}
 
 		container Step3_PT_Chains
-		:	Descr = "The chain store of the part of the day: a store per stop block in %LocalDataProjDir%/IntermediateResults/PT_Chains_<date>_<window>_<hash>, the same as batch/UpdateAll.cmd chains makes."
+		:	Descr = "The chain cache of the part of the day: a cache per stop block in %LocalDataProjDir%/IntermediateResults/PT_Chains_<date>_<window>_<hash>, the same as batch/UpdateAll.cmd chains makes."
 		{
 			parameter<String> Check_Blocks             := /ChecksBeforeRunning/PT_CheckBlocks, Descr = "Do all stops fit in the stop blocks?";
 			parameter<String> Check_PriceCoverage      := /ChecksBeforeRunning/PT_CheckPriceCoverage, Descr = "Does the fare table cover all combinations of mode and agency in the feed? It takes seconds; run it before the chains.";
-			parameter<String> BlocksWritten            := string(/NetworkSetup/PublicTransport_Prep/PT_Chains_Blocks/NrWritten) + ' of ' + string(/NetworkSetup/PublicTransport_Prep/PT_Chains_Blocks/NrBlocks) + ' stop blocks have a store'
-			,	Descr = "How many blocks of the chain store with the current signature exist already.";
+			parameter<String> BlocksWritten            := string(/NetworkSetup/PublicTransport_Prep/PT_Chains_Blocks/NrWritten) + ' of ' + string(/NetworkSetup/PublicTransport_Prep/PT_Chains_Blocks/NrBlocks) + ' stop blocks have a cache'
+			,	Descr = "How many blocks of the chain cache with the current signature exist already.";
 			parameter<String> Generate_ToDo            := 'Ready', ExplicitSuppliers = "=AsList(/NetworkSetup/PublicTransport_Prep/PT_Chains_Blocks/ToDo/Item, ';')"
-			,	Descr = "Calculates and writes the blocks without a store in one process; batch/UpdateAll.cmd chains does it in portions, each in its own GeoDmsRun, so that memory is freed in between.";
+			,	Descr = "Calculates and writes the blocks without a cache in one process; batch/UpdateAll.cmd chains does it in portions, each in its own GeoDmsRun, so that memory is freed in between.";
 			container PerBlock := for_each_ne(/NetworkSetup/PublicTransport_Prep/impl/BlockDomain/name, 'WriteBlock_T(' + quote(/NetworkSetup/PublicTransport_Prep/impl/BlockDomain/name) + ')')
-			,	Descr = "Per stop block: Write calculates and writes the store of that block, for example to try one block.";
+			,	Descr = "Per stop block: Write calculates and writes the cache of that block, for example to try one block.";
 
 			Template WriteBlock_T
 			{
@@ -72,10 +72,10 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 20.2402" // 20.24.
 		{
 			parameter<string> Moments := /ModelParameters/Impl/CarTimeDependent ? AsList('TD' + /ModelParameters/Impl/MeasureMoments/TemplatableTextShrt, ' ') : /ModelParameters/Impl/Car_CongestionMoment_ForDirect
 			,	StorageName = "%ConfigDir%/../../batch/log/car_moments.txt", StorageType = "str"
-			,	Descr = "The moments whose car store the model reads; batch/UpdateAll.cmd cars makes these when it is given no moments.";
-			parameter<string> Writers := '/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/' + replace(Moments, ' ', '/Write_Car;/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/') + '/Write_Car', Descr = "The writers of the car stores of Moments, separated by semicolons.";
+			,	Descr = "The moments whose car cache the model reads; batch/UpdateAll.cmd cars makes these when it is given no moments.";
+			parameter<string> Writers := '/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/' + replace(Moments, ' ', '/Write_Car;/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/') + '/Write_Car', Descr = "The writers of the car caches of Moments, separated by semicolons.";
 			parameter<String> Generate_All := 'Ready', ExplicitSuppliers = "=/ModelParameters/Impl/AllowDirectCar ? Writers : ''"
-			,	Descr = "Makes the car stores of all Moments, in one process; batch/UpdateAll.cmd cars makes them one by one.";
+			,	Descr = "Makes the car caches of all Moments, in one process; batch/UpdateAll.cmd cars makes them one by one.";
 		}
 	}
 

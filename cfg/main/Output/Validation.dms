@@ -1,9 +1,9 @@
 container Validation
 : using = "units;Classifications;SourceData"
-, Descr = "Validation of the public transport chains against 9292.nl, stop to stop (ObjectVision/NetworkModel_PBL#53, skill model-validatie): for the stop pairs in StopPairs, Rows holds the chains of the chain store that depart between DepartFrom and DepartUntil, with departure, arrival, travel time, price, trip surcharge (Price_S, the ICD/ICE surcharge that 9292 leaves out of the price) and ModeUsed, and Write writes all its columns to %LocalDataProjDir%/Output/validatie_*.csv; it reads only the block stores of the departure stops, or with ReadStore FALSE calculates those blocks itself without writing them, to test without a chain store."
+, Descr = "Validation of the public transport chains against 9292.nl, stop to stop (ObjectVision/NetworkModel_PBL#53, skill model-validatie): for the stop pairs in StopPairs, Rows holds the chains of the chain cache that depart between DepartFrom and DepartUntil, with departure, arrival, travel time, price, trip surcharge (Price_S, the ICD/ICE surcharge that 9292 leaves out of the price) and ModeUsed, and Write writes all its columns to %LocalDataProjDir%/Output/validatie_*.csv; it reads only the block caches of the departure stops, or with ReadCache FALSE calculates those blocks itself without writing them, to test without a chain cache."
 {
 	parameter<string> FileStem   := '%LocalDataProjDir%/Output/validatie_'+ModelParameters/Impl/GTFS_file_date+'_'+ModelParameters/Impl/Analysis_date, Descr = "Path of the csv without extension: validatie_<feed date>_<analysis date> in %LocalDataProjDir%/Output.";
-	parameter<bool>   ReadStore  := TRUE, Descr = "TRUE reads the blocks from the chain store (PublicTransport_Prep/PT_Chains_Blocks); FALSE calculates them in memory (ChainGeneration_PerBlock/<block>/BlockResultContainer/Result) without writing them.";
+	parameter<bool>   ReadCache  := TRUE, Descr = "TRUE reads the blocks from the chain cache (PublicTransport_Prep/PT_Chains_Blocks); FALSE calculates them in memory (ChainGeneration_PerBlock/<block>/BlockResultContainer/Result) without writing them.";
 	parameter<Time>   DepartFrom := /ModelParameters/Impl/PT_FirstDepartureMoment, Descr = "Start of the departure window: the first departure moment of the model.";
 	parameter<Time>   DepartUntil := value(uint32(DepartFrom) + 3600, Time), Descr = "End of the departure window, one hour after DepartFrom.";
 
@@ -35,27 +35,27 @@ container Validation
 	{
 		attribute<uint64> key := uint64(first_rel) * uint64(#Stops) + uint64(second_rel);
 	}
-	unit<uint32> StoreBlocks := unique(FromStops/Block_rel)
+	unit<uint32> CacheBlocks := unique(FromStops/Block_rel)
 	{
 		attribute<string> name := BlockDomain/name[values];
-		attribute<string> source_path := (ReadStore ? '/NetworkSetup/PublicTransport_Prep/PT_Chains_Blocks/PerBlock/' : '/NetworkSetup/PublicTransport_Prep/ChainGeneration_PerBlock/')
-		                        + name + (ReadStore ? '/Read' : '/BlockResultContainer/Result');
+		attribute<string> source_path := (ReadCache ? '/NetworkSetup/PublicTransport_Prep/PT_Chains_Blocks/PerBlock/' : '/NetworkSetup/PublicTransport_Prep/ChainGeneration_PerBlock/')
+		                        + name + (ReadCache ? '/Read' : '/BlockResultContainer/Result');
 	}
 
-	unit<uint64> StoreChains := ='union_unit_uint64(' + AsItemList(StoreBlocks/source_path) + ')'
+	unit<uint64> CacheChains := ='union_unit_uint64(' + AsItemList(CacheBlocks/source_path) + ')'
 	{
-		attribute</NetworkSetup/PublicTransport_Prep/uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel := ='union_data(., ' + AsItemList(StoreBlocks/source_path + '/uq_c_FromTime_Stop_rel') + ')';
-		attribute</NetworkSetup/PublicTransport_Prep/uq_c_ToTime_Stop>   uq_c_ToTime_Stop_rel   := ='union_data(., ' + AsItemList(StoreBlocks/source_path + '/uq_c_ToTime_Stop_rel') + ')';
-		attribute<s>      Traveltime := ='union_data(., ' + AsItemList(StoreBlocks/source_path + '/Traveltime') + ')';
-		attribute<Ct>     Price      := ='union_data(., ' + AsItemList(StoreBlocks/source_path + '/Price') + ')';
-		attribute<Ct>     Price_S    := ='union_data(., ' + AsItemList(StoreBlocks/source_path + '/Price_S') + ')';
-		attribute<uint32> ModeCode   := ='union_data(., ' + AsItemList(StoreBlocks/source_path + '/ModeCode') + ')';
+		attribute</NetworkSetup/PublicTransport_Prep/uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel := ='union_data(., ' + AsItemList(CacheBlocks/source_path + '/uq_c_FromTime_Stop_rel') + ')';
+		attribute</NetworkSetup/PublicTransport_Prep/uq_c_ToTime_Stop>   uq_c_ToTime_Stop_rel   := ='union_data(., ' + AsItemList(CacheBlocks/source_path + '/uq_c_ToTime_Stop_rel') + ')';
+		attribute<s>      Traveltime := ='union_data(., ' + AsItemList(CacheBlocks/source_path + '/Traveltime') + ')';
+		attribute<Ct>     Price      := ='union_data(., ' + AsItemList(CacheBlocks/source_path + '/Price') + ')';
+		attribute<Ct>     Price_S    := ='union_data(., ' + AsItemList(CacheBlocks/source_path + '/Price_S') + ')';
+		attribute<uint32> ModeCode   := ='union_data(., ' + AsItemList(CacheBlocks/source_path + '/ModeCode') + ')';
 		unit<uint32>      UqModeCode := unique_uint32(ModeCode)
 		{
 			unit<uint8>       CD       := /Classifications/GTFS_Modes/CodeDigits;
 			attribute<string> ModeUsed := CD/abbr[value(values / 65536u % 16u, CD)] + CD/abbr[value(values / 4096u % 16u, CD)] + CD/abbr[value(values / 256u % 16u, CD)] + CD/abbr[value(values / 16u % 16u, CD)] + CD/abbr[value(values % 16u, CD)];
 		}
-		attribute<string> ModeUsed   := UqModeCode/ModeUsed[rlookup(ModeCode, UqModeCode/values)], Descr = "The mode letters per leg, from ModeCode in the chain store.";
+		attribute<string> ModeUsed   := UqModeCode/ModeUsed[rlookup(ModeCode, UqModeCode/values)], Descr = "The mode letters per leg, from ModeCode in the chain cache.";
 		attribute<Stops>  From_Stop_rel := /NetworkSetup/PublicTransport_Prep/uq_c_FromTime_Stop/From_Stop_rel[uq_c_FromTime_Stop_rel];
 		attribute<Time>   From_Time_rel := /NetworkSetup/PublicTransport_Prep/uq_c_FromTime_Stop/From_Time_rel[uq_c_FromTime_Stop_rel];
 		attribute<Stops>  To_Stop_rel   := /NetworkSetup/PublicTransport_Prep/uq_c_ToTime_Stop/To_Stop_rel[uq_c_ToTime_Stop_rel];
@@ -63,11 +63,11 @@ container Validation
 	}
 
 	// Chains from a departure stop of a pair to an arrival stop of the same pair, within the departure window.
-	unit<uint64> Candidates := join_equal_values_uint64(StoreChains/From_Stop_rel, FromStops/Stop_rel)
+	unit<uint64> Candidates := join_equal_values_uint64(CacheChains/From_Stop_rel, FromStops/Stop_rel)
 	{
 		attribute<StopPairs>  Pair_rel := FromStops/Pair_rel[second_rel];
-		attribute<uint64> to_key  := uint64(Pair_rel) * uint64(#Stops) + uint64(StoreChains/To_Stop_rel[first_rel]);
-		attribute<bool>   IsSelected    := IsDefined(rlookup(to_key, ToStops/key)) && StoreChains/From_Time_rel[first_rel] >= DepartFrom && StoreChains/From_Time_rel[first_rel] <= DepartUntil;
+		attribute<uint64> to_key  := uint64(Pair_rel) * uint64(#Stops) + uint64(CacheChains/To_Stop_rel[first_rel]);
+		attribute<bool>   IsSelected    := IsDefined(rlookup(to_key, ToStops/key)) && CacheChains/From_Time_rel[first_rel] >= DepartFrom && CacheChains/From_Time_rel[first_rel] <= DepartUntil;
 	}
 	unit<uint64> Rows := select_with_org_rel(Candidates/IsSelected)
 	, StorageName = "=FileStem+'.csv'", StorageType = "gdalwrite.vect"
@@ -75,12 +75,12 @@ container Validation
 		attribute<string>  soort      := StopPairs/kind[Candidates/Pair_rel[org_rel]];
 		attribute<string>  van        := StopPairs/from_stop[Candidates/Pair_rel[org_rel]];
 		attribute<string>  naar       := StopPairs/to_stop[Candidates/Pair_rel[org_rel]];
-		attribute<string>  vertrek    := Time/Label[StoreChains/From_Time_rel[Candidates/first_rel[org_rel]]];
-		attribute<string>  aankomst   := Time/Label[StoreChains/To_Time_rel[Candidates/first_rel[org_rel]]];
-		attribute<float32> reistijd   := float32(StoreChains/Traveltime[Candidates/first_rel[org_rel]]) / 60f, Descr = "Travel time of the chain in minutes, including any transfer penalties.";
-		attribute<float32> prijs      := float32(StoreChains/Price[Candidates/first_rel[org_rel]]) / 100f, Descr = "Price in euro, including the trip surcharge.";
-		attribute<float32> rit_opslag := float32(StoreChains/Price_S[Candidates/first_rel[org_rel]]) / 100f, Descr = "Price_S in euro: the ICD/ICE surcharge, which 9292 leaves out of the price.";
-		attribute<string>  ModeUsed   := StoreChains/ModeUsed[Candidates/first_rel[org_rel]];
+		attribute<string>  vertrek    := Time/Label[CacheChains/From_Time_rel[Candidates/first_rel[org_rel]]];
+		attribute<string>  aankomst   := Time/Label[CacheChains/To_Time_rel[Candidates/first_rel[org_rel]]];
+		attribute<float32> reistijd   := float32(CacheChains/Traveltime[Candidates/first_rel[org_rel]]) / 60f, Descr = "Travel time of the chain in minutes, including any transfer penalties.";
+		attribute<float32> prijs      := float32(CacheChains/Price[Candidates/first_rel[org_rel]]) / 100f, Descr = "Price in euro, including the trip surcharge.";
+		attribute<float32> rit_opslag := float32(CacheChains/Price_S[Candidates/first_rel[org_rel]]) / 100f, Descr = "Price_S in euro: the ICD/ICE surcharge, which 9292 leaves out of the price.";
+		attribute<string>  ModeUsed   := CacheChains/ModeUsed[Candidates/first_rel[org_rel]];
 	}
 
 	parameter<string> Write := 'Validation: ' + string(#Rows) + ' ketens voor ' + string(#StopPairs) + ' haltenparen', ExplicitSuppliers = "Rows", Descr = "Calculating this item writes Rows with all its columns to FileStem.csv.";

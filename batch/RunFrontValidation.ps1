@@ -150,7 +150,7 @@ function ComponentName($mpText, $mp) {
 }
 function ComponentSuffix($component) { switch ($component) { 'Lopen' { '_lopen' } 'Fiets' { '_fiets' } 'Auto' { '_auto' } 'All' { '' } 'Alles' { '' } default { '_' + $component } } }
 function BlockFiles($dir, $date, $i) { @(Get-ChildItem -Path $dir -Filter "tt_$($date)_*_$($i)of$NrOrgBlocks.csv" -ErrorAction SilentlyContinue) }
-# The signature without the criteria: MinCrit-..._MaxPT of the output and _min-..._maxtransf of the chain store.
+# The signature without the criteria: MinCrit-..._MaxPT of the output and _min-..._maxtransf of the chain cache.
 function SigWithoutCrit($file) { ((Get-Content $file -Raw) -replace 'MinCrit-.*?_MaxPT', 'MinCrit-*_MaxPT' -replace '_min-.*?_maxtransf', '_min-*_maxtransf').Trim() }
 
 $head = (& git -C $repo rev-parse --short HEAD).Trim()

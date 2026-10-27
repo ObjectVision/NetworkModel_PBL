@@ -2,8 +2,8 @@ container Advanced : using = "classifications"
 ,	Descr = "Choices agreed with PBL and technical choices that a run normally leaves as they are, and the tables PBL may extend: the analysis moments, the origin and destination sets, the parts of the day and the components."
 {
 	// AGREED WITH PBL: every component optimises on price and time (#117); the criteria of merging are at the top (MergeCriteria).
-	// MinimiseCriteria is part of the signature of the chain store.
-	parameter<string>   MinimiseCriteria   := 'Price,Time'             , Descr = "Criteria of the front of a component: 'Price', 'Price_Augm', 'Time' or a combination such as 'Price,Time' (#117); part of the signature of the chain store.";
+	// MinimiseCriteria is part of the signature of the chain cache.
+	parameter<string>   MinimiseCriteria   := 'Price,Time'             , Descr = "Criteria of the front of a component: 'Price', 'Price_Augm', 'Time' or a combination such as 'Price,Time' (#117); part of the signature of the chain cache.";
 	parameter<string>   CentroidWeightType := 'Addresses'            , Descr = "Weight of the weighted centroids of the origins: 'Addresses' or population.";
 	// The maximum walking times of pre- and post-transport types that no component uses (to or from a rail, metro, tram, intercity or
 	// OV-fiets stop); Classifications/TimeInvariantTypes asks for them, so they equal those to and from every stop.
@@ -29,8 +29,8 @@ container Advanced : using = "classifications"
 	parameter<string>   Dest_location_scale := '100m'                 , Descr = "Cell size of the destination clustering: '100m', '500m', '1000m', '5000m', '10000m' or '50000m'.";
 	parameter<string>   Org_location_scale  := '500m'                 , Descr = "Cell size of the clustering of BAG origins (BAG_woonpanden_Clustered), one of the cell sizes in Geography/Gridsizes.";
 	parameter<bool>     ExcludeOrgNeighbourhoodCentroidsWithoutAddressPop := FALSE                  , Descr = "Leave out neighbourhood centroids without addresses or population, depending on CentroidWeightType?";
-	parameter<uint32>   MaxPathLength             := 259                    , Descr = "The longest file path Windows allows without longPathAware; every store checks it before calculating (Templates/Signature_T/PathGate, #118).";
-	parameter<bool>     PrePostTransportDecoupled := TRUE                   , Descr = "Write the pre- and post-transport connections once per base set to a store in IntermediateResults and read them back? On, because the output step runs in portions, each a GeoDmsRun that would otherwise calculate the base sets again; batch/UpdateAll.cmd output writes the missing ones first (#133).";
+	parameter<uint32>   MaxPathLength             := 259                    , Descr = "The longest file path Windows allows without longPathAware; every cache checks it before calculating (Templates/Signature_T/PathGate, #118).";
+	parameter<bool>     PrePostTransportDecoupled := TRUE                   , Descr = "Write the pre- and post-transport connections once per base set to a cache in IntermediateResults and read them back? On, because the output step runs in portions, each a GeoDmsRun that would otherwise calculate the base sets again; batch/UpdateAll.cmd output writes the missing ones first (#133).";
 	parameter<bool>     MakeMedian                := FALSE
 	,	Descr = "Does the output step also write, per block, the median over the departure moments of the cheapest option per OD pair (Mediaan/tt_<date>_mediaan_<n>of<N>)?";
 	// The spelling of seven column names of the parquet output. GeoDMS keeps the spelling in which a name is first read, for the whole
@@ -82,7 +82,7 @@ container Advanced : using = "classifications"
 	// 30 to 60 minutes ahead; NeTEx has no area geometry for them, so the model recognises them by line name
 	// (SourceData/Infrastructure/GTFS/RelevantSelection/Routes/IsFlex). IncludeFlex FALSE leaves them out; with FlexMinInterval,
 	// FlexExtraWaitingTime and FlexCallCosts all 0 the trips count as the feed has them. The default (#116) includes them with 15 min,
-	// 30 min and 0.00 euro, which gives the flex tag '_flex15i30w0ct' of the chain store and the output (Impl/Flex_FileTag).
+	// 30 min and 0.00 euro, which gives the flex tag '_flex15i30w0ct' of the chain cache and the output (Impl/Flex_FileTag).
 	parameter<bool>     IncludeFlex          := TRUE                   , Descr = "Does the model include demand-responsive transport (Routes/IsFlex)? FALSE removes all links of flex lines from the network; the public transport nodes count flex departures anyway.";
 	parameter<min_f>    FlexMinInterval      := 15[min_f]              , Descr = "Minimum interval between the trips of a flex line: per trip pattern only the first trip of every interval stays, which thins lines scheduled every minute (#116); 0 does not thin.", IntegrityCheck = "this >= 0[min_f]";
 	parameter<min_f>    FlexExtraWaitingTime := 30[min_f]              , Descr = "Extra waiting time per boarding of a flex line, for calling and the uncertain arrival of the vehicle (#116).", IntegrityCheck = "this >= 0[min_f]";
@@ -175,11 +175,11 @@ container Advanced : using = "classifications"
 		attribute<bool>   DirectWalking := union_data(., DirectComponents/DirectWalking, const(FALSE, PT_Components));
 		attribute<bool>   DirectCycling := union_data(., DirectComponents/DirectCycling, const(FALSE, PT_Components));
 		attribute<bool>   DirectCar     := union_data(., DirectComponents/DirectCar, const(FALSE, PT_Components));
-		attribute<bool>   WithPT        := union_data(., const(FALSE, DirectComponents), const(TRUE, PT_Components)), Descr = "Does the component use the public transport chains? Without them the final front reads only the direct trips and no chain store is needed.";
+		attribute<bool>   WithPT        := union_data(., const(FALSE, DirectComponents), const(TRUE, PT_Components)), Descr = "Does the component use the public transport chains? Without them the final front reads only the direct trips and no chain cache is needed.";
 		attribute<bool>   UsesCycling   := union_data(., DirectComponents/DirectCycling, PT_Components/UsesCycling), Descr = "Does the component use the cycling network of CyclingNetwork, as CC and a public transport component with cycling in pre- or post-transport do, the OV-fiets included?";
 		attribute<string> OutputSuffix := '_' + name + (UsesCycling ? /ModelParameters/Impl/CyclingNetwork_DirTag : ''), Descr = "Suffix after OutputLabel in the name of the output folder: _ and the component name, with _fb when the component cycles on the Fietsersbond network; merging finds the components by it.";
 		attribute<uint32> BlocksPerPortion := union_data(., const(50, DirectComponents, uint32), PT_Components/BlocksPerPortion), Descr = "Origin blocks per GeoDmsRun in the output step: 50 for a direct trip, for a public transport component that of its pre-transport type.";
-		attribute<bool>   SingleDepartureMoment := union_data(., const(TRUE, DirectComponents), const(FALSE, PT_Components)), Descr = "Does this component calculate one departure moment, that of the congestion moment of the part of the day, instead of four, as WW and CC that do not depend on it and Car with a store per congestion moment (#132)?";
+		attribute<bool>   SingleDepartureMoment := union_data(., const(TRUE, DirectComponents), const(FALSE, PT_Components)), Descr = "Does this component calculate one departure moment, that of the congestion moment of the part of the day, instead of four, as WW and CC that do not depend on it and Car with a cache per congestion moment (#132)?";
 		attribute<bool>   SingleDepartureMoment_Eff := SingleDepartureMoment && !(DirectCar && /ModelParameters/Impl/CarTimeDependent), Descr = "SingleDepartureMoment, except for the time-dependent car trip, whose departure moments really differ.";
 		attribute<string> ExportClass := union_data(., DirectComponents/name == 'Car' ? 'Car' : 'Direct', const('PT', PT_Components)), Descr = "The kind of columns of the parquet output of the component: Direct (WW, CC), Car or PT; merging reads them that way.";
 		attribute<bool>   NeedsCar    := DirectCar, Descr = "Does the component need a car? Only Car.";
@@ -215,7 +215,7 @@ container Advanced : using = "classifications"
 	parameter<float32>  OSM_MaxSpeedQuantile      := 0.5f
 	, Descr = "Quantile of the tagged maxspeed per road type and country, used for OSM roads without a usable maxspeed tag.";
 	parameter<bool>     PT_Chains_PerBlock := TRUE
-	, Descr = "Does the chain step write every stop block to its own store, which the output step reads together? FALSE: one store for all blocks (ChainGeneration_Single/Write).";
+	, Descr = "Does the chain step write every stop block to its own cache, which the output step reads together? FALSE: one cache for all blocks (ChainGeneration_Single/Write).";
 	parameter<bool>     IFF_TransferTime := TRUE                   , Descr = "Does a transfer between two platforms of the same NS station take at least the transfer time of that station in the NS IFF timetable, besides the walking time over the straight distance (#123)?";
 	parameter<string>   IFF_file_date    := '20261013'             , Descr = "The delivery of the NS IFF timetable, used for all analysis moments (%NetworkModel_Dir%/Infrastructuur/IFF/<date>/stations.csv).";
 
@@ -274,7 +274,7 @@ container Advanced : using = "classifications"
 			// ANALYSIS MOMENTS (#125): the second Tuesday of October; the feed of an analysis moment covers the service days D-1 to D+1
 			// (LoadFeeds/ServiceDays, MinServiceDayTripShare). OSM: Y2015 to Y2024 use the extract of 20240524, Y2025 and Y2026 that of 20260601.
 			// TomTom: the December edition of the year; Y2026 uses yr2025_12 for now and Y2015 yr2021_12, the oldest. CarCongestionSpeed_date is
-			// the folder %NetworkModel_PrivDir%/TomTom/<name> with the four stores Roads, Junctions, Speednetworks and Speedprofiles and the raw
+			// the folder %NetworkModel_PrivDir%/TomTom/<name> with the four caches Roads, Junctions, Speednetworks and Speedprofiles and the raw
 			// material to make them. Regios and BAG_snapshot follow the neighbourhood variant (NeighbourhoodSets, #126): CBS 2023 and BAG 1-1-2023 for
 			// 2015, 2023 and 2024, CBS 2025 and BAG 1-1-2025 for 2025 and 2026; BAG_snapshot is the folder name under
 			// %NetworkModel_Dir%/RegioIndelingen/BAG. Regios stays at 2025 for Y2026 until CBS publishes the neighbourhood map of 2026.

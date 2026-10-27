@@ -6,8 +6,8 @@ REM This way a run of hours survives closing the window or the session it was st
 REM The task runs batch\UpdateAllTask.cmd, which writes the progress to batch\log\UpdateAll_status.txt and deletes the
 REM task afterwards. At most one such task runs at a time.
 REM
-REM   ScheduleUpdateAll.cmd cars                     the four car stores
-REM   ScheduleUpdateAll.cmd all -nosources           the car stores, the chain store, the pre- and post-transport stores and the output
+REM   ScheduleUpdateAll.cmd cars                     the four car caches
+REM   ScheduleUpdateAll.cmd all -nosources           the car caches, the chain cache, the pre- and post-transport caches and the output
 REM   set GEODMS_EXE=C:\...\GeoDmsRun.exe            beforehand: another engine for this run
 REM ---------------------------------------------------------------------------------------------
 setlocal
