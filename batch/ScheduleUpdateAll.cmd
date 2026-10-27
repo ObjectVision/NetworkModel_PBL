@@ -7,7 +7,7 @@ REM The task runs batch\UpdateAllTask.cmd, which writes the progress to batch\lo
 REM task afterwards. At most one such task runs at a time.
 REM
 REM   ScheduleUpdateAll.cmd cars                     the four car stores
-REM   ScheduleUpdateAll.cmd all -nosources           the car stores, the chain store, the leg stores and the output
+REM   ScheduleUpdateAll.cmd all -nosources           the car stores, the chain store, the pre- and post-transport stores and the output
 REM   set GEODMS_EXE=C:\...\GeoDmsRun.exe            beforehand: another engine for this run
 REM ---------------------------------------------------------------------------------------------
 setlocal

@@ -18,25 +18,25 @@ container Advanced : using = "classifications"
 	// NEIGHBOURHOOD TO NEIGHBOURHOOD (#126): two neighbourhood variants, each with the CBS boundaries and the BAG of the same year,
 	// and with the same point as origin and destination: the centroid of the residential addresses of the neighbourhood
 	// (SourceData/RegioIndelingen/Buurt/address_weighted_centroid), or the middle of its area when it has no dwellings.
-	unit<uint8> Buurtsets : nrofrows = 2
+	unit<uint8> NeighbourhoodSets : nrofrows = 2
 	, Descr = "The neighbourhood variants (#126): choosing one as Orgset and Destset sets its area division and BAG snapshot, whatever the analysis moment."
 	{
 		attribute<string> name                 : ['Buurt2023', 'Buurt2025'];
 		attribute<string> RegioIndelingen_year : ['2023', '2025'];
 		attribute<string> BAG_snapshot         : ['20230101', '20250101'];
 	}
-	parameter<bool>     Dests_geclusterd                          := FALSE                  , Descr = "Cluster the destinations on a grid of Dest_location_scale, for example for many firms at one location?";
+	parameter<bool>     Dests_clustered                          := FALSE                  , Descr = "Cluster the destinations on a grid of Dest_location_scale, for example for many firms at one location?";
 	parameter<string>   Dest_location_scale                       := '100m'                 , Descr = "Cell size of the destination clustering: '100m', '500m', '1000m', '5000m', '10000m' or '50000m'.";
 	parameter<string>   Org_location_scale                        := '500m'                 , Descr = "Cell size of the clustering of BAG origins (BAG_woonpanden_Clustered), one of the cell sizes in Geography/Gridsizes.";
-	parameter<bool>     ExcludeOrgBuurtCentroidsWithoutAddressPop := FALSE                  , Descr = "Leave out neighbourhood centroids without addresses or population, depending on CentroidWeightType?";
-	parameter<uint32>   MaxPathLength                             := 259                    , Descr = "The longest file path Windows allows without longPathAware; every store checks it before calculating (Templates/StoreSignature_T/PathGate, #118).";
-	parameter<bool>     LegsDecoupled                             := FALSE                  , Descr = "Write the legs of pre- and post-transport to a store in IntermediateResults (batch/UpdateAll.cmd legs) and read them back? Off: every run calculates them, which takes a few minutes per base set (#133).";
+	parameter<bool>     ExcludeOrgNeighbourhoodCentroidsWithoutAddressPop := FALSE                  , Descr = "Leave out neighbourhood centroids without addresses or population, depending on CentroidWeightType?";
+	parameter<uint32>   MaxPathLength                             := 259                    , Descr = "The longest file path Windows allows without longPathAware; every store checks it before calculating (Templates/Signature_T/PathGate, #118).";
+	parameter<bool>     PrePostTransportDecoupled                 := FALSE                  , Descr = "Write the pre- and post-transport connections to a store in IntermediateResults (batch/UpdateAll.cmd legs) and read them back? Off: every run calculates them, which takes a few minutes per base set (#133).";
 	parameter<bool>     MakeMedian                               := FALSE
 	,	Descr = "Does the output step also write, per block, the median over the departure moments of the cheapest option per OD pair (Mediaan/tt_<date>_mediaan_<n>of<N>)?";
 	// The spelling of seven column names of the parquet output. GeoDMS keeps the spelling in which a name is first read, for the whole
 	// configuration (names are case-insensitive), and gdalwrite.vect writes that spelling as the column name. Elsewhere these items are
 	// spelled Price_augm and Traveldist_...; this file is read first, so these names fix the spelling. They are not used otherwise.
-	container ParquetKolomSpelling
+	container ParquetColumnSpelling
 	{
 		parameter<bool> Price_Augm;
 		parameter<bool> TravelDist_Bus;
@@ -51,7 +51,7 @@ container Advanced : using = "classifications"
 	// PUBLIC TRANSPORT
 	parameter<string>   NS_TariffChoice                           := 'Price_FullFare'      , Descr = "NS fare class: 'Price_FullFare', 'Price_20pct_Discount' or 'Price_40pct_Discount'.";
 	parameter<m>        MaxTransferDist                           := 500[m]                 , Descr = "Maximum straight-line distance between two stops that a transfer may walk.";
-	parameter<string>   Concessiegebied_source                    := 'manual'               , Descr = "Source of the concession areas: 'manual', after the CROW poster, or 'shape', the CROW shapefile.";
+	parameter<string>   ConcessionArea_source                    := 'manual'               , Descr = "Source of the concession areas: 'manual', after the CROW poster, or 'shape', the CROW shapefile.";
 	parameter<string>   PriceMethod                               := 'DOVA'             , Descr = "Public transport fares: 'Detailed', the fare tables per mode, agency, concession and line (OVprijzen/FareTable_2023), or 'DOVA', the kilometre fares per concession from the DOVA overview, back to 2013.";
 	parameter<m>        DistanceTrainStationsSelection            := 350[m]                 , Descr = "Search distance to link GTFS stops to a train station.";
 	parameter<m>        DistanceStopClusters                      := 100[m]                 , Descr = "Search distance to cluster the stops of one place, such as both directions of a bus stop; a trip within a cluster makes no sense.";
@@ -62,14 +62,14 @@ container Advanced : using = "classifications"
 		attribute<string> file : ['20260408_Locaties.OVF_2023_Geocoded.csv', '20261013_Locaties.OVF_2025_Geocoded.csv'];
 	}
 	parameter<m>        DistanceOVFietsStops                      := 200[m]                 , Descr = "Search distance to link OV-fiets locations to GTFS stops.";
-	parameter<m>        DistanceKnooppuntClusters                 := 150[m]                 , Descr = "Cluster distance to merge GTFS stops into one public transport node (single linkage), so that the platforms of one node fall together.";
-	parameter<uint32>   Knooppunt_MinLijnen_BTM                   := 8                      , Descr = "Minimum number of distinct bus, tram and metro lines at a stop cluster for a bus/tram/metro node; train stations are always a node.";
-	parameter<uint32>   Knooppunt_MinVertrekken_BTM               := 150                    , Descr = "Minimum number of bus, tram and metro departures per day at a stop cluster for a bus/tram/metro node.";
-	parameter<float32>  Knooppunt_BedrijfsurenPerDag              := 18f                    , Descr = "Operating hours per day, to turn departures per day into departures per hour for the node value (butterfly model).";
-	parameter<m>        Knooppunt_DominantieRadius                := 1500[m]                , Descr = "A bus/tram/metro node drops out when a candidate with a higher network value lies within this radius, so that a corridor or a large complex gets one node.";
-	parameter<m>        Knooppunt_DedupRadiusTrein                := 400[m]                 , Descr = "Two train clusters within this radius are merged and the one with the most train departures stays, for platforms of one station just outside the cluster distance.";
-	parameter<uint32>   Knooppunt_MinRichtingen_BTM               := 3                      , Descr = "Minimum number of compass directions, of four, in which bus, tram and metro departures leave the cluster: the number of directions of the butterfly model.";
-	parameter<float32>  Knooppunt_MinNetwerkwaarde_BTM            := 0f                     , Descr = "Optional minimum network value (butterfly model) of a bus/tram/metro node; 0 switches it off.";
+	parameter<m>        DistanceHubClusters                 := 150[m]                 , Descr = "Cluster distance to merge GTFS stops into one public transport node (single linkage), so that the platforms of one node fall together.";
+	parameter<uint32>   Hub_MinLines_BTM                   := 8                      , Descr = "Minimum number of distinct bus, tram and metro lines at a stop cluster for a bus/tram/metro node; train stations are always a node.";
+	parameter<uint32>   Hub_MinDepartures_BTM               := 150                    , Descr = "Minimum number of bus, tram and metro departures per day at a stop cluster for a bus/tram/metro node.";
+	parameter<float32>  Hub_OperatingHoursPerDay              := 18f                    , Descr = "Operating hours per day, to turn departures per day into departures per hour for the node value (butterfly model).";
+	parameter<m>        Hub_DominanceRadius                := 1500[m]                , Descr = "A bus/tram/metro node drops out when a candidate with a higher network value lies within this radius, so that a corridor or a large complex gets one node.";
+	parameter<m>        Hub_DedupRadiusTrain                := 400[m]                 , Descr = "Two train clusters within this radius are merged and the one with the most train departures stays, for platforms of one station just outside the cluster distance.";
+	parameter<uint32>   Hub_MinDirections_BTM               := 3                      , Descr = "Minimum number of compass directions, of four, in which bus, tram and metro departures leave the cluster: the number of directions of the butterfly model.";
+	parameter<float32>  Hub_MinNetworkValue_BTM            := 0f                     , Descr = "Optional minimum network value (butterfly model) of a bus/tram/metro node; 0 switches it off.";
 	parameter<min_f>    MaxTransferTimeForBoardingSurcharge       := 35[min_f]              , Descr = "Maximum transfer time within which no new boarding fare is charged, as in the Dutch fare system.";
 	parameter<m_s>      TransferEffectiveSpeed                    := value(4.5[km_hr] / 1.2f, m_s), Descr = "Walking speed during a transfer: 4.5 km/h divided by 1.2 for detours.";
 	parameter<bool>     IncludeWaitingAtHomeInTravelTime          := FALSE                  , Descr = "Does the waiting time at home count in the travel time?";
@@ -91,7 +91,7 @@ container Advanced : using = "classifications"
 	, Descr = "Search terms (lower case) that make a GTFS route a flex line, matched in route_short_name and route_long_name; deliberately narrow, see the explanation per term."
 	{
 		attribute<string> term        : ['flex', 'texelhopper', 'opstapper', 'belbus'];
-		attribute<string> toelichting : ['Bravoflex (Arriva), Connexxion FLEX, Overal Flex, FlexRRReis, SyntusFlex, U-flex', 'Texelhopper (TXL)', 'Opstapper Fryslan (Arriva/Qbuzz)', 'belbus, generiek'];
+		attribute<string> Explanation : ['Bravoflex (Arriva), Connexxion FLEX, Overal Flex, FlexRRReis, SyntusFlex, U-flex', 'Texelhopper (TXL)', 'Opstapper Fryslan (Arriva/Qbuzz)', 'belbus, generiek'];
 	}
 	unit<uint8> FlexNearMissTerms : nrofrows = 5, Descr = "Terms that look like flex but do not count as flex; only for /Output/FlexLines/NearMiss."
 	{
@@ -99,25 +99,25 @@ container Advanced : using = "classifications"
 	}
 
 	// TRIP SURCHARGE FOR SPECIAL TRAINS AND NS INTERNATIONAL (#3). The NS fare of a journey follows from the tariff units of the station
-	// pair over the classic route; the high-speed line does not count for it (OVprijzen/NS/Tariefnet_UitgeslotenKanten). Travelling over
+	// pair over the classic route; the high-speed line does not count for it (OVprijzen/NS/TariffNetwork_ExcludedEdges). Travelling over
 	// the HSL between Schiphol and Rotterdam, or on the ICE within the Netherlands, costs a supplement per trip. It depends on the trip,
 	// not on the station pair, so it is added per NS leg (Price_S in PublicTransport_Prep/OD_L), apart from the through NS fare.
 	parameter<bool>     IncludeTripSurcharge                       := TRUE                   , Descr = "Do the trains in TripSurchargeTrains add their surcharge to the price and their extra time to the travel time?";
 	parameter<bool>     IsNSInternationalInLnet                   := TRUE                   , Descr = "Do NS International trains (Eurocity Direct, EuroCity, ICE, IC Berlin) count in the NS network for domestic journeys, with the NS fare and their surcharge? Trains on which an NS ticket never applies stay out (TrainsWithoutNSTicket).";
 	unit<uint8> TripSurchargeTrains : nrofrows = 2
-	, Descr = "Train products with a surcharge: Station_A and Station_B mark the section on which it applies (empty: every leg of the product), ExtraTijd is the extra time per boarding, and the amount per year is in SourceData/Infrastructure/OVprijzen."
+	, Descr = "Train products with a surcharge: Station_A and Station_B mark the section on which it applies (empty: every leg of the product), ExtraTime is the extra time per boarding, and the amount per year is in SourceData/Infrastructure/OVprijzen."
 	{
 		attribute<string> name        : ['HSL_Schiphol_Rotterdam', 'ICE_binnenland'];
 		attribute<string> Station_A   : ['shl', ''];
 		attribute<string> Station_B   : ['rtd', ''];
-		attribute<min_f>  ExtraTijd   : [0, 0];
-		attribute<string> toelichting : ['NS-toeslag ICE/IC direct tussen Schiphol Airport en Rotterdam Centraal (sinds 15-12-2013 alleen dit traject), ook in de Eurocity Direct; Breda-Rotterdam over de HSL is toeslagvrij', 'NS-toeslag ICE/IC direct op elk binnenlands traject van de ICE (Amsterdam-Utrecht-Arnhem, Amsterdam-Amersfoort-Hengelo)'];
+		attribute<min_f>  ExtraTime   : [0, 0];
+		attribute<string> Explanation : ['NS-toeslag ICE/IC direct tussen Schiphol Airport en Rotterdam Centraal (sinds 15-12-2013 alleen dit traject), ook in de Eurocity Direct; Breda-Rotterdam over de HSL is toeslagvrij', 'NS-toeslag ICE/IC direct op elk binnenlands traject van de ICE (Amsterdam-Utrecht-Arnhem, Amsterdam-Amersfoort-Hengelo)'];
 	}
 	unit<uint8> TripSurchargeRouteNames : nrofrows = 4
 	, Descr = "The route_short_names (lower case, exact) by which a route of the NS network is recognised as a product of TripSurchargeTrains."
 	{
 		attribute<string>           route_short_name : ['intercity direct', 'eurocity direct', 'ice', 'ice international'];
-		attribute<TripSurchargeTrains> RitOpslag_rel    : [0, 0, 1, 1];
+		attribute<TripSurchargeTrains> TripSurcharge_rel    : [0, 0, 1, 1];
 	}
 	unit<uint8> TrainsWithoutNSTicket : nrofrows = 4
 	, Descr = "Train products of the NS network on which an NS ticket never applies (own ticket with reservation), by route_short_name; their trips are left out of the NS network."
@@ -197,7 +197,7 @@ container Advanced : using = "classifications"
 	parameter<uint32>   NumberOfStopBlocks                        := Impl/IsOD ? 1 : 500         , Descr = "Number of stop blocks of the chain generation; fewer blocks need more memory each, and with an OD pair there is one block with the stops reached from the origin.";
 	parameter<uint32>   MaxStopBlockSize                          := 104                     , Descr = "Maximum number of stops per block of the chain generation; times NumberOfStopBlocks it must cover all stops (ChecksBeforeRunning/PT_CheckBlocks).";
 	parameter<uint32>   NumberOfOrgBlocks                         := Impl/IsOD ? 1 : 450         , Descr = "Number of origin blocks of the output step; with an OD pair one block with the one origin, and times MaxOrgBlockSize it must cover all origins (ChecksBeforeRunning/Check_OriginBlocks).";
-	parameter<uint32>   MaxOrgBlockSize                           := IsDefined(Impl/Buurtset_Org) ? 33 : 200, Descr = "Maximum number of origins per block of the output step: 200, or 33 with a neighbourhood variant as Orgset, so that 450 blocks cover the neighbourhoods of 2023 and 2025 (#126).";
+	parameter<uint32>   MaxOrgBlockSize                           := IsDefined(Impl/NeighbourhoodSet_Org) ? 33 : 200, Descr = "Maximum number of origins per block of the output step: 200, or 33 with a neighbourhood variant as Orgset, so that 450 blocks cover the neighbourhoods of 2023 and 2025 (#126).";
 	parameter<bool>     ParetoLegs_R                              := TRUE                   , Descr = "Use the pareto option of impedance_matrix for the regional public transport legs (OD_R): with equal travel time the shortest, and so cheapest, route is kept (#115).";
 	parameter<bool>     ParetoLegs_L                              := FALSE                  , Descr = "Same for the NS legs (OD_L); off, because the NS fare depends on the first and last station, not on the distance travelled.";
 	// PARETO FRONT OF THE DIRECT CAR TRIP (#115, #88): with the pareto option the car search gives per OD pair the front on travel
@@ -211,12 +211,12 @@ container Advanced : using = "classifications"
 	parameter<uint32>   CarTD_NrSlots                             := 48                     , Descr = "Number of 300 s time slots of the TomTom speed profiles in the window, 4 hours, which covers the last departure moment plus start time plus MaxCarTime.", IntegrityCheck = "CarTD_WindowStart + this * 300 <= 86400";
 	parameter<s_f>      CarTD_SlotDuration                        := 300[s_f]               , Descr = "Duration of a time slot of the TomTom speed profiles.";
 	parameter<float32>  ChainParetoTimeEpsilon                    := 0.01f                  , Descr = "Relative epsilon on the travel time in the final front per departure moment, when merging and with a time penalty in the chain joiner (ObjectVision/GeoDMS#1282): price comes first, and a more expensive option stays only when it is more than this fraction faster.", IntegrityCheck = "this >= 0f && this <= 1f";
-	parameter<m>        ExtraLink_MaxSnapDistance                 := 250[m]                 , Descr = "Maximum distance from an end point of a manual connection (OSM/NetworkPreperation/ExtraVerbindingen) to the road network; a connection with an end point further away is left out.";
+	parameter<m>        ExtraLink_MaxSnapDistance                 := 250[m]                 , Descr = "Maximum distance from an end point of a manual connection (OSM/NetworkPreperation/ExtraConnections) to the road network; a connection with an end point further away is left out.";
 	parameter<float32>  OSM_MaxSpeedQuantile                      := 0.5f
 	, Descr = "Quantile of the tagged maxspeed per road type and country, used for OSM roads without a usable maxspeed tag.";
 	parameter<bool>     PT_Chains_PerBlock                       := TRUE
 	, Descr = "Does the chain step write every stop block to its own store, which the output step reads together? FALSE: one store for all blocks (ChainGeneration_Single/Write).";
-	parameter<bool>     IFF_Overstaptijd                          := TRUE                   , Descr = "Does a transfer between two platforms of the same NS station take at least the transfer time of that station in the NS IFF timetable, besides the walking time over the straight distance (#123)?";
+	parameter<bool>     IFF_TransferTime                          := TRUE                   , Descr = "Does a transfer between two platforms of the same NS station take at least the transfer time of that station in the NS IFF timetable, besides the walking time over the straight distance (#123)?";
 	parameter<string>   IFF_file_date                             := '20261013'             , Descr = "The delivery of the NS IFF timetable, used for all analysis moments (%NetworkModel_Dir%/Infrastructuur/IFF/<date>/stations.csv).";
 
 	
@@ -228,8 +228,8 @@ container Advanced : using = "classifications"
 	parameter<float64>  ConnectSearchDist                         := 100d*100d              , Descr = "Squared search distance of connect_info operations, such as linking NDW, NWB, OSM and Fietstelweek; float64 because connect_info on dpoint coordinates expects that.";
 	parameter<string>   CyclingNetwork                            := 'OSM'                  , Descr = "The network of all cycling legs and the direct cycling trip: 'OSM' or 'Fietsersbond', with one-way cycle paths and without Fietstelweek speeds; walking always uses OSM (#124).", IntegrityCheck = "CyclingNetwork == 'Fietsersbond' || CyclingNetwork == 'OSM'";
 	parameter<string>   Fietsersbond_file_date                    := '20250525'             , Descr = "The delivery of the Fietsersbond route network, used for all analysis moments (%NetworkModel_Dir%/Infrastructuur/Fietsersbond_<date>).";
-	parameter<m>        Fietsersbond_MaxVeerpontLengte            := 2000[m]                , Descr = "A Fietsersbond ferry up to this length is part of the cycling network; longer crossings belong to public transport or lie out of reach (#124).";
-	parameter<min_f>    Fietsersbond_VeerpontExtraTijd            := 5[min_f]               , Descr = "Waiting and crossing time on a Fietsersbond ferry, on top of the cycling time over its length (#124).";
+	parameter<m>        Fietsersbond_MaxFerryLength            := 2000[m]                , Descr = "A Fietsersbond ferry up to this length is part of the cycling network; longer crossings belong to public transport or lie out of reach (#124).";
+	parameter<min_f>    Fietsersbond_FerryExtraTime            := 5[min_f]               , Descr = "Waiting and crossing time on a Fietsersbond ferry, on top of the cycling time over its length (#124).";
 	parameter<km_hr>    E_BikingSpeed_kmhr                        := 20[km_hr]              , Descr = "Speed of an e-bike.";
 	parameter<km_hr>    E_BikingSpeed_actualspeed_addition_kmhr   := 10[km_hr]              , Descr = "Speed added to the measured cycling speed for an e-bike.";
 	parameter<km_hr>    CarSpeed_kmhr                             := 130[km_hr]             , Descr = "Maximum car speed on the OSM network.";
@@ -275,7 +275,7 @@ container Advanced : using = "classifications"
 			// (LoadFeeds/ServiceDays, MinServiceDayTripShare). OSM: Y2015 to Y2024 use the extract of 20240524, Y2025 and Y2026 that of 20260601.
 			// TomTom: the December edition of the year; Y2026 uses yr2025_12 for now and Y2015 yr2021_12, the oldest. CarCongestionSpeed_date is
 			// the folder %NetworkModel_PrivDir%/TomTom/<name> with the four stores Roads, Junctions, Speednetworks and Speedprofiles and the raw
-			// material to make them. Regios and BAG_snapshot follow the neighbourhood variant (Buurtsets, #126): CBS 2023 and BAG 1-1-2023 for
+			// material to make them. Regios and BAG_snapshot follow the neighbourhood variant (NeighbourhoodSets, #126): CBS 2023 and BAG 1-1-2023 for
 			// 2015, 2023 and 2024, CBS 2025 and BAG 1-1-2025 for 2025 and 2026; BAG_snapshot is the folder name under
 			// %NetworkModel_Dir%/RegioIndelingen/BAG. Regios stays at 2025 for Y2026 until CBS publishes the neighbourhood map of 2026.
 		}
@@ -309,9 +309,9 @@ container Advanced : using = "classifications"
 			attribute<String> Text:
 			// Label, Path
 			[
-			'Buurt'                               ,'SourceData/RegioIndelingen/Buurt/Centroiden',
-			'Buurt2023'                           ,'SourceData/RegioIndelingen/Buurt/Centroiden', // #126: CBS 2023 en BAG 1-1-2023 (Buurtsets)
-			'Buurt2025'                           ,'SourceData/RegioIndelingen/Buurt/Centroiden', // #126: CBS 2025 en BAG 1-1-2025
+			'Buurt'                               ,'SourceData/RegioIndelingen/Buurt/Centroids',
+			'Buurt2023'                           ,'SourceData/RegioIndelingen/Buurt/Centroids', // #126: CBS 2023 en BAG 1-1-2023 (NeighbourhoodSets)
+			'Buurt2025'                           ,'SourceData/RegioIndelingen/Buurt/Centroids', // #126: CBS 2025 en BAG 1-1-2025
 			'Buurt_perProvincie'                  ,'SourceData/RegioIndelingen/Buurt/Per_Prov/@REGIO@/sub',
 			'Buurt_perCOROP'                      ,'SourceData/RegioIndelingen/Buurt/Per_COROP/@REGIO@/sub',
 			'Buurt_perCOROPp'                      ,'SourceData/RegioIndelingen/Buurt/Per_COROPp/@REGIO@/sub',
@@ -320,23 +320,23 @@ container Advanced : using = "classifications"
 			'Buurt_enkele_Prov'                   ,'SourceData/RegioIndelingen/buurt/Enkele_Prov',
 			'Buurt_enkele_Corop'                  ,'SourceData/RegioIndelingen/buurt/Enkele_Corop',
 			
-			'Wijk'                                ,'SourceData/RegioIndelingen/Wijk/Centroiden',
+			'Wijk'                                ,'SourceData/RegioIndelingen/Wijk/Centroids',
 			'Wijk_perProvincie'                   ,'SourceData/RegioIndelingen/Wijk/Per_Prov/@REGIO@/sub',
 			'Wijk_perCOROP'                       ,'SourceData/RegioIndelingen/Wijk/Per_COROP/@REGIO@/sub',
 			
-			'Gemeente'                            ,'SourceData/RegioIndelingen/Gemeente/Centroiden',
+			'Gemeente'                            ,'SourceData/RegioIndelingen/Gemeente/Centroids',
 			'Gemeente_perProvincie'               ,'SourceData/RegioIndelingen/Gemeente/Per_Prov/@REGIO@/sub',
 			'Gemeente_perCOROP'                   ,'SourceData/RegioIndelingen/Gemeente/Per_COROP/@REGIO@/sub',
 			'Gemeente_enkele_gemeente'            ,'SourceData/RegioIndelingen/Gemeente/Enkele_gemeente',
 			
-			'PC4'                                 ,'SourceData/BAG/Adressen/Woon_Voorraad/PC4_centroids',
-			'PC4_perCOROP'                        ,'SourceData/BAG/Adressen/Woon_Voorraad/PC4_centroids/Per_COROP/@REGIO@/sub',
+			'PC4'                                 ,'SourceData/BAG/Adressen/Residential_Stock/PC4_centroids',
+			'PC4_perCOROP'                        ,'SourceData/BAG/Adressen/Residential_Stock/PC4_centroids/Per_COROP/@REGIO@/sub',
 			
-			'PC6'                                 ,'SourceData/BAG/Adressen/Woon_Voorraad/PC6_centroids',
-			'PC6_sub'                             ,'SourceData/BAG/Adressen/Woon_Voorraad/PC6_centroids/sub',
+			'PC6'                                 ,'SourceData/BAG/Adressen/Residential_Stock/PC6_centroids',
+			'PC6_sub'                             ,'SourceData/BAG/Adressen/Residential_Stock/PC6_centroids/sub',
 			
-			'BAG_woonpanden'                      ,'SourceData/BAG/Panden/pand/pand_woon_vbo',
-			'BAG_woonpanden_Clustered'            ,'SourceData/BAG/Panden/pand/pand_woon_vbo/HeeftPanden'
+			'BAG_woonpanden'                      ,'SourceData/BAG/Panden/pand/pand_residential_vbo',
+			'BAG_woonpanden_Clustered'            ,'SourceData/BAG/Panden/pand/pand_residential_vbo/HasPanden'
 			]; 
 		}
 		
@@ -355,14 +355,14 @@ container Advanced : using = "classifications"
 			attribute<String> Text:
 			// Label, Path
 			[
-			 'Buurt'                                                          ,'SourceData/RegioIndelingen/Buurt/Centroiden'
-			,'Buurt2023'                                                      ,'SourceData/RegioIndelingen/Buurt/Centroiden'
-			,'Buurt2025'                                                      ,'SourceData/RegioIndelingen/Buurt/Centroiden'
+			 'Buurt'                                                          ,'SourceData/RegioIndelingen/Buurt/Centroids'
+			,'Buurt2023'                                                      ,'SourceData/RegioIndelingen/Buurt/Centroids'
+			,'Buurt2025'                                                      ,'SourceData/RegioIndelingen/Buurt/Centroids'
 			,'Buurt_enkele_Buurt'                                             ,'SourceData/RegioIndelingen/Buurt/Enkele_buurt_Dest'
 			,'Buurt_enkele_Prov'                                              ,'SourceData/RegioIndelingen/Buurt/Enkele_Prov_dest'
 			,'Buurt_enkele_Corop'                                             ,'SourceData/RegioIndelingen/Buurt/Enkele_Corop_dest'
-			,'Wijk'                                                           ,'SourceData/RegioIndelingen/Wijk/Centroiden'
-			,'OV_Knooppunten'                                                 ,'SourceData/Infrastructure/GTFS/OV_Knooppunten/Export_Knooppunten'
+			,'Wijk'                                                           ,'SourceData/RegioIndelingen/Wijk/Centroids'
+			,'OV_Knooppunten'                                                 ,'SourceData/Infrastructure/GTFS/PT_Hubs/Export_Knooppunten'
 			];  
 		}
 		
@@ -430,7 +430,7 @@ container Advanced : using = "classifications"
 	container OSM_impl
 	: Descr = ""
 	{
-		unit<uint32> InEenBestand : nrofrows = 4
+		unit<uint32> InOneFile : nrofrows = 4
 		{
 			unit<uint32> Elements  := Range(uint32, 0, nrAttr*#.)
 			{
@@ -453,7 +453,7 @@ container Advanced : using = "classifications"
 			
 			parameter<uint32> nrAttr := 3;
 		}
-		unit<uint32> InProvincies : nrofrows = 17
+		unit<uint32> InProvinces : nrofrows = 17
 		{
 			unit<uint32> Elements  := Range(uint32, 0, nrAttr*#.)
 			{

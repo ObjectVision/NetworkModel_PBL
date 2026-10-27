@@ -25,7 +25,7 @@ attribute<Agencies>            Agency_rel                 := ThisSet/NodeSet/Age
 // (Classifications/ChainJoinerParetoAttr_Candidates). Without extra waiting time for flex (ModelParameters/Impl/FlexHasTimePenalty)
 // the expression stays literally 'Impedance[s]' (CalcCache).
 attribute<bool>                IsFlexLeg                  := MakeDefined(Routes/IsFlex[Route_rel], false), Descr = "#113: is this leg on a flex line, and so exactly one boarding on a flex line?";
-// #3: the extra time of the trip surcharge (ModelParameters/Advanced/TripSurchargeTrains/ExtraTijd) is in TripSurcharge_ExtraTime of
+// #3: the extra time of the trip surcharge (ModelParameters/Advanced/TripSurchargeTrains/ExtraTime) is in TripSurcharge_ExtraTime of
 // OD_L (0 in OD_R) and is added only when it is greater than 0 somewhere, so that the expression otherwise stays the same.
 attribute<s>                   Traveltime                 := ='Impedance[s]'
                                                               + (ModelParameters/Impl/FlexHasTimePenalty      ? ' + (IsFlexLeg ? convert(ModelParameters/Advanced/FlexExtraWaitingTime, s) : 0[s])' : '')
@@ -44,12 +44,12 @@ unit<uint32> impl := .
 	attribute<bool>              IsStartEndWithinSameStopCluster := IsDefined(rlookup(c_FromStop_ToStop_rel, Stops/Find_StopClusters/c_Stop_Stop_rel));
 	
 	attribute<Concessiegebied>   Start_Concessiegebied_rel       := point_in_polygon(From_Point, Concessiegebied/geometry);
-	attribute<Concessiegebied>   Eind_Concessiegebied_rel        := point_in_polygon(To_Point, Concessiegebied/geometry);
-	attribute<Concessiegebied>   Concessiegebied_rel             := MakeDefined(Start_Concessiegebied_rel, Eind_Concessiegebied_rel);
+	attribute<Concessiegebied>   End_Concessiegebied_rel        := point_in_polygon(To_Point, Concessiegebied/geometry);
+	attribute<Concessiegebied>   Concessiegebied_rel             := MakeDefined(Start_Concessiegebied_rel, End_Concessiegebied_rel);
 	attribute<bool>              IsOD_completely_foreign         := IsNull(Concessiegebied_rel);
 	attribute<km>                PT_TravelledDistance            := alt_imp;
 	attribute<string>            RouteName_short                 := Routes/route_short_name[Route_rel];
-	attribute<string>            Mode_Agency_CG_Lijn_identifier  := Modes/name[Mode_rel] +'_'+ Agencies/name[Agency_rel] +'_'+ Concessiegebied/name[Concessiegebied_rel] + '_' + RouteName_short;
+	attribute<string>            Mode_Agency_CG_Line_identifier  := Modes/name[Mode_rel] +'_'+ Agencies/name[Agency_rel] +'_'+ Concessiegebied/name[Concessiegebied_rel] + '_' + RouteName_short;
 	attribute<string>            Mode_Agency_CG_identifier       := Modes/name[Mode_rel] +'_'+ Agencies/name[Agency_rel] +'_'+ Concessiegebied/name[Concessiegebied_rel];
 	attribute<string>            Mode_Agency_identifier          := Modes/name[Mode_rel] +'_'+ Agencies/name[Agency_rel];
 
@@ -58,9 +58,9 @@ unit<uint32> impl := .
 	attribute<c_NS_start_end>    c_NS_start_end_rel              := combine_data(c_NS_start_end, From_NS_Stations_rel, To_NS_Stations_rel);
 	attribute<uint32>            TariffUnits                  := rjoin(c_NS_start_end_rel, TariffUnitsMatrix/c_NS_start_end_rel, TariffUnitsMatrix/impedance);
 	
-	attribute<FareTable>        FareTable_rel_initial          := rlookup(Mode_Agency_CG_Lijn_identifier, FareTable/Mode_Agency_CG_Lijn_identifier);
-	attribute<FareTable>        FareTable_rel_augmented1       := rlookup(Mode_Agency_CG_identifier, FareTable/Mode_Agency_CG_Lijn_identifier);
-	attribute<FareTable>        FareTable_rel_augmented2       := rlookup(Mode_Agency_identifier, FareTable/Mode_Agency_CG_Lijn_identifier);
+	attribute<FareTable>        FareTable_rel_initial          := rlookup(Mode_Agency_CG_Line_identifier, FareTable/Mode_Agency_CG_Line_identifier);
+	attribute<FareTable>        FareTable_rel_augmented1       := rlookup(Mode_Agency_CG_identifier, FareTable/Mode_Agency_CG_Line_identifier);
+	attribute<FareTable>        FareTable_rel_augmented2       := rlookup(Mode_Agency_identifier, FareTable/Mode_Agency_CG_Line_identifier);
 	attribute<FareTable>        FareTable_rel_augmentation     := MakeDefined(FareTable_rel_augmented1, FareTable_rel_augmented2);
 	attribute<FareTable>        FareTable_rel_augmented_rev1   := rlookup(Mode_Agency_CG_identifier, FareTable/Mode_Agency_CG_identifier);
 	attribute<FareTable>        FareTable_rel_augmented_rev2   := rlookup(Mode_Agency_identifier, FareTable/Mode_Agency_identifier);
@@ -83,10 +83,10 @@ unit<uint32> impl := .
 
 	// Diagnosis when Price_IntegrityCheck fails (expensive, view only on demand): the unique combinations without a FareTable match or
 	// with a row without price, with the number of affected legs per combination.
-	unit<uint32> Ongeprijsd := select_with_org_rel(not(Price_IntegrityCheck))
+	unit<uint32> Unpriced := select_with_org_rel(not(Price_IntegrityCheck))
 	{
-		attribute<string> combo := =ModelParameters/Impl/PriceMethod_effective == 'DOVA' ? 'MC_CG_key_DOVA[org_rel]' : 'Mode_Agency_CG_Lijn_identifier[org_rel]';
-		unit<uint32> uniek := unique(combo)
+		attribute<string> combo := =ModelParameters/Impl/PriceMethod_effective == 'DOVA' ? 'MC_CG_key_DOVA[org_rel]' : 'Mode_Agency_CG_Line_identifier[org_rel]';
+		unit<uint32> UniqueCombos := unique(combo)
 		{
 			attribute<uint32> NrLegs := pcount(rlookup(../combo, values));
 		}

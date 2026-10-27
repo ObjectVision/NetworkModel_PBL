@@ -10,7 +10,7 @@ REM   UpdateAll.cmd all -nosources  everything except the named sections: -nosou
 REM   UpdateAll.cmd sources         the OSM network, TomTom and GTFS stores (only needed for a new edition; about 15 min)
 REM   UpdateAll.cmd cars [moment..] the stores of the direct car trip per departure moment
 REM                                 (PublicTransport_Prep/Direct/CarPerMoment/<moment>/Write_Car); without moments the
-REM                                 moments the model reads (MakeUnlinkedData/Step4_CarStores/Moments); with moments, for
+REM                                 moments the model reads (MakeUnlinkedData/Step4_DirectCar/Moments); with moments, for
 REM                                 example MorningRush NoonRush LateEveningRush and Freeflow (TomTom) or MaxSpeed (OSM);
 REM                                 about 40 min per moment with a scalar search, longer with ParetoLegs_Car
 REM   UpdateAll.cmd chains          the public transport chain store per stop block (WriteChainBlocks.ps1; with the
@@ -18,8 +18,8 @@ REM                                 environment variable CHAINSTORE_SINGLE the s
 REM                                 PublicTransport_Prep/ChainGeneration_Single/Write), after the pre-check of the stop
 REM                                 blocks and the price coverage; takes hours and much memory
 REM   UpdateAll.cmd legs            the stores of the legs of pre- and post-transport: the four base sets, walking and
-REM                                 cycling to and from every stop (PublicTransport_Prep/LegStores_Write); writes only
-REM                                 with ModelParameters/Advanced/LegsDecoupled
+REM                                 cycling to and from every stop (PublicTransport_Prep/Write_PrePostTransport); writes only
+REM                                 with ModelParameters/Advanced/PrePostTransportDecoupled
 REM   UpdateAll.cmd output          the public transport output: a file per origin block and departure moment in
 REM                                 %LocalDataProjDir%\Output\<Analysis_date>_<OutputLabel><_component>[_fb]\PerBlock
 REM                                 (_fb: a component on the cycling network with CyclingNetwork 'Fietsersbond')
@@ -125,7 +125,7 @@ if not errorlevel 1 (
   goto cars_done
 )
 if "%MOMENTS%"=="" (
-  call :run car_moments /MakeUnlinkedData/Step4_CarStores/Moments
+  call :run car_moments /MakeUnlinkedData/Step4_DirectCar/Moments
   if not "!RC!"=="0" goto failed
   set /p MOMENTS=<"%LOGDIR%\car_moments.txt"
 )
@@ -148,7 +148,7 @@ if not errorlevel 1 (
   goto chains_done
 )
 echo === chains: pre-check of the stop blocks and the price coverage ===
-call :run chains_precheck /ChecksBeforeRunning/PT_CheckBlocks /SourceData/Infrastructure/OVprijzen/PrijsDekking/Tabel_OK_DOVA
+call :run chains_precheck /ChecksBeforeRunning/PT_CheckBlocks /SourceData/Infrastructure/OVprijzen/PriceCoverage/Table_OK_DOVA
 if not "!RC!"=="0" goto failed
 findstr /R "^Minimum.1" "%LOGDIR%\UpdateAll_chains_precheck.txt" >nul
 if errorlevel 1 (
@@ -176,11 +176,11 @@ call :run legs_check /ModelParameters/Impl/WithPT
 if not "!RC!"=="0" goto failed
 findstr /R "^Minimum.0" "%LOGDIR%\UpdateAll_legs_check.txt" >nul
 if not errorlevel 1 (
-  echo === legs: public transport is not part of this component, no leg stores ===
+  echo === legs: public transport is not part of this component, no pre- and post-transport stores ===
   goto legs_done
 )
 echo === legs: the stores (parquet in IntermediateResults) ===
-call :run legs %PREP%/LegStores_Write
+call :run legs %PREP%/Write_PrePostTransport
 if not "!RC!"=="0" goto failed
 :legs_done
 if /I not "%SECTION%"=="all" goto done

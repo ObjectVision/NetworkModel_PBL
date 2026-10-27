@@ -4,7 +4,7 @@ container PublicTransport_Prep
 	{
 		// #129: for an OD pair (ModelParameters/Impl/IsOD) the origins and the destinations are each the one element of Orgset and Destset
 		// named OD_Origin and OD_Destination (OD_Org, OD_Dest). Everything after that (the places, the origin blocks, the legs, the direct
-		// trips and the car) then has one origin and one destination. The neighbourhood variant stays that of the sets (ModelParameters/Impl/Buurtset).
+		// trips and the car) then has one origin and one destination. The neighbourhood variant stays that of the sets (ModelParameters/Impl/NeighbourhoodSet).
 		parameter<string> Org_domain        := rjoin(lowercase(ModelParameters/Orgset),  lowercase(Advanced/org_domain_list/label),  Advanced/org_domain_list/path);
 		parameter<string> Dest_domain       := rjoin(lowercase(ModelParameters/DestSet), lowercase(Advanced/dest_domain_list/label), Advanced/dest_domain_list/path);
 		parameter<string> Org_unit          := ModelParameters/Impl/IsOD ? '/NetworkSetup/PublicTransport_Prep/impl/OD_Org' : Org_domain, Descr = "The path of the origins: Orgset (Org_domain), or for an OD pair its one origin (OD_Org).";
@@ -16,7 +16,7 @@ container PublicTransport_Prep
 		{
 			attribute<rdc>                   geometry       := =impl/Org_domain + '/geometry[org_rel]';
 			attribute<string>                name           := =impl/Org_domain + '/name[org_rel]';
-			attribute<float32>               nr_inwoners    := =impl/Org_domain + '/nr_inwoners[float32][org_rel]';
+			attribute<float32>               nr_inhabitants    := =impl/Org_domain + '/nr_inhabitants[float32][org_rel]';
 		}
 		unit<uint32> OD_Dest := ='select_with_org_rel(' + Dest_domain + '/name == ModelParameters/OD_Destination)'
 		, Descr = "The destination of the OD pair: the element of Destset named OD_Destination."
@@ -30,7 +30,7 @@ container PublicTransport_Prep
 		{
 			attribute<rdc>                   geometry       := =impl/Org_unit+'/geometry';
 			attribute<string>                name           := =impl/Org_unit+'/name', IntegrityCheck = "!ModelParameters/Impl/IsOD || #impl/org == 1", Descr = "The name of the origin; for an OD pair the IntegrityCheck requires exactly one origin, named OD_Origin.";
-			attribute<float32>               nr_inwoners    := =impl/Org_unit+'/nr_inwoners[float32]';
+			attribute<float32>               nr_inhabitants    := =impl/Org_unit+'/nr_inhabitants[float32]';
 		}
 		
 		unit<uint32> dest := impl/dest_src
@@ -84,10 +84,10 @@ container PublicTransport_Prep
 			attribute<RegioIndelingen/CoropP> CoropP_rel := point_in_polygon(geometry, RegioIndelingen/CoropP/geometry);
 			attribute<Places> Place_rel := invert(Places/stop_rel);
 			// #123: the NS station of a stop (also of a bus stop at a station) and, for a train stop, the IFF transfer time of that station; null
-			// for other stops and with IFF_Overstaptijd off. CreateTransfers_T imposes it as a lower bound.
+			// for other stops and with IFF_TransferTime off. CreateTransfers_T imposes it as a lower bound.
 			attribute</SourceData/Infrastructure/OVprijzen/NS/NS_Stations> NS_Stations_rel := =PT_path_str+'/Stops/NS_Stations_rel';
-			attribute<Time>   IFF_Overstaptijd_rel := =ModelParameters/Advanced/IFF_Overstaptijd
-				? PT_path_str + '/Stops/Mode_rel == GTFS_Modes/Selection/V/Rail ? rjoin(/SourceData/Infrastructure/OVprijzen/NS/NS_Stations/code[NS_Stations_rel], /SourceData/Infrastructure/Infrastructure/IFF_Stations/code_l, /SourceData/Infrastructure/Infrastructure/IFF_Stations/Overstaptijd_rel) : value(null_u, Time)'
+			attribute<Time>   IFF_TransferTime_rel := =ModelParameters/Advanced/IFF_TransferTime
+				? PT_path_str + '/Stops/Mode_rel == GTFS_Modes/Selection/V/Rail ? rjoin(/SourceData/Infrastructure/OVprijzen/NS/NS_Stations/code[NS_Stations_rel], /SourceData/Infrastructure/Infrastructure/IFF_Stations/code_l, /SourceData/Infrastructure/Infrastructure/IFF_Stations/TransferTime_rel) : value(null_u, Time)'
 				: 'const(value(null_u, Time), .)';
 		}
 		unit<uint32>        RMT_Stops              := select_with_attr_by_cond(Stops, Stops/Mode_rel == GTFS_Modes/Selection/V/Rail || Stops/Mode_rel == GTFS_Modes/Selection/V/Metro || Stops/Mode_rel == GTFS_Modes/Selection/V/Tram);
@@ -128,8 +128,8 @@ container PublicTransport_Prep
 
 		container Set_R := Get_Windowed_Agency_Set_T(' &&  '+impl/PT_path_str+'/Agency_rel->IsRO &&  '+impl/PT_path_str+'/Duration > 0f' + impl/FlexSelection_str), Descr = "subset of public transport net for the relevant time windows and agency-set.", using = "impl";
 		// The L network: the agencies with the NS fare (Agencies/IsLnet: NS and, #3, NS International) without the trains on which an NS
-		// ticket never applies (Routes/IsZonderNSKaartje: Eurostar, Nightjet), plus the waiting links at NS stations.
-		container Set_L := Get_Windowed_Agency_Set_T(' && (('+impl/PT_path_str+'/Agency_rel->IsLnet && not('+impl/PT_path_str+'/Route_rel->IsZonderNSKaartje)) || ('+impl/PT_path_str+'/Mode_rel == impl/Modes/V/Waiting && IsDefined('+impl/PT_path_str+'/c_NS_start_end_rel))) && '+impl/PT_path_str+'/Duration > 0f' + impl/FlexSelection_str);
+		// ticket never applies (Routes/IsWithoutNSTicket: Eurostar, Nightjet), plus the waiting links at NS stations.
+		container Set_L := Get_Windowed_Agency_Set_T(' && (('+impl/PT_path_str+'/Agency_rel->IsLnet && not('+impl/PT_path_str+'/Route_rel->IsWithoutNSTicket)) || ('+impl/PT_path_str+'/Mode_rel == impl/Modes/V/Waiting && IsDefined('+impl/PT_path_str+'/c_NS_start_end_rel))) && '+impl/PT_path_str+'/Duration > 0f' + impl/FlexSelection_str);
 		
 		unit<uint32> All_Time_Stops := union_unit_uint32(OD_L/Result, OD_R/Result), Descr = "All legs of OD_L and OD_R together, with their boarding and alighting events (time, stop), of which uq_c_FromTime_Stop and uq_c_ToTime_Stop take the unique ones."
 		{
@@ -142,9 +142,9 @@ container PublicTransport_Prep
 		{
 			attribute<.>      rnd_rel       := rnd_permutation(0, .);
 			attribute<BlockDomain> Block_rel := =ModelParameters/Impl/IsOD
-				? '/NetworkSetup/PublicTransport_Prep/OD_Haltes/IsVStop[/NetworkSetup/PublicTransport_Prep/impl/Stops/Place_rel] ? value(0, BlockDomain) : value(null_u, BlockDomain)'
+				? '/NetworkSetup/PublicTransport_Prep/OD_Stops/IsVStop[/NetworkSetup/PublicTransport_Prep/impl/Stops/Place_rel] ? value(0, BlockDomain) : value(null_u, BlockDomain)'
 				: 'value(rnd_rel / ModelParameters/Advanced/MaxStopBlockSize, BlockDomain)'
-			, Descr = "The stop block of the chain step in which a chain boarding at this stop is calculated: a random block of MaxStopBlockSize stops, or for an OD pair (#129) the one block of the stops of the origin (OD_Haltes/IsVStop) and no block for other stops.";
+			, Descr = "The stop block of the chain step in which a chain boarding at this stop is calculated: a random block of MaxStopBlockSize stops, or for an OD pair (#129) the one block of the stops of the origin (OD_Stops/IsVStop) and no block for other stops.";
 		}	
 		unit<uint32>      BlockDomain   := range(0, ModelParameters/Advanced/NumberOfStopBlocks), Descr = "The stop blocks of the chain step: NumberOfStopBlocks blocks of at most MaxStopBlockSize stops."
 		{
@@ -209,10 +209,10 @@ container PublicTransport_Prep
 			attribute<string> name := ='union_data(., ''MorningRush'', ''NoonRush'', ''LateEveningRush'', '+quote(/ModelParameters/UseTomTomNetworkForCars ? 'Freeflow' : 'MaxSpeed')
 				+ (/ModelParameters/Impl/CarTimeDependent ? ', ' + asList(quote('TD' + /ModelParameters/Impl/MeasureMoments/TemplatableTextShrt), ', ') : '') + ')';
 		}
-		container CarPerMoment := for_each_ne(CarMoments/name, 'DirectCarStore_T('+quote(CarMoments/name)+')')
+		container CarPerMoment := for_each_ne(CarMoments/name, 'DirectCar_T('+quote(CarMoments/name)+')')
 		,	Descr = "Per congestion moment: Write_Car (writes the store), Read_Car (reads it) and Car (with price, the summary per OD pair in Summary and the front in Car/Front).";
 
-		Template DirectCarStore_T : Descr = "Template for the store of the direct car trip at one congestion moment or departure moment: its signature and name, the writer and reader, the links of the routes in the OD pair mode, and the car trip read from it (Car)."
+		Template DirectCar_T : Descr = "Template for the direct car trip at one congestion moment or departure moment: its signature and name, the writer and reader, the links of the routes in the OD pair mode, and the car trip read from it (Car)."
 		{
 			parameter<string> Moment;
 			///
@@ -243,7 +243,7 @@ container PublicTransport_Prep
 			parameter<string> StorageBase_Str := /ModelParameters/Impl/IntermediateResultsDir + '/DirectCar_' + NetTag + '_' + Moment + '_' + /ModelParameters/Impl/OrgSet_PathTag + '_' + /ModelParameters/Impl/DestSet_PathTag + '_' + Hash/Hex
 			,	Descr = "Name of the store without extension: the road network (NetTag), the congestion moment, the origin and destination sets in short (OrgSet_PathTag: b2025 for buurt2025) and the rest as a hash of Signature, for example DirectCar_TT2025-12_TD07h00m_b2025_b2025_3dc99b97.mmd.";
 			parameter<string> StorageName_Str := StorageBase_Str + '.mmd';
-			container Sig := /Templates/StoreSignature_T(StorageName_Str, StorageName_Str + '/signature.txt', Signature, strlen('/0Dictionary.dms'))
+			container Sig := /Templates/Signature_T(StorageName_Str, StorageName_Str + '/signature.txt', Signature, strlen('/0Dictionary.dms'))
 			,	Descr = "The signature in the folder of the store (signature.txt, next to 0Dictionary.dms): Write_Car writes it, Read_Car checks it.";
 			unit<uint64> Write_Car := Calc_Car, StorageName = "=StorageName_Str", ExplicitSuppliers = "='Sig/ForWriting' + (/ModelParameters/Impl/IsOD && IsTD ? ';Write_CarLinks/links' : '')"
 			,	Descr = "Writes the distance matrix of the direct car trip at this moment to StorageName_Str, with the signature beside it (Sig); calculate this item to make or remake the store."
@@ -264,7 +264,7 @@ container PublicTransport_Prep
 				{
 					attribute<uint32> Route    := ='uint32(' + Links_Src + '/Links/Rows/Route_rel)', Descr = "The row of the route in the store (Write_Car).";
 					attribute<uint32> Volgnr   := =Links_Src + '/Links/Rows/Volgnr';
-					attribute<rdc>    geometry (arc) := =Links_Src + '/LinkGeometrie';
+					attribute<rdc>    geometry (arc) := =Links_Src + '/LinkGeometry';
 				}
 			}
 			container Read_CarLinks : StorageName = "=LinksName_Str", StorageType = "gdal.vect", StorageReadOnly = "true"
@@ -283,7 +283,7 @@ container PublicTransport_Prep
 		}
 
 		// The direct car trip from (part of) a car store: Rows with the four columns of the store, the derived values per route, the
-		// summary per OD pair and the thinned front (Front). DirectCarStore_T takes the whole store; with CarTimeDependent the final
+		// summary per OD pair and the thinned front (Front). DirectCar_T takes the whole store; with CarTimeDependent the final
 		// selection of each block and departure moment takes only the rows of the origins of its block (PerDepartureMoment_T, DirectCar;
 		// #132). An OD pair lies within one origin, and pareto_optimal_eps decides per pair in the order of the rows, so the front of a pair
 		// is the same in both. The paths are absolute: within a block the origin set of the block is also called impl/org.
@@ -410,32 +410,33 @@ container PublicTransport_Prep
 											')';
 	}
 
-	// THE LEGS OF THE PRE- AND POST-TRANSPORT IN STORES: once per analysis date, origin set and destination set the base sets, walking
-	// and cycling to every stop and cycling from every stop, each a parquet file in IntermediateResults (LegStores/<type>/Write_Legs;
-	// batch/UpdateAll.cmd legs), so that they can also be used outside the model: per leg the neighbourhood (CBS code), the stop (GTFS
-	// stop_id and stop_name), the network travel time in minutes and the distance in metres (float64, so that the model reads them back
+	// THE PRE- AND POST-TRANSPORT CONNECTIONS: once per analysis date, origin set and destination set the base sets, every neighbourhood
+	// and stop connected within the maximum walking or cycling time: walking and cycling to every stop and cycling from every stop. These
+	// are the candidates for the first and last leg of a journey. With PrePostTransportDecoupled each is a parquet file in IntermediateResults
+	// (PrePostTransport/<base set>/Write; batch/UpdateAll.cmd legs), which can also be used outside the model: per connection the neighbourhood
+	// (CBS code), the stop (GTFS stop_id and stop_name), the network travel time in minutes and the distance in metres (float64, so that the model reads them back
 	// exactly). The name gives the neighbourhood set: Legs_B2025toStops_Walking_<hash>.parquet, Legs_Stops2B2025_Cycling_<hash>.parquet;
 	// the signature is beside it in <name>.signature.txt. Walking from a stop to the destinations is the mirror image of walking from
 	// the neighbourhoods to the stops when origins and destinations are the same set (WalkingMirror), because the walking network has no
-	// one-way links. Cycling is not: the Fietsersbond cycling network has one-way cycle paths. The legs do not depend on the PartOfDay or
-	// the component. The other types are a selection from them (Legs/<type>/ODMatrix): the route to a stop is the same whichever stops
+	// one-way links. Cycling is not: the Fietsersbond cycling network has one-way cycle paths. The connections do not depend on the PartOfDay
+	// or the component. The pre- and post-transport types of the components are a selection from them (Legs/<type>/ODMatrix): the route to a stop is the same whichever stops
 	// are targets, so C_RM, C_RMT and C_Ric are C_ to those stops, and RM_C, RMT_C and OVf_C are _C from those stops, each with its own
 	// maximum time (which may not be longer than that of the base set). Start and parking time and the price follow on reading, as in
 	// Templates/CreateNetwork_Pedestrian_Bike_T.
 	parameter<bool> WalkingMirror := /ModelParameters/Impl/OrgSet_string == /ModelParameters/Impl/DestSet_string
 	,	Descr = "Are origins and destinations the same set? Then walking from a stop to a destination is the mirror image of walking from that neighbourhood to the stop, and there is no store for Stops2Dest_Walking.";
-	unit<uint8> AllBaseLegTypes : nrofrows = 4
+	unit<uint8> AllBaseSets : nrofrows = 4
 	{
 		attribute<string> name : ['Org2Stops_Walking', 'Org2Stops_Cycling', 'Stops2Dest_Walking', 'Stops2Dest_Cycling'];
 	}
-	unit<uint8> BaseLegTypes := select_with_attr_by_cond(AllBaseLegTypes, not(WalkingMirror && AllBaseLegTypes/name == 'Stops2Dest_Walking'))
-	,	Descr = "The base sets of the legs with a store, each a Dijkstra over the whole network with the maximum time of its type.";
-	container LegStores := for_each_ne(BaseLegTypes/name, 'LegStore_T(' + quote(BaseLegTypes/name) + ')')
-	,	Descr = "Per base set: Calc_Legs, Write_Legs, Read_Legs, and Legs, the one the model uses (ModelParameters/Advanced/LegsDecoupled).";
-	parameter<string> LegStores_Write := 'Ready', ExplicitSuppliers = "=/ModelParameters/Advanced/LegsDecoupled ? asList('LegStores/' + BaseLegTypes/name + '/Write_Legs/legs', ';') + (/ModelParameters/Impl/IsOD ? ';' + asList('LegStores/' + BaseLegTypes/name + '/Write_Links/links', ';') : '') : ''"
-	,	Descr = "Writes the stores of the legs (batch/UpdateAll.cmd legs), in the OD pair mode also their links; writes nothing without ModelParameters/Advanced/LegsDecoupled.";
+	unit<uint8> BaseSets := select_with_attr_by_cond(AllBaseSets, not(WalkingMirror && AllBaseSets/name == 'Stops2Dest_Walking'))
+	,	Descr = "The base sets of the pre- and post-transport connections, each a Dijkstra over the whole walking or cycling network with the maximum time of its type.";
+	container PrePostTransport := for_each_ne(BaseSets/name, 'PrePostTransport_T(' + quote(BaseSets/name) + ')')
+	,	Descr = "Per base set the pre- and post-transport connections: Calc, Write, Read, and Connections, the one the model uses (ModelParameters/Advanced/PrePostTransportDecoupled).";
+	parameter<string> Write_PrePostTransport := 'Ready', ExplicitSuppliers = "=/ModelParameters/Advanced/PrePostTransportDecoupled ? asList('PrePostTransport/' + BaseSets/name + '/Write/Data', ';') + (/ModelParameters/Impl/IsOD ? ';' + asList('PrePostTransport/' + BaseSets/name + '/Write_Links/links', ';') : '') : ''"
+	,	Descr = "Writes the stores of the pre- and post-transport connections (batch/UpdateAll.cmd legs), in the OD pair mode also their links; writes nothing without ModelParameters/Advanced/PrePostTransportDecoupled.";
 
-	Template LegStore_T : Descr = "Template for the store of one base set of legs: its signature and name, the writer and reader, the legs the model uses, and in the OD pair mode the links of the legs."
+	Template PrePostTransport_T : Descr = "Template for one base set of pre- and post-transport connections: Calc calculates them, Write and Read store them with their signature, Connections is the one the model uses, and in the OD pair mode the links of their routes."
 	{
 		parameter<string> TypeName;
 		///
@@ -456,46 +457,46 @@ container PublicTransport_Prep
 		parameter<string> StorageBase_Str := /ModelParameters/Impl/IntermediateResultsDir + '/Legs_' + replace(TypeName, 'Org2', /ModelParameters/Impl/OrgSet_NameTag + 'to', 'Dest', /ModelParameters/Impl/DestSet_NameTag) + '_' + Hash/Hex
 		,	Descr = "Name of the store without extension: the type with the origin or destination set (OrgSet_NameTag: Legs_B2025toStops_Walking, Legs_Stops2B2025_Cycling) and the rest as a hash of Signature.";
 		parameter<string> StorageName_Str := StorageBase_Str + '.parquet';
-		container Sig := /Templates/StoreSignature_T(StorageName_Str, StorageBase_Str + '.signature.txt', Signature, strlen('.signature.txt') - strlen('.parquet'))
-		,	Descr = "The signature beside the store, in <name>.signature.txt: Write_Legs writes it, Read_Legs checks it.";
+		container Sig := /Templates/Signature_T(StorageName_Str, StorageBase_Str + '.signature.txt', Signature, strlen('.signature.txt') - strlen('.parquet'))
+		,	Descr = "The signature beside the store, in <name>.signature.txt: Write writes it, Read checks it.";
 		unit<uint64> Src := ='TimeInvariantConnections/' + TypeName + '/Create_Routes/ODMatrix';
-		attribute<impl/Places> Buurt_Place_rel (Src) := = IsPre ? 'Src/From_Place_rel' : 'Src/To_Place_rel';
+		attribute<impl/Places> Neighbourhood_Place_rel (Src) := = IsPre ? 'Src/From_Place_rel' : 'Src/To_Place_rel';
 		attribute<impl/Places> Stop_Place_rel  (Src) := = IsPre ? 'Src/To_Place_rel' : 'Src/From_Place_rel';
 		parameter<string> GDAL_LayerCreationOptions := 'COMPRESSION=ZSTD';
-		unit<uint32> Calc_Legs := range(uint32, 0, uint32(#Src))
-		,	Descr = "The legs of this base set as calculated in the run: per leg the neighbourhood, the stop, the network travel time and the distance."
+		unit<uint32> Calc := range(uint32, 0, uint32(#Src))
+		,	Descr = "The connections of this base set as calculated in the run: per connection the neighbourhood, the stop, the network travel time and the distance."
 		{
 			attribute<Src>     Src_rel    := value(id(.), Src);
-			attribute<string>  BuurtCode  := impl/Places/label[Buurt_Place_rel[Src_rel]];
+			attribute<string>  BuurtCode  := impl/Places/label[Neighbourhood_Place_rel[Src_rel]];
 			attribute<string>  stop_id    := /SourceData/Infrastructure/GTFS/PublicTransportNet/Stops/stop_id[impl/Places/Stop_rel[Stop_Place_rel[Src_rel]]];
 			attribute<string>  stop_name  := impl/Stops/name[impl/Places/Stop_rel[Stop_Place_rel[Src_rel]]];
-			attribute<float64> Traveltime := float64(Src/impedance[Src_rel]) / 60d, Descr = "Network travel time of the leg in minutes, without start and parking time.";
-			attribute<float64> TravelDist := float64(Src/alt_imp[Src_rel]) * 1000d, Descr = "Distance of the leg in metres.";
+			attribute<float64> Traveltime := float64(Src/impedance[Src_rel]) / 60d, Descr = "Network travel time of the connection in minutes, without start and parking time.";
+			attribute<float64> TravelDist := float64(Src/alt_imp[Src_rel]) * 1000d, Descr = "Distance of the connection in metres.";
 		}
-		container Write_Legs : StorageName = "=StorageName_Str", StorageType = "gdalwrite.vect"
-		,	Descr = "Writes Calc_Legs as parquet to StorageName_Str, with the signature beside it (Sig); calculate Write_Legs/legs to make the store."
+		container Write : StorageName = "=StorageName_Str", StorageType = "gdalwrite.vect"
+		,	Descr = "Writes Calc as parquet to StorageName_Str, with the signature beside it (Sig); calculate Write/Data to make the store."
 		{
-			unit<uint32> legs := Calc_Legs, ExplicitSuppliers = "Sig/ForWriting"
+			unit<uint32> Data := Calc, ExplicitSuppliers = "Sig/ForWriting"
 			{
-				attribute<string>  BuurtCode  := Calc_Legs/BuurtCode;
-				attribute<string>  stop_id    := Calc_Legs/stop_id;
-				attribute<string>  stop_name  := Calc_Legs/stop_name;
-				attribute<float64> Traveltime := Calc_Legs/Traveltime;
-				attribute<float64> TravelDist := Calc_Legs/TravelDist;
+				attribute<string>  BuurtCode  := Calc/BuurtCode;
+				attribute<string>  stop_id    := Calc/stop_id;
+				attribute<string>  stop_name  := Calc/stop_name;
+				attribute<float64> Traveltime := Calc/Traveltime;
+				attribute<float64> TravelDist := Calc/TravelDist;
 			}
 		}
-		unit<uint32> Read_Legs : StorageName = "=Sig/ForReading", StorageType = "gdal.vect", StorageReadOnly = "true"
-		,	Descr = "Reads the store of Write_Legs; fails when the signature is missing or differs (Sig/CheckGate)."
+		unit<uint32> Read : StorageName = "=Sig/ForReading", StorageType = "gdal.vect", StorageReadOnly = "true"
+		,	Descr = "Reads the store of Write; fails when the signature is missing or differs (Sig/CheckGate)."
 		{
 			attribute<string>  BuurtCode;
 			attribute<string>  stop_id;
 			attribute<float64> Traveltime;
 			attribute<float64> TravelDist;
 		}
-		unit<uint32> Legs := = /ModelParameters/Advanced/LegsDecoupled ? 'Read_Legs' : 'Calc_Legs'
-		,	Descr = "The legs the model uses: read from the store with ModelParameters/Advanced/LegsDecoupled, otherwise calculated in the run.";
+		unit<uint32> Connections := = /ModelParameters/Advanced/PrePostTransportDecoupled ? 'Read' : 'Calc'
+		,	Descr = "The connections the model uses: read from the store with ModelParameters/Advanced/PrePostTransportDecoupled, otherwise calculated in the run.";
 
-		// THE LINKS OF THE LEGS (#129), only in the OD pair mode (ModelParameters/Impl/IsOD): per leg, in the order of the journey, the links
+		// THE LINKS OF THE CONNECTIONS (#129), only in the OD pair mode (ModelParameters/Impl/IsOD): per connection, in the order of the journey, the links
 		// of its route over the simplified network (Create_Routes/Links), each with its straight line, as a gpkg beside the store.
 		parameter<string> LinksName_Str := StorageBase_Str + '_links.gpkg';
 		container Calc_Links
@@ -503,14 +504,14 @@ container PublicTransport_Prep
 			unit<uint32> links := ='TimeInvariantConnections/' + TypeName + '/Create_Routes/Links/Rows'
 			{
 				attribute<Src>     Leg_rel    := ='TimeInvariantConnections/' + TypeName + '/Create_Routes/Links/Rows/Route_rel';
-				attribute<string>  BuurtCode  := impl/Places/label[Buurt_Place_rel[Leg_rel]];
+				attribute<string>  BuurtCode  := impl/Places/label[Neighbourhood_Place_rel[Leg_rel]];
 				attribute<string>  stop_id    := /SourceData/Infrastructure/GTFS/PublicTransportNet/Stops/stop_id[impl/Places/Stop_rel[Stop_Place_rel[Leg_rel]]];
 				attribute<uint32>  Volgnr     := ='TimeInvariantConnections/' + TypeName + '/Create_Routes/Links/Rows/Volgnr';
 				attribute<rdc>     geometry (arc) := ='TimeInvariantConnections/' + TypeName + '/Create_Routes/Links/Rows/geometry';
 			}
 		}
 		container Write_Links : StorageName = "=LinksName_Str", StorageType = "gdalwrite.vect"
-		,	Descr = "Writes the links of the legs to LinksName_Str; calculate Write_Links/links. Only in the OD pair mode."
+		,	Descr = "Writes the links of the connections to LinksName_Str; calculate Write_Links/links. Only in the OD pair mode."
 		{
 			unit<uint32> links := Calc_Links/links, ExplicitSuppliers = "Sig/ForWriting"
 			{
@@ -531,16 +532,16 @@ container PublicTransport_Prep
 				attribute<rdc>     geometry (arc);
 			}
 		}
-		container Links := = /ModelParameters/Advanced/LegsDecoupled ? 'Read_Links' : 'Calc_Links'
-		,	Descr = "The links the model uses: read with ModelParameters/Advanced/LegsDecoupled, otherwise calculated in the run.";
+		container Links := = /ModelParameters/Advanced/PrePostTransportDecoupled ? 'Read_Links' : 'Calc_Links'
+		,	Descr = "The links the model uses: read with ModelParameters/Advanced/PrePostTransportDecoupled, otherwise calculated in the run.";
 	}
 
 	container Legs :=
 		for_each_ne(
 			TimeInvariantTypes/name
 			, 'Legs_T(' + string(id(TimeInvariantTypes)) + '[TimeInvariantTypes])'
-		), Descr = "Per pre- or post-transport type the legs from the store of its base set, with the same columns as TimeInvariantConnections/<type>/Create_Routes/ODMatrix.";
-	Template Legs_T : Descr = "Template for the legs of one pre- or post-transport type: a selection from the store of its base set with its own stops and maximum time, with start and parking time and price added."
+		), Descr = "Per pre- or post-transport type the candidate first or last legs: the connections of its base set (PrePostTransport), with the same columns as TimeInvariantConnections/<type>/Create_Routes/ODMatrix.";
+	Template Legs_T : Descr = "Template for the candidate legs of one pre- or post-transport type: a selection from the connections of its base set with its own stops and maximum time, with start and parking time and price added."
 	{
 		parameter<TimeInvariantTypes> TimeInvariantTypes_rel;
 		///
@@ -553,9 +554,9 @@ container PublicTransport_Prep
 		,	Descr = "The stops of this type: Stops (all), RM_Stops, RMT_Stops, Ric_Stops or OVF_Stops.";
 		parameter<min_f>   MaxTime        := TimeInvariantTypes/MaxTime[TimeInvariantTypes_rel]
 		,	IntegrityCheck = "MaxTime <= TimeInvariantTypes/MaxTime[rlookup(BaseType, TimeInvariantTypes/name)]";
-		unit<uint32> Src := ='LegStores/' + BaseType + '/Legs';
+		unit<uint32> Src := ='PrePostTransport/' + BaseType + '/Connections';
 		// The neighbourhood is an origin in the pre-transport and a destination in the post-transport, also for the mirror image.
-		attribute<impl/Places> Buurt_Place_rel (Src) := = IsPreTransport
+		attribute<impl/Places> Neighbourhood_Place_rel (Src) := = IsPreTransport
 		                                               ? 'invert(impl/Places/Origin_rel)[rlookup(Src/BuurtCode, impl/org/name)]'
 		                                               : 'invert(impl/Places/Dest_rel)[rlookup(Src/BuurtCode, impl/dest/name)]';
 		attribute<impl/Places> Stop_Place_rel  (Src) := impl/Stops/Place_rel[rlookup(Src/stop_id, /SourceData/Infrastructure/GTFS/PublicTransportNet/Stops/stop_id)];
@@ -565,8 +566,8 @@ container PublicTransport_Prep
 		attribute<bool>        Keep            (Src) := InStopSet && Src_impedance <= convert(MaxTime, s_f);
 		unit<uint32> ODMatrix := select_with_org_rel(Keep)
 		{
-			attribute<impl/Places> From_Place_rel       := = IsPreTransport ? 'Buurt_Place_rel[org_rel]' : 'Stop_Place_rel[org_rel]';
-			attribute<impl/Places> To_Place_rel         := = IsPreTransport ? 'Stop_Place_rel[org_rel]' : 'Buurt_Place_rel[org_rel]';
+			attribute<impl/Places> From_Place_rel       := = IsPreTransport ? 'Neighbourhood_Place_rel[org_rel]' : 'Stop_Place_rel[org_rel]';
+			attribute<impl/Places> To_Place_rel         := = IsPreTransport ? 'Stop_Place_rel[org_rel]' : 'Neighbourhood_Place_rel[org_rel]';
 			attribute<s_f>         impedance            := Src_impedance[org_rel];
 			attribute<dam>         Distance             := Src_alt_imp[org_rel][dam];
 			// Start and parking time and price as in Templates/CreateNetwork_Pedestrian_Bike_T.
@@ -665,9 +666,9 @@ container PublicTransport_Prep
 			attribute<uq_c_ToTime_Stop>     uq_c_ToTime_Stop_rel           := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/uq_c_ToTime_Stop_rel')+')';
 			attribute<Stops>                From_Stop_rel                  := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/uq_c_FromTime_Stop_rel->From_Stop_rel')+')';
 			attribute<Stops>                To_Stop_rel                    := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/uq_c_ToTime_Stop_rel->To_Stop_rel')+')';
-			// To trace a chain back to its legs (#129; only requested in the OD pair mode, OD_Ketens).
+			// To trace a chain back to its legs (#129; only requested in the OD pair mode, OD_Chains).
 			attribute<uint32>               Chain_rel                      := ='union_data(., '+AsItemList('id(Chain_Generation/'+Allowed_ChainsK/name+'/Result)')+')', Descr = "The row number of the chain in Chain_Generation/<Allowed_ChainsK_rel>/Result.";
-			attribute<bool>                 EindigtBijD                    := /NetworkSetup/PublicTransport_Prep/OD_Haltes/IsNStop[Stops/Place_rel[To_Stop_rel]], Descr = "Only in the OD pair mode: does the chain alight at a stop from which the destination can be reached (OD_Haltes/IsNStop)?";
+			attribute<bool>                 EndsAtD                    := /NetworkSetup/PublicTransport_Prep/OD_Stops/IsNStop[Stops/Place_rel[To_Stop_rel]], Descr = "Only in the OD pair mode: does the chain alight at a stop from which the destination can be reached (OD_Stops/IsNStop)?";
 
 			attribute<dam>                  TravelDist_Bus                 := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/TravelDist_Bus')+')';
 			attribute<dam>                  Traveldist_Metro               := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/Traveldist_Metro')+')';
@@ -688,9 +689,9 @@ container PublicTransport_Prep
 		: Descr = "Workaround for a deadlock (ObjectVision/GeoDMS#965)."
 		, URL = "https://github.com/ObjectVision/GeoDMS/issues/965"
 		{
-			unit<uint64> Result := ='select(Allowed_Chains/pareto_condition' + (ModelParameters/Impl/IsOD ? ' && Allowed_Chains/EindigtBijD' : '') + ')' //fka uq_OD_key; for an OD pair only the chains to the stops of the destination (#129)
+			unit<uint64> Result := ='select(Allowed_Chains/pareto_condition' + (ModelParameters/Impl/IsOD ? ' && Allowed_Chains/EndsAtD' : '') + ')' //fka uq_OD_key; for an OD pair only the chains to the stops of the destination (#129)
 			{
-				attribute<Allowed_Chains>       Allowed_Chains_rel          := collect_by_cond(., id(Allowed_Chains)), Descr = "The chain in Allowed_Chains, to trace it back to its legs (only requested in the OD pair mode, OD_Ketens)."; 
+				attribute<Allowed_Chains>       Allowed_Chains_rel          := collect_by_cond(., id(Allowed_Chains)), Descr = "The chain in Allowed_Chains, to trace it back to its legs (only requested in the OD pair mode, OD_Chains)."; 
 				attribute<ct>                   Price                       := =ModelParameters/Impl/PriceExportsAndIntegrityChecksNeeded ? 'collect_by_cond(., Allowed_Chains/Price)' : 'const(null_f, ., ct)';
 				attribute<ct>                   Price_augm                  := =ModelParameters/Impl/PriceExportsAndIntegrityChecksNeeded ? 'collect_by_cond(., Allowed_Chains/Price_augm)' : 'const(null_f, ., ct)';
 				attribute<ct>                   Price_S                     := =ModelParameters/Impl/PriceExportsAndIntegrityChecksNeeded ? 'collect_by_cond(., Allowed_Chains/Price_S)' : 'const(null_f, ., ct)';
@@ -815,7 +816,7 @@ container PublicTransport_Prep
 				attribute<dam>                                                   Traveldist_Ferry       := collect_by_cond(., ../IsVBoarding, ../Read/Traveldist_Ferry);
 				attribute</NetworkSetup/PublicTransport_Prep/uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel := collect_by_cond(., ../IsVBoarding, ../Read/uq_c_FromTime_Stop_rel);
 				attribute</NetworkSetup/PublicTransport_Prep/uq_c_ToTime_Stop>   uq_c_ToTime_Stop_rel   := collect_by_cond(., ../IsVBoarding, ../Read/uq_c_ToTime_Stop_rel);
-				attribute<uint64>                                                Keten                  := collect_by_cond(., ../IsVBoarding, id(../Read)), Descr = "The row number of the chain in the store of the block, like OD_Ketens/Read_Benen/Keten (#129; only requested in the OD pair mode).";
+				attribute<uint64>                                                ChainRow                  := collect_by_cond(., ../IsVBoarding, id(../Read)), Descr = "The row number of the chain in the store of the block, like OD_Chains/Read_ChainLegs/Keten (#129; only requested in the OD pair mode).";
 			}
 		}
 		container PerBlock := for_each_ne(impl/BlockDomain/name, 'ReadBlock_T(' + quote(impl/BlockDomain/name) + ', ' + quote(impl/BlockDomain/StoreName) + ')');
@@ -825,7 +826,7 @@ container PublicTransport_Prep
 		parameter<uint32> NrWritten := sum(uint32(IsWritten));
 		unit<uint32> ToDo := select_with_attr_by_cond(impl/BlockDomain, NOT(IsWritten))
 		{
-			attribute<string> Item := ModelParameters/Impl/IsOD ? '/NetworkSetup/PublicTransport_Prep/OD_Ketens/Write' : '/NetworkSetup/PublicTransport_Prep/ChainGeneration_PerBlock/' + name + '/Write', Descr = "The writer of the block; for an OD pair (#129) OD_Ketens/Write, which also writes the legs and links of the chains in the same request.";
+			attribute<string> Item := ModelParameters/Impl/IsOD ? '/NetworkSetup/PublicTransport_Prep/OD_Chains/Write' : '/NetworkSetup/PublicTransport_Prep/ChainGeneration_PerBlock/' + name + '/Write', Descr = "The writer of the block; for an OD pair (#129) OD_Chains/Write, which also writes the legs and links of the chains in the same request.";
 		}
 		parameter<string> ToDo_List := AsList(ToDo/Item, '\n'), StorageName = "%ConfigDir%/../../batch/log/chain_blocks_todo.txt", StorageType = "str"
 		, ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/PT_Chains_Sig/ForWriting"
@@ -888,7 +889,7 @@ container PublicTransport_Prep
 		attribute<dam>                   Traveldist_Ferry         := =ModelParameters/Advanced/PT_Chains_PerBlock ? 'union_data(., ' + AsItemList('PT_Chains_Blocks/PerBlock/' + impl/BlockDomain/name + '/VBoarding/Traveldist_Ferry') + ')' : 'collect_by_cond(., IsVBoarding_PT, PT/Traveldist_Ferry)';
 		attribute<uq_c_FromTime_Stop>    uq_c_FromTime_Stop_rel   := =ModelParameters/Advanced/PT_Chains_PerBlock ? 'union_data(., ' + AsItemList('PT_Chains_Blocks/PerBlock/' + impl/BlockDomain/name + '/VBoarding/uq_c_FromTime_Stop_rel') + ')' : 'collect_by_cond(., IsVBoarding_PT, PT/uq_c_FromTime_Stop_rel)';
 		attribute<uq_c_ToTime_Stop>      uq_c_ToTime_Stop_rel     := =ModelParameters/Advanced/PT_Chains_PerBlock ? 'union_data(., ' + AsItemList('PT_Chains_Blocks/PerBlock/' + impl/BlockDomain/name + '/VBoarding/uq_c_ToTime_Stop_rel') + ')' : 'collect_by_cond(., IsVBoarding_PT, PT/uq_c_ToTime_Stop_rel)';
-		attribute<uint64>                Keten                    := =ModelParameters/Advanced/PT_Chains_PerBlock ? 'union_data(., ' + AsItemList('PT_Chains_Blocks/PerBlock/' + impl/BlockDomain/name + '/VBoarding/Keten') + ')' : 'collect_by_cond(., IsVBoarding_PT, id(PT))', Descr = "The row number of the chain in the store of its block (#129; only requested in the OD pair mode, with one block: OD_Ketens/Read_Benen/Keten).";
+		attribute<uint64>                ChainRow                    := =ModelParameters/Advanced/PT_Chains_PerBlock ? 'union_data(., ' + AsItemList('PT_Chains_Blocks/PerBlock/' + impl/BlockDomain/name + '/VBoarding/ChainRow') + ')' : 'collect_by_cond(., IsVBoarding_PT, id(PT))', Descr = "The row number of the chain in the store of its block (#129; only requested in the OD pair mode, with one block: OD_Chains/Read_ChainLegs/Keten).";
 	}
 
 	// The signature of the chain store: all parameters the chains depend on. It stands as a hash in the name (StorageBase_Str,
@@ -915,7 +916,7 @@ container PublicTransport_Prep
 		// Fare, transfer and stop parameters: without this tag a changed parameter would silently read back the old chains.
 		ModelParameters/Impl/PT_Chains_ParamTag+
 		// An OD pair (#129): the chains from the stops of the origin to those of the destination, with the maximum times of the post-transport.
-		(ModelParameters/Impl/IsOD ? '_od' + ModelParameters/Impl/OD_Tag + OD_Haltes/TypeTag + string(ModelParameters/MaxWalkingTime_Stops2Dest) + '-' + string(ModelParameters/MaxCyclingTime_Stops2Dest) : '')+
+		(ModelParameters/Impl/IsOD ? '_od' + ModelParameters/Impl/OD_Tag + OD_Stops/TypeTag + string(ModelParameters/MaxWalkingTime_Stops2Dest) + '-' + string(ModelParameters/MaxCyclingTime_Stops2Dest) : '')+
 		ModelParameters/Impl/PT_Chains_Revision;
 	container PT_Chains_Hash := /Templates/StringHash_T(PT_Chains_Signature);
 	parameter<string>     StorageBase_Str := /ModelParameters/Impl/IntermediateResultsDir + '/PT_Chains_' + /ModelParameters/Impl/Analysis_date + '_' + PT_Chains_Window + '_' + PT_Chains_Hash/Hex
@@ -923,7 +924,7 @@ container PublicTransport_Prep
 	parameter<string>     StorageName_Str := StorageBase_Str + '.mmd', Descr = "The one chain store of ChainGeneration_Single/Write (PT_Chains_PerBlock FALSE).";
 	parameter<string>     StorageBlockDir_Str := StorageBase_Str
 	, Descr = "Folder of the chain store per block: the name of the one store without .mmd, holding <n>of<N>.mmd per block.";
-	container PT_Chains_Sig := /Templates/StoreSignature_T(
+	container PT_Chains_Sig := /Templates/Signature_T(
 		  ModelParameters/Advanced/PT_Chains_PerBlock ? StorageBlockDir_Str : StorageName_Str
 		, (ModelParameters/Advanced/PT_Chains_PerBlock ? StorageBlockDir_Str : StorageName_Str) + '/signature.txt'
 		, PT_Chains_Signature
@@ -931,7 +932,7 @@ container PublicTransport_Prep
 		)
 	, Descr = "The signature in the folder of the chain store (signature.txt): ChainGeneration_PerBlock/<block>/Write, ChainGeneration_Single/Write and PT_Chains_Blocks/ToDo_List write it and check the longest path (with uq_c_FromTime_Stop_rel as the longest attribute name); ChainGeneration_Single/Read and PT_Chains_Blocks/PerBlock/<block>/Read check it.";
 		
-	#include<OD_Ketens.dms>
+	#include<OD_Chains.dms>
 	#include<ChainJoiner_T.dms>
 	#include<CreateTransfers_T.dms>
 	#include<Get_Windowed_Agency_Set_T.dms>

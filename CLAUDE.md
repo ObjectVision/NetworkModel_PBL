@@ -35,7 +35,7 @@ Before writing or reviewing `.dms` code, follow the skill `geodms-dms-style` (`.
 
 When a Python script is considered, for model steps and for ad-hoc analyses alike, look for a solution in `.dms` first: in the configuration, on the same domains (`Places`, `OD_code`, the origin blocks, the departure moments), and preferably in the same request as the generation of the data, so that it runs in one pass and reads the results while they are in memory instead of rereading the csv output. A small probe configuration in the style of the GeoDMS skill is also `.dms`. Use Python only where GeoDMS cannot do the job, and say why.
 
-Example (2026-10-08): the median car travel time per origin-destination pair over the departure moments was first written as `batch/MedianTravelTime.py`, which reread 284 GB of csv; the user asked for it in the configuration, next to the counts of the output (`Tellingen` per departure moment and per block).
+Example (2026-10-08): the median car travel time per origin-destination pair over the departure moments was first written as `batch/MedianTravelTime.py`, which reread 284 GB of csv; the user asked for it in the configuration, next to the counts of the output (`Counts` per departure moment and per block).
 
 ## A paging GeoDmsRun that takes long to shut down
 

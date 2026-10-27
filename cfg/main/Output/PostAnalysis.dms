@@ -2,10 +2,10 @@ container PostAnalysis : using = "units;Geography;modelparameters;classification
 {
 	#include<UAI.dms>
 
-	container Halte_analyse_RuimteScanner : Descr = "Travel time and distance from every 100 m cell to the nearest public transport stop per mode and class of trips per day, over the OSM networks for walking, cycling and car, as tifs for the RuimteScanner."
+	container StopAnalysis_RuimteScanner : Descr = "Travel time and distance from every 100 m cell to the nearest public transport stop per mode and class of trips per day, over the OSM networks for walking, cycling and car, as tifs for the RuimteScanner."
 	{
-		parameter<m>     Afstand_Halte_clustering := 100[m], Descr = "Stops of the same mode within this distance of a stop, in the same province, count in its cluster for the number of trips per day.";
-		parameter<min_f> MaxReistijd              := 60[min_f], Descr = "Search limit of the travel time from the stops; it also sets the search limit of the distance through the speed of the network.";
+		parameter<m>     Distance_StopClustering := 100[m], Descr = "Stops of the same mode within this distance of a stop, in the same province, count in its cluster for the number of trips per day.";
+		parameter<min_f> MaxSearchTime              := 60[min_f], Descr = "Search limit of the travel time from the stops; it also sets the search limit of the distance through the speed of the network.";
 		
 		parameter<string> domain_str   := '100m';
 		unit<spoint>      grid_domain  := ='rdc_'+domain_str;
@@ -14,11 +14,11 @@ container PostAnalysis : using = "units;Geography;modelparameters;classification
 
 		attribute<Modes>   Mode_perstop (Infrastructure/GTFS/RelevantSelection/StopTimes)  := Infrastructure/GTFS/RelevantSelection/StopTimes/Mode_perstop;
 
-		unit<uint32> Stops_totaal := Infrastructure/GTFS/RelevantSelection/Stops
+		unit<uint32> Stops_total := Infrastructure/GTFS/RelevantSelection/Stops
 		, FreeData = "false"
 		{
 			attribute<rdc>              geometry              := Infrastructure/GTFS/RelevantSelection/Stops/geometry;
-			attribute<string>           Mode_naam             := Modes/name[Mode_rel];
+			attribute<string>           ModeName             := Modes/name[Mode_rel];
 
 			attribute<uint32>           Cluster_NrTripsPerDay := Cluster_NrTripsPerDay_Tram + Cluster_NrTripsPerDay_Metro + Cluster_NrTripsPerDay_Rail + Cluster_NrTripsPerDay_Bus + Cluster_NrTripsPerDay_Ferry;
 			attribute<uint32>           Cluster_CountStops    := Cluster_Count_Tram + Cluster_Count_Metro + Cluster_Count_Rail + Cluster_Count_Bus + Cluster_Count_Ferry;
@@ -38,55 +38,55 @@ container PostAnalysis : using = "units;Geography;modelparameters;classification
 		
 		container Generate_tiffs : Descr = "Writes the tifs of the travel time and the distance to the nearest stop of every mode and class, per network (walking, cycling, car)."
 		{
-			parameter<String> Reistijd_Pedestrian := 'Ready',
-			ExplicitSuppliers = "=asList('Dijkstras/Per_ModeVertrekK/'+Mode_X_Vertrekmomenten3K/name+'/CreateODperNetwerkType/pedestrian/OD_reistijd_grid',';')";
-			parameter<String> Reistijd_Bike := 'Ready',
-			ExplicitSuppliers = "=asList('Dijkstras/Per_ModeVertrekK/'+Mode_X_Vertrekmomenten3K/name+'/CreateODperNetwerkType/bike/OD_reistijd_grid',';')";
-			parameter<String> Reistijd_Car := 'Ready',
-			ExplicitSuppliers = "=asList('Dijkstras/Per_ModeVertrekK/'+Mode_X_Vertrekmomenten3K/name+'/CreateODperNetwerkType/car/OD_reistijd_grid',';')";
+			parameter<String> Traveltime_Pedestrian := 'Ready',
+			ExplicitSuppliers = "=asList('Dijkstras/Per_ModeDepartureK/'+Mode_X_DepartureMoments3K/name+'/CreateODperNetworkType/pedestrian/OD_traveltime_grid',';')";
+			parameter<String> Traveltime_Bike := 'Ready',
+			ExplicitSuppliers = "=asList('Dijkstras/Per_ModeDepartureK/'+Mode_X_DepartureMoments3K/name+'/CreateODperNetworkType/bike/OD_traveltime_grid',';')";
+			parameter<String> Traveltime_Car := 'Ready',
+			ExplicitSuppliers = "=asList('Dijkstras/Per_ModeDepartureK/'+Mode_X_DepartureMoments3K/name+'/CreateODperNetworkType/car/OD_traveltime_grid',';')";
 			
-			parameter<String> Afstand_Pedestrian := 'Ready',
-			ExplicitSuppliers = "=asList('Dijkstras/Per_ModeVertrekK/'+Mode_X_Vertrekmomenten3K/name+'/CreateODperNetwerkType/pedestrian/OD_Afstand_grid',';')";
-			parameter<String> Afstand_Bike := 'Ready',
-			ExplicitSuppliers = "=asList('Dijkstras/Per_ModeVertrekK/'+Mode_X_Vertrekmomenten3K/name+'/CreateODperNetwerkType/bike/OD_Afstand_grid',';')";
-			parameter<String> Afstand_Car := 'Ready',
-			ExplicitSuppliers = "=asList('Dijkstras/Per_ModeVertrekK/'+Mode_X_Vertrekmomenten3K/name+'/CreateODperNetwerkType/car/OD_Afstand_grid',';')";
+			parameter<String> Distance_Pedestrian := 'Ready',
+			ExplicitSuppliers = "=asList('Dijkstras/Per_ModeDepartureK/'+Mode_X_DepartureMoments3K/name+'/CreateODperNetworkType/pedestrian/OD_distance_grid',';')";
+			parameter<String> Distance_Bike := 'Ready',
+			ExplicitSuppliers = "=asList('Dijkstras/Per_ModeDepartureK/'+Mode_X_DepartureMoments3K/name+'/CreateODperNetworkType/bike/OD_distance_grid',';')";
+			parameter<String> Distance_Car := 'Ready',
+			ExplicitSuppliers = "=asList('Dijkstras/Per_ModeDepartureK/'+Mode_X_DepartureMoments3K/name+'/CreateODperNetworkType/car/OD_distance_grid',';')";
 		}
 		
 		container Dijkstras
 		{
-			container Per_ModeVertrekK := 
+			container Per_ModeDepartureK := 
 				for_each_ne(
-					Mode_X_Vertrekmomenten3K/name
-					, 'Per_ModeVertrekK_T(
-							 '+quote(Mode_X_Vertrekmomenten3K/mode_name)+'
-							,'+quote(Mode_X_Vertrekmomenten3K/VertrekmomentK_name)+'
+					Mode_X_DepartureMoments3K/name
+					, 'Per_ModeDepartureK_T(
+							 '+quote(Mode_X_DepartureMoments3K/mode_name)+'
+							,'+quote(Mode_X_DepartureMoments3K/DepartureMomentK_name)+'
 							, perGridsize/size_'+domain_str+'/points
-							, ModeVertrekK/'+string(Mode_X_Vertrekmomenten3K/mode_name)+'_'+string(Mode_X_Vertrekmomenten3K/VertrekmomentK_name)+'/Subset
+							, ModeDepartureK/'+string(Mode_X_DepartureMoments3K/mode_name)+'_'+string(Mode_X_DepartureMoments3K/DepartureMomentK_name)+'/Subset
 						)'
 				);
 				
-			Template Per_ModeVertrekK_T
+			Template Per_ModeDepartureK_T
 			{
-				parameter<string> Mode_naam;
-				parameter<string> Vertrekmomenten3K_naam;
+				parameter<string> ModeName;
+				parameter<string> DepartureMoments3K_name;
 				unit<uint32> org;
 				unit<uint32> dest;
 				
 				
-				container CreateODperNetwerkType := 
+				container CreateODperNetworkType := 
 					for_each_ne(
-						classifications/OSM/netwerk_type/name
-						,'MakeFSS(org, dest,'+quote(classifications/OSM/netwerk_type/name_alt)+')'
+						classifications/OSM/network_type/name
+						,'MakeFSS(org, dest,'+quote(classifications/OSM/network_type/name_alt)+')'
 					);
 					
 				Template MakeFSS
 				{
 					unit<uint32>       org;
 					unit<uint32>       dest;
-					parameter<string>  netwerk_type;
+					parameter<string>  network_type;
 					//////
-					container Create_Optimised_Network  := ='Templates/CreateNetwork_Efficient_T(Org, Dest, SourceData/Infrastructure/OSM/Network_'+netwerk_type+', '+quote(netwerk_type)+', FALSE)', Descr = "The OSM network of netwerk_type, with the cells (org) and the stops (dest) connected to it.";
+					container Create_Optimised_Network  := ='Templates/CreateNetwork_Efficient_T(Org, Dest, SourceData/Infrastructure/OSM/Network_'+network_type+', '+quote(network_type)+', FALSE)', Descr = "The OSM network of network_type, with the cells (org) and the stops (dest) connected to it.";
 					
 					unit<uint32>       LinkSet := Create_Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet;
 					unit<uint32>       NodeSet := Create_Optimised_Network/CreateMoreEfficientNetwork/FinalNodeSet
@@ -95,10 +95,10 @@ container PostAnalysis : using = "units;Geography;modelparameters;classification
 						attribute<.>   DestNode_rel (dest) := rlookup(dest/geometry, geometry);
 					}
 
-					attribute<min_f> impedance (LinkSet) := ='convert(LinkSet/Impedance_per_ImpedanceType/max_'+netwerk_type+', min_f)';
-					attribute<km>    distance  (LinkSet) := ='LinkSet/Distance_per_ImpedanceType/max_'+netwerk_type;
+					attribute<min_f> impedance (LinkSet) := ='convert(LinkSet/Impedance_per_ImpedanceType/max_'+network_type+', min_f)';
+					attribute<km>    distance  (LinkSet) := ='LinkSet/Distance_per_ImpedanceType/max_'+network_type;
 
-					attribute<min_f> OD_reistijd (NodeSet) := 
+					attribute<min_f> OD_traveltime (NodeSet) := 
 						impedance_table(
 							  'bidirectional(link_flag);startPoint(Node_rel);cut(OrgZone_max_imp)'
 							, impedance
@@ -107,14 +107,14 @@ container PostAnalysis : using = "units;Geography;modelparameters;classification
 							
 							, NOT(LinkSet/IsOneDirection)
 							, NodeSet/DestNode_rel
-							, MaxReistijd
+							, MaxSearchTime
 						);
-					attribute<min_f>  OD_reistijd_org          (org) := OD_reistijd[NodeSet/OrgNode_rel];
-					attribute<min_f>  OD_reistijd_grid (grid_domain) := sum(OD_reistijd_org, org/grid_rel), StorageName = "='%LocalDataProjDir%/Output/OD_korste_reistijd_'+netwerk_type+'_eerstehaltevan_'+mode_naam+'_'+Vertrekmomenten3K_naam+'.tif'", StorageType = "gdalwrite.grid";
+					attribute<min_f>  OD_traveltime_org          (org) := OD_traveltime[NodeSet/OrgNode_rel];
+					attribute<min_f>  OD_traveltime_grid (grid_domain) := sum(OD_traveltime_org, org/grid_rel), StorageName = "='%LocalDataProjDir%/Output/OD_korste_reistijd_'+network_type+'_eerstehaltevan_'+ModeName+'_'+DepartureMoments3K_name+'.tif'", StorageType = "gdalwrite.grid";
 					
-					parameter<km> MaxReisAfstand := ='convert(MaxReistijd, hr_f) * /ModelParameters/'+(lowercase(netwerk_type) == 'walking' || lowercase(netwerk_type) == 'cycling' ? '' : 'Advanced/')+netwerk_type+'Speed_kmhr';
+					parameter<km> MaxTravelDistance := ='convert(MaxSearchTime, hr_f) * /ModelParameters/'+(lowercase(network_type) == 'walking' || lowercase(network_type) == 'cycling' ? '' : 'Advanced/')+network_type+'Speed_kmhr';
 					
-					attribute<km> OD_afstand (NodeSet) := 
+					attribute<km> OD_distance (NodeSet) := 
 						impedance_table(
 							  'bidirectional(link_flag);startPoint(Node_rel);cut(OrgZone_max_imp)'
 							, distance
@@ -123,29 +123,29 @@ container PostAnalysis : using = "units;Geography;modelparameters;classification
 							
 							, NOT(LinkSet/IsOneDirection)
 							, NodeSet/DestNode_rel
-							, MaxReisAfstand
+							, MaxTravelDistance
 						);
-					attribute<km>  OD_afstand_org          (org) := OD_afstand[NodeSet/OrgNode_rel];
-					attribute<km>  OD_afstand_grid (grid_domain) := sum(OD_afstand_org, org/grid_rel), StorageName = "='%LocalDataProjDir%/Output/OD_korste_afstand_'+netwerk_type+'_eerstehaltevan_'+mode_naam+'_'+Vertrekmomenten3K_naam+'.tif'", StorageType = "gdalwrite.grid";
+					attribute<km>  OD_distance_org          (org) := OD_distance[NodeSet/OrgNode_rel];
+					attribute<km>  OD_distance_grid (grid_domain) := sum(OD_distance_org, org/grid_rel), StorageName = "='%LocalDataProjDir%/Output/OD_korste_afstand_'+network_type+'_eerstehaltevan_'+ModeName+'_'+DepartureMoments3K_name+'.tif'", StorageType = "gdalwrite.grid";
 					
 				}
 			}
 		}
 		
-		container ModeVertrekK :=
+		container ModeDepartureK :=
 			for_each_ne(
-				Mode_X_Vertrekmomenten3K/name
-				, 'ModeVertrekK_T('+quote(Mode_X_Vertrekmomenten3K/Mode_name)+','+quote(Mode_X_Vertrekmomenten3K/VertrekmomentK_name)+','+string(Mode_X_Vertrekmomenten3K/Class_onder)+','+string(Mode_X_Vertrekmomenten3K/Class_boven)+')'
+				Mode_X_DepartureMoments3K/name
+				, 'ModeDepartureK_T('+quote(Mode_X_DepartureMoments3K/Mode_name)+','+quote(Mode_X_DepartureMoments3K/DepartureMomentK_name)+','+string(Mode_X_DepartureMoments3K/Class_lower)+','+string(Mode_X_DepartureMoments3K/Class_upper)+')'
 			);	
 		
-		Template ModeVertrekK_T
+		Template ModeDepartureK_T
 		{
 			parameter<string> Mode;
-			parameter<string> VertrekmomentK;
-			parameter<uint32> Class_ondergrens;
-			parameter<uint32> Class_bovengrens;
+			parameter<string> DepartureMomentK;
+			parameter<uint32> Class_lowerbound;
+			parameter<uint32> Class_upperbound;
 
-			unit<uint32> subset := ='select_with_org_rel(Stop_per_mode/'+Mode+'/Per_mode_subset/Cluster_NrTripsPerDay >= Class_ondergrens && Stop_per_mode/'+Mode+'/Per_mode_subset/Cluster_NrTripsPerDay < Class_bovengrens)'
+			unit<uint32> subset := ='select_with_org_rel(Stop_per_mode/'+Mode+'/Per_mode_subset/Cluster_NrTripsPerDay >= Class_lowerbound && Stop_per_mode/'+Mode+'/Per_mode_subset/Cluster_NrTripsPerDay < Class_upperbound)'
 			{
 				attribute<rdc>              geometry              := ='Stop_per_mode/'+Mode+'/Per_mode_subset/geometry[org_rel]';
 				attribute<string>           Label                 := ='Stop_per_mode/'+Mode+'/Per_mode_subset/Label[org_rel]', DialogType = "LabelText";
@@ -165,21 +165,21 @@ container PostAnalysis : using = "units;Geography;modelparameters;classification
 		{
 			parameter<string> Mode;
 			
-			unit<uint32> Per_mode_subset := select_with_org_rel(Stops_totaal/Mode_naam == Mode)
+			unit<uint32> Per_mode_subset := select_with_org_rel(Stops_total/ModeName == Mode)
 			{
-				attribute<rdc>              geometry              := Stops_totaal/geometry[org_rel];
+				attribute<rdc>              geometry              := Stops_total/geometry[org_rel];
 				attribute<RegioIndelingen/Provincie> prov_rel              := MakeDefined(point_in_polygon(geometry, RegioIndelingen/Provincie/Geometry),12);
-				attribute<string>           Label                 := Stops_totaal/Label[org_rel];
-				attribute<uint32>           NrTripsPerDay         := Stops_totaal/NrTripsPerDay[org_rel];
+				attribute<string>           Label                 := Stops_total/Label[org_rel];
+				attribute<uint32>           NrTripsPerDay         := Stops_total/NrTripsPerDay[org_rel];
 				attribute<uint32>           Cluster_NrTripsPerDay := rjoin(geometry, StopMatrix_merged/geometry, StopMatrix_merged/Cluster_NrTripsPerDay);
 				attribute<uint32>           Cluster_CountStops    := rjoin(geometry, StopMatrix_merged/geometry, StopMatrix_merged/Cluster_CountStops);
 				
-				attribute<uint32>           classify_ClusterTrips (VertrekMomenten_3K) := ClassifyJenksFisher(Cluster_NrTripsPerDay, VertrekMomenten_3K);
+				attribute<uint32>           classify_ClusterTrips (DepartureMoments_3K) := ClassifyJenksFisher(Cluster_NrTripsPerDay, DepartureMoments_3K);
 				
 				unit<uint32> StopMatrix_merged := ='union_unit('+AsItemList('StopsMatrix_PerProv/'+RegioIndelingen/Provincie/name+'/Stops_subset')+')'
 				{
 					attribute<rdc>         geometry              := ='union_data(., '+AsItemList('StopsMatrix_PerProv/'+RegioIndelingen/Provincie/name+'/Stops_subset/geometry')+')';
-					attribute<string>      Stop_naam             := ='union_data(., '+AsItemList('StopsMatrix_PerProv/'+RegioIndelingen/Provincie/name+'/Stops_subset/stop_name')+')';
+					attribute<string>      StopName             := ='union_data(., '+AsItemList('StopsMatrix_PerProv/'+RegioIndelingen/Provincie/name+'/Stops_subset/stop_name')+')';
 					attribute<uint32>      Cluster_NrTripsPerDay := ='union_data(., '+AsItemList('StopsMatrix_PerProv/'+RegioIndelingen/Provincie/name+'/Stops_subset/Cluster_NrTripsPerDay')+')';
 					attribute<uint32>      Cluster_CountStops    := ='union_data(., '+AsItemList('StopsMatrix_PerProv/'+RegioIndelingen/Provincie/name+'/Stops_subset/Cluster_CountStops')+')';
 				}
@@ -222,7 +222,7 @@ container PostAnalysis : using = "units;Geography;modelparameters;classification
 						attribute<m>        dist     := MakeDefined(sqrt(delta_x + delta_y)[m],0[m]);
 					}
 					
-					unit<uint32> StopsClustered := select_with_org_rel(StopsMatrix/dist < Afstand_Halte_clustering) 
+					unit<uint32> StopsClustered := select_with_org_rel(StopsMatrix/dist < Distance_StopClustering) 
 					{
 						attribute<rdc>      point_1         := StopsMatrix/point_1[org_rel];
 						attribute<rdc>      point_2         := StopsMatrix/point_2[org_rel];
@@ -240,48 +240,48 @@ container PostAnalysis : using = "units;Geography;modelparameters;classification
 			}
 		}
 		
-		unit<uint32> VertrekMomenten_3K : nrofrows = 3, Descr = "Three classes of the number of trips per day of a stop cluster (Weinig, Gemiddeld, Veel), with per mode the class breaks by Jenks-Fisher on Cluster_NrTripsPerDay."
+		unit<uint32> DepartureMoments_3K : nrofrows = 3, Descr = "Three classes of the number of trips per day of a stop cluster (Weinig, Gemiddeld, Veel), with per mode the class breaks by Jenks-Fisher on Cluster_NrTripsPerDay."
 		{
 			attribute<string> Name           : ['Weinig','Gemiddeld','Veel'];
-			attribute<uint32> Tram_onder     := Stop_per_mode/Tram/Per_mode_subset/classify_ClusterTrips;
-			attribute<uint32> Metro_onder    := Stop_per_mode/Metro/Per_mode_subset/classify_ClusterTrips;
-			attribute<uint32> Rail_onder     := Stop_per_mode/Rail/Per_mode_subset/classify_ClusterTrips;
-			attribute<uint32> Bus_onder      := Stop_per_mode/Bus/Per_mode_subset/classify_ClusterTrips;
-			attribute<uint32> Ferry_onder    := Stop_per_mode/Ferry/Per_mode_subset/classify_ClusterTrips;
+			attribute<uint32> Tram_lower     := Stop_per_mode/Tram/Per_mode_subset/classify_ClusterTrips;
+			attribute<uint32> Metro_lower    := Stop_per_mode/Metro/Per_mode_subset/classify_ClusterTrips;
+			attribute<uint32> Rail_lower     := Stop_per_mode/Rail/Per_mode_subset/classify_ClusterTrips;
+			attribute<uint32> Bus_lower      := Stop_per_mode/Bus/Per_mode_subset/classify_ClusterTrips;
+			attribute<uint32> Ferry_lower    := Stop_per_mode/Ferry/Per_mode_subset/classify_ClusterTrips;
 			
-			attribute<uint32> Tram_boven     := MakeDefined(Tram_onder[id(.) + 1],20000);
-			attribute<uint32> Metro_boven    := MakeDefined(Metro_onder[id(.) + 1],20000);
-			attribute<uint32> Rail_boven     := MakeDefined(Rail_onder[id(.) + 1],20000);
-			attribute<uint32> Bus_boven      := MakeDefined(Bus_onder[id(.) + 1],20000);
-			attribute<uint32> Ferry_boven    := MakeDefined(Ferry_onder[id(.) + 1],20000);
+			attribute<uint32> Tram_upper     := MakeDefined(Tram_lower[id(.) + 1],20000);
+			attribute<uint32> Metro_upper    := MakeDefined(Metro_lower[id(.) + 1],20000);
+			attribute<uint32> Rail_upper     := MakeDefined(Rail_lower[id(.) + 1],20000);
+			attribute<uint32> Bus_upper      := MakeDefined(Bus_lower[id(.) + 1],20000);
+			attribute<uint32> Ferry_upper    := MakeDefined(Ferry_lower[id(.) + 1],20000);
 			
 			container V := for_each_nedv(Name, string(id(.)), void, .);
 		}
 		
-		unit<uint32> Mode_X_Vertrekmomenten3K := combine(GTFS_Modes/Selection,VertrekMomenten_3K)
+		unit<uint32> Mode_X_DepartureMoments3K := combine(GTFS_Modes/Selection,DepartureMoments_3K)
 		{
 			attribute<string> Mode_name            := GTFS_Modes/Selection/name[first_rel];
-			attribute<string> VertrekmomentK_name  := VertrekMomenten_3K/name[second_rel];
-			attribute<string> name                 := Mode_name + '_' + VertrekmomentK_name;
+			attribute<string> DepartureMomentK_name  := DepartureMoments_3K/name[second_rel];
+			attribute<string> name                 := Mode_name + '_' + DepartureMomentK_name;
 			
-			attribute<uint32> Class_onder          := Mode_name == 'Tram' 
-														? VertrekMomenten_3K/Tram_onder[second_rel]
+			attribute<uint32> Class_lower          := Mode_name == 'Tram' 
+														? DepartureMoments_3K/Tram_lower[second_rel]
 														: Mode_name == 'Metro'
-															? VertrekMomenten_3K/Metro_onder[second_rel]
+															? DepartureMoments_3K/Metro_lower[second_rel]
 															: Mode_name == 'Rail'
-																? VertrekMomenten_3K/Rail_onder[second_rel]
+																? DepartureMoments_3K/Rail_lower[second_rel]
 																: Mode_name == 'Bus'
-																	? VertrekMomenten_3K/Bus_onder[second_rel]
-																	: VertrekMomenten_3K/Ferry_onder[second_rel];
-			attribute<uint32> Class_boven          := Mode_name == 'Tram' 
-														? VertrekMomenten_3K/Tram_boven[second_rel]
+																	? DepartureMoments_3K/Bus_lower[second_rel]
+																	: DepartureMoments_3K/Ferry_lower[second_rel];
+			attribute<uint32> Class_upper          := Mode_name == 'Tram' 
+														? DepartureMoments_3K/Tram_upper[second_rel]
 														: Mode_name == 'Metro'
-															? VertrekMomenten_3K/Metro_boven[second_rel]
+															? DepartureMoments_3K/Metro_upper[second_rel]
 															: Mode_name == 'Rail'
-																? VertrekMomenten_3K/Rail_boven[second_rel]
+																? DepartureMoments_3K/Rail_upper[second_rel]
 																: Mode_name == 'Bus'
-																	? VertrekMomenten_3K/Bus_boven[second_rel]
-																	: VertrekMomenten_3K/Ferry_boven[second_rel];
+																	? DepartureMoments_3K/Bus_upper[second_rel]
+																	: DepartureMoments_3K/Ferry_upper[second_rel];
 		}
 	
 	}

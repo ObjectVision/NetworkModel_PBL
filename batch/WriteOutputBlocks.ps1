@@ -5,7 +5,7 @@
 # calculates them in portions of BatchSize blocks per GeoDmsRun. Each portion is a separate process, so that memory is freed
 # between the portions, which a single request for all blocks (NetworkSetup/GenerateOutput/Generate_Output) does not do.
 # Then batch\OdTellingen.py makes the counts (od_tellingen.csv, unieke_od_tellingen.csv) from the output of the blocks; in
-# the single request the model does this itself (OD_Tellingen), with the same rules, but that needs the results of all
+# the single request the model does this itself (OD_Counts), with the same rules, but that needs the results of all
 # blocks in the same process.
 # With MergeOutput the list names the merging per block (ComponentMerge/PerBlock). If the list is empty, the script runs
 # one request of NetworkSetup/GenerateOutput/Generate_Output.

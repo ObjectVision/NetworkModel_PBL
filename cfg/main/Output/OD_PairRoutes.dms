@@ -1,31 +1,31 @@
 // THE ROUTES OF ONE OD PAIR ON A MAP, IN A TABLE AND IN A CHART (#129).
 // With OD_Origin and OD_Destination (ModelParameters, group 6) the model calculates only that pair, and the output step writes per
 // component and departure moment, beside the normal output, <OutputDir>/PerBlock/od_<moment>.gpkg with three layers: od_opties,
-// od_onderdelen and od_links (NetworkSetup/PublicTransport/PerDepartureMoment_T/OD_Uitvoer). This container reads them back, per
-// component in MergeComponents and for Samen:
-// - <component>/Opties and Samen/Opties: a row per option and departure moment (table);
-// - <component>/Onderdelen: the journey description per option, in the order of the journey (table);
-// - <component>/Links and Samen/Links: the links of the routes (map), coloured per mode (Modes), with Optie and Modaliteit_rel to
-//   colour or filter by; Kaart/Optie shows only ModelParameters/OD_Option;
-// - Grafiek: Prijs against Reistijd, a series per departure moment and group of Gebruik (car, bike), each a front in the colour of
-//   the group; open the Scatter Chart of Grafiek/<moment>_<group>/Punten/Prijs and drag the Prijs of the other groups onto it.
-// Samen merges the options of the Components per departure moment as ComponentMerge does: not dominated on price and travel time
+// od_onderdelen and od_links (NetworkSetup/PublicTransport/PerDepartureMoment_T/OD_Output). This container reads them back, per
+// component in MergeComponents and for Combined:
+// - <component>/Options and Combined/Options: a row per option and departure moment (table);
+// - <component>/Parts: the journey description per option, in the order of the journey (table);
+// - <component>/Links and Combined/Links: the links of the routes (map), coloured per mode (Modes), with Optie and Mode_rel to
+//   colour or filter by; MapView/OptionLinks shows only ModelParameters/OD_Option;
+// - Chart: Prijs against Reistijd, a series per departure moment and group of Usage (car, bike), each a front in the colour of
+//   the group; open the Scatter Chart of Chart/<moment>_<group>/Points/Prijs and drag the Prijs of the other groups onto it.
+// Combined merges the options of the Components per departure moment as ComponentMerge does: not dominated on price and travel time
 // (with ChainParetoTimeEpsilon) and on car and bike ownership when MergeCriteria names them.
 container OD_PairRoutes : using = "units;Geography;ModelParameters", Descr = "The routes of one OD pair (ModelParameters group 6, #129), read back from the gpkg files of the output step per component and merged, as tables, a map and a chart."
 {
 	parameter<string> Map := '%LocalDataProjDir%/Output' + ModelParameters/Impl/OD_Tag + '/' + ModelParameters/Impl/Analysis_date + '_' + OutputLabel
 	,	Descr = "The output folder of the pair without the suffix of the component: Output_<O>_<D>/<date>_<label>.";
-	unit<uint32> Momenten := ModelParameters/Impl/MeasureMoments
+	unit<uint32> Moments := ModelParameters/Impl/MeasureMoments
 	{
-		attribute<string> Kort := Time/TemplatableTextShrt[Moment];
+		attribute<string> Short := Time/TemplatableTextShrt[Moment];
 	}
 	unit<uint8> Comps := select_with_attr_by_cond(Advanced/Components, Advanced/Components/InMerge), Descr = "The Components in MergeComponents; each must have output for the pair (batch/WriteODResults.ps1), otherwise the error message names the missing file.";
-	unit<uint32> OptieNrs := range(uint32, 0, 1000), Descr = "The numbers of the options per departure moment, for the key (moment, option).";
-	unit<uint64> MomentOptie := combine_unit_uint64(Momenten, OptieNrs);
-	unit<uint32> Volgnrs := range(uint32, 0, 100), Descr = "The sequence numbers of the parts of an option, for the order of the journey.";
-	unit<uint64> MomentOptieVolgnr := combine_unit_uint64(Momenten, OptieNrs, Volgnrs);
+	unit<uint32> OptionNrs := range(uint32, 0, 1000), Descr = "The numbers of the options per departure moment, for the key (moment, option).";
+	unit<uint64> MomentOption := combine_unit_uint64(Moments, OptionNrs);
+	unit<uint32> SeqNrs := range(uint32, 0, 100), Descr = "The sequence numbers of the parts of an option, for the order of the journey.";
+	unit<uint64> MomentOptionSeqNr := combine_unit_uint64(Moments, OptionNrs, SeqNrs);
 
-	// The map: colour and line width per mode. Links/geometry gets them per link (PenColor and PenWidth of the links); Links/Modaliteit_rel
+	// The map: colour and line width per mode. Links/geometry gets them per link (PenColor and PenWidth of the links); Links/Mode_rel
 	// shows them as a theme, with a legend.
 	unit<uint8> Modes := /Classifications/GTFS_Modes/Selection
 	{
@@ -36,53 +36,53 @@ container OD_PairRoutes : using = "units;Geography;ModelParameters", Descr = "Th
 
 	// The chart: a series per group of options by what they need, a car (NeedsCar) and a bike (NeedsBike), the criteria Car and Bike of
 	// MergeCriteria. A Scatter Chart colours a point by the class of its Y value, not by another attribute; that is why each group has its
-	// own series, whose Prijs has a classification of one class in the colour of the group (Reeks_T).
-	unit<uint8> Gebruik : nrofrows = 4, Descr = "The groups of options by the use of a car and a bike, with their colour in the chart."
+	// own series, whose Prijs has a classification of one class in the colour of the group (Series_T).
+	unit<uint8> Usage : nrofrows = 4, Descr = "The groups of options by the use of a car and a bike, with their colour in the chart."
 	{
 		attribute<string> name        : ['ZonderAutoFiets', 'MetFiets', 'MetAuto', 'MetAutoFiets'];
 		attribute<string> label       : ['zonder auto of fiets', 'met fiets', 'met auto', 'met auto en fiets'];
 		attribute<uint32> SymbolColor : [rgb(225, 150, 0), rgb(120, 50, 225), rgb(0, 90, 200), rgb(0, 150, 150)], DialogType = "SymbolColor", Descr = "As on the map: orange for walking and public transport, purple for the bike, blue for the car.";
 		container V := for_each_nedv(name, String(ID(.))+'[..]', void, .);
 	}
-	unit<uint32> MomentGroep := combine_unit_uint32(Momenten, Gebruik), Descr = "The series of the chart of Samen, one per departure moment and group; those of one moment are next to each other."
+	unit<uint32> MomentGroup := combine_unit_uint32(Moments, Usage), Descr = "The series of the chart of Combined, one per departure moment and group; those of one moment are next to each other."
 	{
-		attribute<Momenten> Moment_rel := first_rel(id(.));
-		attribute<Gebruik>  Groep_rel  := second_rel(id(.));
-		attribute<string>   name       := Momenten/name[Moment_rel] + '_' + Gebruik/name[Groep_rel];
+		attribute<Moments> Moment_rel := first_rel(id(.));
+		attribute<Usage>  Group_rel  := second_rel(id(.));
+		attribute<string>   name       := Moments/name[Moment_rel] + '_' + Usage/name[Group_rel];
 	}
 	// A series is a front: the options of one group and departure moment, ordered by travel time, so that the line of the chart (Points +
 	// Line, in the order of the rows) connects them from fast and expensive to slow and cheap.
-	Template Reeks_T
+	Template Series_T
 	{
-		unit<uint32>        Bron;
-		parameter<Gebruik>  Groep;
-		parameter<Momenten> Moment;
+		unit<uint32>        Src;
+		parameter<Usage>  Group;
+		parameter<Moments> Moment;
 		///
-		unit<uint32> Keuze := select_with_org_rel(Bron/Gebruik_rel == Groep && Bron/Moment_rel == Moment)
+		unit<uint32> Chosen := select_with_org_rel(Src/Usage_rel == Group && Src/Moment_rel == Moment)
 		{
-			attribute<float32> Reistijd := Bron/Reistijd[org_rel];
+			attribute<float32> Reistijd := Src/Reistijd[org_rel];
 		}
-		unit<uint32> Punten := range(uint32, 0, #Keuze), Descr = "The options of the group Groep and the departure moment Moment, ordered by travel time."
+		unit<uint32> Points := range(uint32, 0, #Chosen), Descr = "The options of the group Group and the departure moment Moment, ordered by travel time."
 		{
-			attribute<Bron>    org_rel  := Keuze/org_rel[union_data(., index(Keuze/Reistijd))];
-			attribute<float32> Reistijd := Bron/Reistijd[org_rel], DialogType = "XAxis", Descr = "In minutes, the X axis of the Scatter Chart of Prijs.";
-			attribute<float32> Prijs    := Bron/Prijs[org_rel], cdf = "Klasse/ClassBreaks", Descr = "In euro, in the colour of the group; open the Scatter Chart of this attribute and drag the Prijs of the other groups onto it.";
-			attribute<string>  label    := Bron/label[org_rel];
-			unit<uint8> Klasse : nrofrows = 1
+			attribute<Src>    org_rel  := Chosen/org_rel[union_data(., index(Chosen/Reistijd))];
+			attribute<float32> Reistijd := Src/Reistijd[org_rel], DialogType = "XAxis", Descr = "In minutes, the X axis of the Scatter Chart of Prijs.";
+			attribute<float32> Prijs    := Src/Prijs[org_rel], cdf = "Classes/ClassBreaks", Descr = "In euro, in the colour of the group; open the Scatter Chart of this attribute and drag the Prijs of the other groups onto it.";
+			attribute<string>  label    := Src/label[org_rel];
+			unit<uint8> Classes : nrofrows = 1
 			{
 				attribute<float32> ClassBreaks : [0], DialogType = "Classification";
-				attribute<uint32>  SymbolColor := const(Gebruik/SymbolColor[Groep], .), DialogType = "SymbolColor";
-				attribute<string>  Label       := const(Gebruik/label[Groep], .);
+				attribute<uint32>  SymbolColor := const(Usage/SymbolColor[Group], .), DialogType = "SymbolColor";
+				attribute<string>  Label       := const(Usage/label[Group], .);
 			}
 		}
 	}
 
 	// A gpkg of one component and one departure moment.
-	Template Lees_T
+	Template Read_T
 	{
-		parameter<string> Bestand;
+		parameter<string> FileName;
 		///
-		container gpkg : StorageName = "=Bestand", StorageType = "gdal.vect", StorageReadOnly = "true"
+		container gpkg : StorageName = "=FileName", StorageType = "gdal.vect", StorageReadOnly = "true"
 		{
 			unit<uint32> od_opties
 			{
@@ -125,159 +125,159 @@ container OD_PairRoutes : using = "units;Geography;ModelParameters", Descr = "Th
 	// A component: the departure moments together, with the option per moment (Optie).
 	Template Component_T
 	{
-		parameter<string> Naam;
-		parameter<string> Achtervoegsel;
+		parameter<string> CompName;
+		parameter<string> Suffix;
 		///
-		container PerMoment := for_each_ne(Momenten/name, 'Lees_T(' + quote(Map + Achtervoegsel + '/PerBlock/od_') + ' + ' + quote(Momenten/Kort) + ' + ''.gpkg'')');
-		unit<uint32> Opties := ='union_unit(' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_opties') + ')'
+		container PerMoment := for_each_ne(Moments/name, 'Read_T(' + quote(Map + Suffix + '/PerBlock/od_') + ' + ' + quote(Moments/Short) + ' + ''.gpkg'')');
+		unit<uint32> Options := ='union_unit(' + AsItemList('PerMoment/' + Moments/name + '/gpkg/od_opties') + ')'
 		{
-			attribute<Momenten> Moment_rel := ='union_data(., ' + AsItemList('const(' + string(id(Momenten)) + '[Momenten], PerMoment/' + Momenten/name + '/gpkg/od_opties)') + ')';
-			attribute<uint32>   Optie      := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_opties/Optie') + ')';
-			attribute<string>   Component  := const(Naam, .);
-			attribute<string>   Vertrek    := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_opties/Vertrek') + ')';
-			attribute<float32>  Reistijd   := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_opties/Reistijd') + ')', Descr = "In minutes.";
-			attribute<float32>  Prijs      := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_opties/Prijs') + ')', Descr = "In euro.";
-			attribute<string>   ModeUsed   := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_opties/ModeUsed') + ')';
-			attribute<string>   label      := Naam + ' ' + string(Optie) + ' ' + Vertrek + ' ' + ModeUsed;
-			attribute<Gebruik>  Gebruik_rel := const(Groep, .);
+			attribute<Moments> Moment_rel := ='union_data(., ' + AsItemList('const(' + string(id(Moments)) + '[Moments], PerMoment/' + Moments/name + '/gpkg/od_opties)') + ')';
+			attribute<uint32>   Optie      := ='union_data(., ' + AsItemList('PerMoment/' + Moments/name + '/gpkg/od_opties/Optie') + ')';
+			attribute<string>   Component  := const(CompName, .);
+			attribute<string>   Vertrek    := ='union_data(., ' + AsItemList('PerMoment/' + Moments/name + '/gpkg/od_opties/Vertrek') + ')';
+			attribute<float32>  Reistijd   := ='union_data(., ' + AsItemList('PerMoment/' + Moments/name + '/gpkg/od_opties/Reistijd') + ')', Descr = "In minutes.";
+			attribute<float32>  Prijs      := ='union_data(., ' + AsItemList('PerMoment/' + Moments/name + '/gpkg/od_opties/Prijs') + ')', Descr = "In euro.";
+			attribute<string>   ModeUsed   := ='union_data(., ' + AsItemList('PerMoment/' + Moments/name + '/gpkg/od_opties/ModeUsed') + ')';
+			attribute<string>   label      := CompName + ' ' + string(Optie) + ' ' + Vertrek + ' ' + ModeUsed;
+			attribute<Usage>  Usage_rel := const(Group, .);
 		}
-		parameter<bool>    NeedsCar  := Comps/NeedsCar[rlookup(Naam, Comps/name)];
-		parameter<bool>    NeedsBike := Comps/NeedsBike[rlookup(Naam, Comps/name)];
-		parameter<Gebruik> Groep     := NeedsCar ? (NeedsBike ? Gebruik/V/MetAutoFiets : Gebruik/V/MetAuto) : (NeedsBike ? Gebruik/V/MetFiets : Gebruik/V/ZonderAutoFiets);
-		unit<uint32> Onderdelen_Bron := ='union_unit(' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_onderdelen') + ')'
+		parameter<bool>    NeedsCar  := Comps/NeedsCar[rlookup(CompName, Comps/name)];
+		parameter<bool>    NeedsBike := Comps/NeedsBike[rlookup(CompName, Comps/name)];
+		parameter<Usage> Group     := NeedsCar ? (NeedsBike ? Usage/V/MetAutoFiets : Usage/V/MetAuto) : (NeedsBike ? Usage/V/MetFiets : Usage/V/ZonderAutoFiets);
+		unit<uint32> Parts_Src := ='union_unit(' + AsItemList('PerMoment/' + Moments/name + '/gpkg/od_onderdelen') + ')'
 		,	Descr = "The parts in the order of the gpkg: per departure moment first the direct trips and the pre-transport legs, then the public transport legs and the transfers, and the post-transport."
 		{
-			attribute<Momenten> Moment_rel := ='union_data(., ' + AsItemList('const(' + string(id(Momenten)) + '[Momenten], PerMoment/' + Momenten/name + '/gpkg/od_onderdelen)') + ')';
-			attribute<uint32>   Optie      := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_onderdelen/Optie') + ')';
-			attribute<uint32>   Volgnr     := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_onderdelen/Volgnr') + ')';
-			attribute<string>   Soort      := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_onderdelen/Soort') + ')';
-			attribute<string>   Modaliteit := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_onderdelen/Modaliteit') + ')';
-			attribute<string>   Lijn       := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_onderdelen/Lijn') + ')';
-			attribute<string>   Vervoerder := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_onderdelen/Vervoerder') + ')';
-			attribute<string>   Van        := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_onderdelen/Van') + ')';
-			attribute<string>   Naar       := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_onderdelen/Naar') + ')';
-			attribute<string>   Vertrek    := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_onderdelen/Vertrek') + ')';
-			attribute<string>   Aankomst   := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_onderdelen/Aankomst') + ')';
-			attribute<float32>  Minuten    := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_onderdelen/Minuten') + ')';
-			attribute<uint32>   Afstand_m  := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_onderdelen/Afstand_m') + ')';
-			attribute<float32>  Prijs      := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_onderdelen/Prijs') + ')';
-			attribute<MomentOptieVolgnr> Volgorde := combine_data(MomentOptieVolgnr, Moment_rel, value(Optie, OptieNrs), value(Volgnr, Volgnrs));
+			attribute<Moments> Moment_rel := ='union_data(., ' + AsItemList('const(' + string(id(Moments)) + '[Moments], PerMoment/' + Moments/name + '/gpkg/od_onderdelen)') + ')';
+			attribute<uint32>   Optie      := ='union_data(., ' + AsItemList('PerMoment/' + Moments/name + '/gpkg/od_onderdelen/Optie') + ')';
+			attribute<uint32>   Volgnr     := ='union_data(., ' + AsItemList('PerMoment/' + Moments/name + '/gpkg/od_onderdelen/Volgnr') + ')';
+			attribute<string>   Soort      := ='union_data(., ' + AsItemList('PerMoment/' + Moments/name + '/gpkg/od_onderdelen/Soort') + ')';
+			attribute<string>   Modaliteit := ='union_data(., ' + AsItemList('PerMoment/' + Moments/name + '/gpkg/od_onderdelen/Modaliteit') + ')';
+			attribute<string>   Lijn       := ='union_data(., ' + AsItemList('PerMoment/' + Moments/name + '/gpkg/od_onderdelen/Lijn') + ')';
+			attribute<string>   Vervoerder := ='union_data(., ' + AsItemList('PerMoment/' + Moments/name + '/gpkg/od_onderdelen/Vervoerder') + ')';
+			attribute<string>   Van        := ='union_data(., ' + AsItemList('PerMoment/' + Moments/name + '/gpkg/od_onderdelen/Van') + ')';
+			attribute<string>   Naar       := ='union_data(., ' + AsItemList('PerMoment/' + Moments/name + '/gpkg/od_onderdelen/Naar') + ')';
+			attribute<string>   Vertrek    := ='union_data(., ' + AsItemList('PerMoment/' + Moments/name + '/gpkg/od_onderdelen/Vertrek') + ')';
+			attribute<string>   Aankomst   := ='union_data(., ' + AsItemList('PerMoment/' + Moments/name + '/gpkg/od_onderdelen/Aankomst') + ')';
+			attribute<float32>  Minuten    := ='union_data(., ' + AsItemList('PerMoment/' + Moments/name + '/gpkg/od_onderdelen/Minuten') + ')';
+			attribute<uint32>   Afstand_m  := ='union_data(., ' + AsItemList('PerMoment/' + Moments/name + '/gpkg/od_onderdelen/Afstand_m') + ')';
+			attribute<float32>  Prijs      := ='union_data(., ' + AsItemList('PerMoment/' + Moments/name + '/gpkg/od_onderdelen/Prijs') + ')';
+			attribute<MomentOptionSeqNr> SortKey := combine_data(MomentOptionSeqNr, Moment_rel, value(Optie, OptionNrs), value(Volgnr, SeqNrs));
 		}
-		unit<uint32> Onderdelen := range(uint32, 0, #Onderdelen_Bron), Descr = "The journey description: per departure moment and option the parts in the order of the journey (Volgnr)."
+		unit<uint32> Parts := range(uint32, 0, #Parts_Src), Descr = "The journey description: per departure moment and option the parts in the order of the journey (Volgnr)."
 		{
-			attribute<Onderdelen_Bron> org_rel := union_data(., index(Onderdelen_Bron/Volgorde));
-			attribute<Momenten> Moment_rel := Onderdelen_Bron/Moment_rel[org_rel];
-			attribute<uint32>   Optie      := Onderdelen_Bron/Optie[org_rel];
-			attribute<uint32>   Volgnr     := Onderdelen_Bron/Volgnr[org_rel];
-			attribute<string>   Soort      := Onderdelen_Bron/Soort[org_rel];
-			attribute<string>   Modaliteit := Onderdelen_Bron/Modaliteit[org_rel];
-			attribute<string>   Lijn       := Onderdelen_Bron/Lijn[org_rel];
-			attribute<string>   Vervoerder := Onderdelen_Bron/Vervoerder[org_rel];
-			attribute<string>   Van        := Onderdelen_Bron/Van[org_rel];
-			attribute<string>   Naar       := Onderdelen_Bron/Naar[org_rel];
-			attribute<string>   Vertrek    := Onderdelen_Bron/Vertrek[org_rel];
-			attribute<string>   Aankomst   := Onderdelen_Bron/Aankomst[org_rel];
-			attribute<float32>  Minuten    := Onderdelen_Bron/Minuten[org_rel];
-			attribute<uint32>   Afstand_m  := Onderdelen_Bron/Afstand_m[org_rel];
-			attribute<float32>  Prijs      := Onderdelen_Bron/Prijs[org_rel];
+			attribute<Parts_Src> org_rel := union_data(., index(Parts_Src/SortKey));
+			attribute<Moments> Moment_rel := Parts_Src/Moment_rel[org_rel];
+			attribute<uint32>   Optie      := Parts_Src/Optie[org_rel];
+			attribute<uint32>   Volgnr     := Parts_Src/Volgnr[org_rel];
+			attribute<string>   Soort      := Parts_Src/Soort[org_rel];
+			attribute<string>   Modaliteit := Parts_Src/Modaliteit[org_rel];
+			attribute<string>   Lijn       := Parts_Src/Lijn[org_rel];
+			attribute<string>   Vervoerder := Parts_Src/Vervoerder[org_rel];
+			attribute<string>   Van        := Parts_Src/Van[org_rel];
+			attribute<string>   Naar       := Parts_Src/Naar[org_rel];
+			attribute<string>   Vertrek    := Parts_Src/Vertrek[org_rel];
+			attribute<string>   Aankomst   := Parts_Src/Aankomst[org_rel];
+			attribute<float32>  Minuten    := Parts_Src/Minuten[org_rel];
+			attribute<uint32>   Afstand_m  := Parts_Src/Afstand_m[org_rel];
+			attribute<float32>  Prijs      := Parts_Src/Prijs[org_rel];
 		}
-		unit<uint32> Links := ='union_unit(' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_links') + ')'
+		unit<uint32> Links := ='union_unit(' + AsItemList('PerMoment/' + Moments/name + '/gpkg/od_links') + ')'
 		{
-			attribute<Momenten> Moment_rel := ='union_data(., ' + AsItemList('const(' + string(id(Momenten)) + '[Momenten], PerMoment/' + Momenten/name + '/gpkg/od_links)') + ')';
-			attribute<uint32>   Optie      := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_links/Optie') + ')';
-			attribute<uint32>   Onderdeel  := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_links/Onderdeel') + ')';
-			attribute<uint32>   Volgnr     := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_links/Volgnr') + ')';
-			attribute<string>   Modaliteit := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_links/Modaliteit') + ')';
-			attribute<rdc>      geometry (arc) := ='union_data(., ' + AsItemList('PerMoment/' + Momenten/name + '/gpkg/od_links/geometry') + ')';
-			attribute<Modes>    Modaliteit_rel := rlookup(Modaliteit, Modes/name);
-			attribute<uint32>   PenColor   := Modes/PenColor[Modaliteit_rel], DialogType = "PenColor";
-			attribute<int16>    PenWidth   := Modes/PenWidth[Modaliteit_rel], DialogType = "PenWidth";
+			attribute<Moments> Moment_rel := ='union_data(., ' + AsItemList('const(' + string(id(Moments)) + '[Moments], PerMoment/' + Moments/name + '/gpkg/od_links)') + ')';
+			attribute<uint32>   Optie      := ='union_data(., ' + AsItemList('PerMoment/' + Moments/name + '/gpkg/od_links/Optie') + ')';
+			attribute<uint32>   Onderdeel  := ='union_data(., ' + AsItemList('PerMoment/' + Moments/name + '/gpkg/od_links/Onderdeel') + ')';
+			attribute<uint32>   Volgnr     := ='union_data(., ' + AsItemList('PerMoment/' + Moments/name + '/gpkg/od_links/Volgnr') + ')';
+			attribute<string>   Modaliteit := ='union_data(., ' + AsItemList('PerMoment/' + Moments/name + '/gpkg/od_links/Modaliteit') + ')';
+			attribute<rdc>      geometry (arc) := ='union_data(., ' + AsItemList('PerMoment/' + Moments/name + '/gpkg/od_links/geometry') + ')';
+			attribute<Modes>    Mode_rel := rlookup(Modaliteit, Modes/name);
+			attribute<uint32>   PenColor   := Modes/PenColor[Mode_rel], DialogType = "PenColor";
+			attribute<int16>    PenWidth   := Modes/PenWidth[Mode_rel], DialogType = "PenWidth";
 		}
-		container Kaart
+		container MapView
 		{
-			unit<uint32> Optie := select_with_org_rel(OD_Option == 0 || Links/Optie == OD_Option), Descr = "The links of ModelParameters/OD_Option (0: all).";
-			attribute<rdc>    geometry (arc, Optie) := Links/geometry[Optie/org_rel];
-			attribute<string> Modaliteit   (Optie) := Links/Modaliteit[Optie/org_rel];
-			attribute<Modes>  Modaliteit_rel (Optie) := Links/Modaliteit_rel[Optie/org_rel];
-			attribute<uint32> PenColor     (Optie) := Links/PenColor[Optie/org_rel], DialogType = "PenColor";
-			attribute<int16>  PenWidth     (Optie) := Links/PenWidth[Optie/org_rel], DialogType = "PenWidth";
+			unit<uint32> OptionLinks := select_with_org_rel(OD_Option == 0 || Links/Optie == OD_Option), Descr = "The links of ModelParameters/OD_Option (0: all).";
+			attribute<rdc>    geometry (arc, OptionLinks) := Links/geometry[OptionLinks/org_rel];
+			attribute<string> Modaliteit   (OptionLinks) := Links/Modaliteit[OptionLinks/org_rel];
+			attribute<Modes>  Mode_rel (OptionLinks) := Links/Mode_rel[OptionLinks/org_rel];
+			attribute<uint32> PenColor     (OptionLinks) := Links/PenColor[OptionLinks/org_rel], DialogType = "PenColor";
+			attribute<int16>  PenWidth     (OptionLinks) := Links/PenWidth[OptionLinks/org_rel], DialogType = "PenWidth";
 		}
-		container Grafiek := for_each_ne(Momenten/name, 'Reeks_T(Opties, Groep, ' + string(id(Momenten)) + '[Momenten])');
+		container Chart := for_each_ne(Moments/name, 'Series_T(Options, Group, ' + string(id(Moments)) + '[Moments])');
 	}
 	container PerComponent := for_each_ne(Comps/name, 'Component_T(' + quote(Comps/name) + ', ' + quote(Comps/OutputSuffix) + ')'), Descr = "The output of every component in MergeComponents, read back per departure moment.";
 	unit<uint8> Comps_Er := Comps;
 
-	container Samen : Descr = "The options of all components merged per departure moment into one front, as ComponentMerge does, with their links and chart."
+	container Combined : Descr = "The options of all components merged per departure moment into one front, as ComponentMerge does, with their links and chart."
 	{
-		unit<uint32> Kandidaten := ='union_unit(' + AsItemList('PerComponent/' + Comps_Er/name + '/Opties') + ')'
+		unit<uint32> Candidates := ='union_unit(' + AsItemList('PerComponent/' + Comps_Er/name + '/Options') + ')'
 		{
-			attribute<Comps_Er> Comp_rel   := ='union_data(., ' + AsItemList('const(' + string(id(Comps_Er)) + '[Comps_Er], PerComponent/' + Comps_Er/name + '/Opties)') + ')';
+			attribute<Comps_Er> Comp_rel   := ='union_data(., ' + AsItemList('const(' + string(id(Comps_Er)) + '[Comps_Er], PerComponent/' + Comps_Er/name + '/Options)') + ')';
 			attribute<string>   Component  := Comps_Er/name[Comp_rel];
-			attribute<Momenten> Moment_rel := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Opties/Moment_rel') + ')';
-			attribute<uint32>   Optie      := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Opties/Optie') + ')';
-			attribute<string>   Vertrek    := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Opties/Vertrek') + ')';
-			attribute<float32>  Reistijd   := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Opties/Reistijd') + ')';
-			attribute<float32>  Prijs      := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Opties/Prijs') + ')';
-			attribute<string>   ModeUsed   := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Opties/ModeUsed') + ')';
+			attribute<Moments> Moment_rel := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Options/Moment_rel') + ')';
+			attribute<uint32>   Optie      := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Options/Optie') + ')';
+			attribute<string>   Vertrek    := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Options/Vertrek') + ')';
+			attribute<float32>  Reistijd   := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Options/Reistijd') + ')';
+			attribute<float32>  Prijs      := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Options/Prijs') + ')';
+			attribute<string>   ModeUsed   := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Options/ModeUsed') + ')';
 			attribute<bool>     NeedsCar   := Comps_Er/NeedsCar[Comp_rel];
 			attribute<bool>     NeedsBike  := Comps_Er/NeedsBike[Comp_rel];
 			// The criteria of the merge (MergeCriteria), as in NetworkSetup/ComponentMerge: price and time in Ct and s.
 			attribute<Ct>       Price_ct   := rounded_convert(Prijs[Euro], Ct);
 			attribute<s>        Time_s     := rounded_convert(Reistijd[min_f], s);
-			parameter<bool>     MetPrijs   := IsDefined(strpos(lowercase(MergeCriteria), 'price'));
-			parameter<bool>     MetTijd    := IsDefined(strpos(lowercase(MergeCriteria), 'time'));
-			parameter<bool>     MetAuto    := IsDefined(strpos(lowercase(MergeCriteria), 'car'));
-			parameter<bool>     MetFiets   := IsDefined(strpos(lowercase(MergeCriteria), 'bike'));
+			parameter<bool>     WithPrice   := IsDefined(strpos(lowercase(MergeCriteria), 'price'));
+			parameter<bool>     WithTime    := IsDefined(strpos(lowercase(MergeCriteria), 'time'));
+			parameter<bool>     WithCar    := IsDefined(strpos(lowercase(MergeCriteria), 'car'));
+			parameter<bool>     WithBike   := IsDefined(strpos(lowercase(MergeCriteria), 'bike'));
 			// pareto_optimal_eps(group, crit1, crit2, eps2, ...): the first criterion and a bool have no epsilon (Classifications/OutputParetoAttr/ParetoArgs).
 			attribute<bool>     keep       := = 'pareto_optimal_eps(Moment_rel'
-				+ (MetPrijs ? ', Price_ct' : '') + (MetTijd ? ', Time_s' + (MetPrijs ? ', /ModelParameters/Advanced/ChainParetoTimeEpsilon' : '') : '')
-				+ (MetAuto ? ', NeedsCar' : '') + (MetFiets ? ', NeedsBike' : '') + ')';
+				+ (WithPrice ? ', Price_ct' : '') + (WithTime ? ', Time_s' + (WithPrice ? ', /ModelParameters/Advanced/ChainParetoTimeEpsilon' : '') : '')
+				+ (WithCar ? ', NeedsCar' : '') + (WithBike ? ', NeedsBike' : '') + ')';
 		}
-		unit<uint32> Opties := select_with_org_rel(Kandidaten/keep)
+		unit<uint32> Options := select_with_org_rel(Candidates/keep)
 		{
-			attribute<string>   Component  := Kandidaten/Component[org_rel];
-			attribute<Momenten> Moment_rel := Kandidaten/Moment_rel[org_rel];
-			attribute<uint32>   Optie      := Kandidaten/Optie[org_rel], Descr = "The option in the output of the component.";
-			attribute<string>   Vertrek    := Kandidaten/Vertrek[org_rel];
-			attribute<float32>  Reistijd   := Kandidaten/Reistijd[org_rel];
-			attribute<float32>  Prijs      := Kandidaten/Prijs[org_rel];
-			attribute<string>   ModeUsed   := Kandidaten/ModeUsed[org_rel];
+			attribute<string>   Component  := Candidates/Component[org_rel];
+			attribute<Moments> Moment_rel := Candidates/Moment_rel[org_rel];
+			attribute<uint32>   Optie      := Candidates/Optie[org_rel], Descr = "The option in the output of the component.";
+			attribute<string>   Vertrek    := Candidates/Vertrek[org_rel];
+			attribute<float32>  Reistijd   := Candidates/Reistijd[org_rel];
+			attribute<float32>  Prijs      := Candidates/Prijs[org_rel];
+			attribute<string>   ModeUsed   := Candidates/ModeUsed[org_rel];
 			attribute<string>   label      := Component + ' ' + string(Optie) + ' ' + Vertrek + ' ' + ModeUsed;
-			attribute<bool>     NeedsCar   := Kandidaten/NeedsCar[org_rel];
-			attribute<bool>     NeedsBike  := Kandidaten/NeedsBike[org_rel];
-			attribute<Gebruik>  Gebruik_rel := NeedsCar ? (NeedsBike ? Gebruik/V/MetAutoFiets : Gebruik/V/MetAuto) : (NeedsBike ? Gebruik/V/MetFiets : Gebruik/V/ZonderAutoFiets);
+			attribute<bool>     NeedsCar   := Candidates/NeedsCar[org_rel];
+			attribute<bool>     NeedsBike  := Candidates/NeedsBike[org_rel];
+			attribute<Usage>  Usage_rel := NeedsCar ? (NeedsBike ? Usage/V/MetAutoFiets : Usage/V/MetAuto) : (NeedsBike ? Usage/V/MetFiets : Usage/V/ZonderAutoFiets);
 		}
 		// The links of the chosen options, from the links of their component.
-		unit<uint32> Links := ='union_unit(' + AsItemList('Deel/' + Comps_Er/name + '/Sel') + ')'
+		unit<uint32> Links := ='union_unit(' + AsItemList('CompLinks/' + Comps_Er/name + '/Sel') + ')'
 		{
-			attribute<string>   Component  := ='union_data(., ' + AsItemList('const(' + quote(Comps_Er/name) + ', Deel/' + Comps_Er/name + '/Sel)') + ')';
-			attribute<uint32>   Optie      := ='union_data(., ' + AsItemList('Deel/' + Comps_Er/name + '/Sel/Optie') + ')';
-			attribute<string>   Modaliteit := ='union_data(., ' + AsItemList('Deel/' + Comps_Er/name + '/Sel/Modaliteit') + ')';
-			attribute<rdc>      geometry (arc) := ='union_data(., ' + AsItemList('Deel/' + Comps_Er/name + '/Sel/geometry') + ')';
-			attribute<Modes>    Modaliteit_rel := rlookup(Modaliteit, Modes/name);
-			attribute<uint32>   PenColor   := Modes/PenColor[Modaliteit_rel], DialogType = "PenColor";
-			attribute<int16>    PenWidth   := Modes/PenWidth[Modaliteit_rel], DialogType = "PenWidth";
+			attribute<string>   Component  := ='union_data(., ' + AsItemList('const(' + quote(Comps_Er/name) + ', CompLinks/' + Comps_Er/name + '/Sel)') + ')';
+			attribute<uint32>   Optie      := ='union_data(., ' + AsItemList('CompLinks/' + Comps_Er/name + '/Sel/Optie') + ')';
+			attribute<string>   Modaliteit := ='union_data(., ' + AsItemList('CompLinks/' + Comps_Er/name + '/Sel/Modaliteit') + ')';
+			attribute<rdc>      geometry (arc) := ='union_data(., ' + AsItemList('CompLinks/' + Comps_Er/name + '/Sel/geometry') + ')';
+			attribute<Modes>    Mode_rel := rlookup(Modaliteit, Modes/name);
+			attribute<uint32>   PenColor   := Modes/PenColor[Mode_rel], DialogType = "PenColor";
+			attribute<int16>    PenWidth   := Modes/PenWidth[Mode_rel], DialogType = "PenWidth";
 		}
-		container Deel := for_each_ne(Comps_Er/name, 'Deel_T(' + quote(Comps_Er/name) + ')');
-		Template Deel_T
+		container CompLinks := for_each_ne(Comps_Er/name, 'CompLinks_T(' + quote(Comps_Er/name) + ')');
+		Template CompLinks_T
 		{
-			parameter<string> Naam;
+			parameter<string> CompName;
 			///
-			unit<uint32> L := ='PerComponent/' + Naam + '/Links';
+			unit<uint32> L := ='PerComponent/' + CompName + '/Links';
 			// A link belongs to a chosen option when that option is of this component, with the same departure moment and number.
-			attribute<MomentOptie> Sleutel_L (L) := combine_data(MomentOptie, L/Moment_rel, value(L/Optie, OptieNrs));
-			attribute<bool>        IsGekozen (L) := IsDefined(rlookup(Sleutel_L, Gekozen/Sleutel));
-			unit<uint32> Gekozen := select_with_org_rel(Opties/Component == Naam)
+			attribute<MomentOption> Key_L (L) := combine_data(MomentOption, L/Moment_rel, value(L/Optie, OptionNrs));
+			attribute<bool>        IsChosen (L) := IsDefined(rlookup(Key_L, ChosenOptions/OptionKey));
+			unit<uint32> ChosenOptions := select_with_org_rel(Options/Component == CompName)
 			{
-				attribute<MomentOptie> Sleutel := combine_data(MomentOptie, Opties/Moment_rel[org_rel], value(Opties/Optie[org_rel], OptieNrs));
+				attribute<MomentOption> OptionKey := combine_data(MomentOption, Options/Moment_rel[org_rel], value(Options/Optie[org_rel], OptionNrs));
 			}
-			unit<uint32> Sel := select_with_org_rel(IsGekozen)
+			unit<uint32> Sel := select_with_org_rel(IsChosen)
 			{
 				attribute<uint32> Optie      := L/Optie[org_rel];
 				attribute<string> Modaliteit := L/Modaliteit[org_rel];
 				attribute<rdc>    geometry (arc) := L/geometry[org_rel];
 			}
 		}
-		container Grafiek := for_each_ne(MomentGroep/name, 'Reeks_T(Opties, ' + string(MomentGroep/Groep_rel) + '[Gebruik], ' + string(MomentGroep/Moment_rel) + '[Momenten])');
+		container Chart := for_each_ne(MomentGroup/name, 'Series_T(Options, ' + string(MomentGroup/Group_rel) + '[Usage], ' + string(MomentGroup/Moment_rel) + '[Moments])');
 	}
 }

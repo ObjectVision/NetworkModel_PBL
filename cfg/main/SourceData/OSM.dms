@@ -5,18 +5,18 @@ container OSM : using = "classifications/OSM", Descr = "The OpenStreetMap road n
 	parameter<string> date        := file_date == '20221201' ? '-221201' : file_date == '20240101' ? '-240101' : '-latest';
 	parameter<bool>   OSM_NL_prov := rjoin(ModelParameters/AnalysisMoment, ModelParameters/Advanced/AnalysisMomentPresets/name,ModelParameters/Advanced/AnalysisMomentPresets/OSM_NL_prov), Descr = "True when the OSM edition of the analysis moment is read per Dutch province instead of from one file.";     
 	
-	unit<uint32>      OSM_Regios  := =OSM_NL_prov ? 'ModelParameters/Advanced/OSM_impl/InProvincies' : 'ModelParameters/Advanced/OSM_impl/InEenBestand'
+	unit<uint32>      OSM_Regions  := =OSM_NL_prov ? 'ModelParameters/Advanced/OSM_impl/InProvinces' : 'ModelParameters/Advanced/OSM_impl/InOneFile'
 	, Descr = "The OSM regions to read, the Dutch provinces or one file, each with its country."
 	{
-		attribute<string>        label          := =OSM_NL_prov ? 'ModelParameters/Advanced/OSM_impl/InProvincies/label' : 'ModelParameters/Advanced/OSM_impl/InEenBestand/label';
-		attribute<string>        name           := =OSM_NL_prov ? 'ModelParameters/Advanced/OSM_impl/InProvincies/name' : 'ModelParameters/Advanced/OSM_impl/InEenBestand/name';
-		attribute<string>        Country        := =OSM_NL_prov ? 'ModelParameters/Advanced/OSM_impl/InProvincies/Country' : 'ModelParameters/Advanced/OSM_impl/InEenBestand/Country';
-		attribute<string>        Type_src       := =OSM_NL_prov ? 'ModelParameters/Advanced/OSM_impl/InProvincies/Type_src' : 'ModelParameters/Advanced/OSM_impl/InEenBestand/Type_src';
+		attribute<string>        label          := =OSM_NL_prov ? 'ModelParameters/Advanced/OSM_impl/InProvinces/label' : 'ModelParameters/Advanced/OSM_impl/InOneFile/label';
+		attribute<string>        name           := =OSM_NL_prov ? 'ModelParameters/Advanced/OSM_impl/InProvinces/name' : 'ModelParameters/Advanced/OSM_impl/InOneFile/name';
+		attribute<string>        Country        := =OSM_NL_prov ? 'ModelParameters/Advanced/OSM_impl/InProvinces/Country' : 'ModelParameters/Advanced/OSM_impl/InOneFile/Country';
+		attribute<string>        Type_src       := =OSM_NL_prov ? 'ModelParameters/Advanced/OSM_impl/InProvinces/Type_src' : 'ModelParameters/Advanced/OSM_impl/InOneFile/Type_src';
 		
-		attribute<bool>          IsOD_Regio      := Type_src == 'OD';
+		attribute<bool>          IsOD_Region      := Type_src == 'OD';
 		
 		
-		unit<uint32> OD_regios := select_with_org_rel(IsOD_Regio)
+		unit<uint32> OD_regions := select_with_org_rel(IsOD_Region)
 		{
 			attribute<string> name  := ../name[org_rel];
 			attribute<string> label := ../label[org_rel];
@@ -46,17 +46,17 @@ container OSM : using = "classifications/OSM", Descr = "The OpenStreetMap road n
 
 	container Prepare_SourceData :=
 		for_each_ne(
-			OSM_Regios/name
-			, 'Prepare_SourceData_T('+quote(OSM_Regios/label)+','+quote(OSM_Regios/country)+')'
+			OSM_Regions/name
+			, 'Prepare_SourceData_T('+quote(OSM_Regions/label)+','+quote(OSM_Regions/country)+')'
 		);
 	
 	Template Prepare_SourceData_T
 	{
-		parameter<string> Regio;
+		parameter<string> Region;
 		parameter<string> Country;
 		///
 		unit<uint32> Read_Roads_shp 
-		:	StorageName     = "= dir + '/'+Regio+''+date+'-free.shp/gis_osm_roads_free_1.shp'"
+		:	StorageName     = "= dir + '/'+Region+''+date+'-free.shp/gis_osm_roads_free_1.shp'"
 		,	StorageType     = "gdal.vect"
 		,	StorageReadOnly = "True"
 		,	DialogType = "Map"
@@ -87,8 +87,8 @@ container OSM : using = "classifications/OSM", Descr = "The OpenStreetMap road n
 	{
 		container Merge_Roads_perCountry :=
 			for_each_ne(
-				OSM_Regios/Countries/name
-				, 'Make_Merged_Roads_perCountry_T('+quote(OSM_Regios/Countries/name)+')'
+				OSM_Regions/Countries/name
+				, 'Make_Merged_Roads_perCountry_T('+quote(OSM_Regions/Countries/name)+')'
 			);
 
 		
@@ -96,14 +96,14 @@ container OSM : using = "classifications/OSM", Descr = "The OpenStreetMap road n
 		{
 			parameter<string> country_name;
 			//
-			unit<uint32> Country_regios := ='OSM_Regios/'+country_name;
-			unit<uint32>  Merge_CountryRegion_Roads := ='union_unit('+asList('Prepare_SourceData/'+Country_regios/name+'/Read_Roads_shp', ',')+')'
+			unit<uint32> Country_regions := ='OSM_Regions/'+country_name;
+			unit<uint32>  Merge_CountryRegion_Roads := ='union_unit('+asList('Prepare_SourceData/'+Country_regions/name+'/Read_Roads_shp', ',')+')'
 			{
-				attribute<rdc>                          geometry (arc)                   := ='union_data(., '+asList('Prepare_SourceData/'+Country_regios/name+'/Read_Roads_shp/geometry_rd', ',')+')';
-				attribute<km_hr>                        maxspeed_src                     := ='union_data(., '+asList('Prepare_SourceData/'+Country_regios/name+'/Read_Roads_shp/maxspeed[km_hr]', ',')+')';
-				attribute<roadType>                     roadType_rel                     := ='union_data(., '+asList('Prepare_SourceData/'+Country_regios/name+'/Read_Roads_shp/roadType_rel', ',')+')';
-				attribute<string>                       OSM_id                           := ='union_data(., '+asList('Prepare_SourceData/'+Country_regios/name+'/Read_Roads_shp/OSM_id', ',')+')';
-				attribute<bool>                         IsOneDirection                   := ='union_data(., '+asList('Prepare_SourceData/'+Country_regios/name+'/Read_Roads_shp/IsOneDirection', ',')+')';
+				attribute<rdc>                          geometry (arc)                   := ='union_data(., '+asList('Prepare_SourceData/'+Country_regions/name+'/Read_Roads_shp/geometry_rd', ',')+')';
+				attribute<km_hr>                        maxspeed_src                     := ='union_data(., '+asList('Prepare_SourceData/'+Country_regions/name+'/Read_Roads_shp/maxspeed[km_hr]', ',')+')';
+				attribute<roadType>                     roadType_rel                     := ='union_data(., '+asList('Prepare_SourceData/'+Country_regions/name+'/Read_Roads_shp/roadType_rel', ',')+')';
+				attribute<string>                       OSM_id                           := ='union_data(., '+asList('Prepare_SourceData/'+Country_regions/name+'/Read_Roads_shp/OSM_id', ',')+')';
+				attribute<bool>                         IsOneDirection                   := ='union_data(., '+asList('Prepare_SourceData/'+Country_regions/name+'/Read_Roads_shp/IsOneDirection', ',')+')';
 				
 				attribute<km_hr>                        rth_maxspeed_per_roadType         (classifications/OSM/roadType) := rth_element(maxspeed_src > 0[km_hr] && maxspeed_src < 140[km_hr] ? maxspeed_src : (0f/0f)[km_hr], ModelParameters/Advanced/OSM_MaxSpeedQuantile, roadType_rel), Descr = "Quantile of the tagged maxspeed per road type.";
 				attribute<km_hr>                        rth_maxspeed_per_roadType_Defined (classifications/OSM/roadType) := rth_maxspeed_per_roadType == 0[km_hr] ? ModelParameters/Advanced/CarDefaultSpeed_low : MakeDefined(rth_maxspeed_per_roadType, ModelParameters/Advanced/CarDefaultSpeed_low);
@@ -116,13 +116,13 @@ container OSM : using = "classifications/OSM", Descr = "The OpenStreetMap road n
 			}
 		}
 
-		unit<uint32>  Merge_Country_Roads := ='union_unit('+asList('Merge_Roads_perCountry/'+OSM_Regios/Countries/name+'/Merge_CountryRegion_Roads', ',')+')'
+		unit<uint32>  Merge_Country_Roads := ='union_unit('+asList('Merge_Roads_perCountry/'+OSM_Regions/Countries/name+'/Merge_CountryRegion_Roads', ',')+')'
 		{
-			attribute<rdc>                          geometry (arc)     := ='union_data(., '+asList('Merge_Roads_perCountry/'+OSM_Regios/Countries/name+'/Merge_CountryRegion_Roads/geometry', ',')+')';
-			attribute<km_hr>                        maxspeed           := ='union_data(., '+asList('Merge_Roads_perCountry/'+OSM_Regios/Countries/name+'/Merge_CountryRegion_Roads/maxspeed', ',')+')';
-			attribute<roadType>                     roadType_rel       := ='union_data(., '+asList('Merge_Roads_perCountry/'+OSM_Regios/Countries/name+'/Merge_CountryRegion_Roads/roadType_rel', ',')+')';
-			attribute<string>                       OSM_id             := ='union_data(., '+asList('Merge_Roads_perCountry/'+OSM_Regios/Countries/name+'/Merge_CountryRegion_Roads/OSM_id', ',')+')';
-			attribute<bool>                         IsOneDirection     := ='union_data(., '+asList('Merge_Roads_perCountry/'+OSM_Regios/Countries/name+'/Merge_CountryRegion_Roads/IsOneDirection', ',')+')';
+			attribute<rdc>                          geometry (arc)     := ='union_data(., '+asList('Merge_Roads_perCountry/'+OSM_Regions/Countries/name+'/Merge_CountryRegion_Roads/geometry', ',')+')';
+			attribute<km_hr>                        maxspeed           := ='union_data(., '+asList('Merge_Roads_perCountry/'+OSM_Regions/Countries/name+'/Merge_CountryRegion_Roads/maxspeed', ',')+')';
+			attribute<roadType>                     roadType_rel       := ='union_data(., '+asList('Merge_Roads_perCountry/'+OSM_Regions/Countries/name+'/Merge_CountryRegion_Roads/roadType_rel', ',')+')';
+			attribute<string>                       OSM_id             := ='union_data(., '+asList('Merge_Roads_perCountry/'+OSM_Regions/Countries/name+'/Merge_CountryRegion_Roads/OSM_id', ',')+')';
+			attribute<bool>                         IsOneDirection     := ='union_data(., '+asList('Merge_Roads_perCountry/'+OSM_Regions/Countries/name+'/Merge_CountryRegion_Roads/IsOneDirection', ',')+')';
 			
 		}
 	}
@@ -133,15 +133,15 @@ container OSM : using = "classifications/OSM", Descr = "The OpenStreetMap road n
 	// everything under the holder belongs to the store (ObjectVision/GeoDMS#1245). Storing these items is no alternative: values is a second copy
 	// of the geometry, and AddBikeCongestionSpeeds/Impl is the connect_info with all Fietstelweek dynapoints. Make_Final_Network keeps the name
 	// and the store, so that /MakeUnlinkedData/Step1_Sources/OSM_Network and Final_Network keep working unchanged.
-	unit<uint32> Final_Network_src := unique(NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/geometry)
+	unit<uint32> Final_Network_src := unique(NetworkPreperation/Network_with_extraconnections/ConnectedNetwork/geometry)
 	,	Descr = "The calculation side of the final OSM network (not stored); Make_Final_Network writes the attributes to keep from it to the mmd."
 	{
-		attribute<NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork> ConnectedNetwork_rel    := rlookup(geometry, NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/geometry);
+		attribute<NetworkPreperation/Network_with_extraconnections/ConnectedNetwork> ConnectedNetwork_rel    := rlookup(geometry, NetworkPreperation/Network_with_extraconnections/ConnectedNetwork/geometry);
 		attribute<rdc>                          geometry (arc) := values;
-		attribute<roadType>                      roadType_rel    := NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/roadType_rel[ConnectedNetwork_rel];
-		attribute<km_hr>                        maxspeed       := NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/maxspeed[ConnectedNetwork_rel];
-		attribute<string>                       OSM_id         := NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/OSM_id[ConnectedNetwork_rel];
-		attribute<bool>                         IsOneDirection := NetworkPreperation/Network_with_extraverbindingen/ConnectedNetwork/IsOneDirection[ConnectedNetwork_rel];
+		attribute<roadType>                      roadType_rel    := NetworkPreperation/Network_with_extraconnections/ConnectedNetwork/roadType_rel[ConnectedNetwork_rel];
+		attribute<km_hr>                        maxspeed       := NetworkPreperation/Network_with_extraconnections/ConnectedNetwork/maxspeed[ConnectedNetwork_rel];
+		attribute<string>                       OSM_id         := NetworkPreperation/Network_with_extraconnections/ConnectedNetwork/OSM_id[ConnectedNetwork_rel];
+		attribute<bool>                         IsOneDirection := NetworkPreperation/Network_with_extraconnections/ConnectedNetwork/IsOneDirection[ConnectedNetwork_rel];
 		
 		attribute<km_hr>                        congestion_speed_bike            := recollect_by_cond(roadType/isPartOfBikeNetwork[roadType_rel], AddBikeCongestionSpeeds/Impl/bike_speed_OSM);
 		
@@ -211,7 +211,7 @@ container OSM : using = "classifications/OSM", Descr = "The OpenStreetMap road n
 			unit<uint32> pointset : = union_unit(src,src)
 			{
 				attribute<rdc>       point       := union_data(., ../point, ../nextpoint);
-				attribute<bool>                 isVerbonden := isNull(rlookup(point, NodesNotConnected/point));
+				attribute<bool>                 IsInMainNetwork := isNull(rlookup(point, NodesNotConnected/point));
 				attribute<src>                   ArcNr       := value(ID(.) % #(src), src);
 			}
 			
@@ -236,7 +236,7 @@ container OSM : using = "classifications/OSM", Descr = "The OpenStreetMap road n
 			{
 				attribute<Geography/rdc> point := NodeSet/Values[org_rel];
 			}
-			attribute<bool> isVerbonden (src) := all(pointset/isVerbonden, pointset/ArcNr);
+			attribute<bool> IsInMainNetwork (src) := all(pointset/IsInMainNetwork, pointset/ArcNr);
 		}
 	}
 
@@ -265,7 +265,7 @@ container OSM : using = "classifications/OSM", Descr = "The OpenStreetMap road n
 		attribute<km_hr>                        speed_congested_noon_car         := MakeDefined(Final_Network/congestion_speed_NoonRush[org_rel], MaxSpeed_NoonRush > 0[km_hr] && speed_max_car > MaxSpeed_NoonRush ? MaxSpeed_NoonRush : speed_max_car);
 		attribute<km_hr>                        speed_congested_late_car         := MakeDefined(Final_Network/congestion_speed_LateEveningRush[org_rel], MaxSpeed_LateEveningRush > 0[km_hr] && speed_max_car > MaxSpeed_LateEveningRush ? MaxSpeed_LateEveningRush : speed_max_car);
 		
-		unit<uint32> isVerbonden := select_with_attr_by_cond(., Connectiveness/isVerbonden);
+		unit<uint32> MainNetwork := select_with_attr_by_cond(., Connectiveness/IsInMainNetwork);
 		
 		container Connectiveness
 		{
@@ -276,7 +276,7 @@ container OSM : using = "classifications/OSM", Descr = "The OpenStreetMap road n
 			unit<uint32> pointset : = union_unit(src,src)
 			{
 				attribute<Geography/rdc>       point       := union_data(., ../point, ../nextpoint);
-				attribute<bool>                 isVerbonden := isNull(rlookup(point, NodesNotConnected/point));
+				attribute<bool>                 IsInMainNetwork := isNull(rlookup(point, NodesNotConnected/point));
 				attribute<src>                  ArcNr       := value(ID(.) % #(src), src);
 			}
 			
@@ -301,7 +301,7 @@ container OSM : using = "classifications/OSM", Descr = "The OpenStreetMap road n
 			{
 				attribute<Geography/rdc> point := NodeSet/Values[org_rel];
 			}
-			attribute<bool> isVerbonden (src) := all(pointset/isVerbonden, pointset/ArcNr);
+			attribute<bool> IsInMainNetwork (src) := all(pointset/IsInMainNetwork, pointset/ArcNr);
 		}
 	}
 	unit<uint32> Network_Cycling := select_with_org_rel(Final_Network/isPartOfCyclingNetwork), Descr = "The OSM links that cyclists may use, with the Fietstelweek speed as the congested cycling speed."
@@ -324,7 +324,7 @@ container OSM : using = "classifications/OSM", Descr = "The OpenStreetMap road n
 		attribute<km_hr>                        speed_congested_noon_car         := const((0/0)[km_hr],.);
 		attribute<km_hr>                        speed_congested_late_car         := const((0/0)[km_hr],.);
 		
-		unit<uint32> isVerbonden := select_with_attr_by_cond(., Connectiveness/isVerbonden);
+		unit<uint32> MainNetwork := select_with_attr_by_cond(., Connectiveness/IsInMainNetwork);
 		
 		container Connectiveness
 		{
@@ -335,7 +335,7 @@ container OSM : using = "classifications/OSM", Descr = "The OpenStreetMap road n
 			unit<uint32> pointset : = union_unit(src,src)
 			{
 				attribute<Geography/rdc>       point       := union_data(., ../point, ../nextpoint);
-				attribute<bool>                 isVerbonden := isNull(rlookup(point, NodesNotConnected/point));
+				attribute<bool>                 IsInMainNetwork := isNull(rlookup(point, NodesNotConnected/point));
 				attribute<src>                   ArcNr       := value(ID(.) % #(src), src);
 			}
 			
@@ -360,7 +360,7 @@ container OSM : using = "classifications/OSM", Descr = "The OpenStreetMap road n
 			{
 				attribute<Geography/rdc> point := NodeSet/Values[org_rel];
 			}
-			attribute<bool> isVerbonden (src) := all(pointset/isVerbonden, pointset/ArcNr);
+			attribute<bool> IsInMainNetwork (src) := all(pointset/IsInMainNetwork, pointset/ArcNr);
 		}
 	}
 	unit<uint32> Network_Walking := select_with_org_rel(Final_Network/isPartOfWalkingNetwork), Descr = "The OSM links that pedestrians may use."
@@ -384,7 +384,7 @@ container OSM : using = "classifications/OSM", Descr = "The OpenStreetMap road n
 		attribute<km_hr>                        speed_congested_late_car         := const((0/0)[km_hr],.);
 		attribute<km_hr>                        speed_congested_pedestrian       := const((0/0)[km_hr],.);
 		
-		unit<uint32> isVerbonden := select_with_attr_by_cond(., Connectiveness/isVerbonden);	
+		unit<uint32> MainNetwork := select_with_attr_by_cond(., Connectiveness/IsInMainNetwork);	
 		
 		container Connectiveness
 		{
@@ -395,7 +395,7 @@ container OSM : using = "classifications/OSM", Descr = "The OpenStreetMap road n
 			unit<uint32> pointset : = union_unit(src,src)
 			{
 				attribute<Geography/rdc>       point       := union_data(., ../point, ../nextpoint);
-				attribute<bool>                 isVerbonden := isNull(rlookup(point, NodesNotConnected/point));
+				attribute<bool>                 IsInMainNetwork := isNull(rlookup(point, NodesNotConnected/point));
 				attribute<src>                   ArcNr       := value(ID(.) % #(src), src);
 			}
 			
@@ -420,11 +420,11 @@ container OSM : using = "classifications/OSM", Descr = "The OpenStreetMap road n
 			{
 				attribute<Geography/rdc> point := NodeSet/Values[org_rel];
 			}
-			attribute<bool> isVerbonden (src) := all(pointset/isVerbonden, pointset/ArcNr);
+			attribute<bool> IsInMainNetwork (src) := all(pointset/IsInMainNetwork, pointset/ArcNr);
 		}
 	}
 	
-	container OSM_Netwerken_Export 
+	container OSM_Networks_Export 
 	{
 		parameter<string> Generate := Car/Generate + Cycling/Generate + Walking/Generate;
 		

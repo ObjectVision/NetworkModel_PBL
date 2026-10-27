@@ -21,9 +21,9 @@ container NetworkPreperation : Descr = "Prepares the OSM road network: it cuts t
 			attribute<rdc> geometry (arc)  := points2sequence(pointset/point, pointset/ArcID, pointset/VolgNr);
 		}
 		
-		#include <ExtraVerbindingen.dms>
+		#include <ExtraConnections.dms>
 		
-		unit<uint32> road_segments_with_extra_nodes := connect(road_segments/geometry, ExtraVerbindingen/nodes/geometry)
+		unit<uint32> road_segments_with_extra_nodes := connect(road_segments/geometry, ExtraConnections/nodes/geometry)
 		{
 			attribute<roadType>           roadType_rel                      := MakeDefined(road_segments/roadType_rel[arc_rel], /Classifications/OSM/roadType/V/connectlink);
 			attribute<km_hr>             maxspeed                         := MakeDefined(road_segments/maxspeed[arc_rel], ModelParameters/Advanced/CarDefaultSpeed);
@@ -33,24 +33,24 @@ container NetworkPreperation : Descr = "Prepares the OSM road network: it cuts t
 		}
 	}
 	
-	unit<uint32> Network_with_extraverbindingen  := ='union_unit(preperation/road_segments_with_extra_nodes, preperation/ExtraVerbindingen/link)'
+	unit<uint32> Network_with_extraconnections  := ='union_unit(preperation/road_segments_with_extra_nodes, preperation/ExtraConnections/link)'
 	{
-		attribute<rdc>               geometry (arc)   := union_data(., preperation/road_segments_with_extra_nodes/geometry, preperation/ExtraVerbindingen/link/geometry);
-		attribute<roadType>           roadType_rel      := union_data(., preperation/road_segments_with_extra_nodes/roadType_rel,   preperation/ExtraVerbindingen/link/roadType_rel);
-		attribute<km_hr>             maxspeed         := union_data(., preperation/road_segments_with_extra_nodes/maxspeed,  preperation/ExtraVerbindingen/link/maxspeed);
-		attribute<string>            OSM_id           := union_data(., preperation/road_segments_with_extra_nodes/OSM_id,  const('',preperation/ExtraVerbindingen/link));
-		attribute<bool>              IsOneDirection   := union_data(., preperation/road_segments_with_extra_nodes/IsOneDirection,  const(FALSE,preperation/ExtraVerbindingen/link));
+		attribute<rdc>               geometry (arc)   := union_data(., preperation/road_segments_with_extra_nodes/geometry, preperation/ExtraConnections/link/geometry);
+		attribute<roadType>           roadType_rel      := union_data(., preperation/road_segments_with_extra_nodes/roadType_rel,   preperation/ExtraConnections/link/roadType_rel);
+		attribute<km_hr>             maxspeed         := union_data(., preperation/road_segments_with_extra_nodes/maxspeed,  preperation/ExtraConnections/link/maxspeed);
+		attribute<string>            OSM_id           := union_data(., preperation/road_segments_with_extra_nodes/OSM_id,  const('',preperation/ExtraConnections/link));
+		attribute<bool>              IsOneDirection   := union_data(., preperation/road_segments_with_extra_nodes/IsOneDirection,  const(FALSE,preperation/ExtraConnections/link));
 		attribute<rdc>               point            := first_point(geometry);
 		attribute<rdc>               nextpoint        := last_point(geometry);
 			
 		unit<uint32> pointset : = union_unit(., .)
 		{
 			attribute<rdc> point       := union_data(., ../point, ../nextpoint);
-			attribute<bool>                 isVerbonden := isNull(rlookup(point, NodesNotConnected/point));
+			attribute<bool>                 IsInMainNetwork := isNull(rlookup(point, NodesNotConnected/point));
 			attribute<..>                   ArcNr       := value(ID(.) % #(..), ..);
 		}
 
-		attribute<bool> isVerbonden := all(pointset/isVerbonden, pointset/ArcNr);
+		attribute<bool> IsInMainNetwork := all(pointset/IsInMainNetwork, pointset/ArcNr);
 
 		unit<uint32> NodeSet := unique(pointset/point)
 		,	DialogData = "Values"
@@ -74,6 +74,6 @@ container NetworkPreperation : Descr = "Prepares the OSM road network: it cuts t
 			attribute<rdc> point := NodeSet/Values[org_rel];
 		}
 		
-		unit<uint32> ConnectedNetwork := select_with_attr_by_cond(., isVerbonden); // the resulting connected road network
+		unit<uint32> ConnectedNetwork := select_with_attr_by_cond(., IsInMainNetwork); // the resulting connected road network
 	}
 }

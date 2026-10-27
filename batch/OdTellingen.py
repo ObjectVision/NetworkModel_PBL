@@ -5,7 +5,7 @@
 #
 # <output folder> is Output\<Analysis_date>_<OutputLabel> (with PerBlock\tt_<moment>_<n>of<N>.csv; older output has
 # tt_<date>_<moment>_<n>of<N>.csv). In a single request the output step makes these two files itself
-# (NetworkSetup/ConfigurationPerBlock/Generate_Output/OD_Tellingen); this script does the same for output calculated in
+# (NetworkSetup/ConfigurationPerBlock/Generate_Output/OD_Counts); this script does the same for output calculated in
 # portions and for older output, with the same rules and the same format:
 # - od_tellingen.csv: the rows per kind of option (all, public transport chain = ModeUsed with a '_', and the direct trips
 #   WW, CC and AA), per departure moment and in total;
@@ -16,7 +16,7 @@
 # over the moments. If one of the two files already exists, the script stops, unless --force is given.
 #
 # The model writes the counts per block itself, in the same request as the output, to Tellingen\tellingen_<n>of<N>.csv
-# (PublicTransport/Generate_Output/Traveltime_ForEachDepTime/Tellingen/File). If those files exist, this script only adds
+# (PublicTransport/Generate_Output/Traveltime_ForEachDepTime/Counts/File). If those files exist, this script only adds
 # them up and does not read the output, which can be parquet (ModelParameters/OutputFormat) and hundreds of GB. The adding
 # up happens here and not in the model, because the blocks are calculated in separate GeoDmsRuns (WriteOutputBlocks.ps1)
 # and a request for the sum would load the configuration again.

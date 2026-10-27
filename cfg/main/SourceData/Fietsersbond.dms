@@ -1,7 +1,7 @@
 // The route network of the Fietsersbond (routeplanner.fietsersbond.nl). The shapefiles are in RD New (EPSG:28992), so directly in rdc.
 //
 // links.shp and nodes.shp form a topological network: links/van_id and links/naar_id refer to nodes/id, so F1 and F2 follow with an rlookup
-// and no connect step is needed (a few links lack a node, see links/NrLinksZonderNode). The network has no measured cycling speeds (those are
+// and no connect step is needed (a few links lack a node, see links/NrLinksWithoutNode). The network has no measured cycling speeds (those are
 // in the Fietstelweek), but per link it has the cycling access per direction (toegang), road type, surface, quality, nuisance, lighting,
 // surroundings, gradient classes and the speed limit for cars.
 // The other shapefiles are POI layers (cycle junctions, bollards, ferries, obstacles and more), and the *_relations.txt files link them to the
@@ -74,7 +74,7 @@ container Fietsersbond
 		attribute<bool>    IsReversed        := toegang == 'terug', Descr = "Rideable only against the digitising direction, so a directed network must reverse F1 and F2 or the geometry.";
 		attribute<m>       length            := arc_length(geometry, m_f64)[m];
 
-		parameter<uint32>  NrLinksZonderNode := sum(uint32(!IsDefined(F1) || !IsDefined(F2)))
+		parameter<uint32>  NrLinksWithoutNode := sum(uint32(!IsDefined(F1) || !IsDefined(F2)))
 		,	Descr = "The number of links whose van_id or naar_id is missing in nodes.shp; Network_Cycling leaves them out.";
 	}
 
@@ -99,49 +99,49 @@ container Fietsersbond
 		attribute<string>  provincie;
 		attribute<int32>   NrOfLinks;
 
-		parameter<uint32>  NrZonderPositie   := sum(uint32(id < 0i))
+		parameter<uint32>  NrWithoutPosition   := sum(uint32(id < 0i))
 		,	Descr = "The number of nodes without a real position, recognised by a negative id; such a node lies at xy(0;0).";
 	}
 
 	// The cycling network of the model (#124), with the attributes of OSM/Network_Cycling, so that CreateNetwork_Efficient_T and the cycling legs
 	// work with it unchanged:
-	// - the links with cycling access and two known nodes; a ferry only up to Fietsersbond_MaxVeerpontLengte;
+	// - the links with cycling access and two known nodes; a ferry only up to Fietsersbond_MaxFerryLength;
 	// - one-way (toegang 'heen' or 'terug'): IsOneDirection, with the geometry in the direction of travel, so 'terug' reversed;
 	// - speed CyclingSpeed_kmhr and E_BikingSpeed_kmhr; lower on a ferry, so that the time over the link is length / speed +
-	//   Fietsersbond_VeerpontExtraTijd; there are no Fietstelweek speeds, so the rush hour speed is the free-flow speed;
+	//   Fietsersbond_FerryExtraTime; there are no Fietstelweek speeds, so the rush hour speed is the free-flow speed;
 	// - roadType_rel for the junction penalty (IsSlowTrafficRoad): 'ferry' for a ferry, 'tertiary' for a road with cars above 30 km/h,
 	//   'residential' for a road up to 30 km/h, 'cycleway' for the rest (cycle paths, pedestrian areas).
 	// The model builds the topology from the end points of the segments (arc2segm), not from van_id and naar_id. Where two nodes lie at the
 	// same place, or where intermediate points of different links coincide, the model connects them too, as with OSM.
 	attribute<bool> IsInNetwork (links) := links/IsBikeAccessible && IsDefined(links/F1) && IsDefined(links/F2)
-		&& (links/wegtype != 'veerpont' || links/length <= ModelParameters/Advanced/Fietsersbond_MaxVeerpontLengte);
+		&& (links/wegtype != 'veerpont' || links/length <= ModelParameters/Advanced/Fietsersbond_MaxFerryLength);
 
 	unit<uint32> Network_Cycling := select_with_org_rel(IsInNetwork)
 	{
 		attribute<rdc>      geometry_digitised (arc)     := collect_by_cond(., IsInNetwork, links/geometry), Descr = "In the digitising direction, from van_id to naar_id.";
 		attribute<string>   toegang                      := collect_by_cond(., IsInNetwork, links/toegang);
 		attribute<string>   wegtype                      := collect_by_cond(., IsInNetwork, links/wegtype);
-		attribute<uint32>   MaxSnelheidAuto              := uint32(MakeDefined(regex_search(collect_by_cond(., IsInNetwork, links/maxsnelheid), '[0-9]+'), '0')), Descr = "The first number in maxsnelheid ('stapvoets (15)' gives 15), or 0 without one.";
-		attribute<bool>     IsVeerpont                   := wegtype == 'veerpont';
-		attribute<bool>     IsWeg                        := wegtype == 'normale weg' || wegtype == 'weg met fiets(suggestie)strook' || wegtype == 'ventweg' || wegtype == 'fietsstraat' || wegtype == 'ONBEKEND', Descr = "A road with cars, not a cycle path or pedestrian area.";
+		attribute<uint32>   MaxSpeedCar              := uint32(MakeDefined(regex_search(collect_by_cond(., IsInNetwork, links/maxsnelheid), '[0-9]+'), '0')), Descr = "The first number in maxsnelheid ('stapvoets (15)' gives 15), or 0 without one.";
+		attribute<bool>     IsFerry                   := wegtype == 'veerpont';
+		attribute<bool>     IsRoad                        := wegtype == 'normale weg' || wegtype == 'weg met fiets(suggestie)strook' || wegtype == 'ventweg' || wegtype == 'fietsstraat' || wegtype == 'ONBEKEND', Descr = "A road with cars, not a cycle path or pedestrian area.";
 		attribute<bool>     IsReversed                   := toegang == 'terug';
 		unit<uint32> Points := sequence2points(geometry_digitised)
 		{
-			attribute<uint32> Ordinal_rijrichting := IsReversed[sequence_rel] ? pcount(sequence_rel)[sequence_rel] - 1 - ordinal : ordinal;
+			attribute<uint32> Ordinal_direction := IsReversed[sequence_rel] ? pcount(sequence_rel)[sequence_rel] - 1 - ordinal : ordinal;
 		}
-		attribute<rdc>      geometry (arc)               := points2sequence(Points/point, Points/sequence_rel, Points/Ordinal_rijrichting), Descr = "In the direction of travel: a link with toegang 'terug' is reversed.";
-		attribute<classifications/OSM/roadType> roadType_rel := IsVeerpont ? Classifications/OSM/roadType/V/ferry : IsWeg && MaxSnelheidAuto > 30 ? Classifications/OSM/roadType/V/tertiary : IsWeg ? Classifications/OSM/roadType/V/residential : Classifications/OSM/roadType/V/cycleway;
+		attribute<rdc>      geometry (arc)               := points2sequence(Points/point, Points/sequence_rel, Points/Ordinal_direction), Descr = "In the direction of travel: a link with toegang 'terug' is reversed.";
+		attribute<classifications/OSM/roadType> roadType_rel := IsFerry ? Classifications/OSM/roadType/V/ferry : IsRoad && MaxSpeedCar > 30 ? Classifications/OSM/roadType/V/tertiary : IsRoad ? Classifications/OSM/roadType/V/residential : Classifications/OSM/roadType/V/cycleway;
 		attribute<string>   OSM_id                       := 'fb' + string(collect_by_cond(., IsInNetwork, links/id)), Descr = "The link id of the Fietsersbond, under the name that OSM/Network_Cycling uses.";
 		attribute<string>   roadType_label               := Classifications/OSM/roadType/label[roadType_rel];
 		attribute<bool>     IsOneDirection               := toegang == 'heen' || toegang == 'terug';
-		attribute<bool>     Connectable                  := not(IsVeerpont), Descr = "Origins, destinations and stops do not attach to a ferry.";
+		attribute<bool>     Connectable                  := not(IsFerry), Descr = "Origins, destinations and stops do not attach to a ferry.";
 
 		attribute<km>       LengthKm                     := convert(collect_by_cond(., IsInNetwork, links/length), km);
-		attribute<min_f>    ExtraTijd                    := IsVeerpont ? ModelParameters/Advanced/Fietsersbond_VeerpontExtraTijd : 0[min_f];
+		attribute<min_f>    ExtraTime                    := IsFerry ? ModelParameters/Advanced/Fietsersbond_FerryExtraTime : 0[min_f];
 		attribute<km_hr>    speed_max_car                := const((0/0)[km_hr],.);
 		attribute<km_hr>    speed_max_limit_car          := const((0/0)[km_hr],.);
-		attribute<km_hr>    speed_max_cycling            := IsVeerpont ? LengthKm / convert(convert(LengthKm / ModelParameters/CyclingSpeed_kmhr, min_f) + ExtraTijd, hr_f) : const(ModelParameters/CyclingSpeed_kmhr, .);
-		attribute<km_hr>    speed_max_e_bike             := IsVeerpont ? LengthKm / convert(convert(LengthKm / ModelParameters/Advanced/E_BikingSpeed_kmhr, min_f) + ExtraTijd, hr_f) : const(ModelParameters/Advanced/E_BikingSpeed_kmhr, .);
+		attribute<km_hr>    speed_max_cycling            := IsFerry ? LengthKm / convert(convert(LengthKm / ModelParameters/CyclingSpeed_kmhr, min_f) + ExtraTime, hr_f) : const(ModelParameters/CyclingSpeed_kmhr, .);
+		attribute<km_hr>    speed_max_e_bike             := IsFerry ? LengthKm / convert(convert(LengthKm / ModelParameters/Advanced/E_BikingSpeed_kmhr, min_f) + ExtraTime, hr_f) : const(ModelParameters/Advanced/E_BikingSpeed_kmhr, .);
 		attribute<km_hr>    speed_max_walking            := const((0/0)[km_hr],.);
 		attribute<km_hr>    speed_congested_cycling      := speed_max_cycling, Descr = "There are no Fietstelweek speeds here, so this is the free-flow speed.";
 		attribute<km_hr>    speed_congested_e_bike       := speed_max_e_bike;
@@ -150,7 +150,7 @@ container Fietsersbond
 		attribute<km_hr>    speed_congested_late_car     := const((0/0)[km_hr],.);
 	}
 
-	unit<uint32> Fietsknooppunten
+	unit<uint32> CycleNodes
 	:	StorageName     = "= dir + '/knooppunt(Fietsknooppunten).shp'"
 	,	Descr           = "The cycle junctions of the route network."
 	,	StorageType     = "gdal.vect"

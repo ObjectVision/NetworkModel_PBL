@@ -129,10 +129,10 @@ container Classifications: Using = "Units"
 		attribute<string> NetworkType : ['Walking', 'Cycling'];
 	}
 	
-	unit<uint8> VN_ModeClasses := union_unit_uint8(/ModelParameters/Impl/OV_PreTransport_Typen,/ModelParameters/Impl/OV_PostTransport_Typen)
+	unit<uint8> VN_ModeClasses := union_unit_uint8(/ModelParameters/Impl/PT_PreTransport_Types,/ModelParameters/Impl/PT_PostTransport_Types)
 	{
-		attribute<string> name := union_data(., ModelParameters/Impl/OV_PreTransport_Typen/ExportName, ModelParameters/Impl/OV_PostTransport_Typen/ExportName);
-		attribute<TimeInvariantTypes> TimeInvariantTypes_rel := union_data(., ModelParameters/Impl/OV_PreTransport_Typen/TimeInvariantTypes_rel, ModelParameters/Impl/OV_PostTransport_Typen/TimeInvariantTypes_rel);
+		attribute<string> name := union_data(., ModelParameters/Impl/PT_PreTransport_Types/ExportName, ModelParameters/Impl/PT_PostTransport_Types/ExportName);
+		attribute<TimeInvariantTypes> TimeInvariantTypes_rel := union_data(., ModelParameters/Impl/PT_PreTransport_Types/TimeInvariantTypes_rel, ModelParameters/Impl/PT_PostTransport_Types/TimeInvariantTypes_rel);
 		attribute<bool>   NeedsBike := TimeInvariantTypes/NeedsOwnBike[TimeInvariantTypes_rel];
 		attribute<uq>     uq_rel    := rlookup(name, uq/values);
 
@@ -146,14 +146,14 @@ container Classifications: Using = "Units"
 	}
 
 	// The rows of the counts next to the public transport output: <OutputDir>/od_tellingen.csv and unieke_od_tellingen.csv, see
-	// NetworkSetup/ConfigurationPerBlock/Generate_Output/OD_Tellingen.
-	unit<uint8> OD_Tellingen_Soort : nrofrows = 5
+	// NetworkSetup/ConfigurationPerBlock/Generate_Output/OD_Counts.
+	unit<uint8> OD_Counts_Kind : nrofrows = 5
 	, Descr = "Rows of the public transport output per kind of option: all, a public transport chain (with pre- and post-transport), and the direct trips walking (WW), bike (CC) and car (AA)."
 	{
 		attribute<string> name  : ['alle', 'OV_keten', 'WW', 'CC', 'AA'];
 		attribute<string> label : ['alle', 'OV-keten', 'WW', 'CC', 'AA'];
 	}
-	unit<uint8> OD_Tellingen_Groep : nrofrows = 7
+	unit<uint8> OD_Counts_Group : nrofrows = 7
 	, Descr = "Unique OD pairs with at least one option of this kind, or with an option for this group of travellers: without a car (NeedsCar 0), and without a car and a bike (NeedsCar and NeedsBike 0)."
 	{
 		attribute<string> name  : ['alle', 'OV_keten', 'WW', 'CC', 'AA', 'zonder_auto', 'zonder_auto_en_fiets'];
@@ -297,16 +297,16 @@ container Classifications: Using = "Units"
 		// always stays, and a more expensive one only if it is more than ChainParetoTimeEpsilon faster than the fastest cheaper option that
 		// stays. Every option that drops out thus has a cheaper one that stays and is at most ChainParetoTimeEpsilon slower. Then the ownership
 		// criteria (OwnershipParetoAttr), exact.
-		attribute<string> Name               : [ 'Price', 'Price_augm', 'TravelTime']; // can be regulated here; the selection depends on MinimiseCriteria (IsCriteriaInLijst)
+		attribute<string> Name               : [ 'Price', 'Price_augm', 'TravelTime']; // can be regulated here; the selection depends on MinimiseCriteria (IsCriteriaInList)
 		attribute<string> FileNameElement    : [ 'Price', 'Price_augm', 'Time'];       // code for use in a composed file name 
 		attribute<string> EpsilonExpr        : [ '0.0', '0.0', '/ModelParameters/Advanced/ChainParetoTimeEpsilon' ], Descr = "Per criterion the relative epsilon for pareto_optimal_eps (GeoDMS #1282); the price comes first, and on the first criterion an epsilon has no effect, so 0.";
-		attribute<bool>   IsCriteriaInLijst  := IsDefined(strpos(lowercase(ModelParameters/Impl/IsMerged ? ModelParameters/MergeCriteria : ModelParameters/Advanced/MinimiseCriteria), lowercase(CandidateParetoAttr/FileNameElement))), Descr = "Does MinimiseCriteria, or MergeCriteria when merging, name this criterion, regardless of upper or lower case?"; 
-		parameter<bool>   IsBothPriceAndAugm := IsCriteriaInLijst[v/Price] && IsCriteriaInLijst[v/Price_augm];
+		attribute<bool>   IsCriteriaInList  := IsDefined(strpos(lowercase(ModelParameters/Impl/IsMerged ? ModelParameters/MergeCriteria : ModelParameters/Advanced/MinimiseCriteria), lowercase(CandidateParetoAttr/FileNameElement))), Descr = "Does MinimiseCriteria, or MergeCriteria when merging, name this criterion, regardless of upper or lower case?"; 
+		parameter<bool>   IsBothPriceAndAugm := IsCriteriaInList[v/Price] && IsCriteriaInList[v/Price_augm];
 		
 		attribute<bool>   IsFinalParetoSelection := switch(
 														  case(id(.) == v/Price && IsBothPriceAndAugm, FALSE)
-														, case(id(.) == v/Price && NOT(IsBothPriceAndAugm) && IsCriteriaInLijst, TRUE)
-														, IsCriteriaInLijst
+														, case(id(.) == v/Price && NOT(IsBothPriceAndAugm) && IsCriteriaInList, TRUE)
+														, IsCriteriaInList
 													);
 		
 		container V := for_each_nedv(name, String(ID(.))+'[..]', void, .);
@@ -329,10 +329,10 @@ container Classifications: Using = "Units"
 		attribute<string> CriteriaName      : [ 'Car', 'Bike' ], Descr = "The element in MinimiseCriteria.";
 		attribute<string> FileNameElement   : [ 'A', 'C' ], Descr = "The element in the signature of the output (PT_Output_ParamTag): the letter of car or bike in ModeUsed (NetworkModel_PBL#118).";
 		attribute<string> EpsilonExpr       : [ '', '' ], Descr = "Empty: a bool criterion has no epsilon in pareto_optimal_eps.";
-		attribute<bool>   IsCriteriaInLijst := IsDefined(strpos(lowercase(ModelParameters/Impl/IsMerged ? ModelParameters/MergeCriteria : ModelParameters/Advanced/MinimiseCriteria), lowercase(CriteriaName))), Descr = "Does MinimiseCriteria, or MergeCriteria when merging (MergeOutput), name the criterion?";
+		attribute<bool>   IsCriteriaInList := IsDefined(strpos(lowercase(ModelParameters/Impl/IsMerged ? ModelParameters/MergeCriteria : ModelParameters/Advanced/MinimiseCriteria), lowercase(CriteriaName))), Descr = "Does MinimiseCriteria, or MergeCriteria when merging (MergeOutput), name the criterion?";
 		attribute<bool>   IsRelevant        := union_data(., ModelParameters/Impl/AllowDirectCar, ModelParameters/Impl/IsMerged ? any(ModelParameters/Advanced/Components/InMerge && ModelParameters/Advanced/Components/NeedsBike) : ModelParameters/Impl/AllowDirectCycling || VN_ModeClasses/AnyNeedsBike)
 		,	Descr = "Can an option need a car or a bike: a car only for the direct car trip (there is no P+R pre-transport), a bike for the direct cycling route and for pre- or post-transport with an own bike; a criterion that is equal for all options does not change the front and is left out.";
-		attribute<bool>   IsSelected        := IsCriteriaInLijst && IsRelevant;
+		attribute<bool>   IsSelected        := IsCriteriaInList && IsRelevant;
 	}
 	unit<uint8> OwnershipParetoAttr := select_with_attr_by_cond(OwnershipParetoAttr_Candidates, OwnershipParetoAttr_Candidates/IsSelected);
 

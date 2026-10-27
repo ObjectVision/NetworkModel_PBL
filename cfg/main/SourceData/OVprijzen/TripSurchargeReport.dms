@@ -15,101 +15,101 @@ container TripSurchargeReport
 		unit<uint32> c_NS_start_end := /SourceData/Infrastructure/OVprijzen/NS/NS_TariffUnits_matrix/c_NS_start_end;
 		unit<uint32> Matrix         := /SourceData/Infrastructure/OVprijzen/NS/NS_TariffUnits_matrix/ODMatrix;
 
-		unit<uint32> Steekproef : nrofrows = 35, Descr = "Station pairs with the number of tariff units that NS charges (TE_NS), to check the tariff network of the model against.", Source = "NS tariff units from rijdendetreinen.nl (the first six pairs, 2026-10-01), 9292 (the pairs from asdz-hvsp, 2026-10-04), rijdendetreinen.nl, 9292 and ns.nl (the pairs from asd-gvc, 2026-10-23) and rijdendetreinen.nl (the pairs from gv-gvc, 2026-10-23)"
+		unit<uint32> Sample : nrofrows = 35, Descr = "Station pairs with the number of tariff units that NS charges (TE_NS), to check the tariff network of the model against.", Source = "NS tariff units from rijdendetreinen.nl (the first six pairs, 2026-10-01), 9292 (the pairs from asdz-hvsp, 2026-10-04), rijdendetreinen.nl, 9292 and ns.nl (the pairs from asd-gvc, 2026-10-23) and rijdendetreinen.nl (the pairs from gv-gvc, 2026-10-23)"
 		{
 			attribute<string>         org       : ['shl', 'asd', 'asdz', 'rtd', 'bd',  'hvs', 'asdz', 'asdz', 'hvsm', 'hvsp', 'hvsp', 'hvsp', 'ut',  'ut', 'ut',  'ut',  'ut',  'hvsp', 'asd', 'asd', 'asd', 'asd',  'hlm', 'shl', 'hlm', 'asd', 'gv',  'laa', 'laa', 'ledn', 'ledn', 'rtd', 'rtd', 'dt',  'dt' ];
 			attribute<string>         dest      : ['rtd', 'rtd', 'rtd',  'bd',  'shl', 'rtd', 'hvsp', 'hvsm', 'uto',  'uto',  'ut',   'amf',  'rai', 'gv', 'ehs', 'tbu', 'rtb', 'utm',  'gvc', 'hlm', 'shl', 'ledn', 'gvc', 'gvc', 'rtd', 'gv',  'gvc', 'gv',  'gvc', 'gv',   'gvc',  'gv',  'gvc', 'gv',  'gvc'];
 			attribute<uint32>         TE_NS     : [67,    86,    78,     50,    117,   74,    29,     27,     16,     14,     17,     17,     34,    61,   79,    71,    57,    25,     63,    19,    19,    48,     44,    44,    67,    64,    1,     2,     1,     16,     15,     22,    23,    8,     9    ];
-			attribute<bool>           AlleJaren : [true,  true,  true,   true,  true,  true,  false,  false,  false,  false,  false,  false,  false, false, false, false, false, false,  true,  true,  true,  true,   true,  true,  true,  false, false, false, false, false,  false,  false, false, false, false], Descr = "A pair without a former shared tariff point on the route: TE_NS holds for both tariff networks.";
-			attribute<bool>           Getoetst  := AlleJaren || ModelParameters/Impl/NS_tariefnet_year == '2016';
+			attribute<bool>           AllYears : [true,  true,  true,   true,  true,  true,  false,  false,  false,  false,  false,  false,  false, false, false, false, false, false,  true,  true,  true,  true,   true,  true,  true,  false, false, false, false, false,  false,  false, false, false, false], Descr = "A pair without a former shared tariff point on the route: TE_NS holds for both tariff networks.";
+			attribute<bool>           Checked  := AllYears || ModelParameters/Impl/NS_TariffNetwork_year == '2016';
 			attribute<NS_Stations>    org_rel   := rlookup(org,  NS_Stations/code);
 			attribute<NS_Stations>    dest_rel  := rlookup(dest, NS_Stations/code);
 			attribute<c_NS_start_end> c_rel     := combine_data(c_NS_start_end, org_rel, dest_rel);
 			attribute<uint32>         TE_model  := rjoin(c_rel, Matrix/c_NS_start_end_rel, Matrix/impedance);
-			attribute<Euro>           Prijs     := rjoin(c_rel, Matrix/c_NS_start_end_rel, Matrix/Prijs);
-			attribute<bool>           OK        := not(Getoetst) || MakeDefined(TE_model == TE_NS, false);
+			attribute<Euro>           Price     := rjoin(c_rel, Matrix/c_NS_start_end_rel, Matrix/Price);
+			attribute<bool>           OK        := not(Checked) || MakeDefined(TE_model == TE_NS, false);
 		}
-		parameter<string> Report := (all(Steekproef/OK) ? 'PASS' : 'FAIL') + ' tariefeenheden ' + ModelParameters/Impl/NS_prijzen_year + ' (tariefnet ' + ModelParameters/Impl/NS_tariefnet_year + '): '
-			+ asList(Steekproef/org + '-' + Steekproef/dest + ' ' + MakeDefined(string(Steekproef/TE_model), '?') + ' TE (NS ' + string(Steekproef/TE_NS) + (Steekproef/Getoetst ? '' : ', niet getoetst') + ') EUR ' + MakeDefined(string(Steekproef/Prijs), '?'), '; ');
+		parameter<string> Report := (all(Sample/OK) ? 'PASS' : 'FAIL') + ' tariefeenheden ' + ModelParameters/Impl/NS_prices_year + ' (tariefnet ' + ModelParameters/Impl/NS_TariffNetwork_year + '): '
+			+ asList(Sample/org + '-' + Sample/dest + ' ' + MakeDefined(string(Sample/TE_model), '?') + ' TE (NS ' + string(Sample/TE_NS) + (Sample/Checked ? '' : ', niet getoetst') + ') EUR ' + MakeDefined(string(Sample/Price), '?'), '; ');
 	}
 
 	// Per trip: can you board within the Netherlands and alight again further on? That is the case when the first Dutch stop with boarding
-	// comes before the last Dutch stop with alighting (protoStopTimes/PickupAllowed and DropOffAllowed). If not, the trip does not run domestically.
-	unit<uint32> protoStops     := SourceData/Infrastructure/GTFS/LoadFeeds/protoStops;
-	unit<uint32> protoTrips     := SourceData/Infrastructure/GTFS/LoadFeeds/protoTrips;
-	unit<uint32> protoStopTimes := SourceData/Infrastructure/GTFS/LoadFeeds/protoStopTimes;
+	// comes before the last Dutch stop with alighting (RawStopTimes/PickupAllowed and DropOffAllowed). If not, the trip does not run domestically.
+	unit<uint32> RawStops     := SourceData/Infrastructure/GTFS/LoadFeeds/RawStops;
+	unit<uint32> RawTrips     := SourceData/Infrastructure/GTFS/LoadFeeds/RawTrips;
+	unit<uint32> RawStopTimes := SourceData/Infrastructure/GTFS/LoadFeeds/RawStopTimes;
 	unit<uint32> Routes         := SourceData/Infrastructure/GTFS/RelevantSelection/Routes;
 	unit<uint32> Trips          := SourceData/Infrastructure/GTFS/RelevantSelection/Trips;
-	unit<uint8>  Treinen        := ModelParameters/Advanced/TripSurchargeTrains;
+	unit<uint8>  Trains        := ModelParameters/Advanced/TripSurchargeTrains;
 
-	attribute<bool>   Stop_InNL        (protoStops)     := IsDefined(point_in_polygon(protoStops/geometry, /SourceData/RegioIndelingen/NL/geometry));
-	attribute<bool>   ST_InNL          (protoStopTimes) := Stop_InNL[protoStopTimes/protoStop_rel];
-	attribute<bool>   ST_Board         (protoStopTimes) := protoStopTimes/PickupAllowed  && ST_InNL;
-	attribute<bool>   ST_Alight        (protoStopTimes) := protoStopTimes/DropOffAllowed && ST_InNL;
-	attribute<bool>   HasBoard         (protoTrips)     := any(ST_Board,  protoStopTimes/protoTrip_rel);
-	attribute<bool>   HasAlight        (protoTrips)     := any(ST_Alight, protoStopTimes/protoTrip_rel);
-	attribute<uint32> FirstBoardSeq    (protoTrips)     := min(ST_Board  ? protoStopTimes/Stop_Sequence : null_u, protoStopTimes/protoTrip_rel), Descr = "Only meaningful when HasBoard: without a boarding stop min() gives a large value, not null.";
-	attribute<uint32> LastAlightSeq    (protoTrips)     := max(ST_Alight ? protoStopTimes/Stop_Sequence : null_u, protoStopTimes/protoTrip_rel), Descr = "Only meaningful when HasAlight.";
-	attribute<bool>   IsBinnenlands    (protoTrips)     := HasBoard && HasAlight && FirstBoardSeq < LastAlightSeq, Descr = "Can the trip be used domestically: is there a Dutch stop with boarding before a Dutch stop with alighting?";
+	attribute<bool>   Stop_InNL        (RawStops)     := IsDefined(point_in_polygon(RawStops/geometry, /SourceData/RegioIndelingen/NL/geometry));
+	attribute<bool>   ST_InNL          (RawStopTimes) := Stop_InNL[RawStopTimes/RawStop_rel];
+	attribute<bool>   ST_Board         (RawStopTimes) := RawStopTimes/PickupAllowed  && ST_InNL;
+	attribute<bool>   ST_Alight        (RawStopTimes) := RawStopTimes/DropOffAllowed && ST_InNL;
+	attribute<bool>   HasBoard         (RawTrips)     := any(ST_Board,  RawStopTimes/RawTrip_rel);
+	attribute<bool>   HasAlight        (RawTrips)     := any(ST_Alight, RawStopTimes/RawTrip_rel);
+	attribute<uint32> FirstBoardSeq    (RawTrips)     := min(ST_Board  ? RawStopTimes/Stop_Sequence : null_u, RawStopTimes/RawTrip_rel), Descr = "Only meaningful when HasBoard: without a boarding stop min() gives a large value, not null.";
+	attribute<uint32> LastAlightSeq    (RawTrips)     := max(ST_Alight ? RawStopTimes/Stop_Sequence : null_u, RawStopTimes/RawTrip_rel), Descr = "Only meaningful when HasAlight.";
+	attribute<bool>   IsDomestic    (RawTrips)     := HasBoard && HasAlight && FirstBoardSeq < LastAlightSeq, Descr = "Can the trip be used domestically: is there a Dutch stop with boarding before a Dutch stop with alighting?";
 
 	attribute<uint32> NrTrips_today        (Routes) := sum_uint32(Trips/sel_today, Trips/Route_rel);
-	attribute<uint32> NrTrips_today_binnen (Routes) := sum_uint32(Trips/sel_today && IsBinnenlands, Trips/Route_rel);
+	attribute<uint32> NrTrips_today_domestic (Routes) := sum_uint32(Trips/sel_today && IsDomestic, Trips/Route_rel);
 
 	// Trains outside NS that are of interest domestically: everything of the L-net with a surcharge product, all NS International, and the
 	// agencies that may not carry domestic passengers (European Sleeper, GoVolta).
-	unit<uint32> Treinroutes := select_with_org_rel(not(Routes/IsPseudoRoute) && NrTrips_today > 0
-		&& (IsDefined(Routes/RitOpslag_rel) || Agencies/IsNSInternational[Routes/agency_rel] || Agencies/name[Routes/agency_rel] == 'eu_sleeper' || Agencies/name[Routes/agency_rel] == 'european_sleeper' || Agencies/name[Routes/agency_rel] == 'govolta'))
+	unit<uint32> TrainRoutes := select_with_org_rel(not(Routes/IsPseudoRoute) && NrTrips_today > 0
+		&& (IsDefined(Routes/TripSurcharge_rel) || Agencies/IsNSInternational[Routes/agency_rel] || Agencies/name[Routes/agency_rel] == 'eu_sleeper' || Agencies/name[Routes/agency_rel] == 'european_sleeper' || Agencies/name[Routes/agency_rel] == 'govolta'))
 	, StorageName = "=FileStem+'_routes.csv'", StorageType = "gdalwrite.vect"
 	{
 		attribute<string> route_id              := Routes/route_id[org_rel];
 		attribute<string> agency                := Routes/agency_name[org_rel];
 		attribute<string> route_short_name      := Routes/route_short_name[org_rel];
 		attribute<string> route_long_name       := Routes/route_long_name[org_rel];
-		attribute<bool>   in_Lnet               := Agencies/IsLnet[Routes/agency_rel[org_rel]] && not(Routes/IsZonderNSKaartje[org_rel]);
+		attribute<bool>   in_Lnet               := Agencies/IsLnet[Routes/agency_rel[org_rel]] && not(Routes/IsWithoutNSTicket[org_rel]);
 		attribute<bool>   in_Rnet               := Agencies/IsRO[Routes/agency_rel[org_rel]];
-		attribute<string> ritopslag             := MakeDefined(Treinen/name[Routes/RitOpslag_rel[org_rel]], '');
+		attribute<string> RitOpslag             := MakeDefined(Trains/name[Routes/TripSurcharge_rel[org_rel]], '');
 		attribute<uint32> nr_trips_today        := NrTrips_today[org_rel];
-		attribute<uint32> nr_trips_binnenlands  := NrTrips_today_binnen[org_rel];
+		attribute<uint32> nr_trips_binnenlands  := NrTrips_today_domestic[org_rel];
 	}
 
-	// Today's trips on the Treinroutes, with the first Dutch stop with boarding and the last with alighting.
-	attribute<Treinroutes> Treinroute_rel (protoTrips) := invert(Treinroutes/org_rel)[Trips/Route_rel];
-	unit<uint32> Treinritten := select_with_org_rel(IsDefined(Treinroute_rel) && Trips/sel_today)
+	// Today's trips on the TrainRoutes, with the first Dutch stop with boarding and the last with alighting.
+	attribute<TrainRoutes> TrainRoute_rel (RawTrips) := invert(TrainRoutes/org_rel)[Trips/Route_rel];
+	unit<uint32> TrainTrips := select_with_org_rel(IsDefined(TrainRoute_rel) && Trips/sel_today)
 	, StorageName = "=FileStem+'_ritten.csv'", StorageType = "gdalwrite.vect"
 	{
-		attribute<string> route                := Treinroutes/route_short_name[Treinroute_rel[org_rel]] + ' ' + Treinroutes/route_long_name[Treinroute_rel[org_rel]];
-		attribute<string> trip_id              := protoTrips/trip_id[org_rel];
-		attribute<string> eerste_halte         := protoStops/stop_name[protoStopTimes/protoStop_rel[min_index(protoStopTimes/Stop_Sequence, protoStopTimes/protoTrip_rel)[org_rel]]];
-		attribute<string> laatste_halte        := protoStops/stop_name[protoStopTimes/protoStop_rel[max_index(protoStopTimes/Stop_Sequence, protoStopTimes/protoTrip_rel)[org_rel]]];
-		attribute<string> vertrek              := MakeDefined(Time/Label[protoTrips/StartTime[org_rel]], '');
+		attribute<string> route                := TrainRoutes/route_short_name[TrainRoute_rel[org_rel]] + ' ' + TrainRoutes/route_long_name[TrainRoute_rel[org_rel]];
+		attribute<string> trip_id              := RawTrips/trip_id[org_rel];
+		attribute<string> eerste_halte         := RawStops/stop_name[RawStopTimes/RawStop_rel[min_index(RawStopTimes/Stop_Sequence, RawStopTimes/RawTrip_rel)[org_rel]]];
+		attribute<string> laatste_halte        := RawStops/stop_name[RawStopTimes/RawStop_rel[max_index(RawStopTimes/Stop_Sequence, RawStopTimes/RawTrip_rel)[org_rel]]];
+		attribute<string> vertrek              := MakeDefined(Time/Label[RawTrips/StartTime[org_rel]], '');
 		attribute<string> eerste_NL_instap     := HasBoard[org_rel]  ? string(FirstBoardSeq[org_rel]) : '';
 		attribute<string> laatste_NL_uitstap   := HasAlight[org_rel] ? string(LastAlightSeq[org_rel]) : '';
-		attribute<bool>   binnenlands          := IsBinnenlands[org_rel];
+		attribute<bool>   binnenlands          := IsDomestic[org_rel];
 	}
 
 	parameter<string> Settings :='NS International in L-net=' + string(ModelParameters/Advanced/IsNSInternationalInLnet) + ', rit-opslag=' + string(ModelParameters/Advanced/IncludeTripSurcharge)
-		+ ', toeslag ' + ModelParameters/Impl/NS_prijzen_year + '=EUR ' + string(/SourceData/Infrastructure/OVprijzen/NS/RitOpslag/Toeslag_ICE_ICD)
-		+ ', extra tijd: ' + asList(Treinen/name + '=' + string(Treinen/ExtraTijd) + 'min', ', ');
+		+ ', toeslag ' + ModelParameters/Impl/NS_prices_year + '=EUR ' + string(/SourceData/Infrastructure/OVprijzen/NS/TripSurcharge/Surcharge_ICE_ICD)
+		+ ', extra tijd: ' + asList(Trains/name + '=' + string(Trains/ExtraTime) + 'min', ', ');
 	parameter<string> Report :=
 		'feed ' + ModelParameters/Impl/GTFS_file_date + ', dag ' + ModelParameters/Impl/Analysis_date + ' | ' + Settings
 		+ ' | ' + TE/Report
 		+ ' | L-net-vervoerders: ' + asList(Agencies/IsLnet ? Agencies/label : '', ' ')
-		+ ' | treinroutes (ritten vandaag, waarvan binnenlands bruikbaar): ' + asList(Treinroutes/agency + ' ' + Treinroutes/route_short_name + ' ' + Treinroutes/route_long_name + ' [' + Treinroutes/ritopslag + '] ' + string(Treinroutes/nr_trips_today) + '/' + string(Treinroutes/nr_trips_binnenlands), '; ')
+		+ ' | treinroutes (ritten vandaag, waarvan binnenlands bruikbaar): ' + asList(TrainRoutes/agency + ' ' + TrainRoutes/route_short_name + ' ' + TrainRoutes/route_long_name + ' [' + TrainRoutes/RitOpslag + '] ' + string(TrainRoutes/nr_trips_today) + '/' + string(TrainRoutes/nr_trips_binnenlands), '; ')
 	, StorageName = "=FileStem+'_report.txt'", StorageType = "str"
-	, ExplicitSuppliers = "Treinroutes;Treinritten";
+	, ExplicitSuppliers = "TrainRoutes;TrainTrips";
 
 	// The chain joiner on the first stop block (cheap): does the surcharge count in the price of chains with NS, also when the through NS fare
 	// Price_L is recalculated? Price there is Price_O + Price_I + Price_L (+ Price_F after NS links) + Price_S (ChainJoiner_T).
-	container Keten
+	container Chain
 	{
-		parameter<string> Blok := first(/NetworkSetup/PublicTransport_Prep/impl/BlockDomain/name);
-		unit<uint32> RL := ='/NetworkSetup/PublicTransport_Prep/ChainGeneration_PerBlock/'+Blok+'/Chain_Generation/RL/Result';
-		unit<uint32> LR := ='/NetworkSetup/PublicTransport_Prep/ChainGeneration_PerBlock/'+Blok+'/Chain_Generation/LR/Result';
-		unit<uint32> LL := ='/NetworkSetup/PublicTransport_Prep/ChainGeneration_PerBlock/'+Blok+'/Chain_Generation/LL/Result';
+		parameter<string> Block := first(/NetworkSetup/PublicTransport_Prep/impl/BlockDomain/name);
+		unit<uint32> RL := ='/NetworkSetup/PublicTransport_Prep/ChainGeneration_PerBlock/'+Block+'/Chain_Generation/RL/Result';
+		unit<uint32> LR := ='/NetworkSetup/PublicTransport_Prep/ChainGeneration_PerBlock/'+Block+'/Chain_Generation/LR/Result';
+		unit<uint32> LL := ='/NetworkSetup/PublicTransport_Prep/ChainGeneration_PerBlock/'+Block+'/Chain_Generation/LL/Result';
 		parameter<bool> RL_OK := all(RL/Price == RL/Price_O + RL/Price_I + RL/Price_L + RL/Price_S);
 		parameter<bool> LR_OK := all(LR/Price == LR/Price_O + LR/Price_I + LR/Price_L + LR/Price_F + LR/Price_S);
 		parameter<bool> LL_OK := all(LL/Price == LL/Price_L + LL/Price_F + LL/Price_S);
-		parameter<string> Report := (RL_OK && LR_OK && LL_OK ? 'PASS' : 'FAIL') + ' ketenprijs = onderdelen + opslag in ' + Blok
+		parameter<string> Report := (RL_OK && LR_OK && LL_OK ? 'PASS' : 'FAIL') + ' ketenprijs = onderdelen + opslag in ' + Block
 			+ ': RL ' + string(#RL) + ' ketens, ' + string(sum(uint32(RL/Price_S > 0[Ct]))) + ' met opslag'
 			+ '; LR ' + string(#LR) + ', ' + string(sum(uint32(LR/Price_S > 0[Ct])))
 			+ '; LL ' + string(#LL) + ', ' + string(sum(uint32(LL/Price_S > 0[Ct])))
@@ -125,51 +125,51 @@ container TripSurchargeReport
 		unit<uint32> R_Result := OD_R/Result;
 		unit<uint32> NS_Stations := /SourceData/Infrastructure/OVprijzen/NS/NS_stations;
 
-		parameter<uint32> L_Benen             := #OD_L;
-		parameter<uint32> L_Result_Benen      := #L_Result;
+		parameter<uint32> L_Legs             := #OD_L;
+		parameter<uint32> L_Result_Legs      := #L_Result;
 		// Legs that drop out only through the boarding and alighting rule (pickup_type/drop_off_type 1): the other filters of Result let them through.
-		parameter<uint32> L_GeenInUitstap     := sum(uint32(not(OD_L/IsBoardAlightAllowed) && not(OD_L/impl/IsStartEndWithinSameStopCluster) && OD_L/IsBinnenlandsBeen));
-		attribute<uint32> L_GeenInUitstap_PerAgency (Agencies) := sum_uint32(not(OD_L/IsBoardAlightAllowed) && not(OD_L/impl/IsStartEndWithinSameStopCluster) && OD_L/IsBinnenlandsBeen, OD_L/Agency_rel);
-		parameter<uint32> L_Buitenlands       := sum(uint32(not(OD_L/IsBinnenlandsBeen) && not(OD_L/impl/IsStartEndWithinSameStopCluster)));
+		parameter<uint32> L_NoBoardAlight     := sum(uint32(not(OD_L/IsBoardAlightAllowed) && not(OD_L/impl/IsStartEndWithinSameStopCluster) && OD_L/IsDomesticLeg));
+		attribute<uint32> L_NoBoardAlight_PerAgency (Agencies) := sum_uint32(not(OD_L/IsBoardAlightAllowed) && not(OD_L/impl/IsStartEndWithinSameStopCluster) && OD_L/IsDomesticLeg, OD_L/Agency_rel);
+		parameter<uint32> L_Foreign       := sum(uint32(not(OD_L/IsDomesticLeg) && not(OD_L/impl/IsStartEndWithinSameStopCluster)));
 		parameter<uint32> L_NSInt_Result      := sum(uint32(Agencies/IsNSInternational[L_Result/Agency_rel]));
-		attribute<uint32> L_Opslag_PerProduct (Treinen) := sum_uint32(L_Result/Price_S > 0[Ct], L_Result/RitOpslag_rel);
-		attribute<uint32> L_Product_PerProduct (Treinen) := pcount(L_Result/RitOpslag_rel);
-		parameter<uint32> R_Benen             := #OD_R;
-		parameter<uint32> R_Result_Benen      := #R_Result;
-		parameter<uint32> R_GeenInUitstap     := sum(uint32(not(OD_R/IsBoardAlightAllowed) && not(OD_R/impl/IsOD_completely_foreign) && not(OD_R/impl/IsStartEndWithinSameStopCluster)));
-		attribute<uint32> R_GeenInUitstap_PerAgency (Agencies) := sum_uint32(not(OD_R/IsBoardAlightAllowed) && not(OD_R/impl/IsOD_completely_foreign) && not(OD_R/impl/IsStartEndWithinSameStopCluster), OD_R/Agency_rel);
+		attribute<uint32> L_Surcharge_PerProduct (Trains) := sum_uint32(L_Result/Price_S > 0[Ct], L_Result/TripSurcharge_rel);
+		attribute<uint32> L_Product_PerProduct (Trains) := pcount(L_Result/TripSurcharge_rel);
+		parameter<uint32> R_Legs             := #OD_R;
+		parameter<uint32> R_Result_Legs      := #R_Result;
+		parameter<uint32> R_NoBoardAlight     := sum(uint32(not(OD_R/IsBoardAlightAllowed) && not(OD_R/impl/IsOD_completely_foreign) && not(OD_R/impl/IsStartEndWithinSameStopCluster)));
+		attribute<uint32> R_NoBoardAlight_PerAgency (Agencies) := sum_uint32(not(OD_R/IsBoardAlightAllowed) && not(OD_R/impl/IsOD_completely_foreign) && not(OD_R/impl/IsStartEndWithinSameStopCluster), OD_R/Agency_rel);
 
 		// Legs that drop out only through the boarding and alighting rule, for a check by hand.
-		Template GeenInUitstap_T
+		Template NoBoardAlight_T
 		{
 			unit<uint32> OD;
-			attribute<bool> Mee (OD);
+			attribute<bool> Selected (OD);
 			parameter<string> csvName;
 			///
-			unit<uint32> Rows := select_with_org_rel(not(OD/IsBoardAlightAllowed) && not(OD/impl/IsStartEndWithinSameStopCluster) && Mee)
+			unit<uint32> Rows := select_with_org_rel(not(OD/IsBoardAlightAllowed) && not(OD/impl/IsStartEndWithinSameStopCluster) && Selected)
 			, StorageName = "=csvName", StorageType = "gdalwrite.vect"
 			{
 				attribute<string> agency     := Agencies/label[OD/Agency_rel[org_rel]];
 				attribute<string> route      := Routes/route_short_name[OD/Route_rel[org_rel]] + ' ' + Routes/route_long_name[OD/Route_rel[org_rel]];
-				attribute<string> van        := protoStops/stop_name[SourceData/Infrastructure/GTFS/RelevantSelection/Stops/org_rel[OD/From_Stop_rel[org_rel]]];
-				attribute<string> naar       := protoStops/stop_name[SourceData/Infrastructure/GTFS/RelevantSelection/Stops/org_rel[OD/To_Stop_rel[org_rel]]];
+				attribute<string> van        := RawStops/stop_name[SourceData/Infrastructure/GTFS/RelevantSelection/Stops/org_rel[OD/From_Stop_rel[org_rel]]];
+				attribute<string> naar       := RawStops/stop_name[SourceData/Infrastructure/GTFS/RelevantSelection/Stops/org_rel[OD/To_Stop_rel[org_rel]]];
 				attribute<string> vertrek    := Time/Label[OD/From_Time_rel[org_rel]];
 				attribute<string> aankomst   := Time/Label[OD/To_Time_rel[org_rel]];
 				attribute<bool>   instappen  := OD/ThisSet/NodeSet/CanBoard[OD/OrgZone_rel[org_rel]];
 				attribute<bool>   uitstappen := OD/ThisSet/NodeSet/CanAlight[OD/DstZone_rel[org_rel]];
 			}
 		}
-		container L_GeenInUitstap_Lijst := GeenInUitstap_T(OD_L, OD_L/IsBinnenlandsBeen, FileStem+'_L_geeninuitstap.csv');
-		container R_GeenInUitstap_Lijst := GeenInUitstap_T(OD_R, not(OD_R/impl/IsOD_completely_foreign), FileStem+'_R_geeninuitstap.csv');
+		container L_NoBoardAlight_List := NoBoardAlight_T(OD_L, OD_L/IsDomesticLeg, FileStem+'_L_geeninuitstap.csv');
+		container R_NoBoardAlight_List := NoBoardAlight_T(OD_R, not(OD_R/impl/IsOD_completely_foreign), FileStem+'_R_geeninuitstap.csv');
 
 		// Example legs of the L-net between a few stations around the HSL, for a check by hand.
-		unit<uint32> Voorbeeldstations : nrofrows = 8
+		unit<uint32> ExampleStations : nrofrows = 8
 		{
 			attribute<string>      code       : ['shl', 'rtd', 'asd', 'asdz', 'hvs', 'bd', 'ut', 'ah'];
 			attribute<NS_Stations> Station_rel := rlookup(code, NS_Stations/code);
 		}
-		attribute<bool> IsVoorbeeld (L_Result) := IsDefined(rlookup(L_Result/First_NS_Station, Voorbeeldstations/Station_rel)) && IsDefined(rlookup(L_Result/Last_NS_Station, Voorbeeldstations/Station_rel));
-		unit<uint32> Voorbeelden := select_with_org_rel(IsVoorbeeld)
+		attribute<bool> IsExample (L_Result) := IsDefined(rlookup(L_Result/First_NS_Station, ExampleStations/Station_rel)) && IsDefined(rlookup(L_Result/Last_NS_Station, ExampleStations/Station_rel));
+		unit<uint32> Examples := select_with_org_rel(IsExample)
 		, StorageName = "=FileStem+'_Lbenen.csv'", StorageType = "gdalwrite.vect"
 		{
 			attribute<string> agency      := Agencies/label[L_Result/Agency_rel[org_rel]];
@@ -181,16 +181,16 @@ container TripSurchargeReport
 			attribute<uint32> TE          := OD_L/impl/TariffUnits[L_Result/org_rel[org_rel]];
 			attribute<Ct>     Price_L     := L_Result/Price_L[org_rel];
 			attribute<Ct>     Price_S     := L_Result/Price_S[org_rel];
-			attribute<string> ritopslag   := MakeDefined(Treinen/name[L_Result/RitOpslag_rel[org_rel]], '');
+			attribute<string> RitOpslag   := MakeDefined(Trains/name[L_Result/TripSurcharge_rel[org_rel]], '');
 		}
 
 		parameter<string> Report :=
-			'L-net: ' + string(L_Benen) + ' benen, ' + string(L_GeenInUitstap) + ' alleen zonder in- of uitstap weg, ' + string(L_Buitenlands) + ' niet binnenlands, ' + string(L_Result_Benen) + ' in Result, waarvan ' + string(L_NSInt_Result) + ' NS International'
-			+ ' | L zonder in- of uitstap per vervoerder: ' + asList(L_GeenInUitstap_PerAgency > 0 ? Agencies/label + ' ' + string(L_GeenInUitstap_PerAgency) : '', ' ')
-			+ ' | rit-opslag per product (benen met opslag / benen op het product): ' + asList(Treinen/name + ' ' + string(L_Opslag_PerProduct) + '/' + string(L_Product_PerProduct), ', ')
-			+ ' | R-net: ' + string(R_Benen) + ' benen, ' + string(R_GeenInUitstap) + ' alleen zonder in- of uitstap weg, ' + string(R_Result_Benen) + ' in Result'
-			+ ' | R zonder in- of uitstap per vervoerder: ' + asList(R_GeenInUitstap_PerAgency > 0 ? Agencies/label + ' ' + string(R_GeenInUitstap_PerAgency) : '', ' ')
+			'L-net: ' + string(L_Legs) + ' benen, ' + string(L_NoBoardAlight) + ' alleen zonder in- of uitstap weg, ' + string(L_Foreign) + ' niet binnenlands, ' + string(L_Result_Legs) + ' in Result, waarvan ' + string(L_NSInt_Result) + ' NS International'
+			+ ' | L zonder in- of uitstap per vervoerder: ' + asList(L_NoBoardAlight_PerAgency > 0 ? Agencies/label + ' ' + string(L_NoBoardAlight_PerAgency) : '', ' ')
+			+ ' | rit-opslag per product (benen met opslag / benen op het product): ' + asList(Trains/name + ' ' + string(L_Surcharge_PerProduct) + '/' + string(L_Product_PerProduct), ', ')
+			+ ' | R-net: ' + string(R_Legs) + ' benen, ' + string(R_NoBoardAlight) + ' alleen zonder in- of uitstap weg, ' + string(R_Result_Legs) + ' in Result'
+			+ ' | R zonder in- of uitstap per vervoerder: ' + asList(R_NoBoardAlight_PerAgency > 0 ? Agencies/label + ' ' + string(R_NoBoardAlight_PerAgency) : '', ' ')
 		, StorageName = "=FileStem+'_net_report.txt'", StorageType = "str"
-		, ExplicitSuppliers = "Voorbeelden";
+		, ExplicitSuppliers = "Examples";
 	}
 }

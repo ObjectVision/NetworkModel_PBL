@@ -13,8 +13,8 @@ De regels staan in de GeoDMS-skill `geodms-dms-style`, in de engine-repository. 
 Houd hier geen kopie bij: de regels worden daar bijgewerkt.
 
 Voorbeelden in dit model: de tellingen naast de OV-uitvoer.
-- Per vertrekmoment: `Tellingen` in `cfg/main/NetworkSetup/PublicTransport/PerDepartureMoment_T.dms`.
-- Per blok: `Tellingen` in `cfg/main/NetworkSetup/PublicTransport.dms`.
-- Over alle blokken: `OD_Tellingen` in `cfg/main/NetworkSetup.dms`.
+- Per vertrekmoment: `Counts` in `cfg/main/NetworkSetup/PublicTransport/PerDepartureMoment_T.dms`.
+- Per blok: `Counts` in `cfg/main/NetworkSetup/PublicTransport.dms`.
+- Over alle blokken: `OD_Counts` in `cfg/main/NetworkSetup.dms`.
 
 De herschrijving staat in commits ec53e1d, bee7f55 en 6de63ec.

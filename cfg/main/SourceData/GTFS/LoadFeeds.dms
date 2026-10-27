@@ -1,7 +1,7 @@
 container LoadFeeds
 : Descr = "Load data from GTFS-files"
 { 
-	parameter<bool>              Store         := True, ExplicitSuppliers = "= asList('Write/'+File_Structure/StoreName+'/data',';')";
+	parameter<bool>              Write_All     := True, ExplicitSuppliers = "= asList('Write/'+File_Structure/StoreName+'/data',';')";
 	
 	unit<uint32>                 File_Structure   : NrOfRows = 8
 	{
@@ -225,7 +225,7 @@ container LoadFeeds
 		, Descr = "Neither D nor, when the window runs on past midnight, D+1 is a day with a change to or from daylight saving time (the trips of D-1 after midnight come out right even then).";
 	}
 	
-	unit<uint32> protoStops := Read/Stops/domain, Descr = "The stops of the feed, with their point in RD and whether a selected trip uses them."
+	unit<uint32> RawStops := Read/Stops/domain, Descr = "The stops of the feed, with their point in RD and whether a selected trip uses them."
 	{
 		attribute<float64>           stop_lat            := float64(Read/Stops/data/stop_lat);
 		attribute<float64>           stop_lon            := float64(Read/Stops/data/stop_lon);
@@ -236,14 +236,14 @@ container LoadFeeds
 		// A stop with the coordinates (0, 0) in the feed gets the point of its parent_station; without a parent with a point it keeps the point
 		// from the feed. Otherwise such stops (for example foreign platforms of international trains) would lie together in the Gulf of Guinea,
 		// as one stop cluster with transfers at distance 0.
-		attribute<bool>              IsZonderPunt        := stop_lat == 0d || stop_lon == 0d;
+		attribute<bool>              IsWithoutPoint        := stop_lat == 0d || stop_lon == 0d;
 		attribute<.>                 Parent_rel          := rlookup(Read/Stops/data/parent_station, stop_id);
-		attribute<rdc>               geometry            := IsZonderPunt ? MakeDefined(geometry_feed[Parent_rel], geometry_feed) : geometry_feed;
+		attribute<rdc>               geometry            := IsWithoutPoint ? MakeDefined(geometry_feed[Parent_rel], geometry_feed) : geometry_feed;
 		attribute<string>            Label               := stop_name;
-		attribute<bool>              StopUsed            := any(protoStopTimes/SelToday, protoStopTimes/protoStop_rel) || any(protoStopTimes/SelYesterday, protoStopTimes/protoStop_rel) || any(protoStopTimes/SelTomorrow, protoStopTimes/protoStop_rel);
+		attribute<bool>              StopUsed            := any(RawStopTimes/SelToday, RawStopTimes/RawStop_rel) || any(RawStopTimes/SelYesterday, RawStopTimes/RawStop_rel) || any(RawStopTimes/SelTomorrow, RawStopTimes/RawStop_rel);
 	}
 	
-	unit<uint32> protoTrips  := Read/Trips/domain, Descr = "The trips of the feed, with the service days on which they run and whether they join the public transport network."
+	unit<uint32> RawTrips  := Read/Trips/domain, Descr = "The trips of the feed, with the service days on which they run and whether they join the public transport network."
 	{
 		attribute<string>                  trip_id         := Read/Trips/data/trip_id;
 		attribute<uint32>                  shape_id        := uint32(Read/Trips/data/shape_id);
@@ -252,12 +252,12 @@ container LoadFeeds
 		attribute<bool>                    sel_today       := Services/Today_exc[Services_rel] = 1;
 		attribute<bool>                    sel_yesterday   := Services/Yesterday_exc[Services_rel] = 1;
 		attribute<bool>                    sel_tomorrow    := Services/Tomorrow_exc[Services_rel] = 1;
-		attribute<Time>                    StartTime       := min(protoStopTimes/departureTime/TimesVector/Time_rel, protoStopTimes/protoTrip_rel);
+		attribute<Time>                    StartTime       := min(RawStopTimes/departureTime/TimesVector/Time_rel, RawStopTimes/RawTrip_rel);
 		attribute<bool>                    sel_tomorrow_window := sel_tomorrow && uint32(StartTime) + 86400 < uint32(ModelParameters/Impl/PT_LastArrivalMoment), Descr = "Trips of D+1 that start before the end of the analysis window; none when the window ends before midnight.";
-		attribute<Trips_x_order_uq>        first_txo       := min_index(Trips_x_order_uq/ord, Trips_x_order_uq/protoTrip_rel);
+		attribute<Trips_x_order_uq>        first_txo       := min_index(Trips_x_order_uq/ord, Trips_x_order_uq/RawTrip_rel);
 		attribute<shapes>                  shape_rel       := rlookup(shape_id, shapes/shape_id);
 		// Flexible transport: a trip of a flex line that departs in the same block of ModelParameters/Advanced/FlexMinInterval as an earlier trip
-		// of the same trip pattern does not join the public transport network (FlexOptions, protoStopTimes/Sel*Net). The public transport hubs count
+		// of the same trip pattern does not join the public transport network (FlexOptions, RawStopTimes/Sel*Net). The public transport hubs count
 		// all trips (StopTimes/SelToday), so that the destinations do not depend on the flex parameters.
 		attribute<bool>                    IsFlex          := MakeDefined(RelevantSelection/Routes/IsFlex[RelevantSelection/Trips/Route_rel], false);
 		attribute<bool>                    KeepFlexOption  := = ModelParameters/Advanced/IncludeFlex && ModelParameters/Impl/FlexMinInterval_sec > 0
@@ -266,18 +266,18 @@ container LoadFeeds
 			, Descr = "True when the trip joins the public transport network; only trips of flex lines can drop out, see FlexOptions.";
 	}
 	
-	unit<uint32> protoStopTimes := Read/Stop_times/domain //StopTimes
+	unit<uint32> RawStopTimes := Read/Stop_times/domain //StopTimes
 	, Descr = "Times that a vehicle arrives at and departs from stops for each trip."
 	{
-		attribute<protoTrips>              protoTrip_rel            := rlookup(Read/Stop_times/data/trip_id, protoTrips/trip_id);
-		attribute<bool>                    SelToday                 := protoTrips/sel_today[protoTrip_rel];
-		attribute<bool>                    SelYesterday             := protoTrips/sel_yesterday[protoTrip_rel] && (Time/Day[departureTime/TimesVector/Time_rel] > 0);
-		attribute<bool>                    SelTomorrow              := protoTrips/sel_tomorrow_window[protoTrip_rel] && (Time/Day[departureTime/TimesVector/Time_rel] == 0) && (Time/Day[arrivalTime/TimesVector/Time_rel] == 0), Descr = "Whole trips of D+1 that start before the end of the window, with a GTFS time below 24:00, so that plus 24 hours they fall within the time axis of 48 hours.";
-		attribute<bool>                    SelYesterdayNet          := SelYesterday && protoTrips/KeepFlexOption[protoTrip_rel], Descr = "SelYesterday without the thinned flex options (protoTrips/KeepFlexOption): the trips of the public transport network.";
-		attribute<bool>                    SelTodayNet              := SelToday     && protoTrips/KeepFlexOption[protoTrip_rel], Descr = "SelToday without the thinned flex options (protoTrips/KeepFlexOption): the trips of the public transport network.";
-		attribute<bool>                    SelTomorrowNet           := SelTomorrow  && protoTrips/KeepFlexOption[protoTrip_rel], Descr = "SelTomorrow without the thinned flex options (protoTrips/KeepFlexOption): the trips of the public transport network.";
-		attribute<protoStops>              protoStop_rel            := rlookup(Read/Stop_times/data/stop_id, protoStops/stop_id);
-		attribute<protoStops>              NextprotoStop_rel        := protoStop_rel[NextStopId];
+		attribute<RawTrips>              RawTrip_rel            := rlookup(Read/Stop_times/data/trip_id, RawTrips/trip_id);
+		attribute<bool>                    SelToday                 := RawTrips/sel_today[RawTrip_rel];
+		attribute<bool>                    SelYesterday             := RawTrips/sel_yesterday[RawTrip_rel] && (Time/Day[departureTime/TimesVector/Time_rel] > 0);
+		attribute<bool>                    SelTomorrow              := RawTrips/sel_tomorrow_window[RawTrip_rel] && (Time/Day[departureTime/TimesVector/Time_rel] == 0) && (Time/Day[arrivalTime/TimesVector/Time_rel] == 0), Descr = "Whole trips of D+1 that start before the end of the window, with a GTFS time below 24:00, so that plus 24 hours they fall within the time axis of 48 hours.";
+		attribute<bool>                    SelYesterdayNet          := SelYesterday && RawTrips/KeepFlexOption[RawTrip_rel], Descr = "SelYesterday without the thinned flex options (RawTrips/KeepFlexOption): the trips of the public transport network.";
+		attribute<bool>                    SelTodayNet              := SelToday     && RawTrips/KeepFlexOption[RawTrip_rel], Descr = "SelToday without the thinned flex options (RawTrips/KeepFlexOption): the trips of the public transport network.";
+		attribute<bool>                    SelTomorrowNet           := SelTomorrow  && RawTrips/KeepFlexOption[RawTrip_rel], Descr = "SelTomorrow without the thinned flex options (RawTrips/KeepFlexOption): the trips of the public transport network.";
+		attribute<RawStops>              RawStop_rel            := rlookup(Read/Stop_times/data/stop_id, RawStops/stop_id);
+		attribute<RawStops>              NextRawStop_rel        := RawStop_rel[NextStopId];
 		attribute<uint32>                  Stop_Sequence            := uint32(Read/Stop_times/data/stop_sequence);
 		attribute<uint32>                  shape_dist_traveled      := uint32(Read/Stop_times/data/shape_dist_traveled);
 		attribute<uint32>                  next_shape_dist_traveled := shape_dist_traveled[NextStopId];
@@ -287,11 +287,11 @@ container LoadFeeds
 		attribute<bool>                    PickupAllowed            := MakeDefined(uint32(Read/Stop_times/data/pickup_type), 0) != 1;
 		attribute<bool>                    DropOffAllowed           := MakeDefined(uint32(Read/Stop_times/data/drop_off_type), 0) != 1;
 
-		attribute<upoint>                  Trip_x_Ordinal           := point_xy(Stop_Sequence, protoTrip_rel, upoint);
+		attribute<upoint>                  Trip_x_Ordinal           := point_xy(Stop_Sequence, RawTrip_rel, upoint);
 		attribute<Trips_x_order_uq>        txo_uq_rel               := rlookup(Trip_x_Ordinal, Trips_x_order_uq/Values);
-		attribute<uint32>                  ordered_ord              := txo_uq_rel - protoTrips/first_txo[protoTrip_rel];
-		attribute<upoint>                  ThisStopUni              := point_xy(protoTrip_rel, ordered_ord, upoint);
-		attribute<upoint>                  NextStopUni              := point_xy(protoTrip_rel, ordered_ord+1, upoint);
+		attribute<uint32>                  ordered_ord              := txo_uq_rel - RawTrips/first_txo[RawTrip_rel];
+		attribute<upoint>                  ThisStopUni              := point_xy(RawTrip_rel, ordered_ord, upoint);
+		attribute<upoint>                  NextStopUni              := point_xy(RawTrip_rel, ordered_ord+1, upoint);
 		attribute<.>                       NextStopId               := rlookup(NextStopUni, ThisStopUni);
 		attribute<bool>                    EndPoint                 := IsNull(NextStopId);
 		
@@ -308,15 +308,15 @@ container LoadFeeds
 	// Thinning of the flex options (ModelParameters/Advanced/FlexMinInterval). Some feeds schedule on-demand area transport as a trip every
 	// minute, which gives very many public transport legs per departure and very large stop blocks. Per trip pattern (route, first and last
 	// stop, number of stops) only the first trip of each block of FlexMinInterval, counted from 00:00 of the GTFS day, stays.
-	unit<uint32> FlexOptions := select_with_org_rel(protoTrips/IsFlex)
+	unit<uint32> FlexOptions := select_with_org_rel(RawTrips/IsFlex)
 	{
-		attribute<protoStopTimes> First_st      := min_index(protoStopTimes/Stop_Sequence, protoStopTimes/protoTrip_rel)[org_rel];
-		attribute<protoStopTimes> Last_st       := max_index(protoStopTimes/Stop_Sequence, protoStopTimes/protoTrip_rel)[org_rel];
-		attribute<uint32>         NrStops       := pcount(protoStopTimes/protoTrip_rel)[org_rel];
-		attribute<uint64>         PatternKey    := ((uint64(RelevantSelection/Trips/Route_rel[org_rel]) * uint64(#protoStops) + uint64(protoStopTimes/protoStop_rel[First_st])) * uint64(#protoStops) + uint64(protoStopTimes/protoStop_rel[Last_st])) * uint64(1024) + uint64(min_elem(NrStops, uint32(1023)));
+		attribute<RawStopTimes> First_st      := min_index(RawStopTimes/Stop_Sequence, RawStopTimes/RawTrip_rel)[org_rel];
+		attribute<RawStopTimes> Last_st       := max_index(RawStopTimes/Stop_Sequence, RawStopTimes/RawTrip_rel)[org_rel];
+		attribute<uint32>         NrStops       := pcount(RawStopTimes/RawTrip_rel)[org_rel];
+		attribute<uint64>         PatternKey    := ((uint64(RelevantSelection/Trips/Route_rel[org_rel]) * uint64(#RawStops) + uint64(RawStopTimes/RawStop_rel[First_st])) * uint64(#RawStops) + uint64(RawStopTimes/RawStop_rel[Last_st])) * uint64(1024) + uint64(min_elem(NrStops, uint32(1023)));
 		unit<uint32>              Pattern       := unique_uint32(PatternKey);
 		attribute<Pattern>        Pattern_rel   := rlookup(PatternKey, Pattern/values);
-		attribute<uint32>         StartSec      := uint32(protoTrips/StartTime[org_rel]);
+		attribute<uint32>         StartSec      := uint32(RawTrips/StartTime[org_rel]);
 		attribute<uint64>         GroupKey      := uint64(Pattern_rel) * uint64(65536) + uint64(StartSec / ModelParameters/Impl/FlexMinInterval_sec);
 		unit<uint32>              Group         := unique_uint32(GroupKey);
 		attribute<Group>          Group_rel     := rlookup(GroupKey, Group/values);
@@ -326,28 +326,28 @@ container LoadFeeds
 
 	Template DayLinks_T
 	{
-		attribute<bool>   Sel (protoStopTimes);
+		attribute<bool>   Sel (RawStopTimes);
 		parameter<uint32> AddSec;
 		parameter<uint32> SubSec;
 		//
-		unit<uint32> Links := select_with_org_rel(Sel && !protoStopTimes/EndPoint)
+		unit<uint32> Links := select_with_org_rel(Sel && !RawStopTimes/EndPoint)
 		{
 			attribute<rdc>         geometry     (arc) := points2sequence(GenLines/Points, GenLines/Sequence_rel, GenLines/Ordinal);
-			attribute<uint32>      dist_shape         := sub_or_null(protoStopTimes/next_shape_dist_traveled[org_rel], protoStopTimes/shape_dist_traveled[org_rel]);
+			attribute<uint32>      dist_shape         := sub_or_null(RawStopTimes/next_shape_dist_traveled[org_rel], RawStopTimes/shape_dist_traveled[org_rel]);
 			attribute<uint32>      dist_traveled      := dist_shape <= 100 ? null_u : dist_shape;
 			attribute<m>           dist_euclid        := arc_length(geometry, m_f64)[m];
-			attribute<rdc>         fromPoint          := protoStops/geometry[protoStopTimes/protoStop_rel[org_rel]];
-			attribute<protoStops>  From_protoStop_rel := protoStopTimes/protoStop_rel[org_rel];
-			attribute<rdc>         ToPoint            := protoStops/geometry[protoStopTimes/NextprotoStop_rel[org_rel]];
-			attribute<protoStops>  To_protoStop_rel   := protoStopTimes/protoStop_rel[protoStopTimes/NextStopId[org_rel]];
-			attribute<protoTrips>  protoTrip_rel      := protoStopTimes/protoTrip_rel[org_rel];
-			attribute<Time>        depTime            := value(sub_or_null(uint32(protoStopTimes/departureTime/TimesVector/Time_rel[org_rel]) + AddSec, SubSec), Time);
-			attribute<Time>        arrTime            := value(sub_or_null(uint32(protoStopTimes/arrivalTime/TimesVector/Time_rel[protoStopTimes/NextStopId[org_rel]]) + AddSec, SubSec), Time);
+			attribute<rdc>         fromPoint          := RawStops/geometry[RawStopTimes/RawStop_rel[org_rel]];
+			attribute<RawStops>  From_RawStop_rel := RawStopTimes/RawStop_rel[org_rel];
+			attribute<rdc>         ToPoint            := RawStops/geometry[RawStopTimes/NextRawStop_rel[org_rel]];
+			attribute<RawStops>  To_RawStop_rel   := RawStopTimes/RawStop_rel[RawStopTimes/NextStopId[org_rel]];
+			attribute<RawTrips>  RawTrip_rel      := RawStopTimes/RawTrip_rel[org_rel];
+			attribute<Time>        depTime            := value(sub_or_null(uint32(RawStopTimes/departureTime/TimesVector/Time_rel[org_rel]) + AddSec, SubSec), Time);
+			attribute<Time>        arrTime            := value(sub_or_null(uint32(RawStopTimes/arrivalTime/TimesVector/Time_rel[RawStopTimes/NextStopId[org_rel]]) + AddSec, SubSec), Time);
 			attribute<km>          Length             := MakeDefined(convert(float32(dist_traveled)[m], km), convert(dist_euclid, km));
-			attribute<bool>        FromPickupAllowed  := protoStopTimes/PickupAllowed[org_rel];
-			attribute<bool>        FromDropOffAllowed := protoStopTimes/DropOffAllowed[org_rel];
-			attribute<bool>        ToPickupAllowed    := protoStopTimes/PickupAllowed[protoStopTimes/NextStopId[org_rel]];
-			attribute<bool>        ToDropOffAllowed   := protoStopTimes/DropOffAllowed[protoStopTimes/NextStopId[org_rel]];
+			attribute<bool>        FromPickupAllowed  := RawStopTimes/PickupAllowed[org_rel];
+			attribute<bool>        FromDropOffAllowed := RawStopTimes/DropOffAllowed[org_rel];
+			attribute<bool>        ToPickupAllowed    := RawStopTimes/PickupAllowed[RawStopTimes/NextStopId[org_rel]];
+			attribute<bool>        ToDropOffAllowed   := RawStopTimes/DropOffAllowed[RawStopTimes/NextStopId[org_rel]];
 		}
 		unit<uint32> GenLines := union_unit(Links, Links)
 		{
@@ -357,19 +357,19 @@ container LoadFeeds
 		}
 	}
 
-	unit<uint32> Trips_x_order_uq := unique(protoStopTimes/Trip_x_Ordinal) 
+	unit<uint32> Trips_x_order_uq := unique(RawStopTimes/Trip_x_Ordinal) 
 	{
-		attribute<protoTrips>  protoTrip_rel:= pointRow(Values)[protoTrips];
+		attribute<RawTrips>  RawTrip_rel:= pointRow(Values)[RawTrips];
 		attribute<uint32>      ord     := pointCol(Values);
 	}
 	
-	unit<uint32> Services := unique(protoTrips/service_id)
+	unit<uint32> Services := unique(RawTrips/service_id)
 	, Descr = "The services of the trips (service_id), with their exception type on D-1, D and D+1 from calendar_dates and their number of trips."
 	{
 		attribute<uint32>  Today_exc     := sum(Calendar_dates/Today * Calendar_dates/nType, Calendar_dates/Services_rel);
 		attribute<uint32>  Yesterday_exc := sum(Calendar_dates/Yesterday * Calendar_dates/nType, Calendar_dates/Services_rel);
 		attribute<uint32>  Tomorrow_exc  := sum(Calendar_dates/Tomorrow * Calendar_dates/nType, Calendar_dates/Services_rel);
-		attribute<uint32>  NrTrips       := pcount(protoTrips/Services_rel);
+		attribute<uint32>  NrTrips       := pcount(RawTrips/Services_rel);
 	}
 	
 	unit<uint32> Shapes := Read/Shapes/domain

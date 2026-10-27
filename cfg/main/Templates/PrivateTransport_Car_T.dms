@@ -4,29 +4,29 @@ Template PrivateTransport_Car_T : Descr = "Calculates the car travel times from 
 	unit<uint32>       dest;
 	parameter<bool>    DoMakeAllPairs;
 	///
-	parameter<string>  netwerk_type_OSM := 'car';
+	parameter<string>  network_type_OSM := 'car';
 
 	container Settings
 	{
 		
 		parameter<min_f>   max_traveldistance_min  := ModelParameters/MaxCarTime;
 		
-		parameter<string>  netwerk_type_suffix := ModelParameters/UseTomTomNetworkForCars ? '-TomTom' : '-OSM';
+		parameter<string>  network_type_suffix := ModelParameters/UseTomTomNetworkForCars ? '-TomTom' : '-OSM';
 		parameter<string>  fileNamePrefix :=  ModelParameters/Impl/fileNamePrefix;
 		parameter<string>  fileNameSuffix :=  
 			'_ORG-'    + ModelParameters/Impl/OrgSet_PathTag + 
 			'_DEST-'   + ModelParameters/Impl/DestSet_PathTag +
-			'_NETWERK-'+ netwerk_type_OSM + netwerk_type_suffix +
+			'_NETWERK-'+ network_type_OSM + network_type_suffix +
 			'_DayGroup-'+ModelParameters/Advanced/CongestionSpeed_DaySelection +
 			'_MaxTime-' + string(ModelParameters/MaxCarTime)+'min';
 
 	}
 
-	unit<uint32> RoadDomain_OSM        := SourceData/Infrastructure/OSM/Network_Car/isVerbonden;
+	unit<uint32> RoadDomain_OSM        := SourceData/Infrastructure/OSM/Network_Car/MainNetwork;
 	unit<uint32> RoadDomain_TomTom     := /SourceData/Infrastructure/TomTom/Roads_selection;
 	unit<uint32> JunctionDomain_TomTom := /SourceData/Infrastructure/TomTom/Junctions;
 	
-	container Create_Optimised_Network_OSM  := Templates/CreateNetwork_Efficient_T(org, dest, RoadDomain_OSM, netwerk_type_OSM, FALSE); //instantiated for OSM
+	container Create_Optimised_Network_OSM  := Templates/CreateNetwork_Efficient_T(org, dest, RoadDomain_OSM, network_type_OSM, FALSE); //instantiated for OSM
 	container Create_Network_TomTom     := Templates/CreateNetwork_TomTom_T(org, dest, RoadDomain_TomTom, JunctionDomain_TomTom); //instantiated for TomTom
 
 	unit<uint32> OSM_LinkSet                      := Create_Optimised_Network_OSM/CreateMoreEfficientNetwork/FinalLinkSet;
@@ -172,8 +172,8 @@ Template PrivateTransport_Car_T : Descr = "Calculates the car travel times from 
 			parameter<string> BidirArg    := ModelParameters/Advanced/InterpretAllRoadsAsBidirectional ? '' : ', not(LinkSet_dom/IsOneDirection)';
 			parameter<string> TDArgs      := ', Create_Network_TomTom/TimeDependent/Profile_rel, Create_Network_TomTom/TimeDependent/ProfileSlot/factor, ModelParameters/Advanced/CarTD_SlotDuration, Departure';
 			// In the OD pair mode (#129) also the links of each route (pareto with LinkSet: GeoDMS#1325).
-			parameter<bool>   MetLinks    := ModelParameters/Impl/IsOD, Descr = "Are the links of each route kept? Only in the OD pair mode.";
-			parameter<string> OdSpec      := 'od:impedance,OrgZone_rel,DstZone_rel' + (MetLinks ? ',LinkSet' : '');
+			parameter<bool>   WithLinks    := ModelParameters/Impl/IsOD, Descr = "Are the links of each route kept? Only in the OD pair mode.";
+			parameter<string> OdSpec      := 'od:impedance,OrgZone_rel,DstZone_rel' + (WithLinks ? ',LinkSet' : '');
 			unit<uint64> impedanceMatrix := = IsPareto
 				? 'impedance_matrix_od64(''' + BidirSpec + ';startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;pareto(OrgZone_max_imp2,imp2_epsilon);timedependent_alt(link_profile_rel,profile_slot_factor,slot_duration,departure_time);' + OdSpec + '''
 						, LinkSet_dom/LengthKm
@@ -200,11 +200,11 @@ Template PrivateTransport_Car_T : Descr = "Calculates the car travel times from 
 				attribute<km>     Car_Distance := = IsPareto ? 'impedance' : 'alt_imp', Descr = "The distance of the route.";
 				attribute<string> Org_Dest     := string(OrgZone_rel)+'_'+string(DstZone_rel);
 			}
-			container Links := = MetLinks
+			container Links := = WithLinks
 				? 'Templates/RouteLinks_T(impedanceMatrix, impedanceMatrix/LinkSet, LinkSet_dom, NodeSet_dom, LinkSet_dom/F1, LinkSet_dom/F2, NodeSet_dom/geometry, NodeSet_dom/DestNode_rel[impedanceMatrix/DstZone_rel])'
-				: 'Templates/GeenRouteLinks_T()'
-			, Descr = "The links of each route, only in the OD pair mode (MetLinks).";
-			attribute<rdc> LinkGeometrie (arc, Links/Rows) := = MetLinks ? 'LinkSet_dom/geometry[Links/Rows/Link_rel]' : 'const(value(null_u, rdc), Links/Rows)', Descr = "The shape of the road of each link, from TomTom.";
+				: 'Templates/NoRouteLinks_T()'
+			, Descr = "The links of each route, only in the OD pair mode (WithLinks).";
+			attribute<rdc> LinkGeometry (arc, Links/Rows) := = WithLinks ? 'LinkSet_dom/geometry[Links/Rows/Link_rel]' : 'const(value(null_u, rdc), Links/Rows)', Descr = "The shape of the road of each link, from TomTom.";
 		}
 
 		Template ImpedanceMatrix_with_AltImp_pareto_T : Descr = "The Pareto front of car routes per OD pair on travel time and distance."

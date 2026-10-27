@@ -6,7 +6,7 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 	unit<uint32> DestDomain;
 	unit<uint32> RoadDomain;
 	parameter<string> NetworkType;
-	parameter<bool>   IsVoorPostTransport;
+	parameter<bool>   IsPrePostTransport;
 	// end case parameters
 	container root := .;
 	
@@ -23,7 +23,7 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 		attribute<bool>                            IsDest                         := union_data(.,const(FALSE, OrgDomain), const(TRUE ,DestDomain));
 	}
 	
-	unit<uint32> UniqueLocations    := =IsVoorPostTransport ? 'unique(Locations_wStops/geometry)' : 'unique(Locations_woStops/geometry)'
+	unit<uint32> UniqueLocations    := =IsPrePostTransport ? 'unique(Locations_wStops/geometry)' : 'unique(Locations_woStops/geometry)'
 	{ 
 		attribute<rdc>                          geometry       := values;
 		attribute<OrgDomain>                    OrgDomain_rel  := rlookup(geometry, orgDomain/geometry);
@@ -60,9 +60,9 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 			attribute<rdc> geometry(arc) := points2sequence(PointSet/geometry, convert(id(PointSet) % #., .));
 		}
 	
-		unit<uint32> Roads_Connected := select_with_attr_by_cond(Roads, Roads/Connectiveness/IsVerbonden)
+		unit<uint32> Roads_Connected := select_with_attr_by_cond(Roads, Roads/Connectiveness/IsInMainNetwork)
 		{
-			container Speed_per_ImpedanceType := collect_attr_by_cond(Roads/Speed_per_ImpedanceType,., Roads/Connectiveness/IsVerbonden);
+			container Speed_per_ImpedanceType := collect_attr_by_cond(Roads/Speed_per_ImpedanceType,., Roads/Connectiveness/IsInMainNetwork);
 		}
 	
 		unit<uint32> LinkSet := connect_ne(Roads_Connected/geometry, uint32(Roads_Connected/Connectable), UniqueLocations/geometry, const(0, UniqueLocations))
@@ -178,7 +178,7 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 			attribute<string> name            := 'Iter_'+string(id(.));
 			attribute<string> prevname        := MakeDefined(name[sub_or_null(ID(.),1b)], 'Start');
 			attribute<string> Label           := name;
-			attribute<uint32> nrofarc_na_iter := ='union_data(., '+asList('OptimiseNetwork/'+name+'/IntermediateLinkSet/count_arcs', ',')+')'; 
+			attribute<uint32> nrofarc_after_iter := ='union_data(., '+asList('OptimiseNetwork/'+name+'/IntermediateLinkSet/count_arcs', ',')+')'; 
 		}
 		
 		unit<uint32> LinkSet_src     := CreateInitialWorkingNetwork/LinkSet;

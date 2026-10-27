@@ -14,8 +14,8 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 20.2402" // 20.24.
 																																? 'PASS: block numbers and size are adequate. It needs to be at least '+string(#/NetworkSetup/PublicTransport_Prep/Impl/BlockSelections)+' and now it is '+string(ModelParameters/Advanced/MaxStopBlockSize)+' * '+string(ModelParameters/Advanced/NumberOfStopBlocks)+' = '+string(uint64(ModelParameters/Advanced/MaxStopBlockSize) * uint64(ModelParameters/Advanced/NumberOfStopBlocks)) 
 																																: 'FAIL: you need more or larger blocks to accomodate all stops. It needs to be at least '+string(#/NetworkSetup/PublicTransport_Prep/Impl/BlockSelections)+' and now it is '+string(ModelParameters/Advanced/MaxStopBlockSize)+' * '+string(ModelParameters/Advanced/NumberOfStopBlocks)+' = '+string(uint64(ModelParameters/Advanced/MaxStopBlockSize) * uint64(ModelParameters/Advanced/NumberOfStopBlocks))+''
 																															, Descr = "Do all stops fit in the stop blocks (MaxStopBlockSize x NumberOfStopBlocks)? If not, make the blocks larger or more numerous.";
-		parameter<string> PT_CheckPrices         := all(NetworkSetup/PublicTransport_Prep/Impl/OD_R/Impl/Price_IntegrityCheck) && all(/NetworkSetup/PublicTransport_Prep/Impl/OD_L/NS_Station_Price_IntegrityCheck)  ? 'PASS: all links have a valid price (or no prices are needed)' : 'FAIL: you need to check the prices (or turn of prices)', Descr = "Does every public transport leg have a valid price when the settings need prices? It runs after the network is built; the unpriced combinations are in NetworkSetup/PublicTransport_Prep/Impl/OD_R/impl/Ongeprijsd/uniek.";
-		parameter<string> PT_CheckPriceCoverage  := SourceData/Infrastructure/OVprijzen/PrijsDekking/Status_gated
+		parameter<string> PT_CheckPrices         := all(NetworkSetup/PublicTransport_Prep/Impl/OD_R/Impl/Price_IntegrityCheck) && all(/NetworkSetup/PublicTransport_Prep/Impl/OD_L/NS_Station_Price_IntegrityCheck)  ? 'PASS: all links have a valid price (or no prices are needed)' : 'FAIL: you need to check the prices (or turn of prices)', Descr = "Does every public transport leg have a valid price when the settings need prices? It runs after the network is built; the unpriced combinations are in NetworkSetup/PublicTransport_Prep/Impl/OD_R/impl/Unpriced/UniqueCombos.";
+		parameter<string> PT_CheckPriceCoverage  := SourceData/Infrastructure/OVprijzen/PriceCoverage/Status_gated
 													, Descr = "Quick check to run before the chain step for every new feed or fare year: does the fare table cover all combinations of mode and agency in the feed, with plausible prices?";
 		parameter<string> Check_OriginBlocks      := ModelParameters/Advanced/NumberOfOrgBlocks * ModelParameters/Advanced/MaxOrgBlockSize >= #/NetworkSetup/Impl/OrgBlockSelections 
 																												? 'PASS: block numbers and size are adequate.' 
@@ -30,20 +30,20 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 20.2402" // 20.24.
 		{
 			parameter<String> OSM_Network      := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/OSM/Make_Final_Network", Descr = "Makes the OSM network store, for walking and for cycling over OSM.";
 			parameter<String> TomTom_FileLists := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/TomTom/impl/GetFileNames_Network/WriteFilesCSV;/SourceData/Infrastructure/TomTom/impl/GetFileNames_Speedprofiles/WriteFilesCSV", Descr = "Lists the files of the raw TomTom delivery, which TomTom_Networks reads.";
-			parameter<String> TomTom_Networks  := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/TomTom/impl/Generate_Stores", Descr = "Makes the four TomTom stores of the edition of the analysis moment.";
-			parameter<String> GTFS_Feed        := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/GTFS/LoadFeeds/store", Descr = "Makes the GTFS store of the feed of the analysis moment.";
+			parameter<String> TomTom_Networks  := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/TomTom/impl/Write_All", Descr = "Makes the four TomTom stores of the edition of the analysis moment.";
+			parameter<String> GTFS_Feed        := 'Ready', ExplicitSuppliers = "/SourceData/Infrastructure/GTFS/LoadFeeds/Write_All", Descr = "Makes the GTFS store of the feed of the analysis moment.";
 		}
 
-		container Step2_Legs
-		:	Descr = "The legs of pre- and post-transport as a parquet store per base set in IntermediateResults, which the runs read with ModelParameters/Advanced/LegsDecoupled; Generate_All writes nothing without it."
+		container Step2_PrePostTransport
+		:	Descr = "The pre- and post-transport connections as a parquet store per base set in IntermediateResults, which the runs read with ModelParameters/Advanced/PrePostTransportDecoupled; Generate_All writes nothing without it."
 		{
-			parameter<String> Generate_All       := 'Ready', ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/LegStores_Write"
+			parameter<String> Generate_All       := 'Ready', ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/Write_PrePostTransport"
 			,	Descr = "Writes all base sets at once, as batch/UpdateAll.cmd legs does: the three below, and Stops2Dest_Walking when origins and destinations differ.";
-			parameter<String> Org2Stops_Walking  := 'Ready', ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/LegStores/Org2Stops_Walking/Write_Legs/legs"
+			parameter<String> Org2Stops_Walking  := 'Ready', ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/PrePostTransport/Org2Stops_Walking/Write/Data"
 			,	Descr = "Writes walking from every origin to every stop, over OSM.";
-			parameter<String> Org2Stops_Cycling  := 'Ready', ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/LegStores/Org2Stops_Cycling/Write_Legs/legs"
+			parameter<String> Org2Stops_Cycling  := 'Ready', ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/PrePostTransport/Org2Stops_Cycling/Write/Data"
 			,	Descr = "Writes cycling from every origin to every stop, over the network of ModelParameters/Advanced/CyclingNetwork.";
-			parameter<String> Stops2Dest_Cycling := 'Ready', ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/LegStores/Stops2Dest_Cycling/Write_Legs/legs"
+			parameter<String> Stops2Dest_Cycling := 'Ready', ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/PrePostTransport/Stops2Dest_Cycling/Write/Data"
 			,	Descr = "Writes cycling from every stop to every destination; a store of its own, because the Fietsersbond network has one-way cycle paths.";
 		}
 
@@ -52,7 +52,7 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 20.2402" // 20.24.
 		{
 			parameter<String> Check_Blocks             := /ChecksBeforeRunning/PT_CheckBlocks, Descr = "Do all stops fit in the stop blocks?";
 			parameter<String> Check_PriceCoverage      := /ChecksBeforeRunning/PT_CheckPriceCoverage, Descr = "Does the fare table cover all combinations of mode and agency in the feed? It takes seconds; run it before the chains.";
-			parameter<String> BlocksWritten            := string(/NetworkSetup/PublicTransport_Prep/PT_Chains_Blocks/NrWritten) + ' van ' + string(/NetworkSetup/PublicTransport_Prep/PT_Chains_Blocks/NrBlocks) + ' haltenblokken hebben een store'
+			parameter<String> BlocksWritten            := string(/NetworkSetup/PublicTransport_Prep/PT_Chains_Blocks/NrWritten) + ' of ' + string(/NetworkSetup/PublicTransport_Prep/PT_Chains_Blocks/NrBlocks) + ' stop blocks have a store'
 			,	Descr = "How many blocks of the chain store with the current signature exist already.";
 			parameter<String> Generate_ToDo            := 'Ready', ExplicitSuppliers = "=AsList(/NetworkSetup/PublicTransport_Prep/PT_Chains_Blocks/ToDo/Item, ';')"
 			,	Descr = "Calculates and writes the blocks without a store in one process; batch/UpdateAll.cmd chains does it in portions, each in its own GeoDmsRun, so that memory is freed in between.";
@@ -67,7 +67,7 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 20.2402" // 20.24.
 			}
 		}
 
-		container Step4_CarStores
+		container Step4_DirectCar
 		:	Descr = "Only for the component Car: per departure moment the travel times and distances of the direct car trip between all origins and destinations (#132)."
 		{
 			parameter<string> Moments := /ModelParameters/Impl/CarTimeDependent ? AsList('TD' + /ModelParameters/Impl/MeasureMoments/TemplatableTextShrt, ' ') : /ModelParameters/Impl/Car_CongestionMoment_ForDirect

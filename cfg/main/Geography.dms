@@ -97,10 +97,10 @@ unit<dpoint> wgs84_base       : SpatialReference = "EPSG:4326";
 			
 			parameter<ha>                   NrHaPerCell     := convert(gridsize * gridsize, ha);
 			parameter<km2>                  NrKm2PerCell    := NrHaPerCell[km2];
-			attribute<bool>                 IsNederland     := IsDefined(point_in_polygon(geometry, /SourceData/RegioIndelingen/NL/Nederland_10kbuffer));
+			attribute<bool>                 IsNetherlands     := IsDefined(point_in_polygon(geometry, /SourceData/RegioIndelingen/NL/Netherlands_10kbuffer));
 		}
 		
-		unit<uint32> points := select_with_org_rel(domain/IsNederland)
+		unit<uint32> points := select_with_org_rel(domain/IsNetherlands)
 		{
 			attribute<rdc>                  geometry  := org_rel -> geometry;
 			attribute<float64>              x         := PointCol(geometry);
@@ -125,38 +125,38 @@ unit<dpoint> wgs84_base       : SpatialReference = "EPSG:4326";
 		
 		template potrange
 		{
-			parameter<m>       gridgrootte : Descr = "The grid cell size.";
-			parameter<m>       afkapstraal : Descr = "The cut-off radius.";
-			parameter<float32> straal       := afkapstraal / gridgrootte, Descr = "The cut-off radius in grid cells.";
-			parameter<float32> oppervlakte  := pi()[float32] * straal^2f;
+			parameter<m>       CellSize : Descr = "The grid cell size.";
+			parameter<m>       CutoffRadius : Descr = "The cut-off radius.";
+			parameter<float32> Radius       := CutoffRadius / CellSize, Descr = "The cut-off radius in grid cells.";
+			parameter<float32> Area  := pi()[float32] * Radius^2f;
 			
-			unit<spoint> tmpRange := range(spoint, point_yx(-int16(straal), -int16(straal)), point_yx(int16(straal) + 1s, int16(straal) + 1s));
+			unit<spoint> tmpRange := range(spoint, point_yx(-int16(Radius), -int16(Radius)), point_yx(int16(Radius) + 1s, int16(Radius) + 1s));
 			unit<spoint> potRange := tmpRange
 			{
 				attribute<Dist2Range> distMatr          := dist2(point_yx(0s, 0s, tmpRange), Dist2Range);
 				attribute<float32>    dist              := sqrt(float32(distMatr));
-				attribute<float32>    dist_scaled       := dist / straal;
+				attribute<float32>    dist_scaled       := dist / Radius;
 				
-				attribute<float32>    rev_dist          := max_elem(straal - dist, 0f);
+				attribute<float32>    rev_dist          := max_elem(Radius - dist, 0f);
 				parameter<float32>    rev_dist_max      := max(rev_dist);
 				attribute<float32>    rev_dist_scaled   := rev_dist / rev_dist_max;
-				attribute<float32>    AbsWeight         := distMatr[float32] <= (straal * straal) 
+				attribute<float32>    AbsWeight         := distMatr[float32] <= (Radius * Radius) 
 															? distMatr[float32] != 0f 
 																? 1f / (distMatr[float32] ^ 2f) 
 																: 1f
 															: 0f;
-				attribute<float32>    AbsWeight_ln      := distMatr[float32] <= (straal * straal) 
+				attribute<float32>    AbsWeight_ln      := distMatr[float32] <= (Radius * Radius) 
 															? distMatr[float32] != 0f 
-																? 1f / (distMatr[float32] / straal) 
+																? 1f / (distMatr[float32] / Radius) 
 																: 1f 
 															: 0f;
 				attribute<float32>    RelWeight         := scalesum(     AbsWeight , 1.0f);
 				attribute<float32>    RelWeightSqrt     := scalesum(Sqrt(AbsWeight), 1.0f);
-				attribute<float32>    Flat2             := float32(distMatr <= uint32(straal * straal));
-				attribute<float32>    Flat_Visualisatie := dist <= 1.5f ? 1f : 0f;
+				attribute<float32>    Flat2             := float32(distMatr <= uint32(Radius * Radius));
+				attribute<float32>    Flat_Visualisation := dist <= 1.5f ? 1f : 0f;
 				attribute<float32>    neighbourhood     := distMatr > 0 ? 1f : 0f;
-				parameter<float32>    oppervlakte       := sum(Flat2);
-				attribute<float32>    binair            := distMatr <= 100 ? 1f : 0f;
+				parameter<float32>    Area       := sum(Flat2);
+				attribute<float32>    Binary            := distMatr <= 100 ? 1f : 0f;
 			}
 		}
 		

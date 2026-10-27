@@ -21,34 +21,34 @@ Template RouteLinks_T : Descr = "Lists the links of each route of an impedance_m
 		attribute<Links>  Link_rel      := value(point, Links);
 		attribute<uint32> NrLinks       := pcount_uint32(Route_rel)[Route_rel];
 		attribute<uint32> Volgnr        := NrLinks - 1 - Ordinal, Descr = "The position of the link in the trip, counted from 0.";
-		attribute<.>      Volgende_rel  := Ordinal > 0 ? value(sub_or_null(id(.), 1u), .) : value(null_u, .), Descr = "The link that follows in the trip: the previous row, because the LinkSet runs backwards.";
+		attribute<.>      Next_rel  := Ordinal > 0 ? value(sub_or_null(id(.), 1u), .) : value(null_u, .), Descr = "The link that follows in the trip: the previous row, because the LinkSet runs backwards.";
 		attribute<Nodes>  A             := F1[Link_rel];
 		attribute<Nodes>  B             := F2[Link_rel];
-		attribute<Nodes>  EindKnoop     := Ordinal == 0 ? EndNode[Route_rel] : (A == A[Volgende_rel] || A == B[Volgende_rel] ? A : B), Descr = "The node where the trip leaves the link: the node it shares with the next link, or EndNode for the last link.";
-		attribute<Nodes>  BeginKnoop    := A == EindKnoop ? B : A, Descr = "The node where the trip enters the link.";
-		attribute<bool>   IsVooruit     := B == EindKnoop, Descr = "Does the trip run over the link from F1 to F2?";
-		attribute<rdc>    geometry (arc) := points2sequence(LinkPunten/Point, LinkPunten/Rij_rel, LinkPunten/Ordinal), Descr = "A straight line from the begin node to the end node of the link.";
+		attribute<Nodes>  LinkEndNode     := Ordinal == 0 ? EndNode[Route_rel] : (A == A[Next_rel] || A == B[Next_rel] ? A : B), Descr = "The node where the trip leaves the link: the node it shares with the next link, or EndNode for the last link.";
+		attribute<Nodes>  LinkBeginNode    := A == LinkEndNode ? B : A, Descr = "The node where the trip enters the link.";
+		attribute<bool>   IsForward     := B == LinkEndNode, Descr = "Does the trip run over the link from F1 to F2?";
+		attribute<rdc>    geometry (arc) := points2sequence(LinkPoints/Point, LinkPoints/Row_rel, LinkPoints/Ordinal), Descr = "A straight line from the begin node to the end node of the link.";
 
-		unit<uint32> LinkPunten := union_unit(., .)
+		unit<uint32> LinkPoints := union_unit(., .)
 		{
-			attribute<..>     Rij_rel  := union_data(., id(..), id(..));
-			attribute<rdc>    Point    := union_data(., NodePoint[../BeginKnoop], NodePoint[../EindKnoop]);
+			attribute<..>     Row_rel  := union_data(., id(..), id(..));
+			attribute<rdc>    Point    := union_data(., NodePoint[../LinkBeginNode], NodePoint[../LinkEndNode]);
 			attribute<uint32> Ordinal  := union_data(., const(0, .., uint32), const(1, .., uint32));
 		}
 	}
 	// The line per route: the begin node of the first link, then the end node of each link.
-	unit<uint32> Eerste := select_with_org_rel(Rows/Volgnr == 0);
-	unit<uint32> RoutePunten := union_unit(Eerste, Rows)
+	unit<uint32> FirstRows := select_with_org_rel(Rows/Volgnr == 0);
+	unit<uint32> RoutePoints := union_unit(FirstRows, Rows)
 	{
-		attribute<Routes> Route_rel := union_data(., Rows/Route_rel[Eerste/org_rel], Rows/Route_rel);
-		attribute<rdc>    Point     := union_data(., NodePoint[Rows/BeginKnoop[Eerste/org_rel]], NodePoint[Rows/EindKnoop]);
-		attribute<uint32> Ordinal   := union_data(., const(0, Eerste, uint32), Rows/Volgnr + 1);
+		attribute<Routes> Route_rel := union_data(., Rows/Route_rel[FirstRows/org_rel], Rows/Route_rel);
+		attribute<rdc>    Point     := union_data(., NodePoint[Rows/LinkBeginNode[FirstRows/org_rel]], NodePoint[Rows/LinkEndNode]);
+		attribute<uint32> Ordinal   := union_data(., const(0, FirstRows, uint32), Rows/Volgnr + 1);
 	}
-	attribute<rdc> geometry (arc, Routes) := points2sequence(RoutePunten/Point, RoutePunten/Route_rel, RoutePunten/Ordinal);
+	attribute<rdc> geometry (arc, Routes) := points2sequence(RoutePoints/Point, RoutePoints/Route_rel, RoutePoints/Ordinal);
 }
 
 // The placeholder for RouteLinks_T outside the OD pair mode: the searches then do not request a LinkSet.
-Template GeenRouteLinks_T
+Template NoRouteLinks_T
 {
-	parameter<string> Toelichting := 'Links worden alleen bijgehouden in de HB-paarmodus (ModelParameters/Impl/IsOD).';
+	parameter<string> Explanation := 'Links worden alleen bijgehouden in de HB-paarmodus (ModelParameters/Impl/IsOD).';
 }

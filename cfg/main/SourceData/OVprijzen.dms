@@ -1,6 +1,6 @@
 container OVprijzen  
 {
-	unit<uint8> TariefTypeK : nrofrows = 2
+	unit<uint8> FareTypeK : nrofrows = 2
 	{
 		attribute<string> name   : ['PerRit','Kilometertarief'];
 		attribute<string> label  := name;
@@ -12,18 +12,18 @@ container OVprijzen
 	
 	unit<uint8> FareTable := =ModelParameters/Impl/PriceMethod_effective == 'DOVA' ? 'FareTable_DOVA' : 'FareTable_'+ModelParameters/Impl/FareTable_year, Descr = "The fare table in use: FareTable_DOVA, or the detailed FareTable_<year> of ModelParameters/Impl/FareTable_year.";
 	
-	unit<uint32> Read_DOVA_kmtarieven
+	unit<uint32> Read_DOVA_DistanceFares
 	: StorageName = "%ProjDir%/data/DOVA_Overzicht km-tarieven 2013-2026_edit.xlsx"
 	, StorageType = "gdal.vect"
 	, StorageReadOnly = "true"
 	, SqlString   = "SELECT * FROM kmtarief", Descr = "The DOVA kilometre fares per concession and mode class, with the column of DOVA_year as VariablePrice.", Source = "DOVA, overview of kilometre fares and base fares 2013 to 2026, sheet kmtarief"
 	{
-		attribute<Euro>         FixedPrice      := const(Read_DOVA_basistarieven/FixedPrice_param,.);
+		attribute<Euro>         FixedPrice      := const(Read_DOVA_BoardingFares/FixedPrice_param,.);
 		attribute<Euro_km>      VariablePrice   := ='y'+ModelParameters/Impl/DOVA_year+'[Euro_km]';
 		
 	}
 	
-	unit<uint32> Read_DOVA_basistarieven
+	unit<uint32> Read_DOVA_BoardingFares
 	: StorageName = "%ProjDir%/data/DOVA_Overzicht km-tarieven 2013-2026_edit.xlsx"
 	, StorageType = "gdal.vect"
 	, StorageReadOnly = "true"
@@ -33,45 +33,45 @@ container OVprijzen
 		parameter<Euro>         FixedPrice_param := first(FixedPrice);
 	}
 
-	unit<uint8> ModeKlasse : NrOfRows = 3
+	unit<uint8> ModeClass : NrOfRows = 3
 	{
 		attribute<string> name : ['BTM','Rail','Ferry'], Descr = "Mode classes for the DOVA prices: BTM = bus, tram and metro, Rail = regional train, Ferry = ferry; NS trains go through the L-net (NS fare structure), not through this FareTable.";
-		attribute<Euro_km> VariablePrice_landelijk := mean(Read_DOVA_kmtarieven_Priced/VariablePrice, Read_DOVA_kmtarieven_Priced/ModeKlasse_rel), Descr = "National average kilometre fare per mode class of the chosen year; the fallback for concessions without a DOVA row and for the Buitenland safety net.";
+		attribute<Euro_km> VariablePrice_national := mean(Read_DOVA_DistanceFares_Priced/VariablePrice, Read_DOVA_DistanceFares_Priced/ModeClass_rel), Descr = "National average kilometre fare per mode class of the chosen year; the fallback for concessions without a DOVA row and for the Buitenland safety net.";
 	}
 
 	// One canonical DOVA row per (concession, mode class) (column use_for_price=1 in the xlsx). The DOVA concessions are matched to the shape
 	// concessions through the column Concessiegebied_model (byte-exact), the mode class through the column Mode_klasse.
-	unit<uint32> Read_DOVA_kmtarieven_Priced := select_with_attr_by_cond(Read_DOVA_kmtarieven, uint8(Read_DOVA_kmtarieven/use_for_price) > 0b)
+	unit<uint32> Read_DOVA_DistanceFares_Priced := select_with_attr_by_cond(Read_DOVA_DistanceFares, uint8(Read_DOVA_DistanceFares/use_for_price) > 0b)
 	{
 		attribute<string>       MC_CG_key     := Mode_klasse + '_' + AsItemName(Concessiegebied_model);
-		attribute<ModeKlasse>   ModeKlasse_rel := rlookup(Mode_klasse, ModeKlasse/name);
+		attribute<ModeClass>   ModeClass_rel := rlookup(Mode_klasse, ModeClass/name);
 	}
 
 	// FareTable from the DOVA overview, keyed on (concession x mode class); selected when ModelParameters/Advanced/PriceMethod == 'DOVA'.
 	// BTM (bus/tram/metro) gets the concession kilometre fare; Rail (regional train) gets the separate DOVA rail kilometre fare; Ferry likewise
 	// where available. Missing (concession, class) combinations fall back to the BTM fare of the same concession (MakeDefined).
-	unit<uint8> FareTable_DOVA_NL := combine_uint8(Concessiegebieden, ModeKlasse)
+	unit<uint8> FareTable_DOVA_NL := combine_uint8(Concessiegebieden, ModeClass)
 	{
 		attribute<string>       CG_name                := Concessiegebieden/name[first_rel];
-		attribute<string>       MC_name                := ModeKlasse/name[second_rel];
+		attribute<string>       MC_name                := ModeClass/name[second_rel];
 		attribute<string>       MC_CG_key              := MC_name + '_' + CG_name;
-		attribute<Euro>         FixedPrice             := const(Read_DOVA_basistarieven/FixedPrice_param, .);
-		attribute<Euro_km>      VariablePrice_specific := rjoin(MC_CG_key,      Read_DOVA_kmtarieven_Priced/MC_CG_key, Read_DOVA_kmtarieven_Priced/VariablePrice);
-		attribute<Euro_km>      VariablePrice_BTM      := rjoin('BTM_'+CG_name, Read_DOVA_kmtarieven_Priced/MC_CG_key, Read_DOVA_kmtarieven_Priced/VariablePrice);
+		attribute<Euro>         FixedPrice             := const(Read_DOVA_BoardingFares/FixedPrice_param, .);
+		attribute<Euro_km>      VariablePrice_specific := rjoin(MC_CG_key,      Read_DOVA_DistanceFares_Priced/MC_CG_key, Read_DOVA_DistanceFares_Priced/VariablePrice);
+		attribute<Euro_km>      VariablePrice_BTM      := rjoin('BTM_'+CG_name, Read_DOVA_DistanceFares_Priced/MC_CG_key, Read_DOVA_DistanceFares_Priced/VariablePrice);
 		// last fallback: the national class average, for shape concessions without a DOVA row (for example Stadsvervoer Lelystad in the 2023 shape).
-		attribute<Euro_km>      VariablePrice          := MakeDefined(MakeDefined(VariablePrice_specific, VariablePrice_BTM), ModeKlasse/VariablePrice_landelijk[second_rel]);
+		attribute<Euro_km>      VariablePrice          := MakeDefined(MakeDefined(VariablePrice_specific, VariablePrice_BTM), ModeClass/VariablePrice_national[second_rel]);
 	}
 
 	// Safety net for legs outside all concession polygons (foreign sections of De Lijn/DB/Eurobahn/NIAG and possible edge artefacts): one
 	// row per mode class, key '<class>_Buitenland' (see MC_CG_key_DOVA in OD_extra_attributen). Kilometre fare = national DOVA average of the
 	// class of the chosen year, boarding fare = national base fare. Without this safety net Price_IntegrityCheck fails in DOVA mode on those legs.
-	unit<uint8> FareTable_DOVA := union_unit_uint8(FareTable_DOVA_NL, ModeKlasse)
+	unit<uint8> FareTable_DOVA := union_unit_uint8(FareTable_DOVA_NL, ModeClass)
 	{
-		attribute<string>       MC_CG_key              := union_data(., FareTable_DOVA_NL/MC_CG_key, ModeKlasse/name + '_Buitenland');
-		attribute<Euro>         FixedPrice             := union_data(., FareTable_DOVA_NL/FixedPrice, const(Read_DOVA_basistarieven/FixedPrice_param, ModeKlasse));
-		attribute<Euro_km>      VariablePrice          := union_data(., FareTable_DOVA_NL/VariablePrice, ModeKlasse/VariablePrice_landelijk);
+		attribute<string>       MC_CG_key              := union_data(., FareTable_DOVA_NL/MC_CG_key, ModeClass/name + '_Buitenland');
+		attribute<Euro>         FixedPrice             := union_data(., FareTable_DOVA_NL/FixedPrice, const(Read_DOVA_BoardingFares/FixedPrice_param, ModeClass));
+		attribute<Euro_km>      VariablePrice          := union_data(., FareTable_DOVA_NL/VariablePrice, ModeClass/VariablePrice_national);
 		// dummy identifiers for compatibility with FareTable_rel_initial/augmented in OD_extra_attributen (not used in DOVA mode).
-		attribute<string>       Mode_Agency_CG_Lijn_identifier := MC_CG_key;
+		attribute<string>       Mode_Agency_CG_Line_identifier := MC_CG_key;
 		attribute<string>       Mode_Agency_CG_identifier      := MC_CG_key;
 		attribute<string>       Mode_Agency_identifier         := MC_CG_key;
 		attribute<string>       label                          := MC_CG_key;
@@ -84,7 +84,7 @@ container OVprijzen
 	// check: routes without trips on the chosen Analysis_date also count.
 	// DOVA mode: coverage holds by construction (combine over all concessions + Buitenland safety net + national fallback); there the check
 	// is that all prices of the chosen year are filled and plausible.
-	container PrijsDekking
+	container PriceCoverage
 	{
 		// R-net routes of the feed; NS/L-net is priced through the NS fare structure, and walking/cycling pseudo-routes have no agency. The source
 		// is RelevantSelection/Routes (the unit with the attribute subitems; select_with_attr_by_cond on an alias unit copies no attributes).
@@ -96,43 +96,43 @@ container OVprijzen
 			attribute<string> Mode_Agency_identifier := Modes/name[Mode_rel] +'_'+ Agencies/name[agency_rel];
 		}
 
-		unit<uint32> UniekeCombos := unique(RnetRoutes/Mode_Agency_identifier)
+		unit<uint32> UniqueCombos := unique(RnetRoutes/Mode_Agency_identifier)
 		{
 			attribute<uint32> NrRoutes    := pcount(rlookup(RnetRoutes/Mode_Agency_identifier, values));
 			attribute<bool>   InFareTable := IsDefined(rlookup(values, FT_detailed/Mode_Agency_identifier));
 		}
-		unit<uint32> OntbrekendeCombos := select_with_attr_by_cond(UniekeCombos, not(UniekeCombos/InFareTable));
-		parameter<string> OntbrekendeCombos_lijst := asList(OntbrekendeCombos/values + ' [' + string(OntbrekendeCombos/NrRoutes) + ' routes]', '; ');
+		unit<uint32> MissingCombos := select_with_attr_by_cond(UniqueCombos, not(UniqueCombos/InFareTable));
+		parameter<string> MissingCombos_list := asList(MissingCombos/values + ' [' + string(MissingCombos/NrRoutes) + ' routes]', '; ');
 
 		// Audit trail: writes the coverage per (mode, agency) combination to csv, so that per feed and fare year it is documented what was checked
 		// (generate it by updating this item).
-		unit<uint32> Rapport := UniekeCombos
+		unit<uint32> CoverageReport := UniqueCombos
 		, StorageName = "= '%LocalDataProjDir%/Output/Checks/Prijsdekking_feed'+ModelParameters/Impl/GTFS_file_date+'_FareTable'+ModelParameters/Impl/FareTable_year+'.csv'"
 		, StorageType = "gdalwrite.vect"
 		{
-			attribute<string> mode_agency  (.) := UniekeCombos/values;
-			attribute<uint32> nr_routes    (.) := UniekeCombos/NrRoutes;
-			attribute<bool>   in_faretable (.) := UniekeCombos/InFareTable;
+			attribute<string> mode_agency  (.) := UniqueCombos/values;
+			attribute<uint32> nr_routes    (.) := UniqueCombos/NrRoutes;
+			attribute<bool>   in_faretable (.) := UniqueCombos/InFareTable;
 		}
 
 		// Table sanity: all non-NS rows have filled, plausible prices (NS rows are priced through TariffUnits and are deliberately empty).
 		// MakeDefined instead of IsDefined, so that a null price does not propagate as null through all() but counts as FALSE.
 		unit<uint8> FT_detailed := ='FareTable_'+ModelParameters/Impl/FareTable_year;
-		parameter<bool> Tabel_OK_detailed := all(
+		parameter<bool> Table_OK_detailed := all(
 			lowercase(FT_detailed/Vervoerder) == 'ns'
 			|| (   MakeDefined(FT_detailed/FixedPrice,    0[Euro]    - 1[Euro])    >= 0[Euro]    && MakeDefined(FT_detailed/FixedPrice,    999[Euro])    <= 10[Euro]
 				&& MakeDefined(FT_detailed/VariablePrice, 0[Euro_km] - 1[Euro_km]) >= 0[Euro_km] && MakeDefined(FT_detailed/VariablePrice, 999[Euro_km]) <= 0.6[Euro_km]));
 
-		parameter<bool> Tabel_OK_DOVA := all(
+		parameter<bool> Table_OK_DOVA := all(
 				   MakeDefined(FareTable_DOVA/FixedPrice,    0[Euro]    - 1[Euro])    >= 0[Euro]    && MakeDefined(FareTable_DOVA/FixedPrice,    999[Euro])    <= 10[Euro]
 				&& MakeDefined(FareTable_DOVA/VariablePrice, 0[Euro_km] - 1[Euro_km]) >= 0[Euro_km] && MakeDefined(FareTable_DOVA/VariablePrice, 999[Euro_km]) <= 0.6[Euro_km]);
 
-		parameter<string> Status_Detailed := (#OntbrekendeCombos == 0
-												? 'PASS: alle '+string(#UniekeCombos)+' (mode,agency)-combinaties van feed '+ModelParameters/Impl/GTFS_file_date+' hebben een rij in FareTable_'+ModelParameters/Impl/FareTable_year+'.'
-												: 'FAIL: '+string(#OntbrekendeCombos)+' van de '+string(#UniekeCombos)+' (mode,agency)-combinaties van feed '+ModelParameters/Impl/GTFS_file_date+' ontbreken in FareTable_'+ModelParameters/Impl/FareTable_year+': '+OntbrekendeCombos_lijst)
-											+ (Tabel_OK_detailed ? '' : ' | FAIL: FareTable_'+ModelParameters/Impl/FareTable_year+' bevat niet-NS-rijen met lege of onplausibele prijzen (verwacht 0-10 euro opstap, 0-0.60 euro/km).');
+		parameter<string> Status_Detailed := (#MissingCombos == 0
+												? 'PASS: alle '+string(#UniqueCombos)+' (mode,agency)-combinaties van feed '+ModelParameters/Impl/GTFS_file_date+' hebben een rij in FareTable_'+ModelParameters/Impl/FareTable_year+'.'
+												: 'FAIL: '+string(#MissingCombos)+' van de '+string(#UniqueCombos)+' (mode,agency)-combinaties van feed '+ModelParameters/Impl/GTFS_file_date+' ontbreken in FareTable_'+ModelParameters/Impl/FareTable_year+': '+MissingCombos_list)
+											+ (Table_OK_detailed ? '' : ' | FAIL: FareTable_'+ModelParameters/Impl/FareTable_year+' bevat niet-NS-rijen met lege of onplausibele prijzen (verwacht 0-10 euro opstap, 0-0.60 euro/km).');
 
-		parameter<string> Status_DOVA := Tabel_OK_DOVA
+		parameter<string> Status_DOVA := Table_OK_DOVA
 												? 'PASS: DOVA-prijzen voor jaar '+ModelParameters/Impl/DOVA_year+' zijn gevuld en plausibel voor alle concessie x modeklasse-combinaties (dekking is by construction, incl. Buitenland-vangnet).'
 												: 'FAIL: DOVA-prijstabel bevat lege of onplausibele prijzen voor jaar '+ModelParameters/Impl/DOVA_year+' (verwacht 0-10 euro opstap, 0-0.60 euro/km); check de y-kolommen in de DOVA-xlsx.';
 
@@ -312,10 +312,10 @@ container OVprijzen
 		attribute<string>       Concessiegebied_str := AsItemName(Concessiegebied != '' ? ''+Concessiegebied : '');
 		attribute<string>       Lijn_str            := Lijn != '' ? '_'+Lijn : '';
 		
-		attribute<string>       Mode_Agency_CG_Lijn_identifier := Mode +'_'+ lowercase(Vervoerder) +'_'+ Concessiegebied_str + Lijn_str;
+		attribute<string>       Mode_Agency_CG_Line_identifier := Mode +'_'+ lowercase(Vervoerder) +'_'+ Concessiegebied_str + Lijn_str;
 		attribute<string>       Mode_Agency_CG_identifier      := Mode +'_'+ lowercase(Vervoerder) +'_'+ Concessiegebied_str;
 		attribute<string>       Mode_Agency_identifier         := Mode +'_'+ lowercase(Vervoerder);
-		attribute<string>       label                                 := Mode_Agency_CG_Lijn_identifier;
+		attribute<string>       label                                 := Mode_Agency_CG_Line_identifier;
 
 		parameter<uint32> nrAttr := 8;
 	}
@@ -492,10 +492,10 @@ container OVprijzen
 		attribute<string>       Concessiegebied_str := AsItemName(Concessiegebied != '' ? ''+Concessiegebied : '');
 		attribute<string>       Lijn_str            := Lijn != '' ? '_'+Lijn : '';
 		
-		attribute<string>       Mode_Agency_CG_Lijn_identifier := Mode +'_'+ lowercase(Vervoerder) +'_'+ Concessiegebied_str + Lijn_str;
+		attribute<string>       Mode_Agency_CG_Line_identifier := Mode +'_'+ lowercase(Vervoerder) +'_'+ Concessiegebied_str + Lijn_str;
 		attribute<string>       Mode_Agency_CG_identifier      := Mode +'_'+ lowercase(Vervoerder) +'_'+ Concessiegebied_str;
 		attribute<string>       Mode_Agency_identifier         := Mode +'_'+ lowercase(Vervoerder);
-		attribute<string>       label                          := Mode_Agency_CG_Lijn_identifier;
+		attribute<string>       label                          := Mode_Agency_CG_Line_identifier;
 
 		parameter<uint32> nrAttr := 8;
 	}
@@ -668,10 +668,10 @@ container OVprijzen
 		attribute<string>       Concessiegebied_str := AsItemName(Concessiegebied != '' ? ''+Concessiegebied : '');
 		attribute<string>       Lijn_str            := Lijn != '' ? '_'+Lijn : '';
 		
-		attribute<string>       Mode_Agency_CG_Lijn_identifier := Mode +'_'+ lowercase(Vervoerder) +'_'+ Concessiegebied_str + Lijn_str;
+		attribute<string>       Mode_Agency_CG_Line_identifier := Mode +'_'+ lowercase(Vervoerder) +'_'+ Concessiegebied_str + Lijn_str;
 		attribute<string>       Mode_Agency_CG_identifier      := Mode +'_'+ lowercase(Vervoerder) +'_'+ Concessiegebied_str;
 		attribute<string>       Mode_Agency_identifier         := Mode +'_'+ lowercase(Vervoerder);
-		attribute<string>       label                          := Mode_Agency_CG_Lijn_identifier;
+		attribute<string>       label                          := Mode_Agency_CG_Line_identifier;
 
 		parameter<uint32> nrAttr := 8;
 	}
@@ -845,10 +845,10 @@ container OVprijzen
 		attribute<string>       Concessiegebied_str := AsItemName(Concessiegebied != '' ? ''+Concessiegebied : '');
 		attribute<string>       Lijn_str            := Lijn != '' ? '_'+Lijn : '';
 		
-		attribute<string>       Mode_Agency_CG_Lijn_identifier := Mode +'_'+ lowercase(Vervoerder) +'_'+ Concessiegebied_str + Lijn_str;
+		attribute<string>       Mode_Agency_CG_Line_identifier := Mode +'_'+ lowercase(Vervoerder) +'_'+ Concessiegebied_str + Lijn_str;
 		attribute<string>       Mode_Agency_CG_identifier      := Mode +'_'+ lowercase(Vervoerder) +'_'+ Concessiegebied_str;
 		attribute<string>       Mode_Agency_identifier         := Mode +'_'+ lowercase(Vervoerder);
-		attribute<string>       label                          := Mode_Agency_CG_Lijn_identifier;
+		attribute<string>       label                          := Mode_Agency_CG_Line_identifier;
 
 		parameter<uint32> nrAttr := 8;
 	}
@@ -856,11 +856,11 @@ container OVprijzen
 	container NS
 	{
 		unit<uint32> NS_PricePerTariffUnit
-		: StorageName = "='%ProjDir%/Data/Tarieven_NS/NS tarieven '+ModelParameters/Impl/NS_prijzen_year+'.csv'"
+		: StorageName = "='%ProjDir%/Data/Tarieven_NS/NS tarieven '+ModelParameters/Impl/NS_prices_year+'.csv'"
 		, StorageType = "gdal.vect"
 		, StorageReadOnly = "true"
 		, URL = "https://www.ns.nl/binaries/_ht_1704966727326/content/assets/ns-nl/tarieven/2024/consumenten/ns-tarievenlijst-consumenten-2024.pdf"
-		, Descr = "NS prices per number of tariff units in the year NS_prijzen_year, at full fare and with 20% and 40% discount.", Source = "csv per year 2013 to 2026: 2013 to 2019 from the official NS fare list pdfs (Wayback Machine) and NDOV xls, 2020 to 2022 from the official HRN price tables, 2023 onward from the NS fare list; column headers without the VAT percentage (6% up to 2018, 9% from 2019); the discounts of 2013 to 2018 calculated as exactly 0.8 and 0.6 times the full fare (NS rule)"
+		, Descr = "NS prices per number of tariff units in the year NS_prices_year, at full fare and with 20% and 40% discount.", Source = "csv per year 2013 to 2026: 2013 to 2019 from the official NS fare list pdfs (Wayback Machine) and NDOV xls, 2020 to 2022 from the official HRN price tables, 2023 onward from the NS fare list; column headers without the VAT percentage (6% up to 2018, 9% from 2019); the discounts of 2013 to 2018 calculated as exactly 0.8 and 0.6 times the full fare (NS rule)"
 		{
 			attribute<uint32>  TariffUnits      := uint32(Aantal_tarief_eenheden);
 			attribute<float32> Delta_FullFare   := FullFare - MakeDefined(FullFare[sub_or_null(id(.), 1)], 0f);
@@ -870,30 +870,30 @@ container OVprijzen
 		}
 
 		// NS calculates the tariff units of a station pair over the classic route; whoever travels over the HSL pays the trip surcharge on top
-		// (RitOpslag below). The tariff network of NDOV (tariefnet.dat) also has the HSL edges, and the shortest route over them gives too few
-		// units (ObjectVision/NetworkModel_PBL#3), so those edges are left out (Tariefnet_UitgeslotenKanten).
-		unit<uint8> Tariefnet_UitgeslotenKanten : nrofrows = 2
-		, Descr = "Edges of NS_tariefnet_<year>.csv that NS does not count for the fare: the HSL-Zuid, in both directions (see NS_TariffUnits_matrix/IsUitgesloten)."
+		// (TripSurcharge below). The tariff network of NDOV (tariefnet.dat) also has the HSL edges, and the shortest route over them gives too few
+		// units (ObjectVision/NetworkModel_PBL#3), so those edges are left out (TariffNetwork_ExcludedEdges).
+		unit<uint8> TariffNetwork_ExcludedEdges : nrofrows = 2
+		, Descr = "Edges of NS_tariefnet_<year>.csv that NS does not count for the fare: the HSL-Zuid, in both directions (see NS_TariffUnits_matrix/IsExcluded)."
 		{
 			attribute<string> org         : ['hfd', 'rlb'];
 			attribute<string> dest        : ['rtd', 'bdpb'];
 			attribute<string> key         := org + '_' + dest;
-			attribute<string> toelichting : ['HSL-Zuid Hoofddorp - Rotterdam Centraal (50 TE; klassiek via Leiden en Den Haag 62)', 'HSL-Zuid Rotterdam Lombardijen - Breda-Prinsenbeek (32 TE; klassiek via Dordrecht en Lage Zwaluwe 38)'];
+			attribute<string> Explanation : ['HSL-Zuid Hoofddorp - Rotterdam Centraal (50 TE; klassiek via Leiden en Den Haag 62)', 'HSL-Zuid Rotterdam Lombardijen - Breda-Prinsenbeek (32 TE; klassiek via Dordrecht en Lage Zwaluwe 38)'];
 		}
 
 		// Trip surcharge for special trains (ObjectVision/NetworkModel_PBL#3): the NS surcharge 'ICE / IC direct' per single trip, for the
 		// products in ModelParameters/Advanced/TripSurchargeTrains (HSL Schiphol-Rotterdam and domestic ICE). The amount is that of
-		// NS_prijzen_year at full fare: the off-peak discount at the surcharge pole (40%, only with an OV-chipkaart) is not included.
-		container RitOpslag
+		// NS_prices_year at full fare: the off-peak discount at the surcharge pole (40%, only with an OV-chipkaart) is not included.
+		container TripSurcharge
 		{
-			unit<uint8> Treinen := ModelParameters/Advanced/TripSurchargeTrains;
+			unit<uint8> Trains := ModelParameters/Advanced/TripSurchargeTrains;
 
-			unit<uint8> PerJaar : nrofrows = 14
+			unit<uint8> PerYear : nrofrows = 14
 			, Descr = "NS surcharge ICE / IC direct per single trip, per fare year."
 			{
-				attribute<string> jaar            : ['2013', '2014', '2015', '2016', '2017', '2018', '2019', '2020', '2021', '2022', '2023', '2024', '2025', '2026'];
-				attribute<Euro>   Toeslag_ICE_ICD : [ 2.30,   2.30,   2.30,   2.40,   2.40,   2.40,   2.40,   2.60,   2.60,   2.70,   2.90,   2.90,   3.00,   3.20 ];
-				attribute<string> bron            :
+				attribute<string> year            : ['2013', '2014', '2015', '2016', '2017', '2018', '2019', '2020', '2021', '2022', '2023', '2024', '2025', '2026'];
+				attribute<Euro>   Surcharge_ICE_ICD : [ 2.30,   2.30,   2.30,   2.40,   2.40,   2.40,   2.40,   2.60,   2.60,   2.70,   2.90,   2.90,   3.00,   3.20 ];
+				attribute<string> reference            :
 				[
 					'GEEN BRON GEVONDEN: gelijk aan 2015 gehouden; tot 15-12-2013 gold de toeslag ook op andere HSL-delen (wiki.ovinnederland.nl)',
 					'GEEN BRON GEVONDEN: gelijk aan 2015 gehouden',
@@ -911,20 +911,20 @@ container OVprijzen
 					'NS-prijslijst consumenten 1-1-2026 (daluren 1,92 aan de toeslagpaal)'
 				];
 			}
-			parameter<Euro> Toeslag_ICE_ICD := rjoin(ModelParameters/Impl/NS_prijzen_year, PerJaar/jaar, PerJaar/Toeslag_ICE_ICD)
-			, IntegrityCheck = "IsDefined(this)", Descr = "The surcharge of NS_prijzen_year.";
+			parameter<Euro> Surcharge_ICE_ICD := rjoin(ModelParameters/Impl/NS_prices_year, PerYear/year, PerYear/Surcharge_ICE_ICD)
+			, IntegrityCheck = "IsDefined(this)", Descr = "The surcharge of NS_prices_year.";
 
-			attribute<Euro>        Opslag       (Treinen) := const(Toeslag_ICE_ICD, Treinen), Descr = "Surcharge per single trip; both products follow the NS surcharge ICE / IC direct.";
-			attribute<s>           ExtraTijd    (Treinen) := convert(Treinen/ExtraTijd, s), Descr = "The extra travel time of the product, in seconds.";
-			attribute<bool>        HeeftTraject (Treinen) := Treinen/Station_A != '' && Treinen/Station_B != '', Descr = "Does the product have a section between Station_A and Station_B?";
-			attribute<NS_stations> StationA_rel (Treinen) := rlookup(Treinen/Station_A, NS_stations/code);
-			attribute<NS_stations> StationB_rel (Treinen) := rlookup(Treinen/Station_B, NS_stations/code);
-			parameter<bool>        Check_Stations := all(not(HeeftTraject) || (IsDefined(StationA_rel) && IsDefined(StationB_rel)))
+			attribute<Euro>        Surcharge       (Trains) := const(Surcharge_ICE_ICD, Trains), Descr = "Surcharge per single trip; both products follow the NS surcharge ICE / IC direct.";
+			attribute<s>           ExtraTime    (Trains) := convert(Trains/ExtraTime, s), Descr = "The extra travel time of the product, in seconds.";
+			attribute<bool>        HasSection (Trains) := Trains/Station_A != '' && Trains/Station_B != '', Descr = "Does the product have a section between Station_A and Station_B?";
+			attribute<NS_stations> StationA_rel (Trains) := rlookup(Trains/Station_A, NS_stations/code);
+			attribute<NS_stations> StationB_rel (Trains) := rlookup(Trains/Station_B, NS_stations/code);
+			parameter<bool>        Check_Stations := all(not(HasSection) || (IsDefined(StationA_rel) && IsDefined(StationB_rel)))
 			, IntegrityCheck = "Check_Stations", Descr = "Do the stations of each section in TripSurchargeTrains exist in NS_stations?";
 		}
 				
-		// The tariff network per vintage (ModelParameters/Impl/NS_tariefnet_year, ObjectVision/NetworkModel_PBL#121):
-		// - 2013 (for NS_prijzen_year 2013 to 2015): tariefnet.dat of NDOV, from ns-latest.zip, where it no longer is. It has the shared tariff
+		// The tariff network per vintage (ModelParameters/Impl/NS_TariffNetwork_year, ObjectVision/NetworkModel_PBL#121):
+		// - 2013 (for NS_prices_year 2013 to 2015): tariefnet.dat of NDOV, from ns-latest.zip, where it no longer is. It has the shared tariff
 		//   points of NS: 35 edges of 0 tariff units between stations close to each other, such as Hilversum and Hilversum Sportpark, or Den Haag HS
 		//   and Den Haag Centraal.
 		// - 2016: NS abolished those points with the fares of 2016: every station pair is at least 1 tariff unit, the 0 became 1 (Den Haag HS to
@@ -932,11 +932,11 @@ container OVprijzen
 		//   (rijdendetreinen.nl/tickets/tariefafstanden; the 5 border points bhg, ehai, fvsg, vlgr and wrg are not on it and are unchanged).
 		//   Only pairs with the Valleilijn stations still differ (apd,hvl 37 here, NS has amf,apd 43); those use the RRReis fare, not the NS fare.
 		unit<uint32> NS_TariffUnits_matrix
-		: StorageName = "='%ProjDir%/Data/Tarieven_NS/NS_tariefnet_'+ModelParameters/Impl/NS_tariefnet_year+'.csv'"
+		: StorageName = "='%ProjDir%/Data/Tarieven_NS/NS_tariefnet_'+ModelParameters/Impl/NS_TariffNetwork_year+'.csv'"
 		, StorageType = "gdal.vect"
 		, StorageReadOnly = "true"
 		, URL = "https://www.rijdendetreinen.nl/tickets/tariefafstanden"
-		, Descr = "The NS tariff network of NS_tariefnet_year, with ut,utm (#120): 2013 with the shared tariff points of before 2016, 2016 with 69 edges adjusted to the tariff unit map of NS.", Source = "2013: NDOV tariefnet.dat (https://data.ndovloket.nl/ns/ns-latest.zip) with a header added; 2016: the same with 69 edges from the tariff unit map of NS (rijdendetreinen.nl, retrieved 2026-10-04)"
+		, Descr = "The NS tariff network of NS_TariffNetwork_year, with ut,utm (#120): 2013 with the shared tariff points of before 2016, 2016 with 69 edges adjusted to the tariff unit map of NS.", Source = "2013: NDOV tariefnet.dat (https://data.ndovloket.nl/ns/ns-latest.zip) with a header added; 2016: the same with 69 edges from the tariff unit map of NS (rijdendetreinen.nl, retrieved 2026-10-04)"
 		{
 			attribute<NS_stations> StartPoint_rel := rlookup(org, NS_stations/code);
 			attribute<NS_stations> EndPoint_rel   := rlookup(dest, NS_stations/code);
@@ -946,8 +946,8 @@ container OVprijzen
 			attribute<rdc>         geometry (arc) := points2sequence(LinkPoints/Point, LinkPoints/Sequence_rel, LinkPoints/Ordinal);
 
 			attribute<uint32> c_NS_start_end_rel := combine_data(c_NS_start_end, StartPoint_rel, EndPoint_rel);
-			attribute<bool>   IsUitgesloten      := IsDefined(rlookup(org + '_' + dest, Tariefnet_UitgeslotenKanten/key)) || IsDefined(rlookup(dest + '_' + org, Tariefnet_UitgeslotenKanten/key))
-			, Descr = "An edge that NS does not count for the fare (Tariefnet_UitgeslotenKanten); it does not take part in ConnectedNetwork.";
+			attribute<bool>   IsExcluded      := IsDefined(rlookup(org + '_' + dest, TariffNetwork_ExcludedEdges/key)) || IsDefined(rlookup(dest + '_' + org, TariffNetwork_ExcludedEdges/key))
+			, Descr = "An edge that NS does not count for the fare (TariffNetwork_ExcludedEdges); it does not take part in ConnectedNetwork.";
 
 			unit<uint32> c_NS_start_end := combine(NS_stations, NS_stations)
 			{
@@ -968,7 +968,7 @@ container OVprijzen
 				attribute<uint32>               Ordinal      := union_data(., const(0,..,uint32), const(1,..,uint32));
 			}
 			
-			unit<uint32> ConnectedNetwork := select_with_attr_by_cond(., IsDefined(StartPoint) && IsDefined(EndPoint) && not(IsUitgesloten))
+			unit<uint32> ConnectedNetwork := select_with_attr_by_cond(., IsDefined(StartPoint) && IsDefined(EndPoint) && not(IsExcluded))
 			{
 				unit<uint32> NodeSet := unique(LinkPoints/Point)
 				{
@@ -1004,8 +1004,8 @@ container OVprijzen
 				attribute<Euro> Price_40pct_Discount := impedance >= 200 
 														? max(NS_PricePerTariffUnit/Discount_40pct) 
 														: rjoin(impedance, NS_PricePerTariffUnit/TariffUnits, NS_PricePerTariffUnit/Discount_40pct);
-				attribute<Euro> Prijs             := =ModelParameters/Advanced/NS_TariffChoice;
-				attribute<Ct>   Prijs_ct          := rounded_convert(Prijs, Ct);
+				attribute<Euro> Price             := =ModelParameters/Advanced/NS_TariffChoice;
+				attribute<Ct>   Price_ct          := rounded_convert(Price, Ct);
 				attribute<NS_stations> Org_NS_station_rel  := OrgDest/org_rel[OrgZone_rel];
 				attribute<NS_stations> Dest_NS_station_rel := OrgDest/org_rel[DstZone_rel];
 				attribute<uint32>      c_NS_start_end_rel  := combine_data(c_NS_start_end, Org_NS_station_rel, Dest_NS_station_rel);
@@ -1026,10 +1026,10 @@ container OVprijzen
 			attribute<string> label := trim(stations_naam);
 			attribute<rdc>    geometry := rjoin(code, lowercase(Infrastructure/Read_NS_Stations_SHP/code), Infrastructure/Read_NS_Stations_SHP/geometry_rd);
 			
-			attribute<bool>   LigtInNL                  := IsDefined(point_in_polygon(geometry, /SourceData/RegioIndelingen/NL/geometry));
+			attribute<bool>   IsInNL                  := IsDefined(point_in_polygon(geometry, /SourceData/RegioIndelingen/NL/geometry));
 			attribute<bool>   StationNotInGTFSStops     := IsNull(invert(/SourceData/Infrastructure/GTFS/PublicTransportNet/Stops/NS_Stations_rel));
 			
-			unit<uint32> NL := select_with_attr_by_cond(., LigtInNL);
+			unit<uint32> NL := select_with_attr_by_cond(., IsInNL);
 		}
 	}
 	#include<TripSurchargeReport.dms>
