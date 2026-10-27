@@ -79,6 +79,10 @@ The SourceData folders that synchronise with the PBL Nextcloud share are shared 
 
 Write no new fss. A large dataset that only GeoDMS reads back becomes an mmd. Something small becomes an open file that QGIS, R, Python or a colleague can read: a tif for a raster (always with its `.tfw`), a gpkg for polygons and points, a parquet for a table. A large csv that every run reads again becomes parquet. Convert an existing fss when you rebuild it anyway. Why and the mmd pitfalls: skill `werkafspraken`.
 
+## Only main, no worktrees
+
+In this project, work only on `main`, in the working copy of the user: no other branches and no git worktrees, also not to test something or to prepare a merge. This takes precedence over the general advice to take a worktree when another session works in the same copy; follow the rules for a shared working copy below instead (only your own files and hunks, `git status` just before the commit).
+
 ## Commits and GitHub
 
 Start the subject line with the issue number (`#129 OD_Uitvoer: ...`), qualified across repos (`ObjectVision/GeoDMS#1282`), and always commit with `--cleanup=whitespace`. Write the message for a colleague who knows the model but was not in the session: a subject line under 70 characters, then a few full sentences on what changed, why, and what it yields, with measurements and details in the issue. No hard line breaks inside a paragraph, only a blank line between paragraphs; Visual Studio and GitHub wrap by themselves. Full sentences and no names that exist only in the session, also in issues, comments and chat. One topic per commit, no AI attribution, only your own files and hunks when other sessions share the working copy. The user pushes. Post nothing on GitHub (issue, comment, PR text, closing) before the user has seen the draft and approved it. No bold in running text and no em or en dashes as punctuation, in commits, issues, comments and Descr alike.
