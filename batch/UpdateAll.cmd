@@ -47,7 +47,7 @@ REM GeoDMS do not know; GEODMS_VERSION is the version it was tested with. GeoDms
 REM the environment variable GEODMS_EXE (another engine, for example a test build); the local build in
 REM C:\dev\GeoDMS_2026; the installed GEODMS_VERSION, flavor m or c, in the folder that the installer writes to the
 REM registry (by default C:\Program Files\ObjectVision\GeoDms<version>.<flavor>).
-set GEODMS_VERSION=20.26.0
+set GEODMS_VERSION=20.27.0
 set "EXE="
 if defined GEODMS_EXE set "EXE=%GEODMS_EXE%"
 if not defined EXE if exist "C:\dev\GeoDMS_2026\bin\Release\x64\GeoDmsRun.exe" set "EXE=C:\dev\GeoDMS_2026\bin\Release\x64\GeoDmsRun.exe"
