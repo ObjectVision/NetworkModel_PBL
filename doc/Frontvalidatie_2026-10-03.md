@@ -47,4 +47,4 @@ Geen van beide runs noemde `Car` of `Bike`, terwijl de standaard `'Price,Time,Ca
 powershell -ExecutionPolicy Bypass -File batch\RunFrontValidation.ps1 -Label val53 -CritA Time -CritB Price,Time
 ```
 
-Dit maakt twee runkopieën van HEAD met `OutputLabel` `val53_A` en `val53_B`, draait de ketenstap, de uitvoer van blokken 1-10 en de vergelijking. Het verslag komt in `C:\LocalData\NM_PBL_runs\val53\verslag.md`. Met `-BaseRun` wordt alleen A gerekend en is B de uitvoer van een bestaande run. Zie ook de skill `model-validatie` en de wiki, How to run the model, Validating the Pareto front.
+Dit maakt twee runkopieën van HEAD met `OutputLabel` `val53_A` en `val53_B`, draait de ketenstap, de uitvoer van blokken 1-10 en de vergelijking. Het verslag komt in `C:\LocalData\NM_PBL_runs\val53\verslag.md`. Met `-BaseRun` wordt alleen A gerekend en is B de uitvoer van een bestaande run. Zie ook de skill `model-validatie` en de wikipagina Validating the Pareto front.
