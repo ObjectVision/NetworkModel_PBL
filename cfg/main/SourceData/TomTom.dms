@@ -7,24 +7,19 @@ container TomTom : Descr = "The TomTom MultiNet road network with its historical
 		attribute<string> name : ['weekday','weekend','week','freeflow','sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
 	}
 		
-	parameter<string> CacheDir := '%LocalDataProjDir%/TomTom/' + file_date, Descr = "The folder in LocalData with the four caches of the edition (Roads, Junctions, Speednetworks, Speedprofiles), which Impl makes from the raw material in Impl/dir.";
+	parameter<string> CacheDir := '%NetworkModel_PrivDir%/TomTom/' + file_date, Descr = "The folder of the edition with the four TomTom caches (Roads, Junctions, Speednetworks, Speedprofiles) that the car on the TomTom network reads: licensed source data of PBL, which Impl makes from the MultiNet delivery.";
 	
-	container Impl : Descr = "Makes the four TomTom caches (Roads, Junctions, Speednetworks, Speedprofiles) of the edition in CacheDir, from its raw MultiNet files or from an old fss in Impl/dir."
+	container Impl : Descr = "Makes the four TomTom caches (Roads, Junctions, Speednetworks, Speedprofiles) of the edition in CacheDir, from the raw MultiNet files or an old fss in that folder; done once per edition by whoever holds the delivery, not by a model run or batch/UpdateAll.cmd."
 	{
-		parameter<string> dir       := '%NetworkModel_PrivDir%/TomTom/'+file_date+'', Descr = "The folder of the edition with the raw material (multinet, speedprofiles) or an old fss; the model only reads here, with forward slashes.";
+		parameter<string> dir       := CacheDir, Descr = "The folder of the edition with the raw material (multinet, speedprofiles) or an old fss, next to the caches; with forward slashes.";
 		
 		// A reference and not 'Ready' with ExplicitSuppliers: the engine does not calculate such a supplier, so the dir command would not run.
 		parameter<bool>   Generate_FileList_CSVs := GetFileNames_Network/WriteFilesCSV && GetFileNames_Speedprofiles/WriteFilesCSV, Descr = "Writes the lists of the delivered shapefiles and dbf files to %LocalDataProjDir%/TomTom; the caches read them, so make them first, in a process of their own.";
 		parameter<string> Write_All              := 'Ready', ExplicitSuppliers = "Write_Roads;Write_Junctions;Write_Speednetworks;Write_Speedprofiles";
 
 		// The four caches come from the raw material (Merge_*, folder multinet/ of the edition) or, for an edition that only exists as an old fss,
-		// from that fss (FromFss). UpdateAll.cmd sources calls these four.
+		// from that fss (FromFss).
 		parameter<bool>   HasRawMaterial         := ExistingFile('', expand(., dir + '/multinet')) != '', Descr = "True when the edition has the raw material (multinet/); otherwise the caches come from the fss (FromFss).";
-		parameter<bool>   HasFss                 := ExistingFile('', expand(., dir + '/Roads_FSS.fss')) != '', Descr = "True when the edition has the old fss, from which FromFss makes the caches.";
-		parameter<bool>   HasCaches              := ExistingFile('', expand(., CacheDir + '/Speedprofiles.mmd/0Dictionary.dms')) != '', Descr = "True when the four caches of the edition exist already; Speedprofiles.mmd is written last.";
-		parameter<string> Source_ForBatch        := (!ModelParameters/UseTomTomNetworkForCars ? 'osm ' : HasRawMaterial ? 'raw ' : HasFss ? 'fss ' : HasCaches ? 'caches ' : 'missing ') + replace(expand(., dir), '/', '\\')
-		, StorageName = "%ConfigDir%/../../batch/log/tomtom_source.txt", StorageType = "str"
-		, Descr = "What batch/UpdateAll.cmd sources makes the TomTom caches of the edition from, followed by the folder of the edition: osm (the car uses the OSM network, no TomTom needed), raw (multinet/, first the file lists), fss (FromFss), caches (made already, with no source to make them again) or missing.";
 		parameter<string> Write_Roads            := 'Ready', ExplicitSuppliers = "=HasRawMaterial ? 'Merge_Roads' : 'FromFss/Roads'";
 		parameter<string> Write_Junctions        := 'Ready', ExplicitSuppliers = "=HasRawMaterial ? 'Merge_Junctions' : 'FromFss/Junctions'";
 		parameter<string> Write_Speednetworks    := 'Ready', ExplicitSuppliers = "=HasRawMaterial ? 'Merge_Speednetworks' : 'FromFss/Speednetworks'";
@@ -128,8 +123,8 @@ container TomTom : Descr = "The TomTom MultiNet road network with its historical
 			attribute<float32> rel_sp                       := ='union_data(., '+asList('Read_TomTom_Files_SP_profiles/'+FileNames_Speedprofiles_profile/name+'/Read/rel_sp[float32]', ',')+')', Descr = "relative speed";
 		}
 
-		// Converter for the editions that only exist as fss, yr2022_12 and yr2023_12. Those fss were written when rdc was fpoint, carry no value types
-		// and have no raw material next to them any more, so Merge_* cannot make them. FromFss reads them with the value types of that time (the
+		// Converter for an edition that only exists as an old fss, without raw material next to it. Such fss were written when rdc was
+		// fpoint and carry no value types, so Merge_* cannot make them. FromFss reads them with the value types of that time (the
 		// geometry as Geography/rdc_f32, then [rdc]) and writes the same four mmd caches as Merge_*, in the same folder. The fss stay in place.
 		container FromFss : Descr = "Makes the four caches of an edition that only exists as fss, reading the fss with the value types of that time."
 		{

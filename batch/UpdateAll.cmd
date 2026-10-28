@@ -7,10 +7,9 @@ REM stops at an error. Logs in batch\log\UpdateAll_<step>.log.
 REM
 REM   UpdateAll.cmd                 all sections (sources, cars, chains, legs, output); expect more than a night
 REM   UpdateAll.cmd all -nosources  everything except the named sections: -nosources, -nocars, -nochains, -nolegs, -nooutput
-REM   UpdateAll.cmd sources         the OSM network, TomTom and GTFS caches (only needed for a new edition; about 15 min).
-REM                                 TomTom only when the car uses the TomTom network (UseTomTomNetworkForCars), from the
-REM                                 edition of the analysis moment in NetworkModel_PrivDir\TomTom\<edition> (multinet\ and
-REM                                 speedprofiles\, or an old fss); when that is missing, it says so and makes the rest.
+REM   UpdateAll.cmd sources         the OSM network and GTFS caches (only needed for a new edition; about 15 min). The car on
+REM                                 the TomTom network reads the four TomTom caches as source data from
+REM                                 NetworkModel_PrivDir\TomTom\<edition>; UpdateAll does not make them.
 REM   UpdateAll.cmd cars [moment..] the caches of the direct car trip per departure moment
 REM                                 (PublicTransport_Prep/Direct/CarPerMoment/<moment>/Write_Car); without moments the
 REM                                 moments the model reads (MakeUnlinkedData/Step4_DirectCar/Moments); with moments, for
@@ -100,62 +99,12 @@ exit /b 1
 
 :sources
 if "%SKIP_SOURCES%"=="1" goto sources_done
-REM A missing or failing TomTom step does not stop the section, since only Car needs TomTom: what went wrong is kept in
-REM SRC_FAILED, and the section fails at the end.
-set "SRC_FAILED="
-echo === sources: what the TomTom caches can be made from (batch\log\tomtom_source.txt) ===
-call :run sources_check /SourceData/Infrastructure/TomTom/Impl/Source_ForBatch
-if not "!RC!"=="0" goto failed
-set "TOMTOM=" & set "TOMTOMDIR="
-for /f "usebackq tokens=1,*" %%A in ("%LOGDIR%\tomtom_source.txt") do (set "TOMTOM=%%A" & set "TOMTOMDIR=%%B")
 echo === sources: OSM network cache ===
 call :run osm_network /SourceData/Infrastructure/OSM/Make_Final_Network
 if not "!RC!"=="0" goto failed
-echo === sources: TomTom caches (roads, junctions, speed profile network, speed profiles) from !TOMTOMDIR! ===
-if /I "!TOMTOM!"=="osm" (
-  echo The car uses the OSM network ^(ModelParameters/UseTomTomNetworkForCars is FALSE^): no TomTom needed, skipped.
-  goto tomtom_done
-)
-if /I "!TOMTOM!"=="caches" (
-  echo The TomTom caches exist already, without raw material or fss to make them again: skipped.
-  goto tomtom_done
-)
-if /I not "!TOMTOM!"=="missing" goto tomtom_go
-echo WARNING: the TomTom edition of the analysis moment is missing. Expected: !TOMTOMDIR!\multinet and \speedprofiles ^(the
-echo   TomTom delivery^), or an old fss ^(Roads_FSS.fss^). Put the delivery there, or point NetworkModel_PrivDir in GeoDmsGui
-echo   ^(Settings ^> Config Options^) to the folder that holds TomTom\^<edition^>. Without TomTom there are no car caches
-echo   ^(Car^); the other components can run. UpdateAll continues with the GTFS cache.
-set "SRC_FAILED=!SRC_FAILED! tomtom"
-goto tomtom_done
-:tomtom_go
-REM With raw material first the lists of the shapefiles and dbf files in %LocalDataProjDir%\TomTom, in a process of their
-REM own: the caches read those lists while the configuration is built.
-if /I not "!TOMTOM!"=="raw" goto tomtom_caches
-call :run tomtom_filelists /SourceData/Infrastructure/TomTom/Impl/Generate_FileList_CSVs
-if not "!RC!"=="0" goto tomtom_failed
-:tomtom_caches
-call :run tomtom_roads         /SourceData/Infrastructure/TomTom/Impl/Write_Roads
-if not "!RC!"=="0" goto tomtom_failed
-call :run tomtom_junctions     /SourceData/Infrastructure/TomTom/Impl/Write_Junctions
-if not "!RC!"=="0" goto tomtom_failed
-call :run tomtom_speednetworks /SourceData/Infrastructure/TomTom/Impl/Write_Speednetworks
-if not "!RC!"=="0" goto tomtom_failed
-call :run tomtom_speedprofiles /SourceData/Infrastructure/TomTom/Impl/Write_Speedprofiles
-if not "!RC!"=="0" goto tomtom_failed
-goto tomtom_done
-:tomtom_failed
-echo WARNING: the TomTom step !STEP! failed, see %LOGDIR%\UpdateAll_!STEP!.log. Without TomTom there are no car caches ^(Car^).
-set "SRC_FAILED=!SRC_FAILED! tomtom"
-:tomtom_done
 echo === sources: GTFS cache of the feed GTFS_file_date ===
 call :run gtfs /SourceData/Infrastructure/GTFS/LoadFeeds/Write
-if not "!RC!"=="0" set "SRC_FAILED=!SRC_FAILED! gtfs"
-if defined SRC_FAILED (
-  echo UpdateAll sources: failed for!SRC_FAILED!; see the messages above.
-  set "STEP=sources:!SRC_FAILED!"
-  set RC=1
-  goto failed
-)
+if not "!RC!"=="0" goto failed
 :sources_done
 if /I not "%SECTION%"=="all" goto done
 

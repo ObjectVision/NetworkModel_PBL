@@ -4,7 +4,7 @@
 # Reads batch\log\UpdateAll_<step>.log (only the last session, because GeoDmsRun appends to a log) and looks at
 # the cache or the output files on disk. Without steps: the four car caches, the chain cache and the output.
 #
-#   step        car_<moment>, chains_precheck, chains, output, osm_network, tomtom_roads, ... (see UpdateAll.cmd)
+#   step        car_<moment>, chains_precheck, chains, output, osm_network, gtfs, ... (see UpdateAll.cmd)
 #   --localdata the LocalDataProjDir of the model (default: C:\LocalData\NetworkModel_PBL, or NM_PBL_LOCALDATA)
 #
 # Columns: min = duration of the GeoDmsRun call; rows = "Filling all ... resulted in N pareto od-pairs" of the last
