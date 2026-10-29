@@ -46,7 +46,7 @@ function SetParam($file, $name, $value) {
 }
 function SetType($file, $name, $type) {
 	$t = [IO.File]::ReadAllText($file)
-	$re = "($name := /Classifications/TimeInvariantTypes/V/)\w+"
+	$re = "($name\s+:=\s+(?:/Classifications/)?TimeInvariantTypes/V/)\w+"
 	if (([regex]::Matches($t, $re)).Count -ne 1) { throw "$name not found in $file" }
 	[IO.File]::WriteAllText($file, [regex]::Replace($t, $re, { param($m) $m.Groups[1].Value + $type }), (New-Object System.Text.UTF8Encoding($true)))
 }

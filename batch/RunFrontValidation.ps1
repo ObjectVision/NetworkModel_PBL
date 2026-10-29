@@ -131,13 +131,19 @@ function PresetDates($t, $moment) {
 # The parts of a public transport component: the code in the name and the type in Classifications/TimeInvariantTypes.
 $VoorTypen = [ordered]@{ 'W' = 'Org2Stops_Walking'; 'C' = 'Org2Stops_Cycling'; 'C_RM' = 'Org2RM_Stops_Cycling'; 'C_RMT' = 'Org2RMT_Stops_Cycling'; 'C_Ric' = 'Org2Ric_Stops_Cycling' }
 $NaTypen = [ordered]@{ 'W' = 'Stops2Dest_Walking'; 'C' = 'Stops2Dest_Cycling'; 'RM_C' = 'RM_Stops2Dest_Cycling'; 'RMT_C' = 'RMT_Stops2Dest_Cycling'; 'OVf_C' = 'OVF_Stops2Dest_Cycling' }
+# PreTransport and PostTransport in a ModelParameters.dms: the declaration with the path (group 1) and the type (group 2). The current
+# model has the path on the line after :=, older run copies have it on the same line with /Classifications/ in front, and copies from
+# before 2026-10-27 call the parameters Voortransport and Natransport.
+$PreTransportRe = '((?:PreTransport|Voortransport)\s+:=\s+(?:/Classifications/)?TimeInvariantTypes/V/)(\w+)'
+$PostTransportRe = '((?:PostTransport|Natransport)\s+:=\s+(?:/Classifications/)?TimeInvariantTypes/V/)(\w+)'
 # Sets the component in a ModelParameters.dms: WW, CC or Car in Component, otherwise Component 'PT' with PreTransport and PostTransport.
 function SetComponent($mp, $name) {
 	if ($name -in 'WW', 'CC', 'Car') { SetParam $mp 'Component' "'$name'"; return }
 	$m = [regex]::Match($name, '^(.+)_PT_(.+)$'); SetParam $mp 'Component' "'PT'"
 	$t = [IO.File]::ReadAllText($mp)
-	$t = [regex]::Replace($t, '(PreTransport := /Classifications/TimeInvariantTypes/V/)\w+', { param($x) $x.Groups[1].Value + $VoorTypen[$m.Groups[1].Value] })
-	$t = [regex]::Replace($t, '(PostTransport := /Classifications/TimeInvariantTypes/V/)\w+', { param($x) $x.Groups[1].Value + $NaTypen[$m.Groups[2].Value] })
+	foreach ($re in $PreTransportRe, $PostTransportRe) { if (([regex]::Matches($t, $re)).Count -ne 1) { throw "$re does not occur exactly once in $mp" } }
+	$t = [regex]::Replace($t, $PreTransportRe, { param($x) $x.Groups[1].Value + $VoorTypen[$m.Groups[1].Value] })
+	$t = [regex]::Replace($t, $PostTransportRe, { param($x) $x.Groups[1].Value + $NaTypen[$m.Groups[2].Value] })
 	[IO.File]::WriteAllText($mp, $t, (New-Object System.Text.UTF8Encoding($true)))
 }
 # The name of the component of a run copy: All for a copy without Component (from before 2026-10-05), otherwise Component
@@ -145,7 +151,7 @@ function SetComponent($mp, $name) {
 function ComponentName($mpText, $mp) {
 	if ($mpText -notmatch "parameter<\w+>\s+Component\s+:=") { return 'All' }
 	$c = GetParam $mp 'Component'; if ($c -ne 'PT') { return $c }
-	$v = [regex]::Match($mpText, 'PreTransport := /Classifications/TimeInvariantTypes/V/(\w+)').Groups[1].Value; $n = [regex]::Match($mpText, 'PostTransport := /Classifications/TimeInvariantTypes/V/(\w+)').Groups[1].Value
+	$v = [regex]::Match($mpText, $PreTransportRe).Groups[2].Value; $n = [regex]::Match($mpText, $PostTransportRe).Groups[2].Value
 	return (@($VoorTypen.Keys | Where-Object { $VoorTypen[$_] -eq $v })[0]) + '_PT_' + (@($NaTypen.Keys | Where-Object { $NaTypen[$_] -eq $n })[0])
 }
 function ComponentSuffix($component) { switch ($component) { 'Lopen' { '_lopen' } 'Fiets' { '_fiets' } 'Auto' { '_auto' } 'All' { '' } 'Alles' { '' } default { '_' + $component } } }
