@@ -9,6 +9,8 @@ container BAG : Descr = "The BAG snapshot of the analysis moment: accommodation 
 	
 	container VBOs
 	{
+		parameter<bool> StatusInMeta := ExistingFile('', expand(., SnapshotDir + '/vbo.fss/meta/STATUS.dmsdata')) != '', Descr = "True when the snapshot keeps the status of a vbo in meta/status, as the snapshot of 1-1-2026 does, instead of in status.";
+
 		unit<uint32> import
 		:	StorageName     = "= SnapshotDir+'/vbo.fss'"
 		,	StorageReadOnly = "True"
@@ -19,7 +21,8 @@ container BAG : Descr = "The BAG snapshot of the analysis moment: accommodation 
 			attribute<string>              nummeraanduiding_id;
 			attribute<string>              pand_id;
 			attribute<string>              status;
-			
+			container meta { attribute<string> status; }
+
 			container gebruiksdoelen := for_each_ndv(vbo_gebruiksdoel/name, import, bool);
 		}
 		
@@ -31,7 +34,7 @@ container BAG : Descr = "The BAG snapshot of the analysis moment: accommodation 
 			attribute<string>              nummeraanduiding_id     := import/nummeraanduiding_id;
 			attribute<uint64>              vbo_bag_nr              := uint64(import/identificatie);
 			attribute<vbo_status>          status_rel              := rlookup(status, vbo_status/label);
-			attribute<string>              status                  := import/status;
+			attribute<string>              status                  := = StatusInMeta ? 'import/meta/status' : 'import/status';
 			attribute<panden/pand>         pand_rel                := rlookup(pand_id, panden/pand/identificatie);
 			
 			container gebruiksdoelen := 
@@ -73,6 +76,8 @@ container BAG : Descr = "The BAG snapshot of the analysis moment: accommodation 
 	
 	container Panden
 	{
+		parameter<bool> StatusInMeta := ExistingFile('', expand(., SnapshotDir + '/pand.fss/meta/STATUS.dmsdata')) != '', Descr = "True when the snapshot keeps the status of a building in meta/status, as the snapshot of 1-1-2026 does, instead of in status.";
+
 		unit<uint32> import: StorageName = "= SnapshotDir+'/pand.fss'",	StorageReadOnly = "True"
 		{
 			attribute<rdc_mm> geometry_mm (polygon) ;
@@ -80,6 +85,7 @@ container BAG : Descr = "The BAG snapshot of the analysis moment: accommodation 
 			attribute<int16>  bouwjaar;
 			attribute<WPSrc>  woonpand_type;
 			attribute<string> status;
+			container meta { attribute<string> status; }
 		}
 		
 		unit<uint32> src := import
@@ -96,7 +102,7 @@ container BAG : Descr = "The BAG snapshot of the analysis moment: accommodation 
 			attribute<rdc_mm> SE := upper_bound(src/geometry_mm);
 			attribute<int32> X_ext := sub_or_null(PointCol(SE), PointCol(NW)), Descr = "Null for buildings without geometry (empty bounds would otherwise give an int32 overflow), so that they drop out of Pand_selection_condition.";
 			attribute<int32> Y_ext := sub_or_null(PointRow(SE), PointRow(NW));
-			attribute<string> status := import/status;
+			attribute<string> status := = StatusInMeta ? 'import/meta/status' : 'import/status';
 			attribute<pand_status> status_rel := rlookup(status, pand_status/label);
 			attribute<bool> Pand_selection_condition (src) := src/X_ext < 1000000i && src/Y_ext < 1000000i
 				&& (src/status_rel == pand_status/V/Pand_in_gebruik
