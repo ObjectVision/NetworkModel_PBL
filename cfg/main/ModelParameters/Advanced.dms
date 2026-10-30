@@ -15,16 +15,6 @@ container Advanced : using = "classifications"
 	parameter<min_f>    MaxWalkingTime_RM_Stops2Dest  := /ModelParameters/MaxWalkingTime_Stops2Dest,  Descr = "Maximum walking time from the last rail or metro stop to the destination.";
 
 	// GENERAL
-	// NEIGHBOURHOOD TO NEIGHBOURHOOD (#126): two neighbourhood variants, each with the CBS boundaries and the BAG of the same year,
-	// and with the same point as origin and destination: the centroid of the residential addresses of the neighbourhood
-	// (SourceData/RegioIndelingen/Buurt/address_weighted_centroid), or the middle of its area when it has no dwellings.
-	unit<uint8> NeighbourhoodSets : nrofrows = 2
-	, Descr = "The neighbourhood variants (#126): choosing one as Orgset and Destset sets its area division and BAG snapshot, whatever the analysis moment."
-	{
-		attribute<string> name                 : ['Buurt2023', 'Buurt2025'];
-		attribute<string> RegioIndelingen_year : ['2023', '2025'];
-		attribute<string> BAG_snapshot         : ['20230101', '20250101'];
-	}
 	parameter<bool>     Dests_clustered     := FALSE                  , Descr = "Cluster the destinations on a grid of Dest_location_scale, for example for many firms at one location?";
 	parameter<string>   Dest_location_scale := '100m'                 , Descr = "Cell size of the destination clustering: '100m', '500m', '1000m', '5000m', '10000m' or '50000m'.";
 	parameter<string>   Org_location_scale  := '500m'                 , Descr = "Cell size of the clustering of BAG origins (BAG_woonpanden_Clustered), one of the cell sizes in Geography/Gridsizes.";
@@ -197,7 +187,7 @@ container Advanced : using = "classifications"
 	parameter<uint32>   NumberOfStopBlocks := Impl/IsOD ? 1 : 500         , Descr = "Number of stop blocks of the chain generation; fewer blocks need more memory each, and with an OD pair there is one block with the stops reached from the origin.";
 	parameter<uint32>   MaxStopBlockSize   := 104                     , Descr = "Maximum number of stops per block of the chain generation; times NumberOfStopBlocks it must cover all stops (ChecksBeforeRunning/PT_CheckBlocks).";
 	parameter<uint32>   NumberOfOrgBlocks  := Impl/IsOD ? 1 : 450         , Descr = "Number of origin blocks of the output step; with an OD pair one block with the one origin, and times MaxOrgBlockSize it must cover all origins (ChecksBeforeRunning/Check_OriginBlocks).";
-	parameter<uint32>   MaxOrgBlockSize    := IsDefined(Impl/NeighbourhoodSet_Org) ? 33 : 200, Descr = "Maximum number of origins per block of the output step: 200, or 33 with a neighbourhood variant as Orgset, so that 450 blocks cover the neighbourhoods of 2023 and 2025 (#126).";
+	parameter<uint32>   MaxOrgBlockSize    := Impl/Orgset_FixedYear ? 33 : 200, Descr = "Maximum number of origins per block of the output step: 200, or 33 with a neighbourhood set of its own CBS year as Orgset (Buurt2023, Buurt2025), so that 450 blocks cover the neighbourhoods of 2023 and 2025 (#126).";
 	parameter<bool>     ParetoLegs_R       := TRUE                   , Descr = "Use the pareto option of impedance_matrix for the regional public transport legs (OD_R): with equal travel time the shortest, and so cheapest, route is kept (#115).";
 	parameter<bool>     ParetoLegs_L       := FALSE                  , Descr = "Same for the NS legs (OD_L); off, because the NS fare depends on the first and last station, not on the distance travelled.";
 	// PARETO FRONT OF THE DIRECT CAR TRIP (#115, #88): with the pareto option the car search gives per OD pair the front on travel
@@ -275,10 +265,11 @@ container Advanced : using = "classifications"
 			// (LoadFeeds/ServiceDays, MinServiceDayTripShare). OSM: Y2015 to Y2024 use the extract of 20240524, Y2025 and Y2026 that of 20260601.
 			// TomTom: the December edition of the year; Y2026 uses yr2025_12 for now and Y2015 yr2021_12, the oldest. CarCongestionSpeed_date is
 			// the folder %NetworkModel_PrivDir%/TomTom/<name> with the four caches Roads, Junctions, Speednetworks and Speedprofiles, licensed
-			// source data that SourceData/TomTom/Impl makes from the MultiNet delivery. Regios and BAG_snapshot: CBS 2023 and BAG 1-1-2023 for 2015, 2023
-			// and 2024, CBS 2025 with BAG 1-1-2025 for 2025 and with BAG 1-1-2026 for 2026; a neighbourhood variant (NeighbourhoodSets, #126) uses the
-			// CBS map and the BAG of its own year instead. BAG_snapshot is the folder name under %NetworkModel_Dir%/RegioIndelingen/BAG.
-			// Regios stays at 2025 for Y2026 until CBS publishes the neighbourhood map of 2026.
+			// source data that SourceData/TomTom/Impl makes from the MultiNet delivery. Regios is the year of the CBS map of the region sets without
+			// a year of their own (Buurt, Wijk, Gemeente, COROP, Provincie); their centroids are weighted with the BAG of 1 January of that year.
+			// Regios stays at 2025 for Y2026 until CBS publishes the neighbourhood map of 2026. BAG_snapshot is the folder under
+			// %NetworkModel_Dir%/RegioIndelingen/BAG for the origin sets that read the BAG directly (PC4, PC6, BAG_woonpanden); snapshots exist for
+			// 2012 and 2021 to 2026.
 		}
 		
 		attribute<string>        name                    := Elements/Text[value(UInt32(ID(.))* nrAttr + 0, Elements)];
@@ -311,8 +302,8 @@ container Advanced : using = "classifications"
 			// Label, Path
 			[
 			'Buurt'                               ,'SourceData/RegioIndelingen/Buurt/Centroids',
-			'Buurt2023'                           ,'SourceData/RegioIndelingen/Buurt/Centroids', // #126: CBS 2023 and BAG 1-1-2023 (NeighbourhoodSets)
-			'Buurt2025'                           ,'SourceData/RegioIndelingen/Buurt/Centroids', // #126: CBS 2025 and BAG 1-1-2025
+			'Buurt2023'                           ,'SourceData/RegioIndelingen/Divisions/Y2023/Buurt/Centroids', // #126: CBS 2023 and BAG 1-1-2023, whatever the analysis moment
+			'Buurt2025'                           ,'SourceData/RegioIndelingen/Divisions/Y2025/Buurt/Centroids', // #126: CBS 2025 and BAG 1-1-2025
 			'Buurt_perProvincie'                  ,'SourceData/RegioIndelingen/Buurt/Per_Prov/@REGIO@/sub',
 			'Buurt_perCOROP'                      ,'SourceData/RegioIndelingen/Buurt/Per_COROP/@REGIO@/sub',
 			'Buurt_perCOROPp'                      ,'SourceData/RegioIndelingen/Buurt/Per_COROPp/@REGIO@/sub',
@@ -357,8 +348,8 @@ container Advanced : using = "classifications"
 			// Label, Path
 			[
 			 'Buurt'                                                          ,'SourceData/RegioIndelingen/Buurt/Centroids'
-			,'Buurt2023'                                                      ,'SourceData/RegioIndelingen/Buurt/Centroids'
-			,'Buurt2025'                                                      ,'SourceData/RegioIndelingen/Buurt/Centroids'
+			,'Buurt2023'                                                      ,'SourceData/RegioIndelingen/Divisions/Y2023/Buurt/Centroids'
+			,'Buurt2025'                                                      ,'SourceData/RegioIndelingen/Divisions/Y2025/Buurt/Centroids'
 			,'Buurt_enkele_Buurt'                                             ,'SourceData/RegioIndelingen/Buurt/Enkele_buurt_Dest'
 			,'Buurt_enkele_Prov'                                              ,'SourceData/RegioIndelingen/Buurt/Enkele_Prov_dest'
 			,'Buurt_enkele_Corop'                                             ,'SourceData/RegioIndelingen/Buurt/Enkele_Corop_dest'

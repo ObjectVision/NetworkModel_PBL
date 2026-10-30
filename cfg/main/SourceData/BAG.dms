@@ -1,11 +1,12 @@
-container BAG : Descr = "The BAG snapshot of the analysis moment: accommodation objects (vbo), buildings (pand) and addresses, for origins weighted by dwellings and for the centroids of regions and postcodes."
+Template BAG_T
 {
-	parameter<string> SnapshotDir   := '%NetworkModel_Dir%/RegioIndelingen/BAG/'+ModelParameters/Impl/BAG_snapshot, Descr = "Folder with the BAG snapshot (vbo.fss, pand.fss, adres.fss) of ModelParameters/Impl/BAG_snapshot.";
-	unit<uint32> RegionUnit_Buurt    := /SourceData/RegioIndelingen/Buurt;
+	parameter<string> snapshot;
+	//
+	parameter<string> SnapshotDir   := '%NetworkModel_Dir%/RegioIndelingen/BAG/' + snapshot, Descr = "Folder with the BAG snapshot (vbo.fss, pand.fss, adres.fss): accommodation objects, buildings and addresses.";
 	unit<uint32> RegionUnit_Wijk     := /SourceData/RegioIndelingen/Wijk;
 	unit<uint32> RegionUnit_Gemeente := /SourceData/RegioIndelingen/Gemeente;
-	
-	parameter<uint32> BAG_year      := uint32(ModelParameters/Impl/BAG_year), Descr = "The year of the BAG snapshot; later construction years are set to null.";
+
+	parameter<uint32> BAG_year      := uint32(substr(snapshot, 0, 4)), Descr = "The year of the BAG snapshot; later construction years are set to null.";
 	
 	container VBOs
 	{
@@ -180,32 +181,14 @@ container BAG : Descr = "The BAG snapshot of the analysis moment: accommodation 
 			attribute<string>   name                   := pc_huisnr;
 		}
 		
-		unit<uint32> Residential_Stock := select_with_attr_by_cond(src, src/IsResidential && src/IsInStock), Descr = "The addresses of dwellings in the housing stock, with their neighbourhood, district and municipality."
+		unit<uint32> Residential_Stock := select_with_attr_by_cond(src, src/IsResidential && src/IsInStock), Descr = "The addresses of dwellings in the housing stock, with their district and municipality; the neighbourhoods of a CBS year count their addresses themselves (RegioIndelingen/Divisions)."
 		{
-			attribute<RegionUnit_Buurt>    buurt_rel    := point_in_polygon(geometry,  RegionUnit_Buurt/geometry);
 			attribute<RegionUnit_Wijk>     wijk_rel     := point_in_polygon(geometry,  RegionUnit_Wijk/geometry);
 			attribute<RegionUnit_Gemeente> gemeente_rel := point_in_polygon(geometry,  RegionUnit_Gemeente/geometry);
-			
+
 			attribute<uint32>   PC4_uq_rel := rlookup(postcode4, pc4_uq/values);
 			attribute<uint32>   PC6_uq_rel := rlookup(postcode, pc6_uq/values);
-			
-			unit<uint32> buurt := RegionUnit_Buurt
-			{
-				attribute<float64>  x_mean    := mean(pointcol(../geometry), buurt_rel);
-				attribute<float64>  y_mean    := mean(pointrow(../geometry), buurt_rel);
-				attribute<rdc>      centroid0 := point_xy(x_mean, y_mean, rdc);
-				
-				// checks
-				attribute<.>        poly_rel             := point_in_polygon(centroid0, ./geometry);
-				attribute<string>   statcode_poly        := ./statcode;
-				attribute<string>   statcode_centr       := statcode_poly[Poly_rel];
-				attribute<bool>     IsStatcode_equal    := statcode_poly == statcode_centr;
-				attribute<bool>     HasAddresses        := pcount(buurt_rel) > 0; 
-				
-				attribute<rdc>      centroid_or_mid      := centroid_or_mid(./geometry);
-				attribute<rdc>      centroid             := IsStatcode_equal ? centroid0 : centroid_or_mid;
-			}
-			
+
 			unit<uint32> wijk := RegionUnit_Wijk
 			{
 				attribute<float64>  x_mean := mean(pointcol(../geometry), wijk_rel);

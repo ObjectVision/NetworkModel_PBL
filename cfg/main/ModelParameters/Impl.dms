@@ -15,16 +15,14 @@ container Impl : using = "classifications"
 	, Descr = "Which car travel time the direct trip uses: 'MorningRush', 'NoonRush', 'LateEveningRush' or 'Freeflow' with TomTom, 'MaxSpeed' with OSM; it follows from PartOfDay (#125).", IntegrityCheck = "UseTomTomNetworkForCars ? Car_CongestionMoment_ForDirect != 'MaxSpeed' : Car_CongestionMoment_ForDirect == 'MaxSpeed'"; // TomTom has Freeflow, MorningRush, NoonRush and LateEveningRush; OSM only MaxSpeed, because the OSM rush hours are null placeholders
 	parameter<bool>     CarTimeDependent := UseTomTomNetworkForCars
 	, Descr = "Does the direct car trip use time-dependent link times, with a car cache per departure moment in which every road section has the TomTom speed of the moment the trip enters it (#132)?", IntegrityCheck = "!this || UseTomTomNetworkForCars";
-	parameter<Advanced/NeighbourhoodSets> NeighbourhoodSet_Org  := rlookup(lowercase(/ModelParameters/Orgset), lowercase(Advanced/NeighbourhoodSets/name)), Descr = "The neighbourhood variant of the origins, or null.";
-	parameter<Advanced/NeighbourhoodSets> NeighbourhoodSet_Dest := rlookup(lowercase(/ModelParameters/Destset), lowercase(Advanced/NeighbourhoodSets/name)), Descr = "The neighbourhood variant of the destinations, or null.";
-	parameter<Advanced/NeighbourhoodSets> NeighbourhoodSet      := MakeDefined(NeighbourhoodSet_Org, NeighbourhoodSet_Dest)
-	,	Descr = "The neighbourhood variant of the run: that of the origins, else that of the destinations, else null and then the presets of AnalysisMoment apply; origins and destinations cannot use different variants.",	IntegrityCheck = "!IsDefined(NeighbourhoodSet_Org) || !IsDefined(NeighbourhoodSet_Dest) || NeighbourhoodSet_Org == NeighbourhoodSet_Dest";
-	parameter<string>   BAG_snapshot := IsDefined(NeighbourhoodSet) ? Advanced/NeighbourhoodSets/BAG_snapshot[NeighbourhoodSet] : rjoin(lowercase(AnalysisMoment), lowercase(Advanced/AnalysisMomentPresets/name), Advanced/AnalysisMomentPresets/BAG_snapshot)
-	,	Descr = "Folder name of the BAG snapshot under %NetworkModel_Dir%/RegioIndelingen/BAG: that of the neighbourhood variant, else that of AnalysisMoment in the presets.";
+	parameter<bool>     Orgset_FixedYear := strcount(lowercase(rjoin(lowercase(/ModelParameters/Orgset), lowercase(Advanced/org_domain_list/label), Advanced/org_domain_list/path)), '/divisions/') > 0
+	,	Descr = "Is the origin set a neighbourhood set with a CBS year of its own, read from RegioIndelingen/Divisions, such as Buurt2023 and Buurt2025 (#126)?";
+	parameter<string>   BAG_snapshot := rjoin(lowercase(AnalysisMoment), lowercase(Advanced/AnalysisMomentPresets/name), Advanced/AnalysisMomentPresets/BAG_snapshot)
+	,	Descr = "Folder name of the BAG snapshot of AnalysisMoment under %NetworkModel_Dir%/RegioIndelingen/BAG, for the origin sets that read the BAG directly (PC4, PC6, BAG_woonpanden); the centroids of the CBS regions use the BAG of 1 January of their own year.";
 	parameter<string>   BAG_year := substr(BAG_snapshot, 0, 4)
-	,	Descr = "The year of the BAG snapshot, used to cut off construction years after it and in export names.";
-	parameter<string>   RegioIndelingen_year := IsDefined(NeighbourhoodSet) ? Advanced/NeighbourhoodSets/RegioIndelingen_year[NeighbourhoodSet] : rjoin(lowercase(AnalysisMoment), lowercase(Advanced/AnalysisMomentPresets/name), Advanced/AnalysisMomentPresets/RegioIndelingen_year)
-	,	Descr = "The year of the CBS area division: that of the neighbourhood variant, else that of AnalysisMoment in the presets.";
+	,	Descr = "The year of BAG_snapshot, in the export settings.";
+	parameter<string>   RegioIndelingen_year := rjoin(lowercase(AnalysisMoment), lowercase(Advanced/AnalysisMomentPresets/name), Advanced/AnalysisMomentPresets/RegioIndelingen_year)
+	,	Descr = "The year of the CBS map of AnalysisMoment, for the region sets without a year of their own (Buurt, Wijk, Gemeente, COROP, Provincie).";
 	// THE OD PAIR (#129): see group 6 at the top of ModelParameters.
 	parameter<bool>     IsOD := /ModelParameters/OD_Origin != '' && /ModelParameters/OD_Destination != ''
 	,	Descr = "Does this run calculate one OD pair (OD_Origin and OD_Destination)? Then the origins and destinations are one element each, the caches and output get their own folders (OD_Tag), and the routes keep their links.",	IntegrityCheck = "(/ModelParameters/OD_Origin == '') == (/ModelParameters/OD_Destination == '') && (this || /ModelParameters/OD_DepartureTime == '')";
