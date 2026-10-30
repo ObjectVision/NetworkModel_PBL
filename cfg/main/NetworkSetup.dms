@@ -11,6 +11,12 @@ container NetworkSetup : using = "units;Geography;SourceData;Classifications;Mod
 		{
 			attribute<.> rnd_rel := rnd_permutation(0, .);
 			attribute<OrgBlockDomain> OrgBlock_rel := value(rnd_rel / ModelParameters/Advanced/MaxOrgBlockSize, OrgBlockDomain), Descr = "The origin block of this origin, on which ConfigurationPerOrgBlock_T/org and the direct trips per block (PublicTransport/Direct_OD) select.";
+			attribute<OrgParts>       OrgPart_rel  := value((uint32(rnd_rel) % ModelParameters/Advanced/MaxOrgBlockSize) / ModelParameters/Impl/OrgPartSize, OrgParts), Descr = "The part of its block that this origin is in (ModelParameters/Impl/OrgBlockParts): like the block, a contiguous range of rnd_rel.";
+		}
+		unit<uint8> OrgParts := range(uint8, 0b, ModelParameters/Impl/OrgBlockParts)
+		, Descr = "The parts in which the output step calculates every origin block (ModelParameters/Impl/OrgBlockParts, #117); one part is the whole block."
+		{
+			attribute<string> name := 'Part' + string(id(.) + 1b) + 'of' + string(#.);
 		}
 
 		// The direct trips of all origins (PublicTransport_Prep/Direct_OD) with what does not depend on the block, calculated once: the places of
@@ -29,6 +35,7 @@ container NetworkSetup : using = "units;Geography;SourceData;Classifications;Mod
 			attribute<PublicTransport_Prep/impl/Places> From_Place_rel := rlookup(OrgZone_rel, PublicTransport_Prep/impl/Places/Origin_rel);
 			attribute<PublicTransport_Prep/impl/Places> To_Place_rel := rlookup(DstZone_rel, PublicTransport_Prep/impl/Places/Dest_rel);
 			attribute<OrgBlockDomain> OrgBlock_rel := OrgBlockSelections/OrgBlock_rel[OrgZone_rel];
+			attribute<OrgParts>       OrgPart_rel  := OrgBlockSelections/OrgPart_rel[OrgZone_rel];
 		}
 
 		// The pre-transport and post-transport of all origins, from the caches of the legs (PublicTransport_Prep/Legs), united once over the types of
@@ -47,6 +54,7 @@ container NetworkSetup : using = "units;Geography;SourceData;Classifications;Mod
 			attribute<ct>                               Price          := ='union_data(., '+asList('PublicTransport_Prep/Legs/'+ModelParameters/Impl/PT_PreTransport_Types/name+'/ODMatrix/Price', ',')+')';
 			attribute<OrgBlockSelections>               OrgZone_rel    := PublicTransport_Prep/impl/Places/Origin_rel[From_Place_rel], Descr = "The origin of the leg in the full set of origins, empty if the leg does not start at an origin.";
 			attribute<OrgBlockDomain>                   OrgBlock_rel   := OrgBlockSelections/OrgBlock_rel[OrgZone_rel];
+			attribute<OrgParts>                         OrgPart_rel    := OrgBlockSelections/OrgPart_rel[OrgZone_rel];
 		}
 		attribute<bool>   IsVStop (PublicTransport_Prep/impl/Places) := pcount(V_org/To_Place_rel) > 0u64
 		, Descr = "Whether a pre-transport leg of the component ends at this place, because the output reads from the chain cache only the chains that board at such a stop (PublicTransport_Prep/PT_V).";
