@@ -104,6 +104,24 @@ container PublicTransport_Prep
 		unit<uint32>      NS_Stations           := SourceData/Infrastructure/OVprijzen/NS/NS_Stations;
 		unit<uint8>       Modes                 := GTFS_Modes/Selection;
 		unit<uint8>       FareTable             := SourceData/Infrastructure/OVprijzen/FareTable;
+		unit<uint8>       FareTable_DOVA        := SourceData/Infrastructure/OVprijzen/FareTable_DOVA;
+		// #55: the fare of an agency outside the concessions of its rules (OD_extra_attributen): its first general rule (without a line) when all
+		// its general rules have the same price, such as De Lijn or TESO. An agency whose price differs per concession has none, and a leg of it
+		// in another concession gets the fare of that concession (DOVA).
+		unit<uint8>       FareTable_General     := select_with_org_rel(FareTable/Mode_Agency_CG_Line_identifier == FareTable/Mode_Agency_CG_identifier)
+		{
+			attribute<string> Agency := FareTable/Mode_Agency_identifier[org_rel];
+			attribute<string> Fare   := Agency + '|' + string(FareTable/FixedPrice[org_rel]) + '|' + string(FareTable/VariablePrice[org_rel]);
+		}
+		unit<uint32>      FareTable_GeneralFares := unique_uint32(FareTable_General/Fare)
+		{
+			attribute<string> Agency := rjoin(values, FareTable_General/Fare, FareTable_General/Agency);
+		}
+		unit<uint32>      FareTable_AgencyWide  := unique_uint32(FareTable_General/Agency)
+		{
+			attribute<uint32>    NrFares  := pcount(rlookup(FareTable_GeneralFares/Agency, values));
+			attribute<FareTable> Rule_rel := NrFares == 1 ? FareTable_General/org_rel[rlookup(values, FareTable_General/Agency)] : value(null_b, FareTable), Descr = "The rule of the agency outside the concessions of its rules; null when its general rules differ in price.";
+		}
 		unit<uint32>      Provincie             := SourceData/RegioIndelingen/Provincie;
 		unit<uint8>       Concessiegebied       := SourceData/RegioIndelingen/Concessiegebied;
 		unit<uint32>      CoropP                := SourceData/RegioIndelingen/CoropP;

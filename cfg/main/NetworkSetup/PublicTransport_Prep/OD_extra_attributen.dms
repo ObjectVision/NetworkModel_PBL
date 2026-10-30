@@ -49,6 +49,7 @@ unit<uint32> impl := .
 	attribute<bool>        IsOD_completely_foreign         := IsNull(Concessiegebied_rel);
 	attribute<km>          PT_TravelledDistance            := alt_imp;
 	attribute<string>      RouteName_short                 := Routes/route_short_name[Route_rel];
+	attribute<string>      FareLine                        := Routes/FareLine[Route_rel], Descr = "The line of the fare tables of a route that the feed does not name in route_short_name, such as an island bus (#55); null for the other routes.";
 	attribute<string>      Mode_Agency_CG_Line_identifier  := Modes/name[Mode_rel] +'_'+ Agencies/name[Agency_rel] +'_'+ Concessiegebied/name[Concessiegebied_rel] + '_' + RouteName_short;
 	attribute<string>      Mode_Agency_CG_identifier       := Modes/name[Mode_rel] +'_'+ Agencies/name[Agency_rel] +'_'+ Concessiegebied/name[Concessiegebied_rel];
 	attribute<string>      Mode_Agency_identifier          := Modes/name[Mode_rel] +'_'+ Agencies/name[Agency_rel];
@@ -58,28 +59,49 @@ unit<uint32> impl := .
 	attribute<c_NS_start_end> c_NS_start_end_rel := combine_data(c_NS_start_end, From_NS_Stations_rel, To_NS_Stations_rel);
 	attribute<uint32>      TariffUnits                     := rjoin(c_NS_start_end_rel, TariffUnitsMatrix/c_NS_start_end_rel, TariffUnitsMatrix/impedance);
 	
-	attribute<FareTable>   FareTable_rel_initial           := rlookup(Mode_Agency_CG_Line_identifier, FareTable/Mode_Agency_CG_Line_identifier);
-	attribute<FareTable>   FareTable_rel_augmented1        := rlookup(Mode_Agency_CG_identifier, FareTable/Mode_Agency_CG_Line_identifier);
-	attribute<FareTable>   FareTable_rel_augmented2        := rlookup(Mode_Agency_identifier, FareTable/Mode_Agency_CG_Line_identifier);
-	attribute<FareTable>   FareTable_rel_augmentation      := MakeDefined(FareTable_rel_augmented1, FareTable_rel_augmented2);
-	attribute<FareTable>   FareTable_rel_augmented_rev1    := rlookup(Mode_Agency_CG_identifier, FareTable/Mode_Agency_CG_identifier);
-	attribute<FareTable>   FareTable_rel_augmented_rev2    := rlookup(Mode_Agency_identifier, FareTable/Mode_Agency_identifier);
-	attribute<FareTable>   FareTable_rel_augmented_rev     := MakeDefined(FareTable_rel_augmented_rev1, FareTable_rel_augmented_rev2);
-	attribute<FareTable>   FareTable_rel_augmented         := MakeDefined(FareTable_rel_augmentation, FareTable_rel_augmented_rev);
+	// The rule of the detailed fare table for this leg (#55), from specific to general: a rule for its line in its concession (FareLine, a line
+	// recognised by its name, then route_short_name), a rule for its line without a concession (route_short_name only), the general rule of
+	// its agency in its concession, the general rule of its agency without a concession, and the fare of its agency where that is the same in
+	// all its concessions (FareTable_AgencyWide). A rule of one line never prices another line; a leg without any of these gets the DOVA fare
+	// of its concession. In the keys of the fare table a rule without a concession has an empty concession: '<mode>_<agency>__<line>' and
+	// '<mode>_<agency>_'. A key with a null part is null and matches nothing.
+	attribute<FareTable>   FareTable_rel_FareLine          := rlookup(Mode_Agency_CG_identifier + '_' + FareLine, FareTable/Mode_Agency_CG_Line_identifier);
+	attribute<FareTable>   FareTable_rel_Line              := rlookup(Mode_Agency_CG_Line_identifier, FareTable/Mode_Agency_CG_Line_identifier);
+	attribute<FareTable>   FareTable_rel_Line_AnyCG        := rlookup(Mode_Agency_identifier + '__' + RouteName_short, FareTable/Mode_Agency_CG_Line_identifier);
+	attribute<FareTable>   FareTable_rel_General           := rlookup(Mode_Agency_CG_identifier, FareTable/Mode_Agency_CG_Line_identifier);
+	attribute<FareTable>   FareTable_rel_General_AnyCG     := rlookup(Mode_Agency_identifier + '_', FareTable/Mode_Agency_CG_Line_identifier);
+	attribute<FareTable>   FareTable_rel_AgencyWide        := FareTable_AgencyWide/Rule_rel[rlookup(Mode_Agency_identifier, FareTable_AgencyWide/values)];
+	attribute<FareTable>   FareTable_rel_Detailed          := MakeDefined(
+	                                                              MakeDefined(MakeDefined(FareTable_rel_FareLine, FareTable_rel_Line), FareTable_rel_Line_AnyCG)
+	                                                            , MakeDefined(MakeDefined(FareTable_rel_General, FareTable_rel_General_AnyCG), FareTable_rel_AgencyWide));
 	// DOVA mode: the key is the mode class (BTM/Rail/Ferry) + '_' + the concession area. NS trains are in the L network and do not come
 	// here. Legs outside all concession polygons (foreign sections of De Lijn, DB, Eurobahn) get 'Buitenland' and match the fallback rows
-	// in FareTable_DOVA; otherwise Price_IntegrityCheck fails in DOVA mode.
+	// in FareTable_DOVA, so that every leg has a DOVA fare.
 	attribute<string>      Mode_class_DOVA                 := Modes/name[Mode_rel] == 'Rail' ? 'Rail' : (Modes/name[Mode_rel] == 'Ferry' ? 'Ferry' : 'BTM');
 	attribute<string>      MC_CG_key_DOVA                  := Mode_class_DOVA + '_' + MakeDefined(Concessiegebied/name[Concessiegebied_rel], 'Buitenland');
 	attribute<FareTable>   FareTable_rel                   := =ModelParameters/Impl/PriceMethod_effective == 'DOVA'
 	                                                          ? 'rlookup(MC_CG_key_DOVA, FareTable/MC_CG_key)'
-	                                                          : 'MakeDefined(FareTable_rel_initial, FareTable_rel_augmented)';
-	
-	// Check not only that a FareTable row matches, but also that the row actually holds prices (a matched row with an empty price would
-	// otherwise silently give null prices). IsDefined() always gives a real bool (also for a null relation), so the && propagates no nulls.
+	                                                          : 'FareTable_rel_Detailed';
+	attribute<FareTable_DOVA> FareTable_DOVA_rel           := rlookup(MC_CG_key_DOVA, FareTable_DOVA/MC_CG_key);
+	// The prices of the leg: those of its rule, and in the detailed method for a leg without a rule the DOVA fare of its concession and mode class.
+	attribute<Euro>        FixedPrice                      := IsDefined(FareTable_rel) ? FareTable/FixedPrice[FareTable_rel]    : FareTable_DOVA/FixedPrice[FareTable_DOVA_rel];
+	attribute<Euro_km>     VariablePrice                   := IsDefined(FareTable_rel) ? FareTable/VariablePrice[FareTable_rel] : FareTable_DOVA/VariablePrice[FareTable_DOVA_rel];
+
+	// Check that the leg has prices: a matched rule with an empty price would otherwise silently give null prices.
 	attribute<bool>        Price_IntegrityCheck            := =ModelParameters/Impl/PriceExportsAndIntegrityChecksNeeded
-	                                                          ? 'IsDefined(impl/FareTable_rel) && IsDefined(FareTable/FixedPrice[impl/FareTable_rel]) && IsDefined(FareTable/VariablePrice[impl/FareTable_rel])'
+	                                                          ? 'IsDefined(impl/FixedPrice) && IsDefined(impl/VariablePrice)'
 	                                                          : 'const(TRUE,.)';
+
+	// The legs of the detailed method without a rule, which get the DOVA fare, per combination of mode, agency, concession and line, with
+	// the number of legs (view on demand, for checking the fare tables).
+	unit<uint32> DOVAFallback := select_with_org_rel(IsNull(FareTable_rel))
+	{
+		attribute<string> combo := MakeDefined(Mode_Agency_CG_Line_identifier[org_rel], Mode_Agency_identifier[org_rel] + '__' + RouteName_short[org_rel]);
+		unit<uint32> UniqueCombos := unique(combo)
+		{
+			attribute<uint32> NrLegs := pcount(rlookup(../combo, values));
+		}
+	}
 
 	// Diagnosis when Price_IntegrityCheck fails (expensive, view only on demand): the unique combinations without a FareTable match or
 	// with a row without price, with the number of affected legs per combination.
