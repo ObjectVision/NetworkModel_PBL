@@ -1,10 +1,10 @@
 # WriteChainBlocks.ps1: the chain step per stop block, with resume.
 #
 # First requests the list of the blocks whose cache is still missing (PublicTransport_Prep/PT_Chains_Blocks/ToDo_List,
-# written to batch\log\chain_blocks_todo.txt; a block counts as done when its 0Dictionary.dms exists, which the MMD writer
-# writes last) and then calculates them in portions of BatchSize blocks per GeoDmsRun. Each portion is a separate process,
-# so that memory is freed between the portions; an interrupted or failed chain step continues at the next call with the
-# first block without a cache.
+# written to batch\log\chain_blocks_todo.txt; a block counts as done when its <n>of<N>.done exists, which the model writes
+# after the parquet of the block is complete) and then calculates them in portions of BatchSize blocks per GeoDmsRun. Each
+# portion is a separate process, so that memory is freed between the portions; an interrupted or failed chain step continues
+# at the next call with the first block without a cache.
 #
 # Call (by UpdateAll.cmd chains): WriteChainBlocks.ps1 -Exe <GeoDmsRun.exe> -Cfg <cfg\main.dms> -LogDir <batch\log>
 #   -BatchSize  blocks per GeoDmsRun (default 20). The blocks of a portion share only the start-up of about half a

@@ -713,25 +713,38 @@ container PublicTransport_Prep
 			}
 		}
 	 	container Fence := PhaseContainer(BlockResultContainer, 'Calculated: '+string(StartCalc/BlockDomain_name));
-		// Each block writes its chains to a cache of its own (StorageBlockDir_Str/<n>of<N>.mmd), so that the results do not stay in memory
-		// until the end and an interrupted chain step can resume at the first missing block (batch/WriteChainBlocks.ps1, PT_Chains_Blocks/ToDo).
-		unit<uint64> Write := Fence/Result
-		, StorageName = "=/NetworkSetup/PublicTransport_Prep/StorageBlockDir_Str + '/' + BlockDomain/CacheName[BlockDomain_id] + '.mmd'"
-		, ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/PT_Chains_Sig/ForWriting"
+		// Each block writes its chains to a parquet file of its own (StorageBlockDir_Str/<n>of<N>.parquet, zstd), so that the results do not
+		// stay in memory until the end and an interrupted chain step can resume at the first missing block (batch/WriteChainBlocks.ps1,
+		// PT_Chains_Blocks/ToDo). The prices (Ct), the travel time (s) and the distances (dam) are uint16 in the model but are written as
+		// uint32, because GDAL would write a uint16 as int16, which ends at 32767; compressed, the file is as large. The reader
+		// (PT_Chains_Blocks/PerBlock/<block>/Read) reads them back as uint16.
+		parameter<string> GDAL_LayerCreationOptions := 'COMPRESSION=ZSTD';
+		container Parquet
+		: StorageName = "=/NetworkSetup/PublicTransport_Prep/StorageBlockDir_Str + '/' + BlockDomain/CacheName[BlockDomain_id] + '.parquet'"
+		, StorageType = "gdalwrite.vect"
 		{
-			attribute<uint32> ModeCode         := Fence/Result/ModeCode;
-			attribute<Ct>     Price            := Fence/Result/Price;
-			attribute<Ct>     Price_augm       := Fence/Result/Price_augm;
-			attribute<Ct>     Price_S          := Fence/Result/Price_S;
-			attribute<s>      Traveltime       := Fence/Result/Traveltime;
-			attribute<dam>    TravelDist_Bus   := Fence/Result/TravelDist_Bus;
-			attribute<dam>    Traveldist_Metro := Fence/Result/Traveldist_Metro;
-			attribute<dam>    Traveldist_Tram  := Fence/Result/Traveldist_Tram;
-			attribute<dam>    Traveldist_Rail  := Fence/Result/Traveldist_Rail;
-			attribute<dam>    Traveldist_Ferry := Fence/Result/Traveldist_Ferry;
-			attribute<uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel := Fence/Result/uq_c_FromTime_Stop_rel;
-			attribute<uq_c_ToTime_Stop> uq_c_ToTime_Stop_rel := Fence/Result/uq_c_ToTime_Stop_rel;
+			unit<uint64> Chains := Fence/Result, ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/PT_Chains_Sig/ForWriting"
+			{
+				attribute<uint32> ModeCode         := Fence/Result/ModeCode;
+				attribute<uint32> Price            := uint32(Fence/Result/Price);
+				attribute<uint32> Price_augm       := uint32(Fence/Result/Price_augm);
+				attribute<uint32> Price_S          := uint32(Fence/Result/Price_S);
+				attribute<uint32> Traveltime       := uint32(Fence/Result/Traveltime);
+				attribute<uint32> TravelDist_Bus   := uint32(Fence/Result/TravelDist_Bus);
+				attribute<uint32> Traveldist_Metro := uint32(Fence/Result/Traveldist_Metro);
+				attribute<uint32> Traveldist_Tram  := uint32(Fence/Result/Traveldist_Tram);
+				attribute<uint32> Traveldist_Rail  := uint32(Fence/Result/Traveldist_Rail);
+				attribute<uint32> Traveldist_Ferry := uint32(Fence/Result/Traveldist_Ferry);
+				attribute<uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel := Fence/Result/uq_c_FromTime_Stop_rel;
+				attribute<uq_c_ToTime_Stop> uq_c_ToTime_Stop_rel := Fence/Result/uq_c_ToTime_Stop_rel;
+			}
 		}
+		// Write comes after Parquet/Chains, when GDAL has closed the parquet and written its footer, and then writes <n>of<N>.done: a block
+		// counts as written only with that file (PT_Chains_Blocks/PerBlock/<block>/IsWritten), so that a parquet that an interrupted chain
+		// step left incomplete is made again.
+		parameter<string> Write := 'Ready', ExplicitSuppliers = "Parquet/Chains"
+		,	StorageName = "=/NetworkSetup/PublicTransport_Prep/StorageBlockDir_Str + '/' + BlockDomain/CacheName[BlockDomain_id] + '.done'", StorageType = "str"
+		,	Descr = "Writes the chains of this block (Parquet/Chains) and then <n>of<N>.done, the mark that the parquet is complete; the chain step requests it per block.";
 	}
 	
 	container ChainGeneration_Single
@@ -791,8 +804,8 @@ container PublicTransport_Prep
 		;
 	}
 	
-	// The chain cache per block (ModelParameters/Advanced/PT_Chains_PerBlock): a reader per block, the blocks whose cache is still
-	// missing (0Dictionary.dms is written last) and the list of their writers for batch/WriteChainBlocks.ps1.
+	// The chain cache per block (ModelParameters/Advanced/PT_Chains_PerBlock): a reader per block, the blocks that are still missing
+	// (without <n>of<N>.done, see ChainGeneration_PerBlock_T/Write) and the list of their writers for batch/WriteChainBlocks.ps1.
 	container PT_Chains_Blocks
 	{
 		Template ReadBlock_T
@@ -800,11 +813,26 @@ container PublicTransport_Prep
 			parameter<string> BlockName;
 			parameter<string> CacheName;
 			///
-			unit<uint64>    Read               : StorageName = "=/NetworkSetup/PublicTransport_Prep/PT_Chains_Sig/ForReading + '/' + CacheName + '.mmd'", StorageReadOnly = "true";
-			parameter<bool> IsWritten          := ExistingFile('', /NetworkSetup/PublicTransport_Prep/StorageBlockDir_Str + '/' + CacheName + '.mmd/0Dictionary.dms') != '';
+			unit<uint32> Read : StorageName = "=/NetworkSetup/PublicTransport_Prep/PT_Chains_Sig/ForReading + '/' + CacheName + '.parquet'", StorageType = "gdal.vect", StorageReadOnly = "true"
+			,	Descr = "Reads the parquet of the block (ChainGeneration_PerBlock/<block>/Parquet); fails when the signature of the folder is missing or differs (PT_Chains_Sig/CheckGate)."
+			{
+				attribute<uint32> ModeCode;
+				attribute<ct>     Price;
+				attribute<ct>     Price_augm;
+				attribute<ct>     Price_S;
+				attribute<s>      Traveltime;
+				attribute<dam>    TravelDist_Bus;
+				attribute<dam>    Traveldist_Metro;
+				attribute<dam>    Traveldist_Tram;
+				attribute<dam>    Traveldist_Rail;
+				attribute<dam>    Traveldist_Ferry;
+				attribute</NetworkSetup/PublicTransport_Prep/uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel;
+				attribute</NetworkSetup/PublicTransport_Prep/uq_c_ToTime_Stop> uq_c_ToTime_Stop_rel;
+			}
+			parameter<bool> IsWritten          := ExistingFile('', /NetworkSetup/PublicTransport_Prep/StorageBlockDir_Str + '/' + CacheName + '.done') != '';
 
 			// The chains of this stop block that the output can use (for PT_V): those that board at a stop where a pre-transport leg of the
-			// component ends, with the columns the departure moments read. collect_by_cond reads the cache per tile.
+			// component ends, with the columns the departure moments read.
 			attribute<bool> IsVBoarding (Read) := /NetworkSetup/PublicTransport_Prep/uq_c_FromTime_Stop/IsVBoarding[Read/uq_c_FromTime_Stop_rel];
 			unit<uint64> VBoarding := select(IsVBoarding)
 			{
@@ -819,7 +847,7 @@ container PublicTransport_Prep
 				attribute<dam>    Traveldist_Ferry := collect_by_cond(., ../IsVBoarding, ../Read/Traveldist_Ferry);
 				attribute</NetworkSetup/PublicTransport_Prep/uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel := collect_by_cond(., ../IsVBoarding, ../Read/uq_c_FromTime_Stop_rel);
 				attribute</NetworkSetup/PublicTransport_Prep/uq_c_ToTime_Stop> uq_c_ToTime_Stop_rel := collect_by_cond(., ../IsVBoarding, ../Read/uq_c_ToTime_Stop_rel);
-				attribute<uint64> ChainRow         := collect_by_cond(., ../IsVBoarding, id(../Read)), Descr = "The row number of the chain in the cache of the block, like OD_Chains/Read_ChainLegs/Keten (#129; only requested in the OD pair mode).";
+				attribute<uint64> ChainRow         := collect_by_cond(., ../IsVBoarding, uint64(id(../Read))), Descr = "The row number of the chain in the cache of the block, like OD_Chains/Read_ChainLegs/Keten (#129; only requested in the OD pair mode).";
 			}
 		}
 		container         PerBlock                     := for_each_ne(impl/BlockDomain/name, 'ReadBlock_T(' + quote(impl/BlockDomain/name) + ', ' + quote(impl/BlockDomain/CacheName) + ')');
@@ -926,14 +954,14 @@ container PublicTransport_Prep
 	, Descr = "Name of the chain cache without extension (NetworkModel_PBL#118): the date and time window readable and the rest as a hash of PT_Chains_Signature, for example PT_Chains_20261006_07h00m-09h29m_11a52bac.";
 	parameter<string> StorageName_Str          := StorageBase_Str + '.mmd', Descr = "The one chain cache of ChainGeneration_Single/Write (PT_Chains_PerBlock FALSE).";
 	parameter<string> StorageBlockDir_Str      := StorageBase_Str
-	, Descr = "Folder of the chain cache per block: the name of the one cache without .mmd, holding <n>of<N>.mmd per block.";
+	, Descr = "Folder of the chain cache per block: the name of the one cache without .mmd, holding <n>of<N>.parquet per block.";
 	container         PT_Chains_Sig            := /Templates/Signature_T(
 	                                                ModelParameters/Advanced/PT_Chains_PerBlock ? StorageBlockDir_Str : StorageName_Str
 	                                              , (ModelParameters/Advanced/PT_Chains_PerBlock ? StorageBlockDir_Str : StorageName_Str) + '/signature.txt'
 	                                              , PT_Chains_Signature
-	                                              , ModelParameters/Advanced/PT_Chains_PerBlock ? max(strlen('/' + impl/BlockDomain/CacheName + '.mmd/uq_c_FromTime_Stop_rel')) : strlen('/uq_c_FromTime_Stop_rel')
+	                                              , ModelParameters/Advanced/PT_Chains_PerBlock ? max(strlen('/' + impl/BlockDomain/CacheName + '.parquet')) : strlen('/uq_c_FromTime_Stop_rel')
 	                                              )
-	, Descr = "The signature in the folder of the chain cache (signature.txt): ChainGeneration_PerBlock/<block>/Write, ChainGeneration_Single/Write and PT_Chains_Blocks/ToDo_List write it and check the longest path (with uq_c_FromTime_Stop_rel as the longest attribute name); ChainGeneration_Single/Read and PT_Chains_Blocks/PerBlock/<block>/Read check it.";
+	, Descr = "The signature in the folder of the chain cache (signature.txt): ChainGeneration_PerBlock/<block>/Parquet/Chains, ChainGeneration_Single/Write and PT_Chains_Blocks/ToDo_List write it and check the longest path (the parquet of a block, or in the one cache uq_c_FromTime_Stop_rel as the longest attribute name); ChainGeneration_Single/Read and PT_Chains_Blocks/PerBlock/<block>/Read check it.";
 		
 	#include<OD_Chains.dms>
 	#include<ChainJoiner_T.dms>
