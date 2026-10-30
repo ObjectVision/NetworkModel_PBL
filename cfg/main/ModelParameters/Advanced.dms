@@ -285,6 +285,21 @@ container Advanced : using = "classifications"
 	parameter<uint32>   MaxStopBlockSize                        := 104                 , Descr = "Maximum number of stops per block of the chain generation; times NumberOfStopBlocks it must cover all stops (ChecksBeforeRunning/PT_CheckBlocks).";
 	parameter<uint32>   NumberOfOrgBlocks                       := Impl/IsOD ? 1 : 450 , Descr = "Number of origin blocks of the output step; with an OD pair one block with the one origin, and times MaxOrgBlockSize it must cover all origins (ChecksBeforeRunning/Check_OriginBlocks).";
 	parameter<uint32>   MaxOrgBlockSize                         := Impl/Orgset_FixedYear ? 33 : 200, Descr = "Maximum number of origins per block of the output step: 200, or 33 with a neighbourhood set of its own CBS year as Orgset (Buurt2023, Buurt2025), so that 450 blocks cover the neighbourhoods of 2023 and 2025 (#126).";
+	// Origin blocks in parts (#117): the output step of a component whose estimated peak per origin block is above MaxMemoryPerProcess_GB
+	// calculates every block in parts of fewer origins, each behind its own fence, and writes the block as one file (PublicTransport/PerPart).
+	// The estimate (Impl/OutputPeak_Estimate_GB) scales the measured peak of the component above the fixed load with the origins per block and
+	// the number of destinations.
+	parameter<float32>  MaxMemoryPerProcess_GB                  := 64f                 , Descr = "The memory in GB that one GeoDmsRun of the output step may use; set it somewhat below the physical memory of the machine. A component whose estimated peak per origin block is higher calculates every block in parts (Impl/OrgBlockParts).", IntegrityCheck = "this > OutputPeak_FixedLoad_GB";
+	parameter<float32>  OutputPeak_FixedLoad_GB                 := 21f                 , Descr = "The part of the peak of the output step that does not depend on the origins of the block: the network, the chain cache and the legs.", Source = "OVSRV10, the lowest commit charge of the 18 portions of the output step of C_PT_C, Y2025, morning (log analysis of 2026-10-29)";
+	parameter<uint32>   OutputPeak_Reference_BlockSize          := 33                  , Descr = "The origins per block of the runs in which OutputPeak_Measured was measured.";
+	parameter<uint32>   OutputPeak_Reference_Destinations       := 14729               , Descr = "The destinations of the runs in which OutputPeak_Measured was measured, the neighbourhoods of Buurt2025.";
+	unit<uint8> OutputPeak_Measured : nrofrows = 16
+	, Descr = "The highest commit charge in GB of a GeoDmsRun of the output step per component; a public transport component that is not in this table gets that of C_PT_ with the same post-transport, because the stops of its cycling pre-transport (C_RM, C_RMT, C_Ric) are a subset of those of C (Classifications/Components/OutputPeak_GB)."
+	, Source = "OVSRV10 (127 GB), the output steps of Y2025, morning, Buurt2025 to Buurt2025, 33 origins per block, GeoDMS 20.24.0, 2026-10-20 to 2026-10-30 (log analysis of 2026-10-29)"
+	{
+		attribute<string>  name : ['C_PT_C', 'C_RM_PT_W', 'W_PT_W', 'C_PT_RMT_C', 'W_PT_OVf_C', 'C_PT_W', 'C_PT_OVf_C', 'C_PT_RM_C', 'W_PT_C', 'W_PT_RMT_C', 'W_PT_RM_C', 'C_RM_PT_C', 'WW', 'C_RM_PT_OVf_C', 'CC', 'Car'];
+		attribute<float32> GB   : [208.8, 98.4, 98.1, 98.0, 97.9, 59.0, 57.8, 52.1, 47.8, 40.3, 36.8, 27.1, 8.8, 6.9, 2.5, 1.9];
+	}
 	parameter<bool>     PT_Chains_PerBlock                      := TRUE                , Descr = "Does the chain step write every stop block to its own cache, which the output step reads together? FALSE: one cache for all blocks (ChainGeneration_Single/Write).";
 	parameter<bool>     PrePostTransportDecoupled               := TRUE                , Descr = "Write the pre- and post-transport connections once per base set to a cache in IntermediateResults and read them back? On, because the output step runs in portions, each a GeoDmsRun that would otherwise calculate the base sets again; batch/UpdateAll.cmd output writes the missing ones first (#133).";
 	parameter<bool>     MakeMedian                              := FALSE               , Descr = "Does the output step also write, per block, the median over the departure moments of the cheapest option per OD pair (Mediaan/tt_<date>_mediaan_<n>of<N>)?";

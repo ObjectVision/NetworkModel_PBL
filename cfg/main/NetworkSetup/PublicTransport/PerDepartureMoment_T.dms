@@ -231,7 +231,7 @@ Template PerDepartureMoment_T : Descr = "Calculates for one departure moment of 
 	// with all rows and their derived attributes stays in memory. The selection works per tile of the cache (64K rows): collect_by_cond reads only
 	// the tiles in which the block has rows. A lookup in the cache (<column>[row]) would first make a contiguous copy of the whole column, per
 	// block, moment and column, which is much slower.
-	attribute<bool>   Org_InBlock (/NetworkSetup/impl/OrgBlockSelections) := /NetworkSetup/impl/OrgBlockSelections/OrgBlock_rel == BlockDomain_id, Descr = "Whether the origin is in this block, as in ConfigurationPerOrgBlock_T/org.";
+	attribute<bool>   Org_InBlock (/NetworkSetup/impl/OrgBlockSelections) := /NetworkSetup/impl/OrgBlockSelections/OrgBlock_rel == BlockDomain_id && /NetworkSetup/impl/OrgBlockSelections/OrgPart_rel == Part_rel, Descr = "Whether the origin is in this block, as in ConfigurationPerOrgBlock_T/org.";
 	unit<uint64> CarCache := = CarTD ? CarTD_Cache : 'range(uint64, 0u64, 0u64)'
 	{
 		attribute<bool> InBlock := = CarTD ? '../Org_InBlock[' + CarTD_Cache + '/OrgZone_rel]' : 'const(FALSE, .)';
@@ -381,12 +381,11 @@ Template PerDepartureMoment_T : Descr = "Calculates for one departure moment of 
 	}
 	
 	unit<uint64> Result_AfterSecondCondensation := select(Result_AfterFirstCondensation/pareto_condition)
-	, Descr = "Final set"
+	, Descr = "Final set of this part of the block; BlockResult unites those of the parts."
 	{
 		attribute<ct>     Price              := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Price);
 		attribute<ct>     Price_V            := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Price_V);
 		attribute<ct>     Price_N            := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Price_N);
-		attribute<ct>     Price_PT           := Price - Price_V - Price_N, Descr = "The public transport part of Price: the chain price without pre-transport and post-transport, and 0 for a direct trip.";
 		attribute<ct>     Price_augm         := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Price_augm);
 		attribute<s>      Traveltime         := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/Traveltime);
 		attribute<string> ModeUsed           := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/ModeUsed);
@@ -410,12 +409,52 @@ Template PerDepartureMoment_T : Descr = "Calculates for one departure moment of 
 
 		attribute<string> OrgName            := Places/label[From_Place_rel];
 		attribute<string> DestName           := Places/label[To_Place_rel];
-		attribute<string> OrgDestName        := OrgName + '_' + DestName;
-		
+
 		attribute<bool>   IsDirectTravel     := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/IsDirectTravel);
 		attribute<Modes>  V_mode_rel         := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/V_mode_rel);
 		attribute<Modes>  N_mode_rel         := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/N_mode_rel);
 		attribute<Result_AfterFirstCondensation> First_rel := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, id(Result_AfterFirstCondensation)), Descr = "The row of Result_AfterFirstCondensation (only requested in the OD pair mode, OD_Output).";
+	}
+
+	// THE FINAL SET OF THE WHOLE BLOCK (#117). Every part of the block (PublicTransport/PerPart) calculates its final set of this departure moment
+	// behind its own fence, so that the intermediate results of one part are freed before the next part starts; only the columns that BlockResult
+	// reads cross the fence. BlockResult unites the parts in their order, and the writers and counts of the first part (CreateExports) read it.
+	// With one part it is that part's final set, with the same rows in the same order.
+	unit<uint64> Result_Fence := PhaseContainer(Result_AfterSecondCondensation, 'Final set of ' + NetworkSetup/Impl/OrgBlockDomain/name[BlockDomain_id] + ', ' + /NetworkSetup/impl/OrgParts/name[Part_rel] + ', ' + inTime_string + ' calculated');
+	attribute<string> PartResults (/NetworkSetup/impl/OrgParts) := 'PerPart/' + /NetworkSetup/impl/OrgParts/name + '/PerDepartureMoment/' + inTime_string + '/Result_Fence', Descr = "The fenced final sets of this departure moment in the parts of the block.";
+
+	unit<uint64> BlockResult := ='union_unit_uint64(' + asList(PartResults, ', ') + ')'
+	, Descr = "The final set of the whole origin block: the final sets of its parts, one after the other, with the columns the writers and counts derive."
+	{
+		attribute<ct>     Price              := ='union_data(., ' + asList(PartResults + '/Price', ', ') + ')';
+		attribute<ct>     Price_V            := ='union_data(., ' + asList(PartResults + '/Price_V', ', ') + ')';
+		attribute<ct>     Price_N            := ='union_data(., ' + asList(PartResults + '/Price_N', ', ') + ')';
+		attribute<ct>     Price_augm         := ='union_data(., ' + asList(PartResults + '/Price_augm', ', ') + ')';
+		attribute<s>      Traveltime         := ='union_data(., ' + asList(PartResults + '/Traveltime', ', ') + ')';
+		attribute<string> ModeUsed           := ='union_data(., ' + asList(PartResults + '/ModeUsed', ', ') + ')';
+		attribute<bool>   NeedsCar           := ='union_data(., ' + asList(PartResults + '/NeedsCar', ', ') + ')';
+		attribute<bool>   NeedsBike          := ='union_data(., ' + asList(PartResults + '/NeedsBike', ', ') + ')';
+		attribute<s>      W_time             := ='union_data(., ' + asList(PartResults + '/W_time', ', ') + ')';
+		attribute<s>      V_time             := ='union_data(., ' + asList(PartResults + '/V_time', ', ') + ')';
+		attribute<s>      PT_time            := ='union_data(., ' + asList(PartResults + '/PT_time', ', ') + ')';
+		attribute<s>      N_time             := ='union_data(., ' + asList(PartResults + '/N_time', ', ') + ')';
+		attribute<dam>    TravelDist_V       := ='union_data(., ' + asList(PartResults + '/TravelDist_V', ', ') + ')';
+		attribute<dam>    TravelDist_Bus     := ='union_data(., ' + asList(PartResults + '/TravelDist_Bus', ', ') + ')';
+		attribute<dam>    Traveldist_Metro   := ='union_data(., ' + asList(PartResults + '/Traveldist_Metro', ', ') + ')';
+		attribute<dam>    Traveldist_Tram    := ='union_data(., ' + asList(PartResults + '/Traveldist_Tram', ', ') + ')';
+		attribute<dam>    Traveldist_Rail    := ='union_data(., ' + asList(PartResults + '/Traveldist_Rail', ', ') + ')';
+		attribute<dam>    Traveldist_Ferry   := ='union_data(., ' + asList(PartResults + '/Traveldist_Ferry', ', ') + ')';
+		attribute<dam>    Traveldist_N       := ='union_data(., ' + asList(PartResults + '/Traveldist_N', ', ') + ')';
+		attribute<Places> From_Place_rel     := ='union_data(., ' + asList(PartResults + '/From_Place_rel', ', ') + ')';
+		attribute<Places> To_Place_rel       := ='union_data(., ' + asList(PartResults + '/To_Place_rel', ', ') + ')';
+		attribute<bool>   IsDirectTravel     := ='union_data(., ' + asList(PartResults + '/IsDirectTravel', ', ') + ')';
+		attribute<Modes>  V_mode_rel         := ='union_data(., ' + asList(PartResults + '/V_mode_rel', ', ') + ')';
+		attribute<Modes>  N_mode_rel         := ='union_data(., ' + asList(PartResults + '/N_mode_rel', ', ') + ')';
+
+		attribute<ct>     Price_PT           := Price - Price_V - Price_N, Descr = "The public transport part of Price: the chain price without pre-transport and post-transport, and 0 for a direct trip.";
+		attribute<string> OrgName            := Places/label[From_Place_rel];
+		attribute<string> DestName           := Places/label[To_Place_rel];
+		attribute<string> OrgDestName        := OrgName + '_' + DestName;
 
 		// Distance, travel time and price also per mode. Public transport is the public transport chain (TravelDist_PT, PT_time, Price_PT),
 		// including walking and waiting at transfers; walking, cycling and car are the pre-transport and post-transport and the direct trip with
@@ -443,7 +482,7 @@ Template PerDepartureMoment_T : Descr = "Calculates for one departure moment of 
 	
 	container CreateExports : Descr = "The output of this block and departure moment: the final set as csv (LongFormat/File) or parquet (LongFormat/Parquet_<ExportClass>), the counts and, in the OD pair mode, OD_Output."
 	{
-		unit<uint64>      domain                      := Result_AfterSecondCondensation, IntegrityCheck = "NOT(Result_AfterSecondCondensation/IsPTWithoutPrice)";
+		unit<uint64>      domain                      := BlockResult, IntegrityCheck = "NOT(BlockResult/IsPTWithoutPrice)";
 		attribute<string> OrgName            (domain) := domain/OrgName;
 		attribute<string> DestName           (domain) := domain/DestName;
 		attribute<string> OrgDestName        (domain) := OrgName + '_' + DestName;
@@ -582,7 +621,7 @@ Template PerDepartureMoment_T : Descr = "Calculates for one departure moment of 
 				// so that the final result can be freed after the phase.
 				container Counts
 				{
-					unit<uint64>       R                       := Result_AfterSecondCondensation;
+					unit<uint64>       R                       := BlockResult;
 					attribute<bool>    IsChain             (R) := NOT(R/IsDirectTravel);
 					attribute<bool>    IsWW                (R) := R/IsDirectTravel && R/V_mode_rel == Modes/v/Walking;
 					attribute<bool>    IsCC                (R) := R/IsDirectTravel && R/V_mode_rel == Modes/v/Cycling;
