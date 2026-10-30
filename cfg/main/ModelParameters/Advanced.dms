@@ -209,7 +209,6 @@ container Advanced : using = "classifications"
 	parameter<bool>     IFF_TransferTime := TRUE                   , Descr = "Does a transfer between two platforms of the same NS station take at least the transfer time of that station in the NS IFF timetable, besides the walking time over the straight distance (#123)?";
 	parameter<string>   IFF_file_date    := '20261013'             , Descr = "The delivery of the NS IFF timetable, used for all analysis moments (%NetworkModel_Dir%/Infrastructuur/IFF/<date>/stations.csv).";
 
-	
 	// PRIVATE TRANSPORT
 	parameter<bool>     UseActualCyclingSpeeds                  := FALSE                  , Descr = "Use measured cycling speeds from the Fietstelweek instead of a constant speed (CyclingSpeed_kmhr)?";
 	parameter<string>   CongestionSpeed_DaySelection            := 'tuesday'              , Descr = "Day or group of days of the TomTom congested speeds: 'Weekday', 'Weekend', 'Week' or a day such as 'tuesday'.";
@@ -229,18 +228,6 @@ container Advanced : using = "classifications"
 	parameter<km_hr>    Ferry_Speed                             := 25[km_hr]              , Descr = "Speed of a ferry.";
 	parameter<bool>     InterpretAllRoadsAsBidirectional        := FALSE                  , Descr = "Treat all car roads as two-way, ignoring the one-way property?";//
 			
-	
-	unit<uint8> PT_DepartureHours : nrofrows = 1
-	, Descr = "The hour of the departure moments, that of PartOfDay (#125); for more hours in one run raise nrofrows and list them."
-	{
-		attribute<uint32> values := const(rjoin(/ModelParameters/PartOfDay, PartsOfDay/name, PartsOfDay/DepartureHour), .);
-	}
-	unit<uint8> PT_DepartureMinutes_All : nrofrows = 4
-	, Descr = "The minutes of the departure moments in the hour of the part of the day, every quarter of an hour."
-	{
-		attribute<uint32> values : [0,15,30,45];										   
-	}
-	
 	unit<uint8>  AnalysisMomentPresets : nrofrows = 12
 	, Descr = "Per analysis moment the sources: OSM, CBS area division, TomTom, BAG snapshot, the analysis day and the GTFS feed (#125); a year without analysis day or feed does not run."
 	{
@@ -286,12 +273,28 @@ container Advanced : using = "classifications"
 		parameter<uint32> nrAttr := 9;
 	}
 
+	// DEPARTURE MOMENTS (#125): ModelParameters/PartOfDay chooses a row of PartsOfDay. The trips leave at the minutes of PT_DepartureMinutes_All
+	// in DepartureHour; the direct car trip and the TomTom speeds use the congestion moment at CongestionMinute of that hour.
 	unit<uint8> PartsOfDay : nrofrows = 3
-	, Descr = "The parts of the day (#125), chosen with ModelParameters/PartOfDay: four departure moments a quarter of an hour apart from DepartureHour, and the congestion moment of the direct car trip in the middle of that hour."
+	, Descr = "The parts of the day (#125), chosen with ModelParameters/PartOfDay: the hour of the departure moments, and the congestion moment of the direct car trip with its minute in that hour and its cap on the car speed."
 	{
 		attribute<string> name             : ['Ochtendspits', 'Middag', 'Avond'];
 		attribute<uint32> DepartureHour    : [7, 12, 19];
-		attribute<string> CongestionMoment : ['MorningRush', 'NoonRush', 'LateEveningRush'];
+		attribute<string> CongestionMoment : ['MorningRush', 'NoonRush', 'LateEveningRush'], Descr = "The name of the TomTom congestion moment.";
+		attribute<uint32> CongestionMinute : [30, 30, 30], Descr = "The minute of the congestion moment in DepartureHour, one of PT_DepartureMinutes_All.";
+		attribute<km_hr>  Car_MaxSpeed     : [100, 100, 0], Descr = "Cap on the car speed at the congestion moment, for TomTom and OSM; 0 for no cap.";
+	}
+	unit<uint8> CongestionTimes := PartsOfDay
+	, Descr = "The congestion moments of PartsOfDay as the TomTom speeds and the speed caps of the car use them: the name, the clock time as hhmm, and the cap."
+	{
+		attribute<string> name     := PartsOfDay/CongestionMoment;
+		attribute<string> Time     := (PartsOfDay/DepartureHour < 10 ? '0' : '') + string(PartsOfDay/DepartureHour) + (PartsOfDay/CongestionMinute < 10 ? '0' : '') + string(PartsOfDay/CongestionMinute);
+		attribute<km_hr>  MaxSpeed := PartsOfDay/Car_MaxSpeed;
+	}
+	unit<uint8> PT_DepartureMinutes_All : nrofrows = 4
+	, Descr = "The minutes of the departure moments in DepartureHour of the part of the day, every quarter of an hour."
+	{
+		attribute<uint32> values : [0,15,30,45];
 	}
 
 	unit<uint32> org_domain_list : nrofrows = 23
@@ -365,16 +368,6 @@ container Advanced : using = "classifications"
 		
 		parameter<uint32> nrAttr := 2;
 	}
-	
-	unit<uint8> CongestionTimes : nrofrows = 3
-	, Descr = ""
-	{
-		attribute<string> name : ['MorningRush','NoonRush','LateEveningRush'];
-		attribute<string> Time : ['0730', '1230', '1930'];
-		attribute<km_hr>  MaxSpeed : [100, 100, 0], Descr = "Cap on the car speed per congestion moment, for TomTom and OSM; 0 for no cap.";
-	}
-	
-
 	
 	container Junction_Penalties
 	: Descr = "Time penalties for passing a junction, depending on its number of legs, lower when the legs have a low speed."

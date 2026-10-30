@@ -71,7 +71,7 @@ container Impl : using = "classifications"
 	parameter<string>   Component_PreTransport       := TimeInvariantTypes/name[/ModelParameters/PreTransport], Descr = "The name of the pre-transport type (ModelParameters/PreTransport); not used for a direct trip.";
 	parameter<string>   Component_PostTransport      := TimeInvariantTypes/name[/ModelParameters/PostTransport], Descr = "The name of the post-transport type (ModelParameters/PostTransport); not used for a direct trip.";
 	parameter<bool>     SingleDepartureMoment        := !IsMerged && rjoin(ComponentName, Advanced/Components/name, Advanced/Components/SingleDepartureMoment_Eff), Descr = "Does this run calculate one departure moment, that of the congestion moment (Advanced/Components/SingleDepartureMoment)?";
-	parameter<uint32>   CongestionMinute             := MakeDefined(uint32(substr(rjoin(rjoin(/ModelParameters/PartOfDay, Advanced/PartsOfDay/name, Advanced/PartsOfDay/CongestionMoment), Advanced/CongestionTimes/name, Advanced/CongestionTimes/Time), 2, 2)), 30), Descr = "The minute of the congestion moment of the part of the day, the departure moment of a component with SingleDepartureMoment.";
+	parameter<uint32>   CongestionMinute                     := rjoin(/ModelParameters/PartOfDay, Advanced/PartsOfDay/name, Advanced/PartsOfDay/CongestionMinute), Descr = "The minute of the congestion moment of the part of the day (Advanced/PartsOfDay), the departure moment of a component with SingleDepartureMoment.", IntegrityCheck = "any(Advanced/PT_DepartureMinutes_All/values == this)";
 	parameter<string>   SingleDepartureMoment_Shrt   := (rjoin(/ModelParameters/PartOfDay, Advanced/PartsOfDay/name, Advanced/PartsOfDay/DepartureHour) < 10 ? '0' : '') + string(rjoin(/ModelParameters/PartOfDay, Advanced/PartsOfDay/name, Advanced/PartsOfDay/DepartureHour)) + 'h' + (SingleDepartureMoment_Minute < 10 ? '0' : '') + string(SingleDepartureMoment_Minute) + 'm', Descr = "The short name of that departure moment, such as 07h30m, which names the file per block of a component with SingleDepartureMoment.";
 	parameter<uint32>   SingleDepartureMoment_Minute := IsODMoment ? OD_Minute : CongestionMinute, Descr = "The minute of the one departure moment of a component with SingleDepartureMoment: CongestionMinute, or for an OD pair with OD_DepartureTime that minute.";
 	parameter<uint32>   BlocksPerPortion             := IsMerged ? 10 : rjoin(ComponentName, Advanced/Components/name, Advanced/Components/BlocksPerPortion), Descr = "Origin blocks per GeoDmsRun in the output step of this run (Advanced/Components/BlocksPerPortion); 10 when merging.";
@@ -151,6 +151,11 @@ container Impl : using = "classifications"
 		attribute<string> StopClass_ := StopClass != '' ? StopClass+'_' : '';
 		attribute<string> ExportName := StopClass_ + Mode_abbrev;
 	}
+	unit<uint8> PT_DepartureHours : nrofrows = 1
+	, Descr = "The hour of the departure moments of this run: DepartureHour of PartOfDay in Advanced/PartsOfDay."
+	{
+		attribute<uint32> values := const(rjoin(/ModelParameters/PartOfDay, Advanced/PartsOfDay/name, Advanced/PartsOfDay/DepartureHour), .);
+	}
 	unit<uint8> PT_DepartureMinutes := range(uint8, 0b, SingleDepartureMoment || IsODMoment ? 1b : uint8(#Advanced/PT_DepartureMinutes_All))
 	, Descr = "The minutes of the departure moments of this run: all of Advanced/PT_DepartureMinutes_All, only that of the congestion moment with SingleDepartureMoment (#132), or only OD_DepartureTime for an OD pair."
 	{
@@ -162,7 +167,7 @@ container Impl : using = "classifications"
 	{
 		attribute<bool>    ChosenMoments := =asList(HoursMinutes/str,' || ');
 		attribute<Time>    Time_rel      := org_rel;
-		unit<uint8> ChosenHours    := Advanced/PT_DepartureHours;
+		unit<uint8> ChosenHours    := PT_DepartureHours;
 		unit<uint8> ChosenMinutes  := PT_DepartureMinutes;
 		unit<uint8> HoursMinutes   := combine_uint8(ChosenHours, ChosenMinutes)
 		{
