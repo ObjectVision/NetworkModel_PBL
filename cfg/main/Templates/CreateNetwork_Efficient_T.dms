@@ -2,51 +2,51 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 : using = "Classifications/OSM", Descr = "Builds a network of type NetworkType from RoadDomain, connected to the origins, the destinations and, for pre- and post-transport, the stops, and simplifies it by collapsing junction-free sections into single links and removing dead ends."
 {
 	// begin case parameters
-	unit<uint32> OrgDomain;
-	unit<uint32> DestDomain;
-	unit<uint32> RoadDomain;
+	unit<uint32>      OrgDomain;
+	unit<uint32>      DestDomain;
+	unit<uint32>      RoadDomain;
 	parameter<string> NetworkType;
 	parameter<bool>   IsPrePostTransport;
 	// end case parameters
-	container root := .;
+	container         root               := .;
 	
 	unit<uint32> Locations_wStops := union_unit(orgDomain, impl/Stops, destDomain)
 	{
-		attribute<rdc>                             geometry                       := union_data(.,orgDomain/geometry, impl/Stops/geometry, destDomain/geometry);
-		attribute<bool>                            IsOrg                          := union_data(.,const(TRUE , OrgDomain),const(FALSE, impl/Stops), const(FALSE,DestDomain));
-		attribute<bool>                            IsDest                         := union_data(.,const(FALSE, OrgDomain),const(FALSE, impl/Stops), const(TRUE ,DestDomain));
+		attribute<rdc>  geometry := union_data(.,orgDomain/geometry, impl/Stops/geometry, destDomain/geometry);
+		attribute<bool> IsOrg    := union_data(.,const(TRUE , OrgDomain),const(FALSE, impl/Stops), const(FALSE,DestDomain));
+		attribute<bool> IsDest   := union_data(.,const(FALSE, OrgDomain),const(FALSE, impl/Stops), const(TRUE ,DestDomain));
 	}
 	unit<uint32> Locations_woStops := union_unit(orgDomain, destDomain)
 	{
-		attribute<rdc>                             geometry                       := union_data(.,orgDomain/geometry, destDomain/geometry);
-		attribute<bool>                            IsOrg                          := union_data(.,const(TRUE , OrgDomain), const(FALSE,DestDomain));
-		attribute<bool>                            IsDest                         := union_data(.,const(FALSE, OrgDomain), const(TRUE ,DestDomain));
+		attribute<rdc>  geometry := union_data(.,orgDomain/geometry, destDomain/geometry);
+		attribute<bool> IsOrg    := union_data(.,const(TRUE , OrgDomain), const(FALSE,DestDomain));
+		attribute<bool> IsDest   := union_data(.,const(FALSE, OrgDomain), const(TRUE ,DestDomain));
 	}
 	
-	unit<uint32> UniqueLocations    := =IsPrePostTransport ? 'unique(Locations_wStops/geometry)' : 'unique(Locations_woStops/geometry)'
+	unit<uint32> UniqueLocations := =IsPrePostTransport ? 'unique(Locations_wStops/geometry)' : 'unique(Locations_woStops/geometry)'
 	{ 
-		attribute<rdc>                          geometry       := values;
-		attribute<OrgDomain>                    OrgDomain_rel  := rlookup(geometry, orgDomain/geometry);
+		attribute<rdc>       geometry      := values;
+		attribute<OrgDomain> OrgDomain_rel := rlookup(geometry, orgDomain/geometry);
 	}
 	
 	container CreateInitialWorkingNetwork
 	{
 		unit<uint32> Roads := arc2segm(RoadDomain/geometry)
 		{
-			container Speed_per_ImpedanceType :=
+			container           Speed_per_ImpedanceType :=
 				for_each_nedv(
 					ImpedanceTypes/name
 					,'sequence_rel -> Speed_'+ImpedanceTypes/name 
 					, .
 					, km_hr
 				);
-			attribute<bool>               Connectable          := sequence_rel->Connectable;
-			attribute<roadType>            roadType_rel          := sequence_rel->roadType_rel;
-			attribute<bool>               IsOneDirection       := sequence_rel->IsOneDirection;
+			attribute<bool>     Connectable             := sequence_rel->Connectable;
+			attribute<roadType> roadType_rel            := sequence_rel->roadType_rel;
+			attribute<bool>     IsOneDirection          := sequence_rel->IsOneDirection;
 			
 			unit<uint32> PointSet := union_unit(., .)
 			{
-				attribute<rdc>   geometry     := union_data(., point, NextPoint);
+				attribute<rdc> geometry := union_data(., point, NextPoint);
 			}
 			unit<uint32> UqGeomPointSet := unique(PointSet/geometry)
 			{ 
@@ -56,8 +56,8 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 			attribute<UqGeomPointSet> F2 := rlookup(nextpoint, UqGeomPointSet/values);
 			
 			// for checking and visualisation only
-			container Connectiveness := Templates/Check_Connectiveness_T(.,UqGeomPointSet, F1, F2);
-			attribute<rdc> geometry(arc) := points2sequence(PointSet/geometry, convert(id(PointSet) % #., .));
+			container           Connectiveness          := Templates/Check_Connectiveness_T(.,UqGeomPointSet, F1, F2);
+			attribute<rdc>      geometry          (arc) := points2sequence(PointSet/geometry, convert(id(PointSet) % #., .));
 		}
 	
 		unit<uint32> Roads_Connected := select_with_attr_by_cond(Roads, Roads/Connectiveness/IsInMainNetwork)
@@ -67,11 +67,11 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 	
 		unit<uint32> LinkSet := connect_ne(Roads_Connected/geometry, uint32(Roads_Connected/Connectable), UniqueLocations/geometry, const(0, UniqueLocations))
 		{
-			attribute<rdc>                          geometry(arc);
-			attribute<Classifications/OSM/roadType> roadType_rel          := arc_rel->roadType_rel;
-			attribute<bool>                         IsOneDirection          := arc_rel->IsOneDirection;
+			attribute<rdc>     geometry              (arc);
+			attribute<Classifications/OSM/roadType> roadType_rel := arc_rel->roadType_rel;
+			attribute<bool>    IsOneDirection              := arc_rel->IsOneDirection;
 			
-			container Speed_per_ImpedanceType :=
+			container          Speed_per_ImpedanceType     :=
 				for_each_nedv(
 					ImpedanceTypes/name
 					// lowercase: the car networks are called with 'car'; without lowercase the fallback would be CarSpeed_kmhr (130 km/h) instead of CarDefaultSpeed_low
@@ -82,14 +82,14 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 					, km_hr
 				);
 			
-			attribute<rdc>     first_point          := first_point(geometry); //OD point
-			attribute<rdc>     last_point           := last_point(geometry);  //May or may not be an existing network node, otherwise it is a new node
-			attribute<km>      LengthKm             := convert(dist(first_point, last_point)[m], km);
-			attribute<bool>    IsOD_connection_road := !IsDefined(arc_rel); // connect gives arc_rel which gives the rel to the original link, in case of existing link. Is new link, this is undefined.
+			attribute<rdc>     first_point                 := first_point(geometry); //OD point
+			attribute<rdc>     last_point                  := last_point(geometry);  //May or may not be an existing network node, otherwise it is a new node
+			attribute<km>      LengthKm                    := convert(dist(first_point, last_point)[m], km);
+			attribute<bool>    IsOD_connection_road        := !IsDefined(arc_rel); // connect gives arc_rel which gives the rel to the original link, in case of existing link. Is new link, this is undefined.
 			
-			attribute<bool>    IsSlowTrafficRoad :=  Classifications/OSM/roadType/IsSlowTrafficRoad[roadType_rel];
+			attribute<bool>    IsSlowTrafficRoad           := Classifications/OSM/roadType/IsSlowTrafficRoad[roadType_rel];
 			
-			container Impedance_per_ImpedanceType :=
+			container          Impedance_per_ImpedanceType :=
 				for_each_nedv(
 					ImpedanceTypes/name
 					, 'convert(MakeDefined(convert((LengthKm / Speed_per_ImpedanceType/'+ImpedanceTypes/name+'), min_f), 0.0001[min_f]), s_f) + Float32(CorrectImpedanceForCrossroads/impedance_Start + CorrectImpedanceForCrossroads/impedance_End)'
@@ -97,7 +97,7 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 					, s_f
 				);
 				
-			container Distance_per_ImpedanceType :=
+			container          Distance_per_ImpedanceType  :=
 				for_each_nedv(
 					ImpedanceTypes/name
 					, 'LengthKm'
@@ -105,18 +105,18 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 					, km
 				);
 			
-			attribute<NodeSet> F1             := rlookup(first_point, NodeSet/Values); //node from the OD towards the network
-			attribute<NodeSet> F2             := rlookup(last_point,  NodeSet/Values); //network node to which the the OD is connected 
+			attribute<NodeSet> F1                          := rlookup(first_point, NodeSet/Values); //node from the OD towards the network
+			attribute<NodeSet> F2                          := rlookup(last_point,  NodeSet/Values); //network node to which the the OD is connected
 
-			unit<uint32> PointSet := union_unit(., .);
+			unit<uint32>       PointSet                    := union_unit(., .);
 		}
 
 		unit<uint32> NodeSet := unique(union_data(LinkSet/PointSet, LinkSet/first_point, LinkSet/last_point))
 		{
-			attribute<rdc>    geometry         := values;
+			attribute<rdc>    geometry                             := values;
 			// The node degree counts the road links, not the OD connection links: those split a road at the attachment point and would turn it into
 			// a junction of three links with a penalty for through traffic.
-			attribute<uint32> NrConnectedLinks := pcount(LinkSet/IsOD_connection_road ? null_u : LinkSet/F1) + pcount(LinkSet/IsOD_connection_road ? null_u : LinkSet/F2);
+			attribute<uint32> NrConnectedLinks                     := pcount(LinkSet/IsOD_connection_road ? null_u : LinkSet/F1) + pcount(LinkSet/IsOD_connection_road ? null_u : LinkSet/F2);
 			attribute<uint32> NrConnectedLinks_withSlowTrafficRoad := pcount(LinkSet/IsSlowTrafficRoad && !LinkSet/IsOD_connection_road ? LinkSet/F1 : null_u) + pcount(LinkSet/IsSlowTrafficRoad && !LinkSet/IsOD_connection_road ? LinkSet/F2 : null_u);
 			
 			attribute<bool>   Crossroad_could_result_in_lower_speed_penalty := NrConnectedLinks == NrConnectedLinks_withSlowTrafficRoad;
@@ -129,45 +129,45 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 		{
 			// A route that passes a node drives over a link that ends there and one that starts there; each link therefore gets half of the penalty
 			// of its begin and end node, so that a junction passed costs its value once.
-			parameter<s>       Impedance2Links               := ='ModelParameters/Advanced/Junction_Penalties/with_2Links_'+NetworkType;
-			parameter<s>       Impedance3Links               := ='ModelParameters/Advanced/Junction_Penalties/with_3Links_'+NetworkType;
-			parameter<s>       Impedance4Links               := ='ModelParameters/Advanced/Junction_Penalties/with_4Links_'+NetworkType;
-			parameter<s>       Impedance_gt4Links            := ='ModelParameters/Advanced/Junction_Penalties/with_gt4Links_'+NetworkType;
+			parameter<s>       Impedance2Links                  := ='ModelParameters/Advanced/Junction_Penalties/with_2Links_'+NetworkType;
+			parameter<s>       Impedance3Links                  := ='ModelParameters/Advanced/Junction_Penalties/with_3Links_'+NetworkType;
+			parameter<s>       Impedance4Links                  := ='ModelParameters/Advanced/Junction_Penalties/with_4Links_'+NetworkType;
+			parameter<s>       Impedance_gt4Links               := ='ModelParameters/Advanced/Junction_Penalties/with_gt4Links_'+NetworkType;
 
-			parameter<s>       Impedance2_lowerSpeedLinks    := ='ModelParameters/Advanced/Junction_Penalties/with_2_lowerSpeedLinks_'+NetworkType;
-			parameter<s>       Impedance3_lowerSpeedLinks    := ='ModelParameters/Advanced/Junction_Penalties/with_3_lowerSpeedLinks_'+NetworkType;
-			parameter<s>       Impedance4_lowerSpeedLinks    := ='ModelParameters/Advanced/Junction_Penalties/with_4_lowerSpeedLinks_'+NetworkType;
-			parameter<s>       Impedance_gt4_lowerSpeedLinks := ='ModelParameters/Advanced/Junction_Penalties/with_gt4_lowerSpeedLinks_'+NetworkType;
+			parameter<s>       Impedance2_lowerSpeedLinks       := ='ModelParameters/Advanced/Junction_Penalties/with_2_lowerSpeedLinks_'+NetworkType;
+			parameter<s>       Impedance3_lowerSpeedLinks       := ='ModelParameters/Advanced/Junction_Penalties/with_3_lowerSpeedLinks_'+NetworkType;
+			parameter<s>       Impedance4_lowerSpeedLinks       := ='ModelParameters/Advanced/Junction_Penalties/with_4_lowerSpeedLinks_'+NetworkType;
+			parameter<s>       Impedance_gt4_lowerSpeedLinks    := ='ModelParameters/Advanced/Junction_Penalties/with_gt4_lowerSpeedLinks_'+NetworkType;
 
-			attribute<uint32>  Start (LinkSet)     := NodeSet/NrConnectedLinks[LinkSet/F1];
-			attribute<uint32>  End   (LinkSet)     := NodeSet/NrConnectedLinks[LinkSet/F2];
+			attribute<uint32>  Start                  (LinkSet) := NodeSet/NrConnectedLinks[LinkSet/F1];
+			attribute<uint32>  End                    (LinkSet) := NodeSet/NrConnectedLinks[LinkSet/F2];
 			
-			attribute<bool>    Start_IsOnlyLowerSpeed (LinkSet)     := NodeSet/Crossroad_could_result_in_lower_speed_penalty[LinkSet/F1];
-			attribute<bool>    End_IsOnlyLowerSpeed   (LinkSet)     := NodeSet/Crossroad_could_result_in_lower_speed_penalty[LinkSet/F2];
+			attribute<bool>    Start_IsOnlyLowerSpeed (LinkSet) := NodeSet/Crossroad_could_result_in_lower_speed_penalty[LinkSet/F1];
+			attribute<bool>    End_IsOnlyLowerSpeed   (LinkSet) := NodeSet/Crossroad_could_result_in_lower_speed_penalty[LinkSet/F2];
 		
-			attribute<s_f> impedance_Start (LinkSet):= 0.5f *
-				convert(switch(
-					 case(Start_IsOnlyLowerSpeed && Start <= 2, Impedance2_lowerSpeedLinks)
-					,case(Start <= 2, Impedance2Links)
-					,case(Start_IsOnlyLowerSpeed && Start  = 3, Impedance3_lowerSpeedLinks)
-					,case(Start  = 3, Impedance3Links)
-					,case(Start_IsOnlyLowerSpeed && Start  = 4, Impedance4_lowerSpeedLinks)
-					,case(Start  = 4, Impedance4Links)
-					,case(Start_IsOnlyLowerSpeed && Start  > 4, Impedance_gt4_lowerSpeedLinks)
-					,Impedance_gt4Links
-				), s_f);
+			attribute<s_f>     impedance_Start        (LinkSet) := 0.5f *
+			                                                       convert(switch(
+			                                                            case(Start_IsOnlyLowerSpeed && Start <= 2, Impedance2_lowerSpeedLinks)
+			                                                           ,case(Start <= 2, Impedance2Links)
+			                                                           ,case(Start_IsOnlyLowerSpeed && Start  = 3, Impedance3_lowerSpeedLinks)
+			                                                           ,case(Start  = 3, Impedance3Links)
+			                                                           ,case(Start_IsOnlyLowerSpeed && Start  = 4, Impedance4_lowerSpeedLinks)
+			                                                           ,case(Start  = 4, Impedance4Links)
+			                                                           ,case(Start_IsOnlyLowerSpeed && Start  > 4, Impedance_gt4_lowerSpeedLinks)
+			                                                           ,Impedance_gt4Links
+			                                                       ), s_f);
 		
-			attribute<s_f> impedance_End (LinkSet):= 0.5f *
-				convert(switch(
-					 case(End_IsOnlyLowerSpeed && End <= 2, Impedance2_lowerSpeedLinks)
-					,case(End <= 2, Impedance2Links)
-					,case(End_IsOnlyLowerSpeed && End  = 3, Impedance3_lowerSpeedLinks)
-					,case(End  = 3, Impedance3Links)
-					,case(End_IsOnlyLowerSpeed && End  = 4, Impedance4_lowerSpeedLinks)
-					,case(End  = 4, Impedance4Links)
-					,case(End_IsOnlyLowerSpeed && End  > 4, Impedance_gt4_lowerSpeedLinks)
-					,Impedance_gt4Links
-				), s_f);
+			attribute<s_f>     impedance_End          (LinkSet) := 0.5f *
+			                                                       convert(switch(
+			                                                            case(End_IsOnlyLowerSpeed && End <= 2, Impedance2_lowerSpeedLinks)
+			                                                           ,case(End <= 2, Impedance2Links)
+			                                                           ,case(End_IsOnlyLowerSpeed && End  = 3, Impedance3_lowerSpeedLinks)
+			                                                           ,case(End  = 3, Impedance3Links)
+			                                                           ,case(End_IsOnlyLowerSpeed && End  = 4, Impedance4_lowerSpeedLinks)
+			                                                           ,case(End  = 4, Impedance4Links)
+			                                                           ,case(End_IsOnlyLowerSpeed && End  > 4, Impedance_gt4_lowerSpeedLinks)
+			                                                           ,Impedance_gt4Links
+			                                                       ), s_f);
 		}
 	}
 	
@@ -175,21 +175,21 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 	{
 		unit<uint8> Iter := range(uint8, 0[uint8], ModelParameters/Advanced/NumberOfItersForNetworkCleanUp)
 		{
-			attribute<string> name            := 'Iter_'+string(id(.));
-			attribute<string> prevname        := MakeDefined(name[sub_or_null(ID(.),1b)], 'Start');
-			attribute<string> Label           := name;
-			attribute<uint32> nrofarc_after_iter := ='union_data(., '+asList('OptimiseNetwork/'+name+'/IntermediateLinkSet/count_arcs', ',')+')'; 
+			attribute<string> name               := 'Iter_'+string(id(.));
+			attribute<string> prevname           := MakeDefined(name[sub_or_null(ID(.),1b)], 'Start');
+			attribute<string> Label              := name;
+			attribute<uint32> nrofarc_after_iter := ='union_data(., '+asList('OptimiseNetwork/'+name+'/IntermediateLinkSet/count_arcs', ',')+')';
 		}
 		
-		unit<uint32> LinkSet_src     := CreateInitialWorkingNetwork/LinkSet;
-		unit<uint32> NodeSet_src     := CreateInitialWorkingNetwork/NodeSet;
+		unit<uint32> LinkSet_src                       := CreateInitialWorkingNetwork/LinkSet;
+		unit<uint32> NodeSet_src                       := CreateInitialWorkingNetwork/NodeSet;
 
-		unit<uint64> Nodeset_x_NodeSet := combine_unit_uint64(NodeSet_src, NodeSet_src);
-		unit<uint8>  DirectionType : nrofrows = 2, Descr = "0 two-way, 1 one-way: the second part of the key on which LinkSet_cleanedforJFS finds duplicate links.";
+		unit<uint64> Nodeset_x_NodeSet                 := combine_unit_uint64(NodeSet_src, NodeSet_src);
+		unit<uint8>  DirectionType                     : nrofrows = 2, Descr = "0 two-way, 1 one-way: the second part of the key on which LinkSet_cleanedforJFS finds duplicate links.";
 		// in two steps: combine_unit_uint64 with three factors gives a conversion error in GeoDMS 20.24.0 at this size
 		unit<uint64> Nodeset_x_NodeSet_x_DirectionType := combine_unit_uint64(Nodeset_x_NodeSet, DirectionType);
 		
-		container OptimiseNetwork := 
+		container OptimiseNetwork :=
 			for_each_ne(
 				Iter/name
 				, 'OptimiseNetwork_T('+quote(Iter/name)+')'
@@ -201,20 +201,20 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 		unit<uint32> FinalNodeSet := select_with_org_rel(pcount(LastLinkSet/F1)+pcount(LastLinkSet/F2) > 0)
 		{
 			attribute<rdc> geometry                  := org_rel -> values;
-			attribute<.>   OrgNode_rel  (OrgDomain)  := rlookup(OrgDomain/geometry,  geometry);
-			attribute<.>   DestNode_rel (DestDomain) := rlookup(DestDomain/geometry, geometry);	
+			attribute<.>   OrgNode_rel   (OrgDomain) := rlookup(OrgDomain/geometry,  geometry);
+			attribute<.>   DestNode_rel (DestDomain) := rlookup(DestDomain/geometry, geometry);
 		}
 		
-		unit<uint32> LastLinkSet := OptimiseNetwork/LastIter/IntermediateLinkSet;
+		unit<uint32> LastLinkSet                       := OptimiseNetwork/LastIter/IntermediateLinkSet;
 		
 		unit<uint32> FinalLinkSet := LastLinkSet
 		{
-			attribute<FinalNodeSet> F1                   := invert(FinalNodeSet/org_rel)[LastLinkSet/F1];
-			attribute<FinalNodeSet> F2                   := invert(FinalNodeSet/org_rel)[LastLinkSet/F2];
-			attribute<bool>         IsOD_connection_road := LastLinkSet/IsOD_connection_road;
-			attribute<bool>         IsOneDirection       := LastLinkSet/IsOneDirection;
+			attribute<FinalNodeSet> F1                          := invert(FinalNodeSet/org_rel)[LastLinkSet/F1];
+			attribute<FinalNodeSet> F2                          := invert(FinalNodeSet/org_rel)[LastLinkSet/F2];
+			attribute<bool>         IsOD_connection_road        := LastLinkSet/IsOD_connection_road;
+			attribute<bool>         IsOneDirection              := LastLinkSet/IsOneDirection;
 			
-			container Distance_per_ImpedanceType :=
+			container               Distance_per_ImpedanceType  :=
 				for_each_nedv(
 					ImpedanceTypes/name
 					, 'LastLinkSet/Distance_per_ImpedanceType/'+ImpedanceTypes/name
@@ -222,7 +222,7 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 					, km
 				);
 				
-			container Impedance_per_ImpedanceType :=
+			container               Impedance_per_ImpedanceType :=
 				for_each_nedv(
 					ImpedanceTypes/name
 					, 'LastLinkSet/Impedance_per_ImpedanceType/'+ImpedanceTypes/name
@@ -231,18 +231,18 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 				);
 			
 			// For visualisation
-			attribute<rdc>                  FirstPoint                     := FinalNodeSet/Geometry[F1];
-			attribute<rdc>                  LastPoint                      := FinalNodeSet/Geometry[F2];
-			attribute<rdc>                  FromPoint                      := FinalNodeSet/Geometry[F1];
-			attribute<rdc>                  ToPoint                        := FinalNodeSet/Geometry[F2];
-			attribute<rdc>                  geometry (arc)                 := points2sequence(PointSet/Point, PointSet/SeqNr, PointSet/Ordinal);
+			attribute<rdc>          FirstPoint                  := FinalNodeSet/Geometry[F1];
+			attribute<rdc>          LastPoint                   := FinalNodeSet/Geometry[F2];
+			attribute<rdc>          FromPoint                   := FinalNodeSet/Geometry[F1];
+			attribute<rdc>          ToPoint                     := FinalNodeSet/Geometry[F2];
+			attribute<rdc>          geometry              (arc) := points2sequence(PointSet/Point, PointSet/SeqNr, PointSet/Ordinal);
 			unit<uint32> PointSet := union_unit(.,.)
 			{
-				attribute<rdc>              Point   := Union_Data(., ../FirstPoint, ../LastPoint);
-				attribute<..>               SeqNr   := value(id(.) % nrofrows(..), ..);
-				attribute<uint32>           Ordinal := id(.) / nrofrows(..);
+				attribute<rdc>    Point   := Union_Data(., ../FirstPoint, ../LastPoint);
+				attribute<..>     SeqNr   := value(id(.) % nrofrows(..), ..);
+				attribute<uint32> Ordinal := id(.) / nrofrows(..);
 			}
-			container Connectiveness := Templates/Check_Connectiveness_T_adhoc(.,FinalNodeSet, F1, F2);
+			container               Connectiveness              := Templates/Check_Connectiveness_T_adhoc(.,FinalNodeSet, F1, F2);
 		}
 		
 		
@@ -254,7 +254,7 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 			
 			unit<uint32> uq_OD_points := root/UniqueLocations //fka UniqueLocations
 			{
-				attribute<NodeSet> Node_rel                    := rlookup(geometry, NodeSet/geometry); // relation from the OD-points towards the nodeset. Should all be defined if there was no set limit for the connect which connected the OD-points to the network. 
+				attribute<NodeSet> Node_rel                    := rlookup(geometry, NodeSet/geometry); // relation from the OD-points towards the nodeset. Should all be defined if there was no set limit for the connect which connected the OD-points to the network.
 				attribute<LinkSet> Link_rel                    := rlookup(Node_rel, LinkSet/F1); // the linkset is not constant over iters, so we need a new link_rel. Which is here the PrevIterlinkSet
 				attribute<NodeSet> Node_rel_if_new_ODlink      := Link_rel -> F2; // the node id of the node that is on the existing network that connects an OD-point to the network
 				attribute<NodeSet> Node_rel_of_link_to_network := !(link_rel -> IsOD_connection_road) ? Node_rel : Node_rel_if_new_ODlink; // check for the case where the OD-point is located exactly on an existing node.
@@ -262,45 +262,45 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 			
 			unit<uint32> LinkSet := PrevIntermediateLinkSet
 			{
-				attribute<bool>                            IsPartOfJunctionFreeSection    := NodeSet/WillBeDeleted[F1] || NodeSet/WillBeDeleted[F2];
-				attribute<bool>                            IsInsideJunctionFreeSection    := NodeSet/WillBeDeleted[F1] && NodeSet/WillBeDeleted[F2];
-				attribute<bool>                            IsOnBorderOfJunctionFreeSection:= IsPartOfJunctionFreeSection && !IsInsideJunctionFreeSection;
-				attribute<bool>                            IsFinalLink                    := !IsPartOfJunctionFreeSection;
+				attribute<bool> IsPartOfJunctionFreeSection     := NodeSet/WillBeDeleted[F1] || NodeSet/WillBeDeleted[F2];
+				attribute<bool> IsInsideJunctionFreeSection     := NodeSet/WillBeDeleted[F1] && NodeSet/WillBeDeleted[F2];
+				attribute<bool> IsOnBorderOfJunctionFreeSection := IsPartOfJunctionFreeSection && !IsInsideJunctionFreeSection;
+				attribute<bool> IsFinalLink                     := !IsPartOfJunctionFreeSection;
 				
 				// For visualisation
 			}
 			
-			unit<uint32> NodeSet  := NodeSet_src
+			unit<uint32> NodeSet := NodeSet_src
 			, Descr = "set of all nodes in the network, comprised of the nodes from the original network AND the OD-points." 
 			{
-				attribute<uint32>                          NrConnectedLinks               := pcount(LinkSet/F1) + pcount(LinkSet/F2);
-				attribute<uint32>                          NrOneDirectionIn               := pcount(LinkSet/IsOneDirection ? LinkSet/F2 : null_u), Descr = "The number of one-way links that arrive at this node.";
-				attribute<uint32>                          NrOneDirectionOut              := pcount(LinkSet/IsOneDirection ? LinkSet/F1 : null_u), Descr = "The number of one-way links that leave this node.";
-				attribute<bool>                            DirectionAllowsMerge           := (NrOneDirectionIn == 0 && NrOneDirectionOut == 0) || (NrOneDirectionIn == 1 && NrOneDirectionOut == 1)
+				attribute<uint32> NrConnectedLinks                        := pcount(LinkSet/F1) + pcount(LinkSet/F2);
+				attribute<uint32> NrOneDirectionIn                        := pcount(LinkSet/IsOneDirection ? LinkSet/F2 : null_u), Descr = "The number of one-way links that arrive at this node.";
+				attribute<uint32> NrOneDirectionOut                       := pcount(LinkSet/IsOneDirection ? LinkSet/F1 : null_u), Descr = "The number of one-way links that leave this node.";
+				attribute<bool>   DirectionAllowsMerge                    := (NrOneDirectionIn == 0 && NrOneDirectionOut == 0) || (NrOneDirectionIn == 1 && NrOneDirectionOut == 1)
 				, Descr = "Are all links of this node two-way, or is there one one-way link in and one out? Only then can a link across the node be used in the same directions as the links themselves.";
-				attribute<bool>                            WillBeDeleted                  := NrConnectedLinks == 2  // 2 connectinglinks means intermediary without junction
-																								&& !IsOD_connection_road
-																								&& DirectionAllowsMerge;
-				attribute<bool>                            IsOD_connection_road           := pcount(uq_OD_points/Node_rel) != 0 // if there are node_rel's then it is an connected OD-point.
-																								|| pcount(uq_OD_points/Node_rel_of_link_to_network) != 0; //if a node is used in the connection link between network and OD-point, then it is the connecting node
+				attribute<bool>   WillBeDeleted                           := NrConnectedLinks == 2  // 2 connectinglinks means intermediary without junction
+				                                                             && !IsOD_connection_road
+				                                                             && DirectionAllowsMerge;
+				attribute<bool>   IsOD_connection_road                    := pcount(uq_OD_points/Node_rel) != 0 // if there are node_rel's then it is an connected OD-point.
+				                                                             || pcount(uq_OD_points/Node_rel_of_link_to_network) != 0; //if a node is used in the connection link between network and OD-point, then it is the connecting node
 
 				//Forward relations
-				attribute<JunctionFreeSection_wC>          JunctionFreeSection_wC_rel     := ConnectedParts/JunctionFreeSection_wC_rel[ConnectedParts_rel];
-				attribute<ConnectedParts>                  ConnectedParts_rel             := ConnectedParts/part_rel;
-				attribute<bool>                            IsOrgDest_location             := IsDefined(invert(uq_OD_points/Node_rel));
-				attribute<uint32>                          NrConnectedLinks_in_LinkSet_cleanedforJFS := pcount(LinkSet_cleanedforJFS/F1) + pcount(LinkSet_cleanedforJFS/F2);
-				attribute<bool>                            IsDeadEnd_and_NotOD            := NrConnectedLinks_in_LinkSet_cleanedforJFS == 1 && !IsOrgDest_location;
+				attribute<JunctionFreeSection_wC> JunctionFreeSection_wC_rel := ConnectedParts/JunctionFreeSection_wC_rel[ConnectedParts_rel];
+				attribute<ConnectedParts> ConnectedParts_rel := ConnectedParts/part_rel;
+				attribute<bool>   IsOrgDest_location                      := IsDefined(invert(uq_OD_points/Node_rel));
+				attribute<uint32> NrConnectedLinks_in_LinkSet_cleanedforJFS := pcount(LinkSet_cleanedforJFS/F1) + pcount(LinkSet_cleanedforJFS/F2);
+				attribute<bool>   IsDeadEnd_and_NotOD                     := NrConnectedLinks_in_LinkSet_cleanedforJFS == 1 && !IsOrgDest_location;
 				
 				// For visualisation
-				attribute<rdc>                             geometry                                := NodeSet_src/geometry;
-				attribute<bool>                            Check_if_JFS_Nodes_has_no_ConnectorLink := IsDefined(JunctionFreeSection_wC_rel) 
-																											&& not(IsDefined(JunctionFreeSection_wC/First_ConnectorLink_rel)[JunctionFreeSection_wC_rel] 
-																													&& IsDefined(JunctionFreeSection_wC/Last_ConnectorLink_rel)[JunctionFreeSection_wC_rel]); // to detect cycles
+				attribute<rdc>    geometry                                := NodeSet_src/geometry;
+				attribute<bool>   Check_if_JFS_Nodes_has_no_ConnectorLink := IsDefined(JunctionFreeSection_wC_rel)
+				                                                             && not(IsDefined(JunctionFreeSection_wC/First_ConnectorLink_rel)[JunctionFreeSection_wC_rel]
+				                                                                     && IsDefined(JunctionFreeSection_wC/Last_ConnectorLink_rel)[JunctionFreeSection_wC_rel]); // to detect cycles
 			}
 
 			unit<uint32> LinksInsideJunctionFreeSection := select(LinkSet/IsInsideJunctionFreeSection), Descr = "Those links that are in the junction free section"
 			{
-				container Impedance_per_ImpedanceType :=
+				container          Impedance_per_ImpedanceType :=
 					for_each_nedv(
 						ImpedanceTypes/name
 						, 'collect_by_cond(LinksInsideJunctionFreeSection, LinkSet/IsInsideJunctionFreeSection, LinkSet/Impedance_per_ImpedanceType/'+ImpedanceTypes/name+')'
@@ -308,7 +308,7 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 						, s_f
 					);
 				
-				container Distance_per_ImpedanceType :=
+				container          Distance_per_ImpedanceType  :=
 					for_each_nedv(
 						ImpedanceTypes/name
 						, 'collect_by_cond(LinksInsideJunctionFreeSection, LinkSet/IsInsideJunctionFreeSection, LinkSet/Distance_per_ImpedanceType/'+ImpedanceTypes/name+')'
@@ -316,10 +316,10 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 						, km
 					);
 				
-				attribute<NodeSet>                         F1                             := collect_by_cond(LinksInsideJunctionFreeSection, LinkSet/IsInsideJunctionFreeSection, LinkSet/F1);
-				attribute<NodeSet>                         F2                             := collect_by_cond(LinksInsideJunctionFreeSection, LinkSet/IsInsideJunctionFreeSection, LinkSet/F2); 
-				attribute<bool>                            IsOneDirection                 := collect_by_cond(LinksInsideJunctionFreeSection, LinkSet/IsInsideJunctionFreeSection, LinkSet/IsOneDirection); 
-				attribute<JunctionFreeSection_wC>          JunctionFreeSection_wC_rel     := NodeSet/JunctionFreeSection_wC_rel[F1];
+				attribute<NodeSet> F1                          := collect_by_cond(LinksInsideJunctionFreeSection, LinkSet/IsInsideJunctionFreeSection, LinkSet/F1);
+				attribute<NodeSet> F2                          := collect_by_cond(LinksInsideJunctionFreeSection, LinkSet/IsInsideJunctionFreeSection, LinkSet/F2);
+				attribute<bool>    IsOneDirection              := collect_by_cond(LinksInsideJunctionFreeSection, LinkSet/IsInsideJunctionFreeSection, LinkSet/IsOneDirection);
+				attribute<JunctionFreeSection_wC> JunctionFreeSection_wC_rel := NodeSet/JunctionFreeSection_wC_rel[F1];
 				
 				//For visualisation
 			}
@@ -327,25 +327,25 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 			unit<uint32> ConnectedParts := connected_parts(LinksInsideJunctionFreeSection/F1, LinksInsideJunctionFreeSection/F2)
 			, Descr = "Check if nodes inside JFS are connected, thereby clustering JFS' together if they exist of more than one link."
 			{
-				attribute<NodeSet>                         FirstNode_rel                   := invert(part_rel);
-				attribute<bool>                            IsJunctionFreeSection           := NodeSet/WillBeDeleted[FirstNode_rel];
-				attribute<JunctionFreeSection_wC>          JunctionFreeSection_wC_rel      := recollect_by_cond(ConnectedParts/IsJunctionFreeSection, ID(JunctionFreeSection_wC));
+				attribute<NodeSet> FirstNode_rel         := invert(part_rel);
+				attribute<bool>    IsJunctionFreeSection := NodeSet/WillBeDeleted[FirstNode_rel];
+				attribute<JunctionFreeSection_wC> JunctionFreeSection_wC_rel := recollect_by_cond(ConnectedParts/IsJunctionFreeSection, ID(JunctionFreeSection_wC));
 			}
 			
 			unit<uint32> ConnectorLink := select_with_org_rel(LinkSet/IsOnBorderOfJunctionFreeSection)
 			, Descr = "Those links that connect the unchanged links with the junction free links"
 			{
-				attribute<NodeSet>                         F1                             := LinkSet/F1[org_rel];
-				attribute<NodeSet>                         F2                             := LinkSet/F2[org_rel]; 
-				attribute<bool>                            is_F1_deleted                  := NodeSet/WillBeDeleted[F1];
-				attribute<bool>                            is_only_one_delete             := NodeSet/WillBeDeleted[F1] != NodeSet/WillBeDeleted[F2];
-				attribute<NodeSet>                         F_keep                         := is_F1_deleted ? F2 : F1; // Unchanged Node
-				attribute<NodeSet>                         F_delete                       := is_F1_deleted ? F1 : F2; // Node in JunctionFreeSection
-				attribute<JunctionFreeSection_wC>          JunctionFreeSection_wC_rel     := NodeSet/JunctionFreeSection_wC_rel[F_delete];
-				attribute<NodeSet>                         NodeSet_rel                    := F_keep;
-				attribute<bool>                            IsOneDirection                 := LinkSet/IsOneDirection[org_rel];
+				attribute<NodeSet> F1                          := LinkSet/F1[org_rel];
+				attribute<NodeSet> F2                          := LinkSet/F2[org_rel];
+				attribute<bool>    is_F1_deleted               := NodeSet/WillBeDeleted[F1];
+				attribute<bool>    is_only_one_delete          := NodeSet/WillBeDeleted[F1] != NodeSet/WillBeDeleted[F2];
+				attribute<NodeSet> F_keep                      := is_F1_deleted ? F2 : F1; // Unchanged Node
+				attribute<NodeSet> F_delete                    := is_F1_deleted ? F1 : F2; // Node in JunctionFreeSection
+				attribute<JunctionFreeSection_wC> JunctionFreeSection_wC_rel := NodeSet/JunctionFreeSection_wC_rel[F_delete];
+				attribute<NodeSet> NodeSet_rel                 := F_keep;
+				attribute<bool>    IsOneDirection              := LinkSet/IsOneDirection[org_rel];
 				
-				container Distance_per_ImpedanceType :=
+				container          Distance_per_ImpedanceType  :=
 					for_each_nedv(
 						ImpedanceTypes/name
 						, 'LinkSet/Distance_per_ImpedanceType/'+ImpedanceTypes/name+'[org_rel]'
@@ -353,7 +353,7 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 						, km
 					);
 					
-				container Impedance_per_ImpedanceType :=
+				container          Impedance_per_ImpedanceType :=
 					for_each_nedv(
 						ImpedanceTypes/name
 						, 'LinkSet/Impedance_per_ImpedanceType/'+ImpedanceTypes/name+'[org_rel]'
@@ -362,30 +362,30 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 					);
 					
 				//For visualisation
-				attribute<rdc>                     geometry  (arc)                := LinkSet/geometry[org_rel];
+				attribute<rdc>     geometry              (arc) := LinkSet/geometry[org_rel];
 			}
 			
 			unit<uint32> JunctionFreeSection_wC := select_with_org_rel(ConnectedParts/IsJunctionFreeSection)
 			, Descr = "wC = withCycles"
 			{
-				attribute<ConnectorLink>                   First_ConnectorLink_rel        := first(id(ConnectorLink), ConnectorLink/JunctionFreeSection_wC_rel); //todo faster
-				attribute<ConnectorLink>                   Last_ConnectorLink_rel         := last(id(ConnectorLink), ConnectorLink/JunctionFreeSection_wC_rel); //todo faster
-				attribute<bool>                            IsNonCyclic_JFS                := IsDefined(First_ConnectorLink_rel) && IsDefined(Last_ConnectorLink_rel);
+				attribute<ConnectorLink> First_ConnectorLink_rel            := first(id(ConnectorLink), ConnectorLink/JunctionFreeSection_wC_rel); //todo faster
+				attribute<ConnectorLink> Last_ConnectorLink_rel             := last(id(ConnectorLink), ConnectorLink/JunctionFreeSection_wC_rel); //todo faster
+				attribute<bool>          IsNonCyclic_JFS                    := IsDefined(First_ConnectorLink_rel) && IsDefined(Last_ConnectorLink_rel);
 				
-				attribute<NodeSet>                         Fa                             := ConnectorLink/NodeSet_rel[First_ConnectorLink_rel];
-				attribute<NodeSet>                         Fb                             := ConnectorLink/NodeSet_rel[Last_ConnectorLink_rel];  
+				attribute<NodeSet>       Fa                                 := ConnectorLink/NodeSet_rel[First_ConnectorLink_rel];
+				attribute<NodeSet>       Fb                                 := ConnectorLink/NodeSet_rel[Last_ConnectorLink_rel];
 				
-				attribute<NodeSet>                         F1                             :=  First_ConnectorLink_rel -> F1 == Fa ? Fa : Fb;
-				attribute<NodeSet>                         F2                             :=  First_ConnectorLink_rel -> F1 == Fa ? Fb : Fa;
+				attribute<NodeSet>       F1                                 := First_ConnectorLink_rel -> F1 == Fa ? Fa : Fb;
+				attribute<NodeSet>       F2                                 := First_ConnectorLink_rel -> F1 == Fa ? Fb : Fa;
 				
-				attribute<bool>                            First_ConnectorLink_IsOneDirection := ConnectorLink/IsOneDirection[First_ConnectorLink_rel];
-				attribute<bool>                            Last_ConnectorLink_IsOneDirection  := ConnectorLink/IsOneDirection[Last_ConnectorLink_rel];
-				attribute<bool>                            Links_InsideJFS_IsOneDirection     := all(LinksInsideJunctionFreeSection/IsOneDirection, LinksInsideJunctionFreeSection/JunctionFreeSection_wC_rel);
+				attribute<bool>          First_ConnectorLink_IsOneDirection := ConnectorLink/IsOneDirection[First_ConnectorLink_rel];
+				attribute<bool>          Last_ConnectorLink_IsOneDirection  := ConnectorLink/IsOneDirection[Last_ConnectorLink_rel];
+				attribute<bool>          Links_InsideJFS_IsOneDirection     := all(LinksInsideJunctionFreeSection/IsOneDirection, LinksInsideJunctionFreeSection/JunctionFreeSection_wC_rel);
 				
-				attribute<bool>                            IsOneDirection                     := First_ConnectorLink_IsOneDirection && Last_ConnectorLink_IsOneDirection && Links_InsideJFS_IsOneDirection;
-				attribute<bool>                            IsOD_connection_road               := const(FALSE,.);
+				attribute<bool>          IsOneDirection                     := First_ConnectorLink_IsOneDirection && Last_ConnectorLink_IsOneDirection && Links_InsideJFS_IsOneDirection;
+				attribute<bool>          IsOD_connection_road               := const(FALSE,.);
 				
-				container per_ImpedanceType :=
+				container                per_ImpedanceType                  :=
 					for_each_ne(
 						ImpedanceTypes/name
 						, 'per_ImpedanceType_T('+quote(ImpedanceTypes/name)+')'
@@ -395,39 +395,39 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 				{
 					parameter<string> Type;
 					///
-					attribute<s_f>  Aggregated_Impedence          (..) := ='sum(LinksInsideJunctionFreeSection/Impedance_per_ImpedanceType/'+Type+', LinksInsideJunctionFreeSection/JunctionFreeSection_wC_rel)';
-					attribute<s_f>  First_ConnectorLink_Impedance (..) := ='ConnectorLink/Impedance_per_ImpedanceType/'+Type+'[First_ConnectorLink_rel]';
-					attribute<s_f>  Last_ConnectorLink_Impedance  (..) := ='ConnectorLink/Impedance_per_ImpedanceType/'+Type+'[Last_ConnectorLink_rel]';
-					attribute<s_f>  Total_Impedance               (..) := ='Aggregated_Impedence + First_ConnectorLink_Impedance + Last_ConnectorLink_Impedance';
+					attribute<s_f> Aggregated_Impedence          (..) := ='sum(LinksInsideJunctionFreeSection/Impedance_per_ImpedanceType/'+Type+', LinksInsideJunctionFreeSection/JunctionFreeSection_wC_rel)';
+					attribute<s_f> First_ConnectorLink_Impedance (..) := ='ConnectorLink/Impedance_per_ImpedanceType/'+Type+'[First_ConnectorLink_rel]';
+					attribute<s_f> Last_ConnectorLink_Impedance  (..) := ='ConnectorLink/Impedance_per_ImpedanceType/'+Type+'[Last_ConnectorLink_rel]';
+					attribute<s_f> Total_Impedance               (..) := ='Aggregated_Impedence + First_ConnectorLink_Impedance + Last_ConnectorLink_Impedance';
 					 
-					attribute<km>   Aggregated_Distance           (..) := ='sum(LinksInsideJunctionFreeSection/Distance_per_ImpedanceType/'+Type+', LinksInsideJunctionFreeSection/JunctionFreeSection_wC_rel)';
-					attribute<km>   First_ConnectorLink_Distance  (..) := ='ConnectorLink/Distance_per_ImpedanceType/'+Type+'[First_ConnectorLink_rel]';
-					attribute<km>   Last_ConnectorLink_Distance   (..) := ='ConnectorLink/Distance_per_ImpedanceType/'+Type+'[Last_ConnectorLink_rel]';
-					attribute<km>   Total_Distance                (..) := ='Aggregated_Distance + First_ConnectorLink_Distance + Last_ConnectorLink_Distance';
+					attribute<km>  Aggregated_Distance           (..) := ='sum(LinksInsideJunctionFreeSection/Distance_per_ImpedanceType/'+Type+', LinksInsideJunctionFreeSection/JunctionFreeSection_wC_rel)';
+					attribute<km>  First_ConnectorLink_Distance  (..) := ='ConnectorLink/Distance_per_ImpedanceType/'+Type+'[First_ConnectorLink_rel]';
+					attribute<km>  Last_ConnectorLink_Distance   (..) := ='ConnectorLink/Distance_per_ImpedanceType/'+Type+'[Last_ConnectorLink_rel]';
+					attribute<km>  Total_Distance                (..) := ='Aggregated_Distance + First_ConnectorLink_Distance + Last_ConnectorLink_Distance';
 				}
 				
 				
 				//For visualisation
-				attribute<rdc>                     FirstPoint                     := NodeSet/Geometry[F1];
-				attribute<rdc>                     LastPoint                      := NodeSet/Geometry[F2];
-				attribute<rdc>                     geometry (arc)                 := points2sequence(PointSet/Point, PointSet/SeqNr, PointSet/Ordinal);
+				attribute<rdc>           FirstPoint                         := NodeSet/Geometry[F1];
+				attribute<rdc>           LastPoint                          := NodeSet/Geometry[F2];
+				attribute<rdc>           geometry                     (arc) := points2sequence(PointSet/Point, PointSet/SeqNr, PointSet/Ordinal);
 				unit<uint32> PointSet := union_unit(.,.)
 				{
-					attribute<rdc>                 Point   := Union_Data(., ../FirstPoint, ../LastPoint);
-					attribute<..>                          SeqNr   := value(id(.) % nrofrows(..), ..);
-					attribute<uint32>                      Ordinal := id(.) / nrofrows(..);
+					attribute<rdc>    Point   := Union_Data(., ../FirstPoint, ../LastPoint);
+					attribute<..>     SeqNr   := value(id(.) % nrofrows(..), ..);
+					attribute<uint32> Ordinal := id(.) / nrofrows(..);
 				}
 			}
 			
 			unit<uint32> JunctionFreeSection := select(JunctionFreeSection_wC/IsNonCyclic_JFS)
 			, Descr = "In previous steps, cleanup could result in cycles (kind of circles), which are JFS' in itself. These collapse on itself and should be cleaned."
 			{
-				attribute<NodeSet>                         F1                             := collect_by_cond(., JunctionFreeSection_wC/IsNonCyclic_JFS, JunctionFreeSection_wC/F1);
-				attribute<NodeSet>                         F2                             := collect_by_cond(., JunctionFreeSection_wC/IsNonCyclic_JFS, JunctionFreeSection_wC/F2);
-				attribute<bool>                            IsOneDirection                 := collect_by_cond(., JunctionFreeSection_wC/IsNonCyclic_JFS, JunctionFreeSection_wC/IsOneDirection);
-				attribute<bool>                            IsOD_connection_road           := collect_by_cond(., JunctionFreeSection_wC/IsNonCyclic_JFS, JunctionFreeSection_wC/IsOD_connection_road);
+				attribute<NodeSet> F1                          := collect_by_cond(., JunctionFreeSection_wC/IsNonCyclic_JFS, JunctionFreeSection_wC/F1);
+				attribute<NodeSet> F2                          := collect_by_cond(., JunctionFreeSection_wC/IsNonCyclic_JFS, JunctionFreeSection_wC/F2);
+				attribute<bool>    IsOneDirection              := collect_by_cond(., JunctionFreeSection_wC/IsNonCyclic_JFS, JunctionFreeSection_wC/IsOneDirection);
+				attribute<bool>    IsOD_connection_road        := collect_by_cond(., JunctionFreeSection_wC/IsNonCyclic_JFS, JunctionFreeSection_wC/IsOD_connection_road);
 				
-				container Impedance_per_ImpedanceType :=
+				container          Impedance_per_ImpedanceType :=
 					for_each_nedv(
 						ImpedanceTypes/name
 						, 'collect_by_cond(JunctionFreeSection, JunctionFreeSection_wC/IsNonCyclic_JFS, JunctionFreeSection_wC/per_ImpedanceType/'+ImpedanceTypes/name+'/Total_Impedance)'
@@ -435,7 +435,7 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 						, s_f
 					);
 					
-				container Distance_per_ImpedanceType :=
+				container          Distance_per_ImpedanceType  :=
 					for_each_nedv(
 						ImpedanceTypes/name
 						, 'collect_by_cond(JunctionFreeSection, JunctionFreeSection_wC/IsNonCyclic_JFS, JunctionFreeSection_wC/per_ImpedanceType/'+ImpedanceTypes/name+'/Total_Distance)'
@@ -447,12 +447,12 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 			unit<uint32> UnchangedLinkSet := select_with_org_rel(LinkSet/IsFinalLink) //todo faster without org_rel
 			, Descr = "Those links that can be used without changes, i.e. no nodes need to be removed"
 			{
-				attribute<NodeSet>                         F1                             := LinkSet/F1[org_rel];
-				attribute<NodeSet>                         F2                             := LinkSet/F2[org_rel];
-				attribute<bool>                            IsOD_connection_road           := LinkSet/IsOD_connection_road[org_rel];
-				attribute<bool>                            IsOneDirection                 := LinkSet/IsOneDirection[org_rel];
+				attribute<NodeSet> F1                          := LinkSet/F1[org_rel];
+				attribute<NodeSet> F2                          := LinkSet/F2[org_rel];
+				attribute<bool>    IsOD_connection_road        := LinkSet/IsOD_connection_road[org_rel];
+				attribute<bool>    IsOneDirection              := LinkSet/IsOneDirection[org_rel];
 				
-				container Impedance_per_ImpedanceType :=
+				container          Impedance_per_ImpedanceType :=
 					for_each_nedv(
 						ImpedanceTypes/name
 						, 'LinkSet/Impedance_per_ImpedanceType/'+ImpedanceTypes/name+'[org_rel]'
@@ -460,7 +460,7 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 						, s_f
 					);
 				
-				container Distance_per_ImpedanceType :=
+				container          Distance_per_ImpedanceType  :=
 					for_each_nedv(
 						ImpedanceTypes/name
 						, 'LinkSet/Distance_per_ImpedanceType/'+ImpedanceTypes/name+'[org_rel]'
@@ -469,33 +469,33 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 					);
 				
 				//For visualisation
-				attribute<rdc>                     FirstPoint                     := NodeSet/geometry[F1];
-				attribute<rdc>                     LastPoint                      := NodeSet/geometry[F2];
-				attribute<rdc>                     geometry (arc)                 := points2sequence(PointSet/Point, PointSet/SeqNr, PointSet/Ordinal);
+				attribute<rdc>     FirstPoint                  := NodeSet/geometry[F1];
+				attribute<rdc>     LastPoint                   := NodeSet/geometry[F2];
+				attribute<rdc>     geometry              (arc) := points2sequence(PointSet/Point, PointSet/SeqNr, PointSet/Ordinal);
 				unit<uint32> PointSet := union_unit(.,.)
 				{
-					attribute<rdc>                 Point   := Union_Data(., ../FirstPoint, ../LastPoint);
-					attribute<..>                          SeqNr   := value(id(.) % nrofrows(..), ..);
-					attribute<uint32>                      Ordinal := id(.) / nrofrows(..);
+					attribute<rdc>    Point   := Union_Data(., ../FirstPoint, ../LastPoint);
+					attribute<..>     SeqNr   := value(id(.) % nrofrows(..), ..);
+					attribute<uint32> Ordinal := id(.) / nrofrows(..);
 				}
 			}
 			
 			unit<uint32> LinkSet_cleanedforJFS := union_unit(UnchangedLinkSet, JunctionFreeSection)
 			, Descr = "The final link set"
 			{
-				attribute<NodeSet>                         F1                             := union_data(., UnchangedLinkSet/F1, JunctionFreeSection/F1);
-				attribute<NodeSet>                         F2                             := union_data(., UnchangedLinkSet/F2, JunctionFreeSection/F2);
-				attribute<bool>                            IsOneDirection                 := union_data(., UnchangedLinkSet/IsOneDirection, JunctionFreeSection/IsOneDirection);
+				attribute<NodeSet> F1                              := union_data(., UnchangedLinkSet/F1, JunctionFreeSection/F1);
+				attribute<NodeSet> F2                              := union_data(., UnchangedLinkSet/F2, JunctionFreeSection/F2);
+				attribute<bool>    IsOneDirection                  := union_data(., UnchangedLinkSet/IsOneDirection, JunctionFreeSection/IsOneDirection);
 				
 				
-				container Impedance_org_per_ImpedanceType := 
+				container          Impedance_org_per_ImpedanceType :=
 					for_each_nedv(
 						ImpedanceTypes/name
 						, 'union_data(.., UnchangedLinkSet/Impedance_per_ImpedanceType/'+ImpedanceTypes/name+', JunctionFreeSection/Impedance_per_ImpedanceType/'+ImpedanceTypes/name+')'
 						, .
 						, s_f
 					);
-				container Impedance_per_ImpedanceType := 
+				container          Impedance_per_ImpedanceType     :=
 					for_each_nedv(
 						ImpedanceTypes/name
 						, 'MakeDefined(Find_DuplicateLinks/Min_Impedance_per_ImpedanceType/'+ImpedanceTypes/name+'[Find_DuplicateLinks_rel],Impedance_org_per_ImpedanceType/'+ImpedanceTypes/name+')'
@@ -503,14 +503,14 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 						, s_f
 					);
 					
-				container Distance_org_per_ImpedanceType := 
+				container          Distance_org_per_ImpedanceType  :=
 					for_each_nedv(
 						ImpedanceTypes/name
 						, 'union_data(.., UnchangedLinkSet/Distance_per_ImpedanceType/'+ImpedanceTypes/name+', JunctionFreeSection/Distance_per_ImpedanceType/'+ImpedanceTypes/name+')'
 						, .
 						, km
 					);
-				container Distance_per_ImpedanceType := 
+				container          Distance_per_ImpedanceType      :=
 					for_each_nedv(
 						ImpedanceTypes/name
 						, 'MakeDefined(Find_DuplicateLinks/Min_Distance_per_ImpedanceType/'+ImpedanceTypes/name+'[Find_DuplicateLinks_rel], Distance_org_per_ImpedanceType/'+ImpedanceTypes/name+')'
@@ -518,28 +518,28 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 						, km
 					);
 					
-				attribute<bool>                            IsLinkWithDeadEnd              := NodeSet/IsDeadEnd_and_NotOD[F1] || NodeSet/IsDeadEnd_and_NotOD[F2];
-				attribute<bool>                            IsLinkConnectedWithItself      := F1 == F2;
-				attribute<bool>                            IsDuplicateLink                := Find_DuplicateLinks/IsDuplicateLink[Find_DuplicateLinks_rel] && id(.) != Find_DuplicateLinks/FirstLink[Find_DuplicateLinks_rel];
+				attribute<bool>    IsLinkWithDeadEnd               := NodeSet/IsDeadEnd_and_NotOD[F1] || NodeSet/IsDeadEnd_and_NotOD[F2];
+				attribute<bool>    IsLinkConnectedWithItself       := F1 == F2;
+				attribute<bool>    IsDuplicateLink                 := Find_DuplicateLinks/IsDuplicateLink[Find_DuplicateLinks_rel] && id(.) != Find_DuplicateLinks/FirstLink[Find_DuplicateLinks_rel];
 				
-				attribute<bool>                            ToBeOmitted                    := IsLinkWithDeadEnd || IsLinkConnectedWithItself || IsDuplicateLink;
-				attribute<bool>                            IsOD_connection_road           := union_data(., UnchangedLinkSet/IsOD_connection_road, JunctionFreeSection/IsOD_connection_road);
+				attribute<bool>    ToBeOmitted                     := IsLinkWithDeadEnd || IsLinkConnectedWithItself || IsDuplicateLink;
+				attribute<bool>    IsOD_connection_road            := union_data(., UnchangedLinkSet/IsOD_connection_road, JunctionFreeSection/IsOD_connection_road);
 				
 				// After merging, links can connect the same nodes. Of a group of duplicate links the first stays, with the lowest impedance of
 				// the group. Duplicates are two-way links between the same nodes, in either order, and one-way links with the same F1 and F2;
 				// a one-way link next to a two-way link, or two in opposite directions, both stay.
-				attribute<Nodeset_x_NodeSet_x_DirectionType> LinkKey_rel                  := combine_data(Nodeset_x_NodeSet_x_DirectionType
-																								, combine_data(Nodeset_x_NodeSet, IsOneDirection ? F1 : min_elem(F1, F2), IsOneDirection ? F2 : max_elem(F1, F2))
-																								, value(uint8(IsOneDirection), DirectionType));
-				attribute<Find_DuplicateLinks>             Find_DuplicateLinks_rel        := rlookup(LinkKey_rel, Find_DuplicateLinks/values);
+				attribute<Nodeset_x_NodeSet_x_DirectionType> LinkKey_rel := combine_data(Nodeset_x_NodeSet_x_DirectionType
+				                                                            , combine_data(Nodeset_x_NodeSet, IsOneDirection ? F1 : min_elem(F1, F2), IsOneDirection ? F2 : max_elem(F1, F2))
+				                                                            , value(uint8(IsOneDirection), DirectionType));
+				attribute<Find_DuplicateLinks> Find_DuplicateLinks_rel := rlookup(LinkKey_rel, Find_DuplicateLinks/values);
 
 				unit<uint32> Find_DuplicateLinks := unique(LinkKey_rel)
 				{
-					attribute<uint32>                    count_occurence := pcount(Find_DuplicateLinks_rel);
-					attribute<bool>                      IsDuplicateLink := count_occurence > 1;
-					attribute<..>                        FirstLink       := first(id(..), Find_DuplicateLinks_rel); 
+					attribute<uint32> count_occurence                      := pcount(Find_DuplicateLinks_rel);
+					attribute<bool>   IsDuplicateLink                      := count_occurence > 1;
+					attribute<..>     FirstLink                            := first(id(..), Find_DuplicateLinks_rel);
 		
-					container MinIndex_Impedance_per_ImpedanceType := 
+					container         MinIndex_Impedance_per_ImpedanceType :=
 						for_each_nedv(
 							ImpedanceTypes/name
 							, 'min_index(Impedance_org_per_ImpedanceType/'+ImpedanceTypes/name+', Find_DuplicateLinks_rel)'
@@ -547,7 +547,7 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 							, ..
 						);
 						
-					container Min_Impedance_per_ImpedanceType := 
+					container         Min_Impedance_per_ImpedanceType      :=
 						for_each_nedv(
 							ImpedanceTypes/name
 							, 'Impedance_org_per_ImpedanceType/'+ImpedanceTypes/name+'[MinIndex_Impedance_per_ImpedanceType/'+ImpedanceTypes/name+']'
@@ -555,7 +555,7 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 							, s_f
 						);
 						
-					container Min_Distance_per_ImpedanceType := 
+					container         Min_Distance_per_ImpedanceType       :=
 						for_each_nedv(
 							ImpedanceTypes/name
 							, 'Distance_org_per_ImpedanceType/'+ImpedanceTypes/name+'[MinIndex_Impedance_per_ImpedanceType/'+ImpedanceTypes/name+']'
@@ -565,26 +565,26 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 				}
 				
 				//For visualisation
-				attribute<rdc>                  FirstPoint                     := NodeSet/geometry[F1];
-				attribute<rdc>                  LastPoint                      := NodeSet/geometry[F2];
-				attribute<rdc>                  geometry (arc)                 := points2sequence(PointSet/Point, PointSet/SeqNr, PointSet/Ordinal);
+				attribute<rdc>     FirstPoint                      := NodeSet/geometry[F1];
+				attribute<rdc>     LastPoint                       := NodeSet/geometry[F2];
+				attribute<rdc>     geometry                  (arc) := points2sequence(PointSet/Point, PointSet/SeqNr, PointSet/Ordinal);
 				unit<uint32> PointSet := union_unit(.,.)
 				{
-					attribute<rdc>  Point   := Union_Data(., ../FirstPoint, ../LastPoint);
-					attribute<..>           SeqNr   := value(id(.) % nrofrows(..), ..);
-					attribute<uint32>       Ordinal := id(.) / nrofrows(..);
+					attribute<rdc>    Point   := Union_Data(., ../FirstPoint, ../LastPoint);
+					attribute<..>     SeqNr   := value(id(.) % nrofrows(..), ..);
+					attribute<uint32> Ordinal := id(.) / nrofrows(..);
 				}
 			}
 			
 			// Remove links to dead ends (if F1 or F2 occurs only once in all F1/F2, and is not an OD location)
 			unit<uint32> IntermediateLinkSet := select(!LinkSet_cleanedforJFS/ToBeOmitted)
 			{
-				attribute<NodeSet> F1             := collect_by_cond(., !LinkSet_cleanedforJFS/ToBeOmitted, LinkSet_cleanedforJFS/F1);
-				attribute<NodeSet> F2             := collect_by_cond(., !LinkSet_cleanedforJFS/ToBeOmitted, LinkSet_cleanedforJFS/F2);
-				attribute<bool>    IsOneDirection := collect_by_cond(., !LinkSet_cleanedforJFS/ToBeOmitted, LinkSet_cleanedforJFS/IsOneDirection);
-				attribute<bool>    IsOD_connection_road       := collect_by_cond(., !LinkSet_cleanedforJFS/ToBeOmitted, LinkSet_cleanedforJFS/IsOD_connection_road);
+				attribute<NodeSet> F1                          := collect_by_cond(., !LinkSet_cleanedforJFS/ToBeOmitted, LinkSet_cleanedforJFS/F1);
+				attribute<NodeSet> F2                          := collect_by_cond(., !LinkSet_cleanedforJFS/ToBeOmitted, LinkSet_cleanedforJFS/F2);
+				attribute<bool>    IsOneDirection              := collect_by_cond(., !LinkSet_cleanedforJFS/ToBeOmitted, LinkSet_cleanedforJFS/IsOneDirection);
+				attribute<bool>    IsOD_connection_road        := collect_by_cond(., !LinkSet_cleanedforJFS/ToBeOmitted, LinkSet_cleanedforJFS/IsOD_connection_road);
 				
-				container Impedance_per_ImpedanceType := 
+				container          Impedance_per_ImpedanceType :=
 					for_each_nedv(
 						ImpedanceTypes/name
 						, 'collect_by_cond(.., !LinkSet_cleanedforJFS/ToBeOmitted, LinkSet_cleanedforJFS/Impedance_per_ImpedanceType/'+ImpedanceTypes/name+')'
@@ -592,7 +592,7 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 						, s_f
 					);
 				
-				container Distance_per_ImpedanceType := 
+				container          Distance_per_ImpedanceType  :=
 					for_each_nedv(
 						ImpedanceTypes/name
 						, 'collect_by_cond(.., !LinkSet_cleanedforJFS/ToBeOmitted, LinkSet_cleanedforJFS/Distance_per_ImpedanceType/'+ImpedanceTypes/name+')'
@@ -600,11 +600,11 @@ Template CreateNetwork_Efficient_T //copy from NetworkModel_EU
 						, km
 					);
 				
-				parameter<uint32> count_arcs := #.;
+				parameter<uint32>  count_arcs                  := #.;
 				
 				//For visualisation
-				unit<uint32> PointSet := union_unit(.,.);
-				attribute<rdc> geometry (arc) := points2sequence(Union_Data(PointSet, NodeSet/geometry[F1], NodeSet/geometry[F2]), value(id(PointSet) %#., .));
+				unit<uint32>       PointSet                    := union_unit(.,.);
+				attribute<rdc>     geometry              (arc) := points2sequence(Union_Data(PointSet, NodeSet/geometry[F1], NodeSet/geometry[F2]), value(id(PointSet) %#., .));
 			}
 		}
 	}

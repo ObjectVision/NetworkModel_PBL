@@ -6,20 +6,20 @@ container FlexLines
 	// per feed a list of what the heuristic hits, with trips per day, stops and concession, plus the near misses that deliberately stay out
 	// (Buurtbus, Wijkbus, Spijkhopper/Maasvlaktehopper, Vlinder, taxi bus instead of train). Net/Report also gives the key figures to
 	// compare the three choices (see the verification in #113).
-	unit<uint32> Routes          := SourceData/Infrastructure/GTFS/RelevantSelection/Routes;
-	unit<uint32> Trips           := SourceData/Infrastructure/GTFS/RelevantSelection/Trips;
-	unit<uint32> StopTimes       := SourceData/Infrastructure/GTFS/RelevantSelection/StopTimes;
-	unit<uint32> Stops           := SourceData/Infrastructure/GTFS/RelevantSelection/Stops;
-	unit<uint8>  Modes           := SourceData/Infrastructure/GTFS/RelevantSelection/Modes;
-	unit<uint8>  Concessiegebied := SourceData/RegioIndelingen/Concessiegebied;
+	unit<uint32>         Routes                     := SourceData/Infrastructure/GTFS/RelevantSelection/Routes;
+	unit<uint32>         Trips                      := SourceData/Infrastructure/GTFS/RelevantSelection/Trips;
+	unit<uint32>         StopTimes                  := SourceData/Infrastructure/GTFS/RelevantSelection/StopTimes;
+	unit<uint32>         Stops                      := SourceData/Infrastructure/GTFS/RelevantSelection/Stops;
+	unit<uint8>          Modes                      := SourceData/Infrastructure/GTFS/RelevantSelection/Modes;
+	unit<uint8>          Concessiegebied            := SourceData/RegioIndelingen/Concessiegebied;
 
-	parameter<string> FileStem := '%LocalDataProjDir%/Output/flex_'+ModelParameters/Impl/GTFS_file_date+'_'+ModelParameters/Impl/Analysis_date, Descr = "Path of the output files without suffix: flex_<feed date>_<analysis date> in %LocalDataProjDir%/Output.";
+	parameter<string>    FileStem                   := '%LocalDataProjDir%/Output/flex_'+ModelParameters/Impl/GTFS_file_date+'_'+ModelParameters/Impl/Analysis_date, Descr = "Path of the output files without suffix: flex_<feed date>_<analysis date> in %LocalDataProjDir%/Output.";
 
-	attribute<uint32>    NrTrips_feed  (Routes)    := pcount(Trips/Route_rel), Descr = "Number of trips per route in the whole feed.";
-	attribute<uint32>    NrTrips_today (Routes)    := sum_uint32(Trips/sel_today, Trips/Route_rel), Descr = "Number of trips per route on the analysis day.";
-	attribute<Routes>    Route_rel     (StopTimes) := Trips/Route_rel[StopTimes/Trip_rel];
-	unit<uint64>         c_Route_Stop              := combine_unit_uint64(Routes, Stops);
-	unit<uint32>         uq_Route_Stop             := unique_uint32(combine_data(c_Route_Stop, Route_rel, StopTimes/Stop_rel))
+	attribute<uint32>    NrTrips_feed      (Routes) := pcount(Trips/Route_rel), Descr = "Number of trips per route in the whole feed.";
+	attribute<uint32>    NrTrips_today     (Routes) := sum_uint32(Trips/sel_today, Trips/Route_rel), Descr = "Number of trips per route on the analysis day.";
+	attribute<Routes>    Route_rel      (StopTimes) := Trips/Route_rel[StopTimes/Trip_rel];
+	unit<uint64>         c_Route_Stop               := combine_unit_uint64(Routes, Stops);
+	unit<uint32> uq_Route_Stop := unique_uint32(combine_data(c_Route_Stop, Route_rel, StopTimes/Stop_rel))
 	, Descr = "The unique combinations of route and stop; Stop_rel is null for stop_times of trips outside the analysis days (Stops holds only the stops in use), and that one null key does not count in pcount."
 	{
 		attribute<Routes> Route_rel := value(values / uint64(#Stops), Routes);
@@ -32,7 +32,7 @@ container FlexLines
 	Template RouteList_T : Descr = "Writes the selected routes to the csv csvName, with their agency, mode, matched search term, trips, stops, first stop and concession."
 	{
 		attribute<bool>   IsSelected (Routes);
-		attribute<string> term     (Routes);
+		attribute<string> term       (Routes);
 		parameter<string> csvName;
 		///
 		unit<uint32> Rows := select_with_org_rel(IsSelected), StorageName = "=csvName", StorageType = "gdalwrite.vect"
@@ -52,11 +52,11 @@ container FlexLines
 		}
 	}
 
-	parameter<string> FlexSettings := 'flex=' + (ModelParameters/Advanced/IncludeFlex ? 'meenemen' : 'uitsluiten') + ' min_interval=' + string(ModelParameters/Advanced/FlexMinInterval) + 'min extra_wait=' + string(ModelParameters/Advanced/FlexExtraWaitingTime) + 'min call_costs=' + string(ModelParameters/Advanced/FlexCallCosts) + 'euro', Descr = "The flex settings of this run as text, for the headers of the reports.";
-	container Flagged  := RouteList_T(Routes/IsFlex,         Routes/FlexMatch,    FileStem+'_routes.csv'), Descr = "The routes that count as flex (Routes/IsFlex), written to FileStem_routes.csv.";
-	container NearMiss := RouteList_T(Routes/IsFlexNearMiss, Routes/FlexNearMiss, FileStem+'_nearmiss.csv'), Descr = "The near misses (Routes/IsFlexNearMiss): routes that resemble flex lines but deliberately do not count as flex, written to FileStem_nearmiss.csv.";
+	parameter<string>    FlexSettings               := 'flex=' + (ModelParameters/Advanced/IncludeFlex ? 'meenemen' : 'uitsluiten') + ' min_interval=' + string(ModelParameters/Advanced/FlexMinInterval) + 'min extra_wait=' + string(ModelParameters/Advanced/FlexExtraWaitingTime) + 'min call_costs=' + string(ModelParameters/Advanced/FlexCallCosts) + 'euro', Descr = "The flex settings of this run as text, for the headers of the reports.";
+	container            Flagged                    := RouteList_T(Routes/IsFlex,         Routes/FlexMatch,    FileStem+'_routes.csv'), Descr = "The routes that count as flex (Routes/IsFlex), written to FileStem_routes.csv.";
+	container            NearMiss                   := RouteList_T(Routes/IsFlexNearMiss, Routes/FlexNearMiss, FileStem+'_nearmiss.csv'), Descr = "The near misses (Routes/IsFlexNearMiss): routes that resemble flex lines but deliberately do not count as flex, written to FileStem_nearmiss.csv.";
 
-	parameter<string> Report :=
+	parameter<string>    Report                     :=
 		  'gtfs_file_date=' + ModelParameters/Impl/GTFS_file_date + ' analysis_date=' + ModelParameters/Impl/Analysis_date + '\n'
 		+ FlexSettings + '\n'
 		+ 'pattern=' + ModelParameters/Impl/FlexRoutePattern + ' nearmiss_pattern=' + ModelParameters/Impl/FlexNearMissPattern + '\n'
@@ -70,7 +70,7 @@ container FlexLines
 	container Net
 	: Descr = "Network key figures for the current flex settings (IncludeFlex, FlexMinInterval, FlexExtraWaitingTime), written by Net/Report to compare runs with different settings (verification of #113 and #116)."
 	{
-		container Impl := /NetworkSetup/PublicTransport_Prep/impl;
+		container          Impl                := /NetworkSetup/PublicTransport_Prep/impl;
 		parameter<uint32>  n_links_R           := #Impl/Set_R/Set;
 		parameter<uint32>  n_flexlinks_R       := sum(uint32(MakeDefined(Routes/IsFlex[Impl/Set_R/Set/Route_rel], false)));
 		parameter<uint32>  n_nodes_R           := #Impl/Set_R/Set/NodeSet;
@@ -85,7 +85,7 @@ container FlexLines
 		parameter<uint32>  n_links_L           := #Impl/Set_L/Set;
 		parameter<uint32>  n_OD_L_result       := #Impl/OD_L/Result;
 
-		parameter<string>  Report :=
+		parameter<string>  Report              :=
 			  FlexSettings + '\n'
 			+ 'Set_R links=' + string(n_links_R) + ' flexlinks=' + string(n_flexlinks_R) + ' nodes=' + string(n_nodes_R) + ' flexnodes=' + string(n_flexnodes_R) + '\n'
 			+ 'OD_R rows=' + string(n_OD_R) + ' flexlegs=' + string(n_flexlegs_R) + ' result=' + string(n_OD_R_result) + ' flexlegs_result=' + string(n_flexlegs_R_result) + ' flexlegs_over_cut=' + string(n_flexlegs_over_cut) + ' sum_tt=' + string(sum_tt_R_result) + '\n'
@@ -100,7 +100,7 @@ container FlexLines
 			parameter<uint64>  n_rows   := #Result;
 			parameter<float64> mean_tt  := mean(float64(Result/Traveltime));
 			parameter<float64> mean_prc := mean(float64(Result/Price));
-			parameter<string>  Report :=
+			parameter<string>  Report   :=
 				  FlexSettings + '\n'
 				+ 'block1 rows=' + string(n_rows) + ' mean_traveltime_s=' + string(mean_tt) + ' mean_price_ct=' + string(mean_prc) + '\n'
 			, StorageName = "=FileStem+'_block1'+ModelParameters/Impl/Flex_FileTag+'.txt'", StorageType = "str", Descr = "The counts of block 1, written to FileStem_block1<Flex_FileTag>.txt.";
