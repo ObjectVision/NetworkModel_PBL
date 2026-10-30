@@ -57,7 +57,7 @@ container Impl : using = "classifications"
 	unit<uint8>         DirectModes_Selected                 := select_with_attr_by_cond(Classifications/DirectModes, Classifications/DirectModes/Allowed), Descr = "The direct modes that are switched on.";
 	parameter<string>   Direct_str                           := asList(DirectModes_Selected/abbrev + DirectModes_Selected/abbrev, ','), Descr = "The direct modes as they appear in the signature: WW, CC and/or AA, in the order of Classifications/DirectModes.",	IntegrityCheck = "Direct_str != '' || WithPT || IsMerged"; // at least one direct mode, except with public transport (the _OVf components: only chains, Direct_OD empty through PublicTransport_Prep/HasDirectTI) and when merging
 	parameter<bool>     UsesCycling                          := AllowDirectCycling || (WithPT && (IsDefined(strpos(Component_PreTransport, 'Cycling')) || IsDefined(strpos(Component_PostTransport, 'Cycling')))), Descr = "Does a cycling leg or the direct cycling trip take part? Then the output signature names the cycling network.";
-	parameter<string>   Car_CongestionMoment_ForDirect       := UseTomTomNetworkForCars ? rjoin(PartOfDay, Advanced/PartsOfDay/name, Advanced/PartsOfDay/CongestionMoment) : 'MaxSpeed', Descr = "Which car travel time the direct trip uses: 'MorningRush', 'NoonRush', 'LateEveningRush' or 'Freeflow' with TomTom, 'MaxSpeed' with OSM; it follows from PartOfDay (#125).", IntegrityCheck = "UseTomTomNetworkForCars ? Car_CongestionMoment_ForDirect != 'MaxSpeed' : Car_CongestionMoment_ForDirect == 'MaxSpeed'"; // TomTom has Freeflow, MorningRush, NoonRush and LateEveningRush; OSM only MaxSpeed, because the OSM rush hours are null placeholders
+	parameter<string>   Car_CongestionMoment_ForDirect       := UseTomTomNetworkForCars ? rjoin(PartOfDay, PartsOfDay/name, PartsOfDay/CongestionMoment) : 'MaxSpeed', Descr = "Which car travel time the direct trip uses: 'MorningRush', 'NoonRush', 'LateEveningRush' or 'Freeflow' with TomTom, 'MaxSpeed' with OSM; it follows from PartOfDay (#125).", IntegrityCheck = "UseTomTomNetworkForCars ? Car_CongestionMoment_ForDirect != 'MaxSpeed' : Car_CongestionMoment_ForDirect == 'MaxSpeed'"; // TomTom has Freeflow, MorningRush, NoonRush and LateEveningRush; OSM only MaxSpeed, because the OSM rush hours are null placeholders
 	parameter<bool>     CarTimeDependent                     := UseTomTomNetworkForCars, Descr = "Does the direct car trip use time-dependent link times, with a car cache per departure moment in which every road section has the TomTom speed of the moment the trip enters it (#132)?", IntegrityCheck = "!this || UseTomTomNetworkForCars";
 	parameter<km>       CarFrontMaxDistance                  := value(MaxCarTime / 1[min_f] * 2.5f, km), Descr = "The bound on the first criterium of the distance-first search, which the engine requires: the distance reachable at 150 km/h in MaxCarTime, so that it cuts off nothing.";
 	parameter<bool>     PriceExportsAndIntegrityChecksNeeded := IsDefined(strpos(lowercase(MinimiseCriteria), 'price')) || Export_PriceInformation, Descr = "Does the run need prices, for the criteria or the export, and so the price checks?";
@@ -72,25 +72,33 @@ container Impl : using = "classifications"
 	// 3. THE OD PAIR (#129): see group 6 at the top of ModelParameters.
 	parameter<bool>     IsOD                                 := /ModelParameters/OD_Origin != '' && /ModelParameters/OD_Destination != '', Descr = "Does this run calculate one OD pair (OD_Origin and OD_Destination)? Then the origins and destinations are one element each, the caches and output get their own folders (OD_Tag), and the routes keep their links.",	IntegrityCheck = "(/ModelParameters/OD_Origin == '') == (/ModelParameters/OD_Destination == '') && (this || /ModelParameters/OD_DepartureTime == '')";
 	parameter<bool>     IsODMoment                           := IsOD && /ModelParameters/OD_DepartureTime != '', Descr = "Does the OD pair choose one departure moment (OD_DepartureTime)?";
-	parameter<uint32>   OD_Minute                            := IsODMoment ? uint32(substr(/ModelParameters/OD_DepartureTime, 3, 2)) : 0, Descr = "The minute of OD_DepartureTime; the hour must be that of PartOfDay and the minute one of Advanced/PT_DepartureMinutes_All.",	IntegrityCheck = "!IsODMoment || (uint32(substr(/ModelParameters/OD_DepartureTime, 0, 2)) == rjoin(/ModelParameters/PartOfDay, Advanced/PartsOfDay/name, Advanced/PartsOfDay/DepartureHour) && any(Advanced/PT_DepartureMinutes_All/values == this))";
+	parameter<uint32>   OD_Minute                            := IsODMoment ? uint32(substr(/ModelParameters/OD_DepartureTime, 3, 2)) : 0, Descr = "The minute of OD_DepartureTime; the hour must be that of PartOfDay and the minute one of PT_DepartureMinutes_All.",	IntegrityCheck = "!IsODMoment || (uint32(substr(/ModelParameters/OD_DepartureTime, 0, 2)) == rjoin(/ModelParameters/PartOfDay, PartsOfDay/name, PartsOfDay/DepartureHour) && any(PT_DepartureMinutes_All/values == this))";
 	parameter<string>   OD_Tag                               := IsOD ? '_' + /ModelParameters/OD_Origin + '_' + /ModelParameters/OD_Destination : '', Descr = "Suffix _<O>_<D> after IntermediateResults and Output in the folder names of an OD pair; empty for the whole model.",	IntegrityCheck = "strcount(this, ' ') == 0 && strcount(this, '/') == 0 && strcount(this, ':') == 0 && strcount(this, '.') == 0";
 
-	// 4. DEPARTURE MOMENTS AND THE TIME WINDOW of the public transport analysis
+	// 4. DEPARTURE MOMENTS of the run, the congestion times of the car, and the time window of the public transport analysis
 	parameter<bool>     SingleDepartureMoment                := !IsMerged && rjoin(ComponentName, Classifications/Components/name, Classifications/Components/SingleDepartureMoment_Eff), Descr = "Does this run calculate one departure moment, that of the congestion moment (Classifications/Components/SingleDepartureMoment)?";
-	parameter<uint32>   CongestionMinute                     := rjoin(/ModelParameters/PartOfDay, Advanced/PartsOfDay/name, Advanced/PartsOfDay/CongestionMinute), Descr = "The minute of the congestion moment of the part of the day (Advanced/PartsOfDay), the departure moment of a component with SingleDepartureMoment.", IntegrityCheck = "any(Advanced/PT_DepartureMinutes_All/values == this)";
+	parameter<uint32>   CongestionMinute                     := rjoin(/ModelParameters/PartOfDay, PartsOfDay/name, PartsOfDay/CongestionMinute), Descr = "The minute of the congestion moment of the part of the day (PartsOfDay), the departure moment of a component with SingleDepartureMoment.", IntegrityCheck = "any(PT_DepartureMinutes_All/values == this)";
 	parameter<uint32>   SingleDepartureMoment_Minute         := IsODMoment ? OD_Minute : CongestionMinute, Descr = "The minute of the one departure moment of a component with SingleDepartureMoment: CongestionMinute, or for an OD pair with OD_DepartureTime that minute.";
-	parameter<string>   SingleDepartureMoment_Shrt           := (rjoin(/ModelParameters/PartOfDay, Advanced/PartsOfDay/name, Advanced/PartsOfDay/DepartureHour) < 10 ? '0' : '') + string(rjoin(/ModelParameters/PartOfDay, Advanced/PartsOfDay/name, Advanced/PartsOfDay/DepartureHour)) + 'h' + (SingleDepartureMoment_Minute < 10 ? '0' : '') + string(SingleDepartureMoment_Minute) + 'm', Descr = "The short name of that departure moment, such as 07h30m, which names the file per block of a component with SingleDepartureMoment.";
+	parameter<string>   SingleDepartureMoment_Shrt           := (rjoin(/ModelParameters/PartOfDay, PartsOfDay/name, PartsOfDay/DepartureHour) < 10 ? '0' : '') + string(rjoin(/ModelParameters/PartOfDay, PartsOfDay/name, PartsOfDay/DepartureHour)) + 'h' + (SingleDepartureMoment_Minute < 10 ? '0' : '') + string(SingleDepartureMoment_Minute) + 'm', Descr = "The short name of that departure moment, such as 07h30m, which names the file per block of a component with SingleDepartureMoment.";
 	
 	unit<uint8> PT_DepartureHours : nrofrows = 1
-	, Descr = "The hour of the departure moments of this run: DepartureHour of PartOfDay in Advanced/PartsOfDay."
+	, Descr = "The hour of the departure moments of this run: the DepartureHour of PartOfDay in ModelParameters/PartsOfDay."
 	{
-		attribute<uint32> values := const(rjoin(/ModelParameters/PartOfDay, Advanced/PartsOfDay/name, Advanced/PartsOfDay/DepartureHour), .);
+		attribute<uint32> values := const(rjoin(/ModelParameters/PartOfDay, PartsOfDay/name, PartsOfDay/DepartureHour), .);
 	}
 
-	unit<uint8> PT_DepartureMinutes := range(uint8, 0b, SingleDepartureMoment || IsODMoment ? 1b : uint8(#Advanced/PT_DepartureMinutes_All))
-	, Descr = "The minutes of the departure moments of this run: all of Advanced/PT_DepartureMinutes_All, only that of the congestion moment with SingleDepartureMoment (#132), or only OD_DepartureTime for an OD pair."
+	unit<uint8> CongestionTimes := PartsOfDay
+	, Descr = "The congestion moments of PartsOfDay as the TomTom speeds and the speed caps of the car use them: the name, the clock time as hhmm, and the cap."
 	{
-		attribute<uint32> values := IsODMoment ? const(OD_Minute, .) : SingleDepartureMoment ? const(CongestionMinute, .) : Advanced/PT_DepartureMinutes_All/values[value(id(.), Advanced/PT_DepartureMinutes_All)];
+		attribute<string> name     := PartsOfDay/CongestionMoment;
+		attribute<string> Time     := (PartsOfDay/DepartureHour < 10 ? '0' : '') + string(PartsOfDay/DepartureHour) + (PartsOfDay/CongestionMinute < 10 ? '0' : '') + string(PartsOfDay/CongestionMinute);
+		attribute<km_hr>  MaxSpeed := PartsOfDay/Car_MaxSpeed;
+	}
+
+	unit<uint8> PT_DepartureMinutes := range(uint8, 0b, SingleDepartureMoment || IsODMoment ? 1b : uint8(#PT_DepartureMinutes_All))
+	, Descr = "The minutes of the departure moments of this run: all of PT_DepartureMinutes_All, only that of the congestion moment with SingleDepartureMoment (#132), or only OD_DepartureTime for an OD pair."
+	{
+		attribute<uint32> values := IsODMoment ? const(OD_Minute, .) : SingleDepartureMoment ? const(CongestionMinute, .) : PT_DepartureMinutes_All/values[value(id(.), PT_DepartureMinutes_All)];
 	}
 
 	unit<uint32> SampleDay := select_with_attr_by_org_rel(Time, Time/Day = 0) // when the moments change, also change NDW_meetmomenten/time and ChosenMoments

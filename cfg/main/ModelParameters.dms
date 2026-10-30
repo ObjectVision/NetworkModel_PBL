@@ -6,8 +6,8 @@ container ModelParameters : using = "units;classifications"
 	// %LocalDataProjDir%/IntermediateResults, which the model then makes again.
 
 	// 1. WHAT: analysis moment, part of the day, origins and destinations, and the output
-	parameter<string>   AnalysisMoment                        := 'Y2025'                 , Descr = "The analysis moment, a year in AnalysisMomentPresets at the bottom of this file (Y2015, Y2023 to Y2026), which sets the analysis day, the GTFS feed, OSM, TomTom, the CBS area division and the BAG (#125).";
-	parameter<string>   PartOfDay                             := 'Ochtendspits'          , Descr = "The part of the day of the departure moments, from Advanced/PartsOfDay: 'Ochtendspits', 'Middag' or 'Avond', each with four moments a quarter of an hour apart (#125).", IntegrityCheck = "IsDefined(rlookup(this, Advanced/PartsOfDay/name))";
+	parameter<string>   AnalysisMoment                        := 'Y2025'                 , Descr = "The analysis moment, a year in AnalysisMomentPresets in group 7 (Y2015, Y2023 to Y2026), which sets the analysis day, the GTFS feed, OSM, TomTom, the CBS area division and the BAG (#125).";
+	parameter<string>   PartOfDay                             := 'Ochtendspits'          , Descr = "The part of the day of the departure moments, from PartsOfDay in group 8: 'Ochtendspits', 'Middag' or 'Avond', each with four moments a quarter of an hour apart (#125).", IntegrityCheck = "IsDefined(rlookup(this, PartsOfDay/name))";
 	parameter<string>   Orgset                                := 'Buurt2025'             , Descr = "The origin set, one of Advanced/org_domain_list.";
 	parameter<string>   Destset                               := 'Buurt2025'             , Descr = "The destination set, one of Advanced/dest_domain_list.";
 	parameter<string>   Orgset_SingleNeighbourhood_Selection  := 'BU0363AD05'            , Descr = "The neighbourhood code (BU_CODE) when Orgset is a single neighbourhood.";
@@ -160,6 +160,24 @@ container ModelParameters : using = "units;classifications"
 	{
 		attribute<string> year : ['2023', '2025'];
 		attribute<string> file : ['20260408_Locaties.OVF_2023_Geocoded.csv', '20261013_Locaties.OVF_2025_Geocoded.csv'];
+	}
+
+	// 8. DEPARTURE MOMENTS (#125): PartOfDay chooses a row of PartsOfDay. The public transport trips leave at the minutes of
+	// PT_DepartureMinutes_All in DepartureHour; the direct car trip and the TomTom speeds use the congestion moment at CongestionMinute
+	// of that hour, with the speed cap Car_MaxSpeed. What follows from them for a run, such as CongestionTimes, is in Impl.
+	unit<uint8> PartsOfDay : nrofrows = 3
+	, Descr = "The parts of the day (#125), chosen with PartOfDay: the hour of the departure moments, and the congestion moment of the direct car trip with its minute in that hour and its cap on the car speed."
+	{
+		attribute<string> name             : ['Ochtendspits', 'Middag', 'Avond'];
+		attribute<uint32> DepartureHour    : [7, 12, 19];
+		attribute<string> CongestionMoment : ['MorningRush', 'NoonRush', 'LateEveningRush'], Descr = "The name of the TomTom congestion moment.";
+		attribute<uint32> CongestionMinute : [30, 30, 30], Descr = "The minute of the congestion moment in DepartureHour, one of PT_DepartureMinutes_All.";
+		attribute<km_hr>  Car_MaxSpeed     : [100, 100, 0], Descr = "Cap on the car speed at the congestion moment, for TomTom and OSM; 0 for no cap.";
+	}
+	unit<uint8> PT_DepartureMinutes_All : nrofrows = 4
+	, Descr = "The minutes of the departure moments in DepartureHour of the part of the day, every quarter of an hour."
+	{
+		attribute<uint32> values : [0,15,30,45];
 	}
 
 	#include<Advanced.dms>
