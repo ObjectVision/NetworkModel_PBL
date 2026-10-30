@@ -133,87 +133,80 @@ Template PerDepartureMoment_T : Descr = "Calculates for one departure moment of 
 			attribute<dam>           Traveldist_Rail      := collect_by_cond(., ../IsValid, ../Traveldist_Rail);
 			attribute<dam>           Traveldist_Ferry     := collect_by_cond(., ../IsValid, ../Traveldist_Ferry);
 			attribute<Add_V_to_PT>   VPT_rel              := collect_by_cond(., ../IsValid, id(..)), Descr = "The row of Add_V_to_PT (only requested in the OD pair mode, OD_Output).";
+
+			// The front of the combinations per origin and arrival place of the chain, exact, on the criteria of the final front (#140). Every
+			// post-transport leg from that place adds the same price and time to each of them, so a combination outside this front stays
+			// dominated after the coupling and is not coupled at all; of exact duplicates the first stays, as in the final front. The final
+			// front applies its epsilon in two condensations, so that its result can shift within that epsilon.
+			attribute<OD_code>       OrgArrival_key       := combine_data(OD_code, second_rel(c_fromTime_Place_rel), To_Place_rel);
+			unit<uint64>             uq_OrgArrival        := unique(OrgArrival_key);
+			attribute<uq_OrgArrival> uq_OrgArrival_rel    := rlookup(OrgArrival_key, uq_OrgArrival/values);
+			attribute<bool>          IsFront              := ='pareto_optimal(uq_OrgArrival_rel, ' + asList(ParetoAttr/Name, ', ') + ')';
+		}
+
+		unit<uint64> Front := select(Result/IsFront)
+		, Descr = "The valid combinations of pre-transport and chain in the front of their origin and arrival place (Result/IsFront), which Add_N_to_VPT couples to the post-transport."
+		{
+			attribute<Result>        Result_rel           := collect_by_cond(., Result/IsFront, id(Result));
+			attribute<Places>        To_Place_rel         := collect_by_cond(., Result/IsFront, Result/To_Place_rel);
+			attribute<s>             Traveltime           := collect_by_cond(., Result/IsFront, Result/Traveltime);
 		}
 	}
-	
-	unit<uint64> Add_N_to_VPT := join_equal_values_uint64(Add_V_to_PT/Result/To_Place_rel, N/From_Place_rel)
-	, Descr = "Couples every valid combination of pre-transport and chain to the post-transport legs (N) from the stop where the chain ends; IsValid keeps those within MaxTravelTime and the post-transport time limits."
-	{
-		attribute<Add_V_to_PT/Result> PT_rel := first_rel; //debug
-		attribute<N>             N_rel                   := second_rel; //debug
-		attribute<Places>        Place_rel               := X_rel; //debug
-		
-		attribute<c_Time_Places> PT_c_fromTime_Place_rel := Add_V_to_PT/Result/c_fromTime_Place_rel[PT_rel];
-		attribute<c_Time_Places> PT_c_toTime_Place_rel   := Add_V_to_PT/Result/c_toTime_Place_rel[PT_rel];
-		attribute<Time>          PT_To_Time_rel          := value(PT_c_toTime_Place_rel / uint64(#Places), Time);
-		attribute<Time>          N_To_Time_rel           := PT_To_Time_rel + N_time[Time];
-		attribute<Places>        N_to_Place_rel          := N/To_Place_rel[N_rel];
-		attribute<s>             N_time                  := N/impedance[N_rel];
-		attribute<s>             N_time_net              := N/impedance_net[N_rel], Descr = "Network travel time of the post-transport without start time, which IsNTimeNotTooLong tests.";
-		attribute<Modes>         N_mode_rel              := N/Mode_rel[N_rel];
-		attribute<VN_ModeClasses/Uq> N_ModeClass_rel := N/ModeClass_rel[N_rel];
-		attribute<ct>            N_price                 := N/Price[N_rel];
-		
-		attribute<c_Time_Places> c_fromTime_Place_rel    := PT_c_fromTime_Place_rel;
-		attribute<c_Time_Places> c_toTime_Place_rel      := combine_data(c_Time_Places, N_To_Time_rel, N_to_Place_rel);
-		
-		// The post-transport counts in Price like the pre-transport.
-		attribute<bool>          N_PriceCounts           := (ModelParameters/Advanced/IncludeCyclingCostsInPrice && N_mode_rel == Modes/v/Cycling) || (ModelParameters/Advanced/IncludeWalkingCostsInPrice && N_mode_rel == Modes/v/Walking);
-		attribute<ct>            Price_N                 := N_PriceCounts ? N_price : 0[ct], Descr = "The part of Price for the post-transport, like Price_V for the pre-transport (PosttransPrice in the output).";
-		attribute<ct>            Price_V                 := Add_V_to_PT/Result/Price_V[PT_rel];
-		attribute<ct>            Price                   := Add_V_to_PT/Result/Price[PT_rel] + Price_N;
-		attribute<ct>            Price_augm              := Add_V_to_PT/Result/Price_augm[PT_rel] + N_price;
-		attribute<string>        ModeUsed                := Add_V_to_PT/Result/ModeUsed[PT_rel] + '_' + VN_ModeClasses/Uq/name[N_ModeClass_rel];
-		attribute<bool>          NeedsBike               := Add_V_to_PT/Result/NeedsBike[PT_rel] || VN_ModeClasses/Uq/NeedsBike[N_ModeClass_rel];
-		attribute<Modes>         V_mode_rel              := Add_V_to_PT/Result/V_mode_rel[PT_rel];
-		attribute<s>             Traveltime              := Add_V_to_PT/Result/Traveltime[PT_rel] + N_time;
-		attribute<s>             W_time                  := Add_V_to_PT/Result/W_time[PT_rel];
-		attribute<s>             V_time                  := Add_V_to_PT/Result/V_time[PT_rel];
-		attribute<s>             PT_time                 := Add_V_to_PT/Result/PT_time[PT_rel];
 
-		attribute<dam>           TravelDist_V            := Add_V_to_PT/Result/TravelDist_V[PT_rel];
-		attribute<dam>           TravelDist_Bus          := Add_V_to_PT/Result/TravelDist_Bus[PT_rel];
-		attribute<dam>           Traveldist_Metro        := Add_V_to_PT/Result/Traveldist_Metro[PT_rel];
-		attribute<dam>           Traveldist_Tram         := Add_V_to_PT/Result/Traveldist_Tram[PT_rel];
-		attribute<dam>           Traveldist_Rail         := Add_V_to_PT/Result/Traveldist_Rail[PT_rel];
-		attribute<dam>           Traveldist_Ferry        := Add_V_to_PT/Result/Traveldist_Ferry[PT_rel];
-		attribute<dam>           Traveldist_N            := N/distance[N_rel];
-		
-		attribute<bool>          IsNTimeNotTooLong       := switch(
-		                                                          case(N_mode_rel == Modes/v/Walking, N_time_net <= convert(ModelParameters/MaxWalkingTime_Stops2Dest, s))
-		                                                        , case(N_mode_rel == Modes/v/Cycling, N_time_net <= convert(ModelParameters/MaxCyclingTime_Stops2Dest, s))
+	unit<uint64> Add_N_to_VPT := join_equal_values_uint64(Add_V_to_PT/Front/To_Place_rel, N/From_Place_rel)
+	, Descr = "Couples every combination of pre-transport and chain in the front of Add_V_to_PT to the post-transport legs (N) from the place where the chain ends; IsValid keeps those within MaxTravelTime and the post-transport time limits."
+	{
+		attribute<Add_V_to_PT/Front> Front_rel := first_rel;
+		attribute<N>             N_rel                   := second_rel;
+		attribute<Places>        Place_rel               := X_rel; //debug
+
+		// Over all couplings only what IsValid tests; Result derives the other columns for the valid rows.
+		attribute<s>             Traveltime              := Add_V_to_PT/Front/Traveltime[Front_rel] + N/impedance[N_rel];
+		attribute<bool>          IsNTimeNotTooLong   (N) := switch(
+		                                                          case(N/Mode_rel == Modes/v/Walking, N/impedance_net <= convert(ModelParameters/MaxWalkingTime_Stops2Dest, s))
+		                                                        , case(N/Mode_rel == Modes/v/Cycling, N/impedance_net <= convert(ModelParameters/MaxCyclingTime_Stops2Dest, s))
 		                                                        , FALSE
-		                                                    );
-		attribute<bool>          IsValid                 := Traveltime <= /ModelParameters/MaxTravelTime[s] && IsNTimeNotTooLong;
-		
+		                                                    ), Descr = "Is the network travel time of the post-transport leg, without start time, within the limit of its mode?";
+		attribute<bool>          IsValid                 := Traveltime <= /ModelParameters/MaxTravelTime[s] && IsNTimeNotTooLong[N_rel];
+
 		unit<uint64> Result := select(IsValid)
 		{
-			attribute<c_Time_Places> c_fromTime_Place_rel := collect_by_cond(., ../IsValid, ../c_fromTime_Place_rel);
-			attribute<c_Time_Places> c_toTime_Place_rel   := collect_by_cond(., ../IsValid, ../c_toTime_Place_rel);
-		  
-			attribute<s>             W_time               := collect_by_cond(., ../IsValid, ../W_time), Descr = "Waiting at home";
-			attribute<s>             V_time               := collect_by_cond(., ../IsValid, ../V_time);
-			attribute<s>             PT_time              := collect_by_cond(., ../IsValid, ../PT_time);
-			attribute<s>             N_time               := collect_by_cond(., ../IsValid, ../N_time);
-			
-			attribute<ct>            Price                := collect_by_cond(., ../IsValid, ../Price);
-			attribute<ct>            Price_V              := collect_by_cond(., ../IsValid, ../Price_V);
-			attribute<ct>            Price_N              := collect_by_cond(., ../IsValid, ../Price_N);
-			attribute<ct>            Price_augm           := collect_by_cond(., ../IsValid, ../Price_augm);
+			attribute<Add_V_to_PT/Front> Front_rel        := collect_by_cond(., ../IsValid, ../Front_rel);
+			attribute<N>             N_rel                := collect_by_cond(., ../IsValid, ../N_rel);
+			attribute<Add_V_to_PT/Result> PT_rel          := Add_V_to_PT/Front/Result_rel[Front_rel];
 			attribute<s>             Traveltime           := collect_by_cond(., ../IsValid, ../Traveltime);
-			attribute<string>        ModeUsed             := collect_by_cond(., ../IsValid, ../ModeUsed);
-			attribute<bool>          NeedsBike            := collect_by_cond(., ../IsValid, ../NeedsBike);
-			attribute<Modes>         V_mode_rel           := collect_by_cond(., ../IsValid, ../V_mode_rel);
-			attribute<Modes>         N_mode_rel           := collect_by_cond(., ../IsValid, ../N_mode_rel);
 
-			attribute<dam>           TravelDist_V         := collect_by_cond(., ../IsValid, ../TravelDist_V);
-			attribute<dam>           TravelDist_Bus       := collect_by_cond(., ../IsValid, ../TravelDist_Bus);
-			attribute<dam>           Traveldist_Metro     := collect_by_cond(., ../IsValid, ../Traveldist_Metro);
-			attribute<dam>           Traveldist_Tram      := collect_by_cond(., ../IsValid, ../Traveldist_Tram);
-			attribute<dam>           Traveldist_Rail      := collect_by_cond(., ../IsValid, ../Traveldist_Rail);
-			attribute<dam>           Traveldist_Ferry     := collect_by_cond(., ../IsValid, ../Traveldist_Ferry);
-			attribute<dam>           Traveldist_N         := collect_by_cond(., ../IsValid, ../Traveldist_N);
-			attribute<Add_N_to_VPT>  VPTN_rel             := collect_by_cond(., ../IsValid, id(..)), Descr = "The row of Add_N_to_VPT (only requested in the OD pair mode, OD_Output).";
+			attribute<c_Time_Places> PT_c_toTime_Place_rel := Add_V_to_PT/Result/c_toTime_Place_rel[PT_rel];
+			attribute<Time>          PT_To_Time_rel       := value(PT_c_toTime_Place_rel / uint64(#Places), Time);
+			attribute<Time>          N_To_Time_rel        := PT_To_Time_rel + N_time[Time];
+			attribute<s>             N_time               := N/impedance[N_rel];
+			attribute<Modes>         N_mode_rel           := N/Mode_rel[N_rel];
+			attribute<VN_ModeClasses/Uq> N_ModeClass_rel  := N/ModeClass_rel[N_rel];
+			attribute<ct>            N_price              := N/Price[N_rel];
+
+			attribute<c_Time_Places> c_fromTime_Place_rel := Add_V_to_PT/Result/c_fromTime_Place_rel[PT_rel];
+			attribute<c_Time_Places> c_toTime_Place_rel   := combine_data(c_Time_Places, N_To_Time_rel, N/To_Place_rel[N_rel]);
+
+			// The post-transport counts in Price like the pre-transport.
+			attribute<bool>          N_PriceCounts        := (ModelParameters/Advanced/IncludeCyclingCostsInPrice && N_mode_rel == Modes/v/Cycling) || (ModelParameters/Advanced/IncludeWalkingCostsInPrice && N_mode_rel == Modes/v/Walking);
+			attribute<ct>            Price_N              := N_PriceCounts ? N_price : 0[ct], Descr = "The part of Price for the post-transport, like Price_V for the pre-transport (PosttransPrice in the output).";
+			attribute<ct>            Price_V              := Add_V_to_PT/Result/Price_V[PT_rel];
+			attribute<ct>            Price                := Add_V_to_PT/Result/Price[PT_rel] + Price_N;
+			attribute<ct>            Price_augm           := Add_V_to_PT/Result/Price_augm[PT_rel] + N_price;
+			attribute<string>        ModeUsed             := Add_V_to_PT/Result/ModeUsed[PT_rel] + '_' + VN_ModeClasses/Uq/name[N_ModeClass_rel];
+			attribute<bool>          NeedsBike            := Add_V_to_PT/Result/NeedsBike[PT_rel] || VN_ModeClasses/Uq/NeedsBike[N_ModeClass_rel];
+			attribute<Modes>         V_mode_rel           := Add_V_to_PT/Result/V_mode_rel[PT_rel];
+			attribute<s>             W_time               := Add_V_to_PT/Result/W_time[PT_rel], Descr = "Waiting at home";
+			attribute<s>             V_time               := Add_V_to_PT/Result/V_time[PT_rel];
+			attribute<s>             PT_time              := Add_V_to_PT/Result/PT_time[PT_rel];
+
+			attribute<dam>           TravelDist_V         := Add_V_to_PT/Result/TravelDist_V[PT_rel];
+			attribute<dam>           TravelDist_Bus       := Add_V_to_PT/Result/TravelDist_Bus[PT_rel];
+			attribute<dam>           Traveldist_Metro     := Add_V_to_PT/Result/Traveldist_Metro[PT_rel];
+			attribute<dam>           Traveldist_Tram      := Add_V_to_PT/Result/Traveldist_Tram[PT_rel];
+			attribute<dam>           Traveldist_Rail      := Add_V_to_PT/Result/Traveldist_Rail[PT_rel];
+			attribute<dam>           Traveldist_Ferry     := Add_V_to_PT/Result/Traveldist_Ferry[PT_rel];
+			attribute<dam>           Traveldist_N         := N/distance[N_rel];
 		}
 	}
 	
