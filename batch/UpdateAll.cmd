@@ -3,7 +3,8 @@ setlocal EnableDelayedExpansion
 REM ---------------------------------------------------------------------------------------------
 REM UpdateAll.cmd: updates the caches of NetworkModel_PBL with GeoDmsRun, in the order in which they depend on
 REM each other. Each step is a separate GeoDmsRun call, so that memory is freed between the steps, and the script
-REM stops at an error. Logs in batch\log\UpdateAll_<step>.log.
+REM stops at an error. Logs in batch\log\UpdateAll_<step>.log, the console output of GeoDmsRun in UpdateAll_<step>.txt; at an
+REM error the console also shows the error messages of GeoDmsRun (ShowGeoDmsErrors.ps1).
 REM
 REM   UpdateAll.cmd                 all sections (sources, cars, chains, legs, output); expect more than a night
 REM   UpdateAll.cmd all -nosources  everything except the named sections: -nosources, -nocars, -nochains, -nolegs, -nooutput
@@ -270,6 +271,9 @@ echo %DATE% %TIME% %STEP%: %ITEMS%
 "%EXE%" "/L%LOGDIR%\UpdateAll_%STEP%.log" "%CFG%" %ITEMS% > "%LOGDIR%\UpdateAll_%STEP%.txt" 2>&1
 set RC=%ERRORLEVEL%
 echo %DATE% %TIME% %STEP%: exit %RC%
+REM At an error the messages of GeoDmsRun go to the console as well. A syntax error in the configuration stops the first
+REM step of a section, whatever that step makes, and without them the console shows only the exit code of that step.
+if not "%RC%"=="0" powershell -NoProfile -ExecutionPolicy Bypass -File "%BATCHDIR%ShowGeoDmsErrors.ps1" -Path "%LOGDIR%\UpdateAll_%STEP%.txt"
 exit /b %RC%
 
 :failed

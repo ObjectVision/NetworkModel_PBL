@@ -11,7 +11,8 @@
 #               minute, so the size makes little difference to the calculation time. A few slow blocks need 150 to 200 GB
 #               of live data and page on a machine with 128 GB, whatever the portion size.
 #   -MaxBlocks  at most this many blocks in this call (0 = all; for testing)
-# Exit code 0 when all blocks have a cache (or MaxBlocks is reached), otherwise 1.
+# Exit code 0 when all blocks have a cache (or MaxBlocks is reached), otherwise 1; a failed GeoDmsRun call also prints its
+# error messages (ShowGeoDmsErrors.ps1).
 param(
 	[Parameter(Mandatory=$true)][string]$Exe,
 	[Parameter(Mandatory=$true)][string]$Cfg,
@@ -22,12 +23,16 @@ param(
 $ErrorActionPreference = 'Stop'
 $todoFile = Join-Path $LogDir 'chain_blocks_todo.txt'
 $todoItem = '/NetworkSetup/PublicTransport_Prep/PT_Chains_Blocks/ToDo_List'
+$showErrors = Join-Path $PSScriptRoot 'ShowGeoDmsErrors.ps1'
 function Say($m) { "{0} {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $m }
 
 function Get-ToDo {
 	if (Test-Path $todoFile) { Remove-Item $todoFile }
 	$p = Start-Process -FilePath $Exe -ArgumentList @("/L$LogDir\UpdateAll_chains_todo.log", $Cfg, '@statistics', $todoItem) -PassThru -Wait -WindowStyle Hidden -RedirectStandardOutput "$LogDir\UpdateAll_chains_todo.txt"
-	if ($p.ExitCode -ne 0 -or -not (Test-Path $todoFile)) { throw "the list of missing blocks was not made (exit $($p.ExitCode)), see $LogDir\UpdateAll_chains_todo.log" }
+	if ($p.ExitCode -ne 0 -or -not (Test-Path $todoFile)) {
+		& $showErrors -Path "$LogDir\UpdateAll_chains_todo.txt" | Out-Host   # Out-Host: the output of a function would otherwise become part of its result
+		throw "the list of missing blocks was not made (exit $($p.ExitCode)), see $LogDir\UpdateAll_chains_todo.log"
+	}
 	return @(Get-Content $todoFile | Where-Object { $_.Trim() -ne '' })
 }
 
@@ -42,7 +47,7 @@ for ($b = 0; $b -lt $nb; $b++) {
 	$out = Join-Path $LogDir ('UpdateAll_chains_b{0:000}.txt' -f ($b + 1))
 	$p = Start-Process -FilePath $Exe -ArgumentList (@("/L$LogDir\UpdateAll_chains.log", $Cfg) + $items) -PassThru -Wait -WindowStyle Hidden -RedirectStandardOutput $out
 	Say ("portion {0}/{1}: {2} blocks, exit {3}, {4:N0} s" -f ($b + 1), $nb, $part.Count, $p.ExitCode, $sw.Elapsed.TotalSeconds)
-	if ($p.ExitCode -ne 0) { Say "FAILED, see $out and $LogDir\UpdateAll_chains.log"; exit 1 }
+	if ($p.ExitCode -ne 0) { Say "FAILED, see $out and $LogDir\UpdateAll_chains.log"; & $showErrors -Path $out; exit 1 }
 }
 $rest = @(Get-ToDo)
 Say ("done: {0} blocks still without a cache" -f $rest.Count)
