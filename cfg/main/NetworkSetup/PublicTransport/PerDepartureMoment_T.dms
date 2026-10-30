@@ -1,4 +1,4 @@
-Template PerDepartureMoment_T : Descr = "Calculates for one departure moment of an origin block the options per OD pair (pre-transport, public transport chain and post-transport, plus the direct trips), keeps their Pareto front and writes it as csv or parquet."
+Template PerDepartureMoment_T : Descr = "Calculates for one departure moment of an origin block the options per OD pair of the component of the run (pre-transport, public transport chain and post-transport, or the direct trip of a direct component), keeps their Pareto front and writes it as csv or parquet."
 {
 	parameter<uint32> inTime;
 	parameter<string> inTime_string;
@@ -217,12 +217,13 @@ Template PerDepartureMoment_T : Descr = "Calculates for one departure moment of 
 		}
 	}
 	
-	// Without public transport (Component 'Car', ModelParameters/Impl/WithPT FALSE, #117) only the direct trips: then nothing refers to
-	// Add_N_to_VPT, and the final front calculates no chains, pre-transport or post-transport.
+	// A run calculates one component (#117): a public transport component only its chains with pre-transport and post-transport (WithPT),
+	// a direct component (WW, CC or Car) only its direct trips. Without WithPT nothing refers to Add_N_to_VPT, so that no chains,
+	// pre-transport or post-transport are calculated.
 	parameter<bool>   WithPT      := /ModelParameters/Impl/WithPT;
 
-	// The direct trips of this departure moment (#132): those of the block (Direct_OD, independent of the moment) and, with the time-dependent
-	// car trip (ModelParameters/Impl/CarTimeDependent), the car trips of this moment from the cache of this moment.
+	// The direct trips of this departure moment of a direct component: those of the block (Direct_OD, the same at every moment), or for Car
+	// with the time-dependent car trip (ModelParameters/Impl/CarTimeDependent, #132) the car trips of this moment from the cache of this moment.
 	parameter<bool>   CarTD       := /ModelParameters/Impl/CarTimeDependent && /ModelParameters/Impl/AllowDirectCar;
 	parameter<string> TDName      := 'TD' + Time/TemplatableTextShrt[inTime[Time]];
 	parameter<string> CarTD_Cache := '/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/' + TDName + '/Read_Car';
@@ -259,29 +260,14 @@ Template PerDepartureMoment_T : Descr = "Calculates for one departure moment of 
 		attribute<Places> To_Place_rel     := rlookup(DirectCar/Front/DstZone_rel, Places/Dest_rel);
 		attribute<string> ModeUsed         := Modes/name_abbr[Mode_rel] + Modes/name_abbr[Mode_rel];
 	}
-	unit<uint64> Direct_OD_M := = CarTD ? 'union_unit_uint64(Direct_OD, DirectCar_M)' : 'Direct_OD'
-	{
-		attribute<Places> From_Place_rel   := = CarTD ? 'union_data(., Direct_OD/From_Place_rel, DirectCar_M/From_Place_rel)' : 'Direct_OD/From_Place_rel';
-		attribute<Places> To_Place_rel     := = CarTD ? 'union_data(., Direct_OD/To_Place_rel, DirectCar_M/To_Place_rel)' : 'Direct_OD/To_Place_rel';
-		attribute<string> ModeUsed         := = CarTD ? 'union_data(., Direct_OD/ModeUsed, DirectCar_M/ModeUsed)' : 'Direct_OD/ModeUsed';
-		attribute<Modes>  Mode_rel         := = CarTD ? 'union_data(., Direct_OD/Mode_rel, DirectCar_M/Mode_rel)' : 'Direct_OD/Mode_rel';
-		attribute<bool>   NeedsCar         := = CarTD ? 'union_data(., Direct_OD/NeedsCar, DirectCar_M/NeedsCar)' : 'Direct_OD/NeedsCar';
-		attribute<bool>   NeedsBike        := = CarTD ? 'union_data(., Direct_OD/NeedsBike, DirectCar_M/NeedsBike)' : 'Direct_OD/NeedsBike';
-		attribute<ct>     Price            := = CarTD ? 'union_data(., Direct_OD/Price, DirectCar_M/Price)' : 'Direct_OD/Price';
-		attribute<ct>     Price_Augm       := = CarTD ? 'union_data(., Direct_OD/Price_Augm, DirectCar_M/Price_Augm)' : 'Direct_OD/Price_Augm';
-		attribute<dam>    Distance         := = CarTD ? 'union_data(., Direct_OD/Distance, DirectCar_M/Distance)' : 'Direct_OD/Distance';
-		attribute<s>      Duration_seconds := = CarTD ? 'union_data(., Direct_OD/Duration_seconds, DirectCar_M/Duration_seconds)' : 'Direct_OD/Duration_seconds';
-		// The source row of every option (#129; only requested in the OD pair mode): a row of Direct_OD or, with CarTD, of DirectCar_M.
-		attribute<bool>   IsCarTD          := = CarTD ? 'union_data(., const(FALSE, Direct_OD), const(TRUE, DirectCar_M))' : 'const(FALSE, .)';
-		attribute<uint64> Source_rel       := = CarTD ? 'union_data(., id(Direct_OD), id(DirectCar_M))' : 'id(Direct_OD)';
-	}
+	parameter<string> Direct      := CarTD ? 'DirectCar_M' : 'Direct_OD', Descr = "The direct trips of this departure moment of a direct component: DirectCar_M with CarTD, otherwise Direct_OD.";
 
-	unit<uint64> Union_with_DirectOD := ='union_unit_uint64(' + (WithPT ? 'Add_N_to_VPT/Result, ' : '') + 'Direct_OD_M)'
-	, Descr = "All options of this departure moment, the chains with pre-transport and post-transport (with WithPT) and the direct trips, from which the Pareto front per OD pair is taken in two steps."
+	unit<uint64> AllOptions := = WithPT ? 'Add_N_to_VPT/Result' : Direct
+	, Descr = "All options of this departure moment, from which the Pareto front per OD pair is taken in two steps: the chains with pre-transport and post-transport of a public transport component, or the direct trips of a direct component. A direct trip fills the pre-transport columns (V_time, Price_V, TravelDist_V, V_mode_rel), without waiting at home, public transport or post-transport."
 	{
-		attribute<c_Time_Places> c_fromTime_Place_rel := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/c_FromTime_Place_rel, ' : '') + 'combine_data(c_Time_Places, inTime[Time], Direct_OD_M/From_Place_rel))';
-		attribute<c_Time_Places> c_toTime_Place_rel   := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/c_toTime_Place_rel, ' : '') + 'combine_data(c_Time_Places, inTime[Time] + Direct_OD_M/Duration_seconds[Time], Direct_OD_M/To_Place_rel))';
-		
+		attribute<c_Time_Places> c_fromTime_Place_rel := = WithPT ? 'Add_N_to_VPT/Result/c_FromTime_Place_rel' : 'combine_data(c_Time_Places, inTime[Time], ' + Direct + '/From_Place_rel)';
+		attribute<c_Time_Places> c_toTime_Place_rel   := = WithPT ? 'Add_N_to_VPT/Result/c_toTime_Place_rel'   : 'combine_data(c_Time_Places, inTime[Time] + ' + Direct + '/Duration_seconds[Time], ' + Direct + '/To_Place_rel)';
+
 		unit<uint32>             uq_c_FromTime_Place  := unique_uint32(c_fromTime_Place_rel);
 		unit<uint32>             uq_c_ToTime_Place    := unique_uint32(c_toTime_Place_rel);
 
@@ -293,42 +279,35 @@ Template PerDepartureMoment_T : Descr = "Calculates for one departure moment of 
 		attribute<Time>          To_Time_rel          := value(c_ToTime_Place_rel / uint64(#Places), Time);
 		attribute<Places>        To_Place_rel         := value(c_ToTime_Place_rel % uint64(#Places), Places);
 
-		attribute<s>             W_time               := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/W_time, ' : '') + 'const(0w, Direct_OD_M, s))';
-		attribute<s>             V_time               := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/V_time, ' : '') + 'Direct_OD_M/duration_seconds)';
-		attribute<s>             PT_time              := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/PT_time, ' : '') + 'const(0w, Direct_OD_M, s))';
-		attribute<s>             N_time               := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/N_time, ' : '') + 'const(0w, Direct_OD_M, s))';
-		
-		attribute<ct>            Price                := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/Price, ' : '') + 'Direct_OD_M/Price)';
-		// The direct trip, like its travel time (V_time) and distance (TravelDist_V), is in the pre-transport column.
-		attribute<ct>            Price_V              := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/Price_V, ' : '') + 'Direct_OD_M/Price)';
-		attribute<ct>            Price_N              := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/Price_N, ' : '') + 'const(0w, Direct_OD_M, ct))';
-		attribute<ct>            Price_augm           := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/Price_augm, ' : '') + 'Direct_OD_M/Price_Augm)';
-		attribute<s>             Traveltime           := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/Traveltime, ' : '') + 'Direct_OD_M/duration_seconds)';
-		attribute<string>        ModeUsed             := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/ModeUsed, ' : '') + 'Direct_OD_M/ModeUsed)';
+		attribute<s>             W_time               := = WithPT ? 'Add_N_to_VPT/Result/W_time'           : 'const(0w, ., s)';
+		attribute<s>             V_time               := = WithPT ? 'Add_N_to_VPT/Result/V_time'           : Direct + '/Duration_seconds';
+		attribute<s>             PT_time              := = WithPT ? 'Add_N_to_VPT/Result/PT_time'          : 'const(0w, ., s)';
+		attribute<s>             N_time               := = WithPT ? 'Add_N_to_VPT/Result/N_time'           : 'const(0w, ., s)';
+
+		attribute<ct>            Price                := = WithPT ? 'Add_N_to_VPT/Result/Price'            : Direct + '/Price';
+		attribute<ct>            Price_V              := = WithPT ? 'Add_N_to_VPT/Result/Price_V'          : Direct + '/Price';
+		attribute<ct>            Price_N              := = WithPT ? 'Add_N_to_VPT/Result/Price_N'          : 'const(0w, ., ct)';
+		attribute<ct>            Price_augm           := = WithPT ? 'Add_N_to_VPT/Result/Price_augm'       : Direct + '/Price_Augm';
+		attribute<s>             Traveltime           := = WithPT ? 'Add_N_to_VPT/Result/Traveltime'       : Direct + '/Duration_seconds';
+		attribute<string>        ModeUsed             := = WithPT ? 'Add_N_to_VPT/Result/ModeUsed'         : Direct + '/ModeUsed';
 		// Criteria of the final front when MinimiseCriteria names 'Car' and 'Bike' (Classifications/OwnershipParetoAttr, #117). A public transport
 		// chain needs no car (there is no park-and-ride pre-transport), and a bike only if a pre-transport or post-transport type does.
-		attribute<bool>          NeedsCar             := ='union_data(., ' + (WithPT ? 'const(FALSE, Add_N_to_VPT/Result), ' : '') + 'Direct_OD_M/NeedsCar)';
-		attribute<bool>          NeedsBike            := ='union_data(., '
-		                                                 + (WithPT ? (VN_ModeClasses/AnyNeedsBike ? 'Add_N_to_VPT/Result/NeedsBike, ' : 'const(FALSE, Add_N_to_VPT/Result), ') : '')
-		                                                 + 'Direct_OD_M/NeedsBike)';
+		attribute<bool>          NeedsCar             := = WithPT ? 'const(FALSE, .)'                      : Direct + '/NeedsCar';
+		attribute<bool>          NeedsBike            := = WithPT ? (VN_ModeClasses/AnyNeedsBike ? 'Add_N_to_VPT/Result/NeedsBike' : 'const(FALSE, .)') : Direct + '/NeedsBike';
+		// Mode of the pre-transport and post-transport, for the split into walking, cycling and car in the output.
+		attribute<Modes>         V_mode_rel           := = WithPT ? 'Add_N_to_VPT/Result/V_mode_rel'       : Direct + '/Mode_rel';
+		attribute<Modes>         N_mode_rel           := = WithPT ? 'Add_N_to_VPT/Result/N_mode_rel'       : 'const(value(null_b, Modes), .)';
 
-		attribute<bool>          IsDirectTravel       := ='union_data(., ' + (WithPT ? 'const(FALSE, Add_N_to_VPT/Result), ' : '') + 'const(TRUE, Direct_OD_M))';
-		attribute<uint64>        Source_rel           := ='union_data(., ' + (WithPT ? 'id(Add_N_to_VPT/Result), ' : '') + 'id(Direct_OD_M))', Descr = "The row of Add_N_to_VPT/Result or, for a direct trip (IsDirectTravel), of Direct_OD_M (only requested in the OD pair mode, OD_Output).";
-		// Mode of the pre-transport and post-transport, for the split into walking, cycling and car in the output. A direct trip is in the
-		// pre-transport (see Price_V); its post-transport has no mode.
-		attribute<Modes>         V_mode_rel           := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/V_mode_rel, ' : '') + 'Direct_OD_M/Mode_rel)';
-		attribute<Modes>         N_mode_rel           := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/N_mode_rel, ' : '') + 'const(value(null_b, Modes), Direct_OD_M))';
-
-		attribute<dam>           TravelDist_V         := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/TravelDist_V, ' : '') + 'Direct_OD_M/distance)';
-		attribute<dam>           TravelDist_Bus       := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/TravelDist_Bus, ' : '') + 'const(0w, Direct_OD_M, dam))';
-		attribute<dam>           Traveldist_Metro     := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/Traveldist_Metro, ' : '') + 'const(0w, Direct_OD_M, dam))';
-		attribute<dam>           Traveldist_Tram      := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/Traveldist_Tram, ' : '') + 'const(0w, Direct_OD_M, dam))';
-		attribute<dam>           Traveldist_Rail      := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/Traveldist_Rail, ' : '') + 'const(0w, Direct_OD_M, dam))';
-		attribute<dam>           Traveldist_Ferry     := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/Traveldist_Ferry, ' : '') + 'const(0w, Direct_OD_M, dam))';
-		attribute<dam>           Traveldist_N         := ='union_data(., ' + (WithPT ? 'Add_N_to_VPT/Result/Traveldist_N, ' : '') + 'const(0w, Direct_OD_M, dam))';
+		attribute<dam>           TravelDist_V         := = WithPT ? 'Add_N_to_VPT/Result/TravelDist_V'     : Direct + '/Distance';
+		attribute<dam>           TravelDist_Bus       := = WithPT ? 'Add_N_to_VPT/Result/TravelDist_Bus'   : 'const(0w, ., dam)';
+		attribute<dam>           Traveldist_Metro     := = WithPT ? 'Add_N_to_VPT/Result/Traveldist_Metro' : 'const(0w, ., dam)';
+		attribute<dam>           Traveldist_Tram      := = WithPT ? 'Add_N_to_VPT/Result/Traveldist_Tram'  : 'const(0w, ., dam)';
+		attribute<dam>           Traveldist_Rail      := = WithPT ? 'Add_N_to_VPT/Result/Traveldist_Rail'  : 'const(0w, ., dam)';
+		attribute<dam>           Traveldist_Ferry     := = WithPT ? 'Add_N_to_VPT/Result/Traveldist_Ferry' : 'const(0w, ., dam)';
+		attribute<dam>           Traveldist_N         := = WithPT ? 'Add_N_to_VPT/Result/Traveldist_N'     : 'const(0w, ., dam)';
 
 		///// ==== Step-wise condensation of result set ==== ////
- 		unit<uint64>          OD_key_set                       := combine_unit_uint64(Union_with_DirectOD/uq_c_FromTime_Place, Places), Descr = "Step-wise condensation of result set: second condense the results based on time-place to place.";
+ 		unit<uint64>          OD_key_set                       := combine_unit_uint64(AllOptions/uq_c_FromTime_Place, Places), Descr = "Step-wise condensation of result set: second condense the results based on time-place to place.";
 		attribute<OD_key_set>    OD_key               := combine_data(OD_key_set, uq_c_FromTime_Place_rel, To_Place_rel);
 		unit<uint64>             uq_OD_key            := unique(OD_key);
 		attribute<uq_OD_key>     uq_OD_key_rel        := rlookup(OD_key, uq_OD_key/values); // the group of each row for the Pareto selection below
@@ -338,36 +317,35 @@ Template PerDepartureMoment_T : Descr = "Calculates for one departure moment of 
 		attribute<bool>          pareto_condition     := ='pareto_optimal_eps(uq_OD_key_rel, ' + asList(ParetoAttr/ParetoArgs, ', ') + ')';
 	}
 	
-	unit<uint64> Result_AfterFirstCondensation := select(Union_with_DirectOD/pareto_condition)
+	unit<uint64> Result_AfterFirstCondensation := select(AllOptions/pareto_condition)
 	, Descr = "Set that still contains duplicate from places, departing at different times. So we need to condense it again."
 	{
-		attribute<ct>         Price            := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Price);
-		attribute<ct>         Price_V          := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Price_V);
-		attribute<ct>         Price_N          := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Price_N);
-		attribute<ct>         Price_augm       := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Price_augm);
-		attribute<s>          Traveltime       := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Traveltime);
-		attribute<string>     ModeUsed         := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/ModeUsed);
-		attribute<bool>       NeedsCar         := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/NeedsCar);
-		attribute<bool>       NeedsBike        := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/NeedsBike);
-		attribute<s>          W_time           := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/W_time), Descr = "Waiting at home";
-		attribute<s>          V_time           := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/V_time);
-		attribute<s>          PT_time          := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/PT_time);
-		attribute<s>          N_time           := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/N_time);
+		attribute<ct>         Price            := collect_by_cond(., AllOptions/pareto_condition, AllOptions/Price);
+		attribute<ct>         Price_V          := collect_by_cond(., AllOptions/pareto_condition, AllOptions/Price_V);
+		attribute<ct>         Price_N          := collect_by_cond(., AllOptions/pareto_condition, AllOptions/Price_N);
+		attribute<ct>         Price_augm       := collect_by_cond(., AllOptions/pareto_condition, AllOptions/Price_augm);
+		attribute<s>          Traveltime       := collect_by_cond(., AllOptions/pareto_condition, AllOptions/Traveltime);
+		attribute<string>     ModeUsed         := collect_by_cond(., AllOptions/pareto_condition, AllOptions/ModeUsed);
+		attribute<bool>       NeedsCar         := collect_by_cond(., AllOptions/pareto_condition, AllOptions/NeedsCar);
+		attribute<bool>       NeedsBike        := collect_by_cond(., AllOptions/pareto_condition, AllOptions/NeedsBike);
+		attribute<s>          W_time           := collect_by_cond(., AllOptions/pareto_condition, AllOptions/W_time), Descr = "Waiting at home";
+		attribute<s>          V_time           := collect_by_cond(., AllOptions/pareto_condition, AllOptions/V_time);
+		attribute<s>          PT_time          := collect_by_cond(., AllOptions/pareto_condition, AllOptions/PT_time);
+		attribute<s>          N_time           := collect_by_cond(., AllOptions/pareto_condition, AllOptions/N_time);
 		
-		attribute<dam>        TravelDist_V     := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/TravelDist_V);
-		attribute<dam>        TravelDist_Bus   := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/TravelDist_Bus);
-		attribute<dam>        Traveldist_Metro := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Traveldist_Metro);
-		attribute<dam>        Traveldist_Tram  := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Traveldist_Tram);
-		attribute<dam>        Traveldist_Rail  := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Traveldist_Rail);
-		attribute<dam>        Traveldist_Ferry := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Traveldist_Ferry);
-		attribute<dam>        Traveldist_N     := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/Traveldist_N);
+		attribute<dam>        TravelDist_V     := collect_by_cond(., AllOptions/pareto_condition, AllOptions/TravelDist_V);
+		attribute<dam>        TravelDist_Bus   := collect_by_cond(., AllOptions/pareto_condition, AllOptions/TravelDist_Bus);
+		attribute<dam>        Traveldist_Metro := collect_by_cond(., AllOptions/pareto_condition, AllOptions/Traveldist_Metro);
+		attribute<dam>        Traveldist_Tram  := collect_by_cond(., AllOptions/pareto_condition, AllOptions/Traveldist_Tram);
+		attribute<dam>        Traveldist_Rail  := collect_by_cond(., AllOptions/pareto_condition, AllOptions/Traveldist_Rail);
+		attribute<dam>        Traveldist_Ferry := collect_by_cond(., AllOptions/pareto_condition, AllOptions/Traveldist_Ferry);
+		attribute<dam>        Traveldist_N     := collect_by_cond(., AllOptions/pareto_condition, AllOptions/Traveldist_N);
 		
-		attribute<Places>     From_Place_rel   := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/From_Place_rel);
-		attribute<Places>     To_Place_rel     := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/To_Place_rel);
-		attribute<bool>       IsDirectTravel   := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/IsDirectTravel);
-		attribute<Modes>      V_mode_rel       := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/V_mode_rel);
-		attribute<Modes>      N_mode_rel       := collect_by_cond(., Union_with_DirectOD/pareto_condition, Union_with_DirectOD/N_mode_rel);
-		attribute<Union_with_DirectOD> Union_rel := collect_by_cond(., Union_with_DirectOD/pareto_condition, id(Union_with_DirectOD)), Descr = "The row of Union_with_DirectOD (only requested in the OD pair mode, OD_Output).";
+		attribute<Places>     From_Place_rel   := collect_by_cond(., AllOptions/pareto_condition, AllOptions/From_Place_rel);
+		attribute<Places>     To_Place_rel     := collect_by_cond(., AllOptions/pareto_condition, AllOptions/To_Place_rel);
+		attribute<Modes>      V_mode_rel       := collect_by_cond(., AllOptions/pareto_condition, AllOptions/V_mode_rel);
+		attribute<Modes>      N_mode_rel       := collect_by_cond(., AllOptions/pareto_condition, AllOptions/N_mode_rel);
+		attribute<AllOptions> AllOptions_rel   := collect_by_cond(., AllOptions/pareto_condition, id(AllOptions)), Descr = "The row of AllOptions, which is that of Add_N_to_VPT/Result or of the direct trips (Direct) (only requested in the OD pair mode, OD_Output).";
 	
 		///// ==== Step-wise condensation of result set ==== ////
  		unit<uint64>          OD_key_set                       := combine_unit_uint64(Places, Places), Descr = "Step-wise condensation of result set: third condense the results based on place to place.";
@@ -410,7 +388,6 @@ Template PerDepartureMoment_T : Descr = "Calculates for one departure moment of 
 		attribute<string> OrgName            := Places/label[From_Place_rel];
 		attribute<string> DestName           := Places/label[To_Place_rel];
 
-		attribute<bool>   IsDirectTravel     := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/IsDirectTravel);
 		attribute<Modes>  V_mode_rel         := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/V_mode_rel);
 		attribute<Modes>  N_mode_rel         := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, Result_AfterFirstCondensation/N_mode_rel);
 		attribute<Result_AfterFirstCondensation> First_rel := collect_by_cond(., Result_AfterFirstCondensation/pareto_condition, id(Result_AfterFirstCondensation)), Descr = "The row of Result_AfterFirstCondensation (only requested in the OD pair mode, OD_Output).";
@@ -447,7 +424,6 @@ Template PerDepartureMoment_T : Descr = "Calculates for one departure moment of 
 		attribute<dam>    Traveldist_N       := ='union_data(., ' + asList(PartResults + '/Traveldist_N', ', ') + ')';
 		attribute<Places> From_Place_rel     := ='union_data(., ' + asList(PartResults + '/From_Place_rel', ', ') + ')';
 		attribute<Places> To_Place_rel       := ='union_data(., ' + asList(PartResults + '/To_Place_rel', ', ') + ')';
-		attribute<bool>   IsDirectTravel     := ='union_data(., ' + asList(PartResults + '/IsDirectTravel', ', ') + ')';
 		attribute<Modes>  V_mode_rel         := ='union_data(., ' + asList(PartResults + '/V_mode_rel', ', ') + ')';
 		attribute<Modes>  N_mode_rel         := ='union_data(., ' + asList(PartResults + '/N_mode_rel', ', ') + ')';
 
@@ -477,7 +453,7 @@ Template PerDepartureMoment_T : Descr = "Calculates for one departure moment of 
 
 		attribute<bool>   HasFerryInTrip     := strcount(ModeUsed, 'F') > 0;
 	
-		attribute<bool>   IsPTWithoutPrice   := NOT(IsDirectTravel) && price == 0[ct] && NOT(HasFerryInTrip); // should be FALSE everywhere; trips with a ferry are excluded because some ferries are free, as in Amsterdam
+		attribute<bool>   IsPTWithoutPrice   := WithPT && price == 0[ct] && NOT(HasFerryInTrip); // should be FALSE everywhere; trips with a ferry are excluded because some ferries are free, as in Amsterdam
 	}
 	
 	container CreateExports : Descr = "The output of this block and departure moment: the final set as csv (LongFormat/File) or parquet (LongFormat/Parquet_<ExportClass>), the counts and, in the OD pair mode, OD_Output."
@@ -621,11 +597,12 @@ Template PerDepartureMoment_T : Descr = "Calculates for one departure moment of 
 				// so that the final result can be freed after the phase.
 				container Counts
 				{
+					// The rows of a public transport component are all chains, those of a direct component all direct trips of its mode.
 					unit<uint64>       R                       := BlockResult;
-					attribute<bool>    IsChain             (R) := NOT(R/IsDirectTravel);
-					attribute<bool>    IsWW                (R) := R/IsDirectTravel && R/V_mode_rel == Modes/v/Walking;
-					attribute<bool>    IsCC                (R) := R/IsDirectTravel && R/V_mode_rel == Modes/v/Cycling;
-					attribute<bool>    IsAA                (R) := R/IsDirectTravel && R/V_mode_rel == Modes/v/Car;
+					attribute<bool>    IsChain             (R) := const(WithPT, R);
+					attribute<bool>    IsWW                (R) := !WithPT && R/V_mode_rel == Modes/v/Walking;
+					attribute<bool>    IsCC                (R) := !WithPT && R/V_mode_rel == Modes/v/Cycling;
+					attribute<bool>    IsAA                (R) := !WithPT && R/V_mode_rel == Modes/v/Car;
 					attribute<bool>    IsWithoutCar        (R) := NOT(R/NeedsCar);
 					attribute<bool>    IsWithoutCarAndBike (R) := NOT(R/NeedsCar) && NOT(R/NeedsBike);
 
@@ -686,9 +663,5 @@ Template PerDepartureMoment_T : Descr = "Calculates for one departure moment of 
 		parameter<string> fileNameSuffix              :=
 			'_' + inTime_str_short +
 			'_' + NetworkSetup/Impl/OrgBlockDomain/FileName[BlockDomain_id];
-		
-		parameter<string> Direct_str                  := ModelParameters/Impl/Direct_str; // WW, CC and/or AA, from DirectModes
-		parameter<string> V_types                     := (Direct_str != '' ? Direct_str + ',' : '') + asList(ModelParameters/Impl/PT_PreTransport_Types/ExportName, ',');
-		parameter<string> N_types                     := asList(ModelParameters/Impl/PT_PostTransport_Types/ExportName, ',');
 	}
 }

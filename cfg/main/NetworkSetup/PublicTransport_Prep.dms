@@ -160,19 +160,18 @@ container PublicTransport_Prep
 	container Create_Optimised_Network_Cycling := Templates/CreateNetwork_Efficient_T(impl/Org, impl/Dest, SourceData/Infrastructure/Network_Cycling, 'Cycling', TRUE), Descr = "Network for pre- and post-transport over the cycling network of ModelParameters/Advanced/CyclingNetwork, the Fietsersbond by default (#124).";
 	container Create_Optimised_Network_EBike   := Templates/CreateNetwork_Efficient_T(impl/Org, impl/Dest, SourceData/Infrastructure/Network_Cycling, 'E_Biking', TRUE), Descr = "Network for pre- and post-transport.";
 
-	// Direct trips, the components WW, CC and Car (#117). For each allowed mode (ModelParameters/Impl/AllowDirectWalking, -Cycling, -Car,
-	// which follow from the component; the list is in Classifications/DirectModes) the full OD table from /NetworkSetup/PrivateTransport,
-	// merged into one table with the same columns. The final selection per block and departure moment of a direct component
-	// (PublicTransport/PerDepartureMoment_T, Union_with_DirectOD) takes only these rows and keeps per OD pair the Pareto front on
-	// MinimiseCriteria (price, time); a public transport component has no direct trips, so there that set holds only the chains with their
-	// pre- and post-transport.
+	// Direct trips, the components WW, CC and Car (#117). Direct holds per mode the full OD table from /NetworkSetup/PrivateTransport;
+	// Direct_OD below is that of the mode of a direct component (ModelParameters/Impl/AllowDirectWalking, -Cycling, -Car, which follow from
+	// the component; the list is in Classifications/DirectModes), and is empty for a public transport component. The final selection per
+	// block and departure moment of a direct component (PublicTransport/PerDepartureMoment_T, AllOptions) takes these rows and keeps per OD
+	// pair the Pareto front on MinimiseCriteria (price, time).
 	//
 	// Price per mode: walking and cycling get a time valuation (Direct_*_Time_Costs), which counts in Price only when
 	// Include*CostsInPrice is on; the car gets a cost price, Car_FixedCosts_PerTrip plus distance x Car_CostPerKm (#88). Price_Augm is
 	// the time valuation itself for walking and cycling, and equal to Price for the car, for which there is no time valuation. The car
 	// travel time is that of Car_CongestionMoment_ForDirect.
 	unit<uint8>       DirectModes_Selected     := select_with_attr_by_cond(/Classifications/DirectModes, /Classifications/DirectModes/Allowed)
-	,	Descr = "The direct modes that take part; at least one must be switched on.";
+	,	Descr = "The direct mode of a direct component; none for a public transport component.";
 	
 	container Direct : Descr = "The direct trips per mode, each a full OD table with travel time, distance and price: Walking, Cycling and the car per congestion moment."
 	{
@@ -365,12 +364,12 @@ container PublicTransport_Prep
 	
 	// With CarTimeDependent (#132) the car trip depends on the departure moment: it is then not in Direct_OD but in a cache of its own
 	// per moment (Direct/CarPerMoment/TD<moment>), from which the final selection of each block and moment reads the rows of its origins
-	// and adds them (PerDepartureMoment_T, CarRows and Direct_OD_M). Without another direct mode (component Car) Direct_OD is then empty.
+	// (PerDepartureMoment_T, CarRows and DirectCar_M); Direct_OD is then empty.
 	unit<uint8>       DirectModes_TI           := select_with_attr_by_cond(DirectModes_Selected, not(/ModelParameters/Impl/CarTimeDependent && DirectModes_Selected/name == 'Car'))
-	,	Descr = "The direct modes that do not depend on the departure moment: all allowed ones, except the car with CarTimeDependent.";
+	,	Descr = "The direct mode of the component when it does not depend on the departure moment: none for a public transport component, and none for Car with CarTimeDependent.";
 	parameter<bool>   HasDirectTI              := #DirectModes_TI > 0;
 	unit<uint64> Direct_OD := = HasDirectTI ? 'union_unit_uint64('+asList('Direct/'+DirectModes_TI/name, ',')+')' : 'range(uint64, 0u64, 0u64)'
-	,	Descr = "All direct trips of the allowed modes that do not depend on the departure moment, as a full OD table; PublicTransport/Direct_OD filters them per block."
+	,	Descr = "The direct trips of the component as a full OD table, when they do not depend on the departure moment (DirectModes_TI), else empty; PublicTransport/Direct_OD selects them per block."
 	{
 		attribute<impl/org>   OrgZone_rel      := = HasDirectTI ? 'union_data(., '+asList('Direct/'+DirectModes_TI/name+'/OrgZone_rel', ',')+')' : 'const(value(null_u, impl/org), .)';
 		attribute<impl/dest>  DstZone_rel      := = HasDirectTI ? 'union_data(., '+asList('Direct/'+DirectModes_TI/name+'/DstZone_rel', ',')+')' : 'const(value(null_u, impl/dest), .)';
