@@ -14,7 +14,8 @@ REM (ChecksBeforeRunning/Report, written to batch\log\checks.txt) and stops at a
 REM it calculates the components one after the other, each in its own GeoDmsRun steps: it sets the component in the
 REM environment variable GEODMS_Overridable_RunComponent, which the model reads as ConfigSettings/Overridable/RunComponent.
 REM A component whose output is complete (NetworkSetup/GenerateOutput/IsComplete: the signature of the current settings
-REM and the counts of all blocks) is skipped, so a run that stopped continues with the next component when started again.
+REM and the counts of all blocks) is skipped, so a run that stopped continues with the next component when started again;
+REM with section all that check comes first, so that a complete component also skips its cache steps.
 REM With ModelParameters/Merge the merge of the components follows, as the last component, Merged.
 REM
 REM   UpdateAll.cmd                 all sections: sources, then per component cars, chains, legs and output, then the merge
@@ -109,6 +110,7 @@ call :say "%WHAT% started"
 call :say "engine: %EXE%"
 set COMP=
 set CTAG=
+set OUTSTATE_OF=
 set GEODMS_Overridable_RunComponent=
 
 set KNOWN=0
@@ -206,6 +208,16 @@ if /I "%~1"=="Merged" (
   exit /b !RC!
 )
 if /I "%SECTION%"=="merge" exit /b 0
+REM With section all, a component whose output is complete skips its cache steps as well: they serve its output, and the
+REM car caches would be written again (Write_Car calculates on every request).
+if /I "%SECTION%"=="all" if not "%SKIP_OUTPUT%"=="1" (
+  call :output_state
+  if not "!RC!"=="0" exit /b !RC!
+  if /I "!OUTSTATE!"=="complete" (
+    call :say "--- output of %COMP% is complete in !OUTDIR!, skipped with its cache steps ---"
+    exit /b 0
+  )
+)
 if "%~3"=="1" (
   if /I "%SECTION%"=="cars" call :cars_comp
   if /I "%SECTION%"=="all" if not "%SKIP_CARS%"=="1" call :cars_comp
@@ -265,6 +277,28 @@ call :say "--- legs: the caches of the base sets without one (parquet in Interme
 call :run legs %PREP%/Write_PrePostTransport
 exit /b !RC!
 
+:output_state
+REM The output folder of the component (NetworkSetup/GenerateOutput/OutputDir_ForBatch, written to batch\log\output_dir.txt),
+REM the check of the longest path (Output_Sig/PathGate), and whether the output is complete (IsComplete, written to
+REM batch\log\output_complete.txt), in OUTDIR and OUTSTATE; OUTSTATE_OF names the component they belong to. The signature
+REM follows from the settings alone, so this step needs no cache.
+set OUTDIR=
+set OUTSTATE=
+set OUTSTATE_OF=
+for %%F in (output_dir.txt output_complete.txt) do if exist "%LOGDIR%\%%F" del "%LOGDIR%\%%F"
+call :run output_dir /NetworkSetup/GenerateOutput/OutputDir_ForBatch /NetworkSetup/GenerateOutput/Output_Sig/PathGate /NetworkSetup/GenerateOutput/ForBatch/IsComplete
+if not "!RC!"=="0" exit /b !RC!
+set /p OUTDIR=<"%LOGDIR%\output_dir.txt"
+if not defined OUTDIR (
+  call :say "ABORT: no output folder in %LOGDIR%\output_dir.txt"
+  set STEP=output_dir
+  set RC=1
+  exit /b 1
+)
+set /p OUTSTATE=<"%LOGDIR%\output_complete.txt"
+set "OUTSTATE_OF=%COMP%"
+exit /b 0
+
 :output_comp
 REM Pause before the output step: as long as batch\pause_before_output.flag exists, the output step waits without a
 REM calculation process, for example to free the machine for performance tests; removing the flag lets it start.
@@ -275,22 +309,11 @@ if exist "%PAUSEFLAG%" (
   ping -n 61 127.0.0.1 >nul
   goto output_wait
 )
-REM The output folder of the component (NetworkSetup/GenerateOutput/OutputDir_ForBatch, written to batch\log\output_dir.txt),
-REM the check of the longest path (Output_Sig/PathGate), and whether the output is complete (IsComplete, written to
-REM batch\log\output_complete.txt).
-for %%F in (output_dir.txt output_complete.txt) do if exist "%LOGDIR%\%%F" del "%LOGDIR%\%%F"
-call :run output_dir /NetworkSetup/GenerateOutput/OutputDir_ForBatch /NetworkSetup/GenerateOutput/Output_Sig/PathGate /NetworkSetup/GenerateOutput/ForBatch/IsComplete
-if not "!RC!"=="0" exit /b !RC!
-set OUTDIR=
-set /p OUTDIR=<"%LOGDIR%\output_dir.txt"
-if not defined OUTDIR (
-  call :say "ABORT: no output folder in %LOGDIR%\output_dir.txt"
-  set STEP=output_dir
-  set RC=1
-  exit /b 1
+REM The state of the output, unless the component step determined it already.
+if /I not "!OUTSTATE_OF!"=="%COMP%" (
+  call :output_state
+  if not "!RC!"=="0" exit /b !RC!
 )
-set OUTSTATE=
-set /p OUTSTATE=<"%LOGDIR%\output_complete.txt"
 if /I "!OUTSTATE!"=="complete" (
   call :say "--- output of %COMP% is complete in !OUTDIR!, skipped ---"
   exit /b 0
