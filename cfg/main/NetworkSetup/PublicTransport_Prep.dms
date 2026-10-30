@@ -413,8 +413,8 @@ container PublicTransport_Prep
 	// and stop connected within the maximum walking or cycling time: walking and cycling to every stop and cycling from every stop. These
 	// are the candidates for the first and last leg of a journey. With PrePostTransportDecoupled each is a parquet file in IntermediateResults
 	// (PrePostTransport/<base set>/Write; batch/UpdateAll.cmd legs), which can also be used outside the model: per connection the neighbourhood
-	// (CBS code), the stop (GTFS stop_id and stop_name), the network travel time in minutes and the distance in metres (float64, so that the model reads them back
-	// exactly). The name gives the neighbourhood set: Legs_B2025toStops_Walking_<hash>.parquet, Legs_Stops2B2025_Cycling_<hash>.parquet;
+	// (CBS code), the stop (GTFS stop_id and stop_name), the network travel time in whole seconds (uint16) and the distance in whole metres (uint32),
+	// rounded in Calc, so that a run computes the same with and without the cache. The name gives the neighbourhood set: Legs_B2025toStops_Walking_<hash>.parquet, Legs_Stops2B2025_Cycling_<hash>.parquet;
 	// the signature is beside it in <name>.signature.txt. Walking from a stop to the destinations is the mirror image of walking from
 	// the neighbourhoods to the stops when origins and destinations are the same set (WalkingMirror), because the walking network has no
 	// one-way links. Cycling is not: the Fietsersbond cycling network has one-way cycle paths. The connections do not depend on the PartOfDay
@@ -452,7 +452,7 @@ container PublicTransport_Prep
 		                                                               + '_ORG-' + /ModelParameters/Impl/OrgSet_string + '_DEST-' + /ModelParameters/Impl/DestSet_string
 		                                                               + '_' + /ModelParameters/Impl/Analysis_date + (/ModelParameters/Impl/GTFS_file_date == /ModelParameters/Impl/Analysis_date ? '' : '_gtfs' + /ModelParameters/Impl/GTFS_file_date)
 		                                                               + '_places' + string(#impl/Places) + '-stops' + string(#impl/Stops)
-		                                                               + '_parquet_r2'
+		                                                               + '_parquet_r3'
 		,	Descr = "Signature of the cache: the type, network and speed, the maximum time, the origins, the destinations and the stops (feed and analysis date, with the number of places and stops as a check), the format and the revision.";
 		container                     Hash                          := /Templates/StringHash_T(Signature);
 		parameter<string>             StorageBase_Str               := /ModelParameters/Impl/IntermediateResultsDir + '/Legs_' + replace(TypeName, 'Org2', /ModelParameters/Impl/OrgSet_NameTag + 'to', 'Dest', /ModelParameters/Impl/DestSet_NameTag) + '_' + Hash/Hex
@@ -472,8 +472,8 @@ container PublicTransport_Prep
 			attribute<string>  BuurtCode  := impl/Places/label[Neighbourhood_Place_rel[Src_rel]];
 			attribute<string>  stop_id    := /SourceData/Infrastructure/GTFS/PublicTransportNet/Stops/stop_id[impl/Places/Stop_rel[Stop_Place_rel[Src_rel]]];
 			attribute<string>  stop_name  := impl/Stops/name[impl/Places/Stop_rel[Stop_Place_rel[Src_rel]]];
-			attribute<float64> Traveltime := float64(Src/impedance[Src_rel]) / 60d, Descr = "Network travel time of the connection in minutes, without start and parking time.";
-			attribute<float64> TravelDist := float64(Src/alt_imp[Src_rel]) * 1000d, Descr = "Distance of the connection in metres.";
+			attribute<s>        Traveltime := rounded_convert(Src/impedance[Src_rel], s), Descr = "Network travel time of the connection in whole seconds, without start and parking time.";
+			attribute<m_uint32> TravelDist := rounded_convert(Src/alt_imp[Src_rel], m_uint32), Descr = "Distance of the connection in whole metres.";
 		}
 		container Write : StorageName = "=StorageName_Str", StorageType = "gdalwrite.vect"
 		,	Descr = "Writes Calc as parquet to StorageName_Str, with the signature beside it (Sig); calculate Write/Data to make the cache."
@@ -483,8 +483,8 @@ container PublicTransport_Prep
 				attribute<string>  BuurtCode  := Calc/BuurtCode;
 				attribute<string>  stop_id    := Calc/stop_id;
 				attribute<string>  stop_name  := Calc/stop_name;
-				attribute<float64> Traveltime := Calc/Traveltime;
-				attribute<float64> TravelDist := Calc/TravelDist;
+				attribute<s>        Traveltime := Calc/Traveltime;
+				attribute<m_uint32> TravelDist := Calc/TravelDist;
 			}
 		}
 		unit<uint32> Read : StorageName = "=Sig/ForReading", StorageType = "gdal.vect", StorageReadOnly = "true"
@@ -492,8 +492,8 @@ container PublicTransport_Prep
 		{
 			attribute<string>  BuurtCode;
 			attribute<string>  stop_id;
-			attribute<float64> Traveltime;
-			attribute<float64> TravelDist;
+			attribute<s>        Traveltime;
+			attribute<m_uint32> TravelDist;
 		}
 		unit<uint32>                  Connections                   := = /ModelParameters/Advanced/PrePostTransportDecoupled && IsWritten ? 'Read' : 'Calc'
 		,	Descr = "The connections the model uses: read from the cache with ModelParameters/Advanced/PrePostTransportDecoupled when it exists, otherwise calculated in the run.";
@@ -563,8 +563,8 @@ container PublicTransport_Prep
 		                                                        ? 'invert(impl/Places/Origin_rel)[rlookup(Src/BuurtCode, impl/org/name)]'
 		                                                        : 'invert(impl/Places/Dest_rel)[rlookup(Src/BuurtCode, impl/dest/name)]';
 		attribute<impl/Places> Stop_Place_rel          (Src) := impl/Stops/Place_rel[rlookup(Src/stop_id, /SourceData/Infrastructure/GTFS/PublicTransportNet/Stops/stop_id)];
-		attribute<s_f>         Src_impedance           (Src) := value(float32(Src/Traveltime * 60d), s_f);
-		attribute<km>          Src_alt_imp             (Src) := value(float32(Src/TravelDist / 1000d), km);
+		attribute<s_f>         Src_impedance           (Src) := convert(Src/Traveltime, s_f);
+		attribute<km>          Src_alt_imp             (Src) := convert(Src/TravelDist, km);
 		attribute<bool>        InStopSet               (Src) := = StopSet == 'Stops' ? 'const(TRUE, Src)' : 'IsDefined(impl/Places/' + StopSet + '_rel[Stop_Place_rel])';
 		attribute<bool>        Keep                    (Src) := InStopSet && Src_impedance <= convert(MaxTime, s_f);
 		unit<uint32> ODMatrix := select_with_org_rel(Keep)
