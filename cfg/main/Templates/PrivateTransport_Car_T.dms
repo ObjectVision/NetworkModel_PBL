@@ -1,72 +1,72 @@
 Template PrivateTransport_Car_T : Descr = "Calculates the car travel times from org to dest on the OSM or the TomTom network, per congestion moment, and exports them as csv."
 {
-	unit<uint32>       org;
-	unit<uint32>       dest;
-	parameter<bool>    DoMakeAllPairs;
+	unit<uint32>    org;
+	unit<uint32>    dest;
+	parameter<bool> DoMakeAllPairs;
 	///
-	parameter<string>  network_type_OSM := 'car';
+	parameter<string> network_type_OSM             := 'car';
 
 	container Settings
 	{
 		
-		parameter<min_f>   max_traveldistance_min  := ModelParameters/MaxCarTime;
+		parameter<min_f>  max_traveldistance_min := ModelParameters/MaxCarTime;
 		
-		parameter<string>  network_type_suffix := ModelParameters/UseTomTomNetworkForCars ? '-TomTom' : '-OSM';
-		parameter<string>  fileNamePrefix :=  ModelParameters/Impl/fileNamePrefix;
-		parameter<string>  fileNameSuffix :=  
+		parameter<string> network_type_suffix    := ModelParameters/UseTomTomNetworkForCars ? '-TomTom' : '-OSM';
+		parameter<string> fileNamePrefix         := ModelParameters/Impl/fileNamePrefix;
+		parameter<string> fileNameSuffix         :=
 			'_ORG-'    + ModelParameters/Impl/OrgSet_PathTag + 
 			'_DEST-'   + ModelParameters/Impl/DestSet_PathTag +
 			'_NETWERK-'+ network_type_OSM + network_type_suffix +
-			'_DayGroup-'+ModelParameters/Advanced/CongestionSpeed_DaySelection +
+			'_DayGroup-'+ModelParameters/CongestionSpeed_DaySelection +
 			'_MaxTime-' + string(ModelParameters/MaxCarTime)+'min';
 
 	}
 
-	unit<uint32> RoadDomain_OSM        := SourceData/Infrastructure/OSM/Network_Car/MainNetwork;
-	unit<uint32> RoadDomain_TomTom     := /SourceData/Infrastructure/TomTom/Roads_selection;
-	unit<uint32> JunctionDomain_TomTom := /SourceData/Infrastructure/TomTom/Junctions;
+	unit<uint32>      RoadDomain_OSM               := SourceData/Infrastructure/OSM/Network_Car/MainNetwork;
+	unit<uint32>      RoadDomain_TomTom            := /SourceData/Infrastructure/TomTom/Roads_selection;
+	unit<uint32>      JunctionDomain_TomTom        := /SourceData/Infrastructure/TomTom/Junctions;
 	
-	container Create_Optimised_Network_OSM  := Templates/CreateNetwork_Efficient_T(org, dest, RoadDomain_OSM, network_type_OSM, FALSE); //instantiated for OSM
-	container Create_Network_TomTom     := Templates/CreateNetwork_TomTom_T(org, dest, RoadDomain_TomTom, JunctionDomain_TomTom); //instantiated for TomTom
+	container         Create_Optimised_Network_OSM := Templates/CreateNetwork_Efficient_T(org, dest, RoadDomain_OSM, network_type_OSM, FALSE); //instantiated for OSM
+	container         Create_Network_TomTom        := Templates/CreateNetwork_TomTom_T(org, dest, RoadDomain_TomTom, JunctionDomain_TomTom); //instantiated for TomTom
 
-	unit<uint32> OSM_LinkSet                      := Create_Optimised_Network_OSM/CreateMoreEfficientNetwork/FinalLinkSet;
-	unit<uint32> OSM_NodeSet                      := Create_Optimised_Network_OSM/CreateMoreEfficientNetwork/FinalNodeSet;
-	unit<uint32> TomTom_LinkSet                   := Create_Network_TomTom/CreateInitialWorkingNetwork/LinkSet;
-	unit<uint32> TomTom_NodeSet                   := Create_Network_TomTom/CreateInitialWorkingNetwork/NodeSet;
+	unit<uint32>      OSM_LinkSet                  := Create_Optimised_Network_OSM/CreateMoreEfficientNetwork/FinalLinkSet;
+	unit<uint32>      OSM_NodeSet                  := Create_Optimised_Network_OSM/CreateMoreEfficientNetwork/FinalNodeSet;
+	unit<uint32>      TomTom_LinkSet               := Create_Network_TomTom/CreateInitialWorkingNetwork/LinkSet;
+	unit<uint32>      TomTom_NodeSet               := Create_Network_TomTom/CreateInitialWorkingNetwork/NodeSet;
 	
 	container Traveltimes
 	{
 		//OSM
-		unit<uint64> MorningRush_OSM                  := ImpedanceMatrix_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Morning_car);
-		unit<uint64> NoonRush_OSM                     := ImpedanceMatrix_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Noon_car);
-		unit<uint64> LateEveningRush_OSM              := ImpedanceMatrix_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Late_car);
-		unit<uint64> MaxSpeed_OSM                     := ImpedanceMatrix_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/max_limit_car);
+		unit<uint64> MorningRush_OSM                        := ImpedanceMatrix_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Morning_car);
+		unit<uint64> NoonRush_OSM                           := ImpedanceMatrix_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Noon_car);
+		unit<uint64> LateEveningRush_OSM                    := ImpedanceMatrix_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Late_car);
+		unit<uint64> MaxSpeed_OSM                           := ImpedanceMatrix_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/max_limit_car);
 		
-		unit<uint64> MorningRush_OSM_w_LinkSet        := ImpedanceMatrix_with_Linkset_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Morning_car);
-		unit<uint64> NoonRush_OSM_w_LinkSet           := ImpedanceMatrix_with_Linkset_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Noon_car);
-		unit<uint64> LateEveningRush_OSM_w_LinkSet    := ImpedanceMatrix_with_Linkset_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Late_car);
-		unit<uint64> MaxSpeed_OSM_w_LinkSets          := ImpedanceMatrix_with_Linkset_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/max_limit_car);
+		unit<uint64> MorningRush_OSM_w_LinkSet              := ImpedanceMatrix_with_Linkset_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Morning_car);
+		unit<uint64> NoonRush_OSM_w_LinkSet                 := ImpedanceMatrix_with_Linkset_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Noon_car);
+		unit<uint64> LateEveningRush_OSM_w_LinkSet          := ImpedanceMatrix_with_Linkset_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Late_car);
+		unit<uint64> MaxSpeed_OSM_w_LinkSets                := ImpedanceMatrix_with_Linkset_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/max_limit_car);
 		
-		unit<uint64> MorningRush_OSM_w_AltImp         := ImpedanceMatrix_with_AltImp_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Morning_car, OSM_LinkSet/Distance_per_ImpedanceType/congested_Morning_car);
-		unit<uint64> NoonRush_OSM_w_AltImp            := ImpedanceMatrix_with_AltImp_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Noon_car, OSM_LinkSet/Distance_per_ImpedanceType/congested_Noon_car);
-		unit<uint64> LateEveningRush_OSM_w_AltImp     := ImpedanceMatrix_with_AltImp_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Late_car, OSM_LinkSet/Distance_per_ImpedanceType/congested_Late_car);
-		unit<uint64> MaxSpeed_OSM_w_AltImp            := ImpedanceMatrix_with_AltImp_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/max_limit_car, OSM_LinkSet/Distance_per_ImpedanceType/max_limit_car);
+		unit<uint64> MorningRush_OSM_w_AltImp               := ImpedanceMatrix_with_AltImp_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Morning_car, OSM_LinkSet/Distance_per_ImpedanceType/congested_Morning_car);
+		unit<uint64> NoonRush_OSM_w_AltImp                  := ImpedanceMatrix_with_AltImp_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Noon_car, OSM_LinkSet/Distance_per_ImpedanceType/congested_Noon_car);
+		unit<uint64> LateEveningRush_OSM_w_AltImp           := ImpedanceMatrix_with_AltImp_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/congested_Late_car, OSM_LinkSet/Distance_per_ImpedanceType/congested_Late_car);
+		unit<uint64> MaxSpeed_OSM_w_AltImp                  := ImpedanceMatrix_with_AltImp_T(OSM_LinkSet, OSM_NodeSet, OSM_LinkSet/Impedance_per_ImpedanceType/max_limit_car, OSM_LinkSet/Distance_per_ImpedanceType/max_limit_car);
 
 		///TOMTOM
-		unit<uint64> MorningRush_TomTom               := ImpedanceMatrix_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/MorningRush);
-		unit<uint64> NoonRush_TomTom                  := ImpedanceMatrix_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/NoonRush);
-		unit<uint64> LateEveningRush_TomTom           := ImpedanceMatrix_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/LateEveningRush);
-		unit<uint64> Freeflow_TomTom                  := ImpedanceMatrix_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/Freeflow);
+		unit<uint64> MorningRush_TomTom                     := ImpedanceMatrix_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/MorningRush);
+		unit<uint64> NoonRush_TomTom                        := ImpedanceMatrix_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/NoonRush);
+		unit<uint64> LateEveningRush_TomTom                 := ImpedanceMatrix_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/LateEveningRush);
+		unit<uint64> Freeflow_TomTom                        := ImpedanceMatrix_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/Freeflow);
 		
-		unit<uint64> MorningRush_TomTom_w_LinkSet     := ImpedanceMatrix_with_Linkset_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/MorningRush);
-		unit<uint64> NoonRush_TomTom_w_LinkSet        := ImpedanceMatrix_with_Linkset_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/NoonRush);
-		unit<uint64> LateEveningRush_TomTom_w_LinkSet := ImpedanceMatrix_with_Linkset_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/LateEveningRush);
-		unit<uint64> Freeflow_TomTom_w_LinkSets       := ImpedanceMatrix_with_Linkset_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/Freeflow);
+		unit<uint64> MorningRush_TomTom_w_LinkSet           := ImpedanceMatrix_with_Linkset_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/MorningRush);
+		unit<uint64> NoonRush_TomTom_w_LinkSet              := ImpedanceMatrix_with_Linkset_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/NoonRush);
+		unit<uint64> LateEveningRush_TomTom_w_LinkSet       := ImpedanceMatrix_with_Linkset_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/LateEveningRush);
+		unit<uint64> Freeflow_TomTom_w_LinkSets             := ImpedanceMatrix_with_Linkset_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/Freeflow);
 		
-		unit<uint64> MorningRush_TomTom_w_AltImp      := ImpedanceMatrix_with_AltImp_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/MorningRush, TomTom_LinkSet/LengthKm);
-		unit<uint64> NoonRush_TomTom_w_AltImp         := ImpedanceMatrix_with_AltImp_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/NoonRush, TomTom_LinkSet/LengthKm);
-		unit<uint64> LateEveningRush_TomTom_w_AltImp  := ImpedanceMatrix_with_AltImp_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/LateEveningRush, TomTom_LinkSet/LengthKm);
-		unit<uint64> Freeflow_TomTom_w_AltImp         := ImpedanceMatrix_with_AltImp_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/Freeflow, TomTom_LinkSet/LengthKm);
+		unit<uint64> MorningRush_TomTom_w_AltImp            := ImpedanceMatrix_with_AltImp_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/MorningRush, TomTom_LinkSet/LengthKm);
+		unit<uint64> NoonRush_TomTom_w_AltImp               := ImpedanceMatrix_with_AltImp_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/NoonRush, TomTom_LinkSet/LengthKm);
+		unit<uint64> LateEveningRush_TomTom_w_AltImp        := ImpedanceMatrix_with_AltImp_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/LateEveningRush, TomTom_LinkSet/LengthKm);
+		unit<uint64> Freeflow_TomTom_w_AltImp               := ImpedanceMatrix_with_AltImp_T(TomTom_LinkSet, TomTom_NodeSet, TomTom_LinkSet/Impedance_per_ImpedanceType/Freeflow, TomTom_LinkSet/LengthKm);
 
 		// The front of the direct car trip (PublicTransport_Prep/Direct/Car; on travel time and distance, #88). The scalar variant is _w_AltImp
 		// above (per OD pair the fastest route with its distance, also for the exports); _w_AltImp_pareto is the (travel time, distance) front
@@ -83,13 +83,13 @@ Template PrivateTransport_Car_T : Descr = "Calculates the car travel times from 
 
 		Template ImpedanceMatrix_T : Descr = "The fastest car route per OD pair on the given link impedance."
 		{
-			unit<uint32>      LinkSet_dom;
-			unit<uint32>      NodeSet_dom;
-			attribute<s_f>    Impedance (LinkSet_dom);
+			unit<uint32>   LinkSet_dom;
+			unit<uint32>   NodeSet_dom;
+			attribute<s_f> Impedance (LinkSet_dom);
 			//
 			unit<uint64> impedanceMatrix := =
-				ModelParameters/Advanced/InterpretAllRoadsAsBidirectional 
-					? 	'impedance_matrix_od64(''bidirectional;startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);od:impedance,OrgZone_rel,DstZone_rel''
+			                                ModelParameters/Advanced/InterpretAllRoadsAsBidirectional
+			                                    ? 	'impedance_matrix_od64(''bidirectional;startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);od:impedance,OrgZone_rel,DstZone_rel''
 							, Impedance
 							, LinkSet_dom/F1
 							, LinkSet_dom/F2
@@ -113,14 +113,14 @@ Template PrivateTransport_Car_T : Descr = "Calculates the car travel times from 
 		
 		Template ImpedanceMatrix_with_AltImp_T : Descr = "The fastest car route per OD pair, with its distance."
 		{
-			unit<uint32>      LinkSet_dom;
-			unit<uint32>      NodeSet_dom;
-			attribute<s_f>    Impedance (LinkSet_dom);
-			attribute<km>     Distance  (LinkSet_dom);
+			unit<uint32>   LinkSet_dom;
+			unit<uint32>   NodeSet_dom;
+			attribute<s_f> Impedance (LinkSet_dom);
+			attribute<km>  Distance  (LinkSet_dom);
 			//
 			unit<uint64> impedanceMatrix := =
-				ModelParameters/Advanced/InterpretAllRoadsAsBidirectional 
-					? 	'impedance_matrix_od64(''bidirectional;startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel''
+			                                ModelParameters/Advanced/InterpretAllRoadsAsBidirectional
+			                                    ? 	'impedance_matrix_od64(''bidirectional;startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel''
 							, Impedance
 							, LinkSet_dom/F1
 							, LinkSet_dom/F2
@@ -140,9 +140,9 @@ Template PrivateTransport_Car_T : Descr = "Calculates the car travel times from 
 							, Distance
 						)'
 			{
-				attribute<s_f>    Car_Time     := impedance, Descr = "The travel time of the route, under the same name as in ImpedanceMatrix_with_AltImp_pareto_T.";
-				attribute<km>     Car_Distance := alt_imp, Descr = "The distance of the route, under the same name as in ImpedanceMatrix_with_AltImp_pareto_T.";
-				attribute<string> Org_Dest := string(OrgZone_rel)+'_'+string(DstZone_rel);
+				attribute<s_f>    Car_Time     := impedance , Descr = "The travel time of the route, under the same name as in ImpedanceMatrix_with_AltImp_pareto_T.";
+				attribute<km>     Car_Distance := alt_imp   , Descr = "The distance of the route, under the same name as in ImpedanceMatrix_with_AltImp_pareto_T.";
+				attribute<string> Org_Dest     := string(OrgZone_rel)+'_'+string(DstZone_rel);
 			}
 		}
 		
@@ -150,7 +150,7 @@ Template PrivateTransport_Car_T : Descr = "Calculates the car travel times from 
 		// TomTom network, with the link times of Create_Network_TomTom/TimeDependent: the fixed link time T_ref (the snapshot of the congestion
 		// moment) and, per link with a profile, the factor per time slot. The departure time counts from the start of the window (CarTD_WindowStart),
 		// plus Car_StartTime: the trip on the network begins after starting the car.
-		container TD :=
+		container    TD                                     :=
 			for_each_ne(
 				'TD' + ModelParameters/Impl/MeasureMoments/TemplatableTextShrt
 				, 'TD_ImpedanceMatrix_T(' + string(uint32(ModelParameters/Impl/MeasureMoments/Moment)) + ')'
@@ -163,19 +163,19 @@ Template PrivateTransport_Car_T : Descr = "Calculates the car travel times from 
 			// 'pareto_alt' (ModelParameters/Advanced/CarTD_Search): distance first, like ImpedanceMatrix_with_AltImp_pareto_T with the relative
 			// CarFrontEpsilon, and the time profile on the second criterion, the travel time (timedependent_alt). 'scalar': only the fastest route,
 			// with the time profile on the only criterion (timedependent), for tests on an engine without timedependent_alt.
-			unit<uint32>      LinkSet_dom := TomTom_LinkSet;
-			unit<uint32>      NodeSet_dom := TomTom_NodeSet;
-			parameter<s_f>    Departure   := value(float32(DepartureSecond - ModelParameters/Advanced/CarTD_WindowStart), s_f) + convert(ModelParameters/Car_StartTime, s_f)
+			unit<uint32>      LinkSet_dom                    := TomTom_LinkSet;
+			unit<uint32>      NodeSet_dom                    := TomTom_NodeSet;
+			parameter<s_f>    Departure                      := value(float32(DepartureSecond - ModelParameters/Advanced/CarTD_WindowStart), s_f) + convert(ModelParameters/Car_StartTime, s_f)
 			,	Descr = "departure_time of the search: the departure moment plus Car_StartTime, counted from the start of the window.";
-			parameter<bool>   IsPareto    := ModelParameters/Advanced/CarTD_Search == 'pareto_alt';
-			parameter<string> BidirSpec   := ModelParameters/Advanced/InterpretAllRoadsAsBidirectional ? 'bidirectional' : 'bidirectional(link_flag)';
-			parameter<string> BidirArg    := ModelParameters/Advanced/InterpretAllRoadsAsBidirectional ? '' : ', not(LinkSet_dom/IsOneDirection)';
-			parameter<string> TDArgs      := ', Create_Network_TomTom/TimeDependent/Profile_rel, Create_Network_TomTom/TimeDependent/ProfileSlot/factor, ModelParameters/Advanced/CarTD_SlotDuration, Departure';
+			parameter<bool>   IsPareto                       := ModelParameters/Advanced/CarTD_Search == 'pareto_alt';
+			parameter<string> BidirSpec                      := ModelParameters/Advanced/InterpretAllRoadsAsBidirectional ? 'bidirectional' : 'bidirectional(link_flag)';
+			parameter<string> BidirArg                       := ModelParameters/Advanced/InterpretAllRoadsAsBidirectional ? '' : ', not(LinkSet_dom/IsOneDirection)';
+			parameter<string> TDArgs                         := ', Create_Network_TomTom/TimeDependent/Profile_rel, Create_Network_TomTom/TimeDependent/ProfileSlot/factor, ModelParameters/Advanced/CarTD_SlotDuration, Departure';
 			// In the OD pair mode (#129) also the links of each route (pareto with LinkSet: GeoDMS#1325).
-			parameter<bool>   WithLinks    := ModelParameters/Impl/IsOD, Descr = "Are the links of each route kept? Only in the OD pair mode.";
-			parameter<string> OdSpec      := 'od:impedance,OrgZone_rel,DstZone_rel' + (WithLinks ? ',LinkSet' : '');
+			parameter<bool>   WithLinks                      := ModelParameters/Impl/IsOD, Descr = "Are the links of each route kept? Only in the OD pair mode.";
+			parameter<string> OdSpec                         := 'od:impedance,OrgZone_rel,DstZone_rel' + (WithLinks ? ',LinkSet' : '');
 			unit<uint64> impedanceMatrix := = IsPareto
-				? 'impedance_matrix_od64(''' + BidirSpec + ';startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;pareto(OrgZone_max_imp2,imp2_epsilon);timedependent_alt(link_profile_rel,profile_slot_factor,slot_duration,departure_time);' + OdSpec + '''
+			                                ? 'impedance_matrix_od64(''' + BidirSpec + ';startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;pareto(OrgZone_max_imp2,imp2_epsilon);timedependent_alt(link_profile_rel,profile_slot_factor,slot_duration,departure_time);' + OdSpec + '''
 						, LinkSet_dom/LengthKm
 						, LinkSet_dom/F1
 						, LinkSet_dom/F2' + BidirArg + '
@@ -200,19 +200,19 @@ Template PrivateTransport_Car_T : Descr = "Calculates the car travel times from 
 				attribute<km>     Car_Distance := = IsPareto ? 'impedance' : 'alt_imp', Descr = "The distance of the route.";
 				attribute<string> Org_Dest     := string(OrgZone_rel)+'_'+string(DstZone_rel);
 			}
-			container Links := = WithLinks
-				? 'Templates/RouteLinks_T(impedanceMatrix, impedanceMatrix/LinkSet, LinkSet_dom, NodeSet_dom, LinkSet_dom/F1, LinkSet_dom/F2, NodeSet_dom/geometry, NodeSet_dom/DestNode_rel[impedanceMatrix/DstZone_rel])'
-				: 'Templates/NoRouteLinks_T()'
+			container         Links                          := = WithLinks
+			                                                    ? 'Templates/RouteLinks_T(impedanceMatrix, impedanceMatrix/LinkSet, LinkSet_dom, NodeSet_dom, LinkSet_dom/F1, LinkSet_dom/F2, NodeSet_dom/geometry, NodeSet_dom/DestNode_rel[impedanceMatrix/DstZone_rel])'
+			                                                    : 'Templates/NoRouteLinks_T()'
 			, Descr = "The links of each route, only in the OD pair mode (WithLinks).";
-			attribute<rdc> LinkGeometry (arc, Links/Rows) := = WithLinks ? 'LinkSet_dom/geometry[Links/Rows/Link_rel]' : 'const(value(null_u, rdc), Links/Rows)', Descr = "The shape of the road of each link, from TomTom.";
+			attribute<rdc>    LinkGeometry (arc, Links/Rows) := = WithLinks ? 'LinkSet_dom/geometry[Links/Rows/Link_rel]' : 'const(value(null_u, rdc), Links/Rows)', Descr = "The shape of the road of each link, from TomTom.";
 		}
 
 		Template ImpedanceMatrix_with_AltImp_pareto_T : Descr = "The Pareto front of car routes per OD pair on travel time and distance."
 		{
-			unit<uint32>      LinkSet_dom;
-			unit<uint32>      NodeSet_dom;
-			attribute<s_f>    Impedance (LinkSet_dom);
-			attribute<km>     Distance  (LinkSet_dom);
+			unit<uint32>   LinkSet_dom;
+			unit<uint32>   NodeSet_dom;
+			attribute<s_f> Impedance (LinkSet_dom);
+			attribute<km>  Distance  (LinkSet_dom);
 			//
 			// A bi-criteria label-setting search with per OD pair a row per Pareto-optimal route (GeoDMS#856, doc/bicriteria-impedance.md). Car_Time
 			// and Car_Distance give travel time and distance, whichever order the search used.
@@ -231,15 +231,15 @@ Template PrivateTransport_Car_T : Descr = "Calculates the car travel times from 
 			// per link a fixed pseudo-random threshold u in [0,1) from the link id, and AltImp_q = rounddown(Distance/q + u) * q. The expectation
 			// over u is Distance, so the sum over a route is unbiased. The threshold is calculated in uint64, because GeoDMS reports an overflow on
 			// a uint32 multiplication instead of wrapping around.
-			attribute<float32> dither (LinkSet_dom) := float32(mod(uint64(id(LinkSet_dom)) * uint64(7919), uint64(1000))) / 1000f;
-			parameter<bool>   UseEngineEpsilon := ModelParameters/Advanced/CarFrontEpsilon > 0f;
-			attribute<km>     AltImp_q (LinkSet_dom) := not(UseEngineEpsilon) && ModelParameters/Advanced/CarLegDistanceQuantum > 0[km]
-			                                          ? float32(rounddown(Distance / ModelParameters/Advanced/CarLegDistanceQuantum + dither)) * ModelParameters/Advanced/CarLegDistanceQuantum
-			                                          : Distance;
-			parameter<string> BidirSpec := ModelParameters/Advanced/InterpretAllRoadsAsBidirectional ? 'bidirectional' : 'bidirectional(link_flag)';
-			parameter<string> BidirArg  := ModelParameters/Advanced/InterpretAllRoadsAsBidirectional ? '' : ', not(LinkSet_dom/IsOneDirection)';
+			attribute<float32> dither   (LinkSet_dom) := float32(mod(uint64(id(LinkSet_dom)) * uint64(7919), uint64(1000))) / 1000f;
+			parameter<bool>    UseEngineEpsilon       := ModelParameters/Advanced/CarFrontEpsilon > 0f;
+			attribute<km>      AltImp_q (LinkSet_dom) := not(UseEngineEpsilon) && ModelParameters/Advanced/CarLegDistanceQuantum > 0[km]
+			                                             ? float32(rounddown(Distance / ModelParameters/Advanced/CarLegDistanceQuantum + dither)) * ModelParameters/Advanced/CarLegDistanceQuantum
+			                                             : Distance;
+			parameter<string>  BidirSpec              := ModelParameters/Advanced/InterpretAllRoadsAsBidirectional ? 'bidirectional' : 'bidirectional(link_flag)';
+			parameter<string>  BidirArg               := ModelParameters/Advanced/InterpretAllRoadsAsBidirectional ? '' : ', not(LinkSet_dom/IsOneDirection)';
 			unit<uint64> impedanceMatrix := = UseEngineEpsilon
-				? 'impedance_matrix_od64(''' + BidirSpec + ';startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;pareto(OrgZone_max_imp2,imp2_epsilon);od:impedance,OrgZone_rel,DstZone_rel''
+			                                ? 'impedance_matrix_od64(''' + BidirSpec + ';startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;pareto(OrgZone_max_imp2,imp2_epsilon);od:impedance,OrgZone_rel,DstZone_rel''
 						, Distance
 						, LinkSet_dom/F1
 						, LinkSet_dom/F2' + BidirArg + '
@@ -262,19 +262,19 @@ Template PrivateTransport_Car_T : Descr = "Calculates the car travel times from 
 			{
 				attribute<s_f>    Car_Time     := = UseEngineEpsilon ? 'alt_imp' : 'impedance', Descr = "The travel time of the route: the second criterion when the search went on distance first, otherwise the first.";
 				attribute<km>     Car_Distance := = UseEngineEpsilon ? 'impedance' : 'alt_imp', Descr = "The distance of the route: the first criterion when the search went on distance first, otherwise the second.";
-				attribute<string> Org_Dest := string(OrgZone_rel)+'_'+string(DstZone_rel);
+				attribute<string> Org_Dest     := string(OrgZone_rel)+'_'+string(DstZone_rel);
 			}
 		}
 
 		Template ImpedanceMatrix_with_Linkset_T : Descr = "The fastest car route per OD pair, with the links it uses."
 		{
-			unit<uint32>      LinkSet_dom;
-			unit<uint32>      NodeSet_dom;
-			attribute<s_f>    Impedance (LinkSet_dom);
+			unit<uint32>   LinkSet_dom;
+			unit<uint32>   NodeSet_dom;
+			attribute<s_f> Impedance (LinkSet_dom);
 			//
 			unit<uint64> impedanceMatrix := =
-				ModelParameters/Advanced/InterpretAllRoadsAsBidirectional 
-					? 	'impedance_matrix_od64(''bidirectional;startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);od:impedance,OrgZone_rel,DstZone_rel,LinkSet''
+			                                ModelParameters/Advanced/InterpretAllRoadsAsBidirectional
+			                                    ? 	'impedance_matrix_od64(''bidirectional;startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);od:impedance,OrgZone_rel,DstZone_rel,LinkSet''
 							, Impedance
 							, LinkSet_dom/F1
 							, LinkSet_dom/F2
@@ -296,17 +296,17 @@ Template PrivateTransport_Car_T : Descr = "Calculates the car travel times from 
 				
 				unit<uint32> TravelledJourney := sequence2points(LinkSet) //translates the LinkSet attribute (the route travelled per OD pair) into the parts of the trip
 				{
-					attribute<rdc>         Route (arc)    := points2sequence(LinkPoints/Point, LinkPoints/Sequence_rel, LinkPoints/Ordinal);
-					attribute<rdc>         FromPoint      := LinkSet_dom/FromPoint[point];
-					attribute<rdc>         ToPoint        := LinkSet_dom/ToPoint[point];
+					attribute<rdc> Route (arc) := points2sequence(LinkPoints/Point, LinkPoints/Sequence_rel, LinkPoints/Ordinal);
+					attribute<rdc> FromPoint   := LinkSet_dom/FromPoint[point];
+					attribute<rdc> ToPoint     := LinkSet_dom/ToPoint[point];
 
 					unit<uint32> LinkPoints := union_unit(., .)
 					{
-						attribute<rdc>                  Point        := union_data(., FromPoint, ToPoint);
-						attribute<..>                   Sequence_rel := union_data(., id(..), id(..));
-						attribute<uint32>               Ordinal      := union_data(., const(0,..,uint32), const(1,..,uint32));
-						attribute<...>                  Sequence_rel_old := TravelledJourney/Sequence_rel[Sequence_rel];
-						attribute<uint32>               Ordinal_old      := TravelledJourney/Ordinal[Sequence_rel];
+						attribute<rdc>    Point            := union_data(., FromPoint, ToPoint);
+						attribute<..>     Sequence_rel     := union_data(., id(..), id(..));
+						attribute<uint32> Ordinal          := union_data(., const(0,..,uint32), const(1,..,uint32));
+						attribute<...>    Sequence_rel_old := TravelledJourney/Sequence_rel[Sequence_rel];
+						attribute<uint32> Ordinal_old      := TravelledJourney/Ordinal[Sequence_rel];
 					}
 				}
 			}
@@ -317,38 +317,38 @@ Template PrivateTransport_Car_T : Descr = "Calculates the car travel times from 
 	
 	
 	
-	parameter<string> ExportTable_Traveltimes_str := 	 switch(
-															 case(ModelParameters/UseTomTomNetworkForCars  && ModelParameters/Export_TravelledDistance  , 'Traveltimes/Freeflow_TomTom_w_AltImp/impedanceMatrix')
-															,case(ModelParameters/UseTomTomNetworkForCars  && !ModelParameters/Export_TravelledDistance , 'Traveltimes/Freeflow_TomTom/impedanceMatrix')
-															,case(!ModelParameters/UseTomTomNetworkForCars && ModelParameters/Export_TravelledDistance  , 'Traveltimes/MaxSpeed_OSM_w_AltImp/impedanceMatrix')
-															,case(!ModelParameters/UseTomTomNetworkForCars && !ModelParameters/Export_TravelledDistance , 'Traveltimes/MaxSpeed_OSM/impedanceMatrix')
-															,''
-														);
+	parameter<string> ExportTable_Traveltimes_str  := switch(
+	                                                       case(ModelParameters/UseTomTomNetworkForCars  && ModelParameters/Export_TravelledDistance  , 'Traveltimes/Freeflow_TomTom_w_AltImp/impedanceMatrix')
+	                                                      ,case(ModelParameters/UseTomTomNetworkForCars  && !ModelParameters/Export_TravelledDistance , 'Traveltimes/Freeflow_TomTom/impedanceMatrix')
+	                                                      ,case(!ModelParameters/UseTomTomNetworkForCars && ModelParameters/Export_TravelledDistance  , 'Traveltimes/MaxSpeed_OSM_w_AltImp/impedanceMatrix')
+	                                                      ,case(!ModelParameters/UseTomTomNetworkForCars && !ModelParameters/Export_TravelledDistance , 'Traveltimes/MaxSpeed_OSM/impedanceMatrix')
+	                                                      ,''
+	                                                  );
 														
 													
 	unit<uint64> ExportTable_Traveltimes := =ExportTable_Traveltimes_str
 	{
-		parameter<string> NetworkTypeSuffix := ModelParameters/UseTomTomNetworkForCars ? '_TomTom' : '_OSM';
-		parameter<string> Include_AltImp    := ModelParameters/Export_TravelledDistance ? '_w_AltImp' : '';
+		parameter<string> NetworkTypeSuffix         := ModelParameters/UseTomTomNetworkForCars ? '_TomTom' : '_OSM';
+		parameter<string> Include_AltImp            := ModelParameters/Export_TravelledDistance ? '_w_AltImp' : '';
 	
-		attribute<org > Org_rel := OrgZone_rel;
-		attribute<dest> Dst_rel := DstZone_rel;
+		attribute<org >   Org_rel                   := OrgZone_rel;
+		attribute<dest>   Dst_rel                   := DstZone_rel;
 		
-		attribute<min_f> MaxSpeed_min        := convert(Impedance, min_f);
-		attribute<min_f> MorningRush_min     := ='convert(rjoin(Org_Dest, Traveltimes/MorningRush'+NetworkTypeSuffix+Include_AltImp+'/impedanceMatrix/Org_Dest, Traveltimes/MorningRush'+NetworkTypeSuffix+Include_AltImp+'/impedanceMatrix/Impedance), min_f)';
-		attribute<min_f> NoonRush_min        := ='convert(rjoin(Org_Dest, Traveltimes/NoonRush'+NetworkTypeSuffix+Include_AltImp+'/impedanceMatrix/Org_Dest, Traveltimes/NoonRush'+NetworkTypeSuffix+Include_AltImp+'/impedanceMatrix/Impedance), min_f)';
-		attribute<min_f> LateEveningRush_min := ='convert(rjoin(Org_Dest, Traveltimes/LateEveningRush'+NetworkTypeSuffix+Include_AltImp+'/impedanceMatrix/Org_Dest, Traveltimes/LateEveningRush'+NetworkTypeSuffix+Include_AltImp+'/impedanceMatrix/Impedance), min_f)';
+		attribute<min_f>  MaxSpeed_min              := convert(Impedance, min_f);
+		attribute<min_f>  MorningRush_min           := ='convert(rjoin(Org_Dest, Traveltimes/MorningRush'+NetworkTypeSuffix+Include_AltImp+'/impedanceMatrix/Org_Dest, Traveltimes/MorningRush'+NetworkTypeSuffix+Include_AltImp+'/impedanceMatrix/Impedance), min_f)';
+		attribute<min_f>  NoonRush_min              := ='convert(rjoin(Org_Dest, Traveltimes/NoonRush'+NetworkTypeSuffix+Include_AltImp+'/impedanceMatrix/Org_Dest, Traveltimes/NoonRush'+NetworkTypeSuffix+Include_AltImp+'/impedanceMatrix/Impedance), min_f)';
+		attribute<min_f>  LateEveningRush_min       := ='convert(rjoin(Org_Dest, Traveltimes/LateEveningRush'+NetworkTypeSuffix+Include_AltImp+'/impedanceMatrix/Org_Dest, Traveltimes/LateEveningRush'+NetworkTypeSuffix+Include_AltImp+'/impedanceMatrix/Impedance), min_f)';
 		
-		attribute<km>    MaxSpeed_km         := ='Alt_imp';
-		attribute<km>    MorningRush_km      := ='rjoin(Org_Dest, Traveltimes/MorningRush'+NetworkTypeSuffix+Include_AltImp+'/impedanceMatrix/Org_Dest, Traveltimes/MorningRush'+NetworkTypeSuffix+Include_AltImp+'/impedanceMatrix/Alt_imp)';  
-		attribute<km>    NoonRush_km         := ='rjoin(Org_Dest, Traveltimes/NoonRush'+NetworkTypeSuffix+Include_AltImp+'/impedanceMatrix/Org_Dest, Traveltimes/NoonRush'+NetworkTypeSuffix+Include_AltImp+'/impedanceMatrix/Alt_imp)';
-		attribute<km>    LateEveningRush_km  := ='rjoin(Org_Dest, Traveltimes/LateEveningRush'+NetworkTypeSuffix+Include_AltImp+'/impedanceMatrix/Org_Dest, Traveltimes/LateEveningRush'+NetworkTypeSuffix+Include_AltImp+'/impedanceMatrix/Alt_imp)';
+		attribute<km>     MaxSpeed_km               := ='Alt_imp';
+		attribute<km>     MorningRush_km            := ='rjoin(Org_Dest, Traveltimes/MorningRush'+NetworkTypeSuffix+Include_AltImp+'/impedanceMatrix/Org_Dest, Traveltimes/MorningRush'+NetworkTypeSuffix+Include_AltImp+'/impedanceMatrix/Alt_imp)';
+		attribute<km>     NoonRush_km               := ='rjoin(Org_Dest, Traveltimes/NoonRush'+NetworkTypeSuffix+Include_AltImp+'/impedanceMatrix/Org_Dest, Traveltimes/NoonRush'+NetworkTypeSuffix+Include_AltImp+'/impedanceMatrix/Alt_imp)';
+		attribute<km>     LateEveningRush_km        := ='rjoin(Org_Dest, Traveltimes/LateEveningRush'+NetworkTypeSuffix+Include_AltImp+'/impedanceMatrix/Org_Dest, Traveltimes/LateEveningRush'+NetworkTypeSuffix+Include_AltImp+'/impedanceMatrix/Alt_imp)';
 		
-		attribute<bool>  IsCorrect_MorningRush     := MorningRush_min >= MaxSpeed_min;
-		attribute<bool>  IsCorrect_NoonRush        := NoonRush_min >= MaxSpeed_min;
-		attribute<bool>  IsCorrect_LateEveningRush := LateEveningRush_min >= MaxSpeed_min;
+		attribute<bool>   IsCorrect_MorningRush     := MorningRush_min >= MaxSpeed_min;
+		attribute<bool>   IsCorrect_NoonRush        := NoonRush_min >= MaxSpeed_min;
+		attribute<bool>   IsCorrect_LateEveningRush := LateEveningRush_min >= MaxSpeed_min;
 		
-		attribute<string> BodyLines :=
+		attribute<string> BodyLines                 :=
 			org/name[Org_rel] + ';' + 
 			dest/name[Dst_rel] + ';' +
 			string(MaxSpeed_min) + ';' + 
@@ -360,7 +360,7 @@ Template PrivateTransport_Car_T : Descr = "Calculates the car travel times from 
 			string(NoonRush_km)+';' +
 			string(LateEveningRush_km);
 			
-		attribute<string> BodyLines_woDistance :=
+		attribute<string> BodyLines_woDistance      :=
 			org/name[Org_rel] + ';' + 
 			dest/name[Dst_rel] + ';' +
 			string(MaxSpeed_min) + ';' + 
@@ -368,16 +368,16 @@ Template PrivateTransport_Car_T : Descr = "Calculates the car travel times from 
 			string(NoonRush_min)+';' +
 			string(LateEveningRush_min);
 			
-		attribute<string> BodyLines_woCongestion :=
+		attribute<string> BodyLines_woCongestion    :=
 			org/name[Org_rel] + ';' + 
 			dest/name[Dst_rel] + ';' +
 			string(MaxSpeed_min) + ';' +
 			string(MaxSpeed_km);
 			
-		parameter<string> File_full         := 'Org;Dst;MaxSpeed;MorningRush;NoonRush;LateEveningRush;MaxSpeed_km;MorningRush_km;NoonRush_km;LateEveningRush_km\n'++asList(BodyLines, '\n'), StorageName = "=settings/fileNamePrefix+'Traveltimes'+replace(settings/fileNameSuffix, '@@', 'Car', '##',  string(ModelParameters/MaxCarTime))+'.csv'", StorageType = "str";
-		parameter<string> File_woDistance   := 'Org;Dst;MaxSpeed;MorningRush;NoonRush;LateEveningRush\n'++asList(BodyLines_woDistance, '\n'), StorageName = "=settings/fileNamePrefix+'Traveltimes'+replace(settings/fileNameSuffix, '@@', 'Car', '##',  string(ModelParameters/MaxCarTime))+'.csv'", StorageType = "str";
-		parameter<string> File_woCongestion := 'Org;Dst;MaxSpeed;MaxSpeed_km\n'++asList(BodyLines_woCongestion, '\n'), StorageName = "=settings/fileNamePrefix+'Traveltimes'+replace(settings/fileNameSuffix, '@@', 'Car', '##',  string(ModelParameters/MaxCarTime))+'.csv'", StorageType = "str"; 
+		parameter<string> File_full                 := 'Org;Dst;MaxSpeed;MorningRush;NoonRush;LateEveningRush;MaxSpeed_km;MorningRush_km;NoonRush_km;LateEveningRush_km\n'++asList(BodyLines, '\n'), StorageName = "=settings/fileNamePrefix+'Traveltimes'+replace(settings/fileNameSuffix, '@@', 'Car', '##',  string(ModelParameters/MaxCarTime))+'.csv'", StorageType = "str";
+		parameter<string> File_woDistance           := 'Org;Dst;MaxSpeed;MorningRush;NoonRush;LateEveningRush\n'++asList(BodyLines_woDistance, '\n'), StorageName = "=settings/fileNamePrefix+'Traveltimes'+replace(settings/fileNameSuffix, '@@', 'Car', '##',  string(ModelParameters/MaxCarTime))+'.csv'", StorageType = "str";
+		parameter<string> File_woCongestion         := 'Org;Dst;MaxSpeed;MaxSpeed_km\n'++asList(BodyLines_woCongestion, '\n'), StorageName = "=settings/fileNamePrefix+'Traveltimes'+replace(settings/fileNameSuffix, '@@', 'Car', '##',  string(ModelParameters/MaxCarTime))+'.csv'", StorageType = "str";
 		
-		parameter<string> File              := =ModelParameters/Export_TravelledDistance ? 'File_full' : 'File_woDistance';
+		parameter<string> File                      := =ModelParameters/Export_TravelledDistance ? 'File_full' : 'File_woDistance';
 	}
 }

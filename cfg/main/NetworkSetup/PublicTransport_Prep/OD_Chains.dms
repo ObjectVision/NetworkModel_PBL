@@ -15,48 +15,48 @@
 container OD_Stops
 :	Descr = "The stops of the OD pair, where a pre-transport leg from the origin ends (IsVStop) and where a post-transport leg to the destination starts (IsNStop), for the types of the public transport Components in MergeComponents; the types with a stop class (C_RM, RM_C, OVf_C and so on) are a selection from the base types, so those suffice."
 {
-	unit<uint8>       PT_Comps := select_with_attr_by_cond(/ModelParameters/Advanced/Components, /ModelParameters/Advanced/Components/InMerge && /ModelParameters/Advanced/Components/WithPT);
-	parameter<bool>   WalkingV   := any(IsDefined(strpos(PT_Comps/PreTransport, 'Walking'))), Descr = "Does a public transport component in MergeComponents walk to the first stop?";
-	parameter<bool>   CyclingV   := any(IsDefined(strpos(PT_Comps/PreTransport, 'Cycling'))), Descr = "Does a public transport component in MergeComponents cycle to the first stop?";
-	parameter<bool>   WalkingN   := any(IsDefined(strpos(PT_Comps/PostTransport, 'Walking'))), Descr = "Does a public transport component in MergeComponents walk from the last stop?";
-	parameter<bool>   CyclingN   := any(IsDefined(strpos(PT_Comps/PostTransport, 'Cycling'))), Descr = "Does a public transport component in MergeComponents cycle from the last stop?";
-	parameter<string> TypeTag  := '-v' + (WalkingV ? 'w' : '') + (CyclingV ? 'c' : '') + '-n' + (WalkingN ? 'w' : '') + (CyclingN ? 'c' : ''), Descr = "The types in the signature of the chain cache of the pair.";
+	unit<uint8>       PT_Comps              := select_with_attr_by_cond(/Classifications/Components, /Classifications/Components/InMerge && /Classifications/Components/WithPT);
+	parameter<bool>   WalkingV              := any(IsDefined(strpos(PT_Comps/PreTransport, 'Walking'))), Descr = "Does a public transport component in MergeComponents walk to the first stop?";
+	parameter<bool>   CyclingV              := any(IsDefined(strpos(PT_Comps/PreTransport, 'Cycling'))), Descr = "Does a public transport component in MergeComponents cycle to the first stop?";
+	parameter<bool>   WalkingN              := any(IsDefined(strpos(PT_Comps/PostTransport, 'Walking'))), Descr = "Does a public transport component in MergeComponents walk from the last stop?";
+	parameter<bool>   CyclingN              := any(IsDefined(strpos(PT_Comps/PostTransport, 'Cycling'))), Descr = "Does a public transport component in MergeComponents cycle from the last stop?";
+	parameter<string> TypeTag               := '-v' + (WalkingV ? 'w' : '') + (CyclingV ? 'c' : '') + '-n' + (WalkingN ? 'w' : '') + (CyclingN ? 'c' : ''), Descr = "The types in the signature of the chain cache of the pair.";
 	attribute<bool>   IsVStop (impl/Places) := (WalkingV && pcount_uint32(Legs/Org2Stops_Walking/ODMatrix/To_Place_rel) > 0) || (CyclingV && pcount_uint32(Legs/Org2Stops_Cycling/ODMatrix/To_Place_rel) > 0);
 	attribute<bool>   IsNStop (impl/Places) := (WalkingN && pcount_uint32(Legs/Stops2Dest_Walking/ODMatrix/From_Place_rel) > 0) || (CyclingN && pcount_uint32(Legs/Stops2Dest_Cycling/ODMatrix/From_Place_rel) > 0);
-	parameter<uint32> NrVStops := sum_uint32(IsVStop);
-	parameter<uint32> NrNStops := sum_uint32(IsNStop);
+	parameter<uint32> NrVStops              := sum_uint32(IsVStop);
+	parameter<uint32> NrNStops              := sum_uint32(IsNStop);
 }
 
 container OD_Chains : using = "impl", Descr = "The chains of the OD pair with their legs, which Write calculates and writes in one request (only in the OD pair mode, #129)."
 {
-	container Block := ChainGeneration_PerBlock/Block_1of1, Descr = "The one stop block of the OD pair mode (ModelParameters/Advanced/NumberOfStopBlocks).";
-	unit<uint64> BlockChains := Block/Fence/Result, Descr = "The chains of the block, in the order of the cache (Write_Block).";
-	attribute<Allowed_ChainsK> K_rel     (BlockChains) := BlockChains/Allowed_ChainsK_rel;
-	attribute<uint32>          Chain_rel (BlockChains) := Block/Allowed_Chains/Chain_rel[BlockChains/Allowed_Chains_rel], Descr = "The row number of the chain in Block/Chain_Generation/<K_rel>/Result.";
+	container         Block                   := ChainGeneration_PerBlock/Block_1of1, Descr = "The one stop block of the OD pair mode (ModelParameters/Advanced/NumberOfStopBlocks).";
+	unit<uint64>      BlockChains             := Block/Fence/Result, Descr = "The chains of the block, in the order of the cache (Write_Block).";
+	attribute<Allowed_ChainsK> K_rel (BlockChains) := BlockChains/Allowed_ChainsK_rel;
+	attribute<uint32> Chain_rel (BlockChains) := Block/Allowed_Chains/Chain_rel[BlockChains/Allowed_Chains_rel], Descr = "The row number of the chain in Block/Chain_Generation/<K_rel>/Result.";
 
 	// Per chain type and position of a leg one piece of ChainLegs; from the second position on also the transfer before it.
-	unit<uint8>  Positions : nrofrows = 4
+	unit<uint8> Positions : nrofrows = 4
 	{
 		attribute<uint32> Nr := uint32(id(.)) + 1;
 	}
-	unit<uint32> TypePos := combine_uint32(Allowed_ChainsK, Positions);
+	unit<uint32>      TypePos                 := combine_uint32(Allowed_ChainsK, Positions);
 	unit<uint32> Pieces := select_with_org_rel(Positions/Nr[TypePos/second_rel] <= strlen(Allowed_ChainsK/name[TypePos/first_rel]))
 	{
 		attribute<Allowed_ChainsK> K_rel := TypePos/first_rel[org_rel];
-		attribute<uint32>          Pos   := Positions/Nr[TypePos/second_rel[org_rel]];
-		attribute<string>          KName := Allowed_ChainsK/name[K_rel];
-		attribute<string>          name  := KName + '_' + string(Pos);
+		attribute<uint32> Pos   := Positions/Nr[TypePos/second_rel[org_rel]];
+		attribute<string> KName := Allowed_ChainsK/name[K_rel];
+		attribute<string> name  := KName + '_' + string(Pos);
 	}
-	unit<uint32> TransferPieces := select_with_attr_by_cond(Pieces, Pieces/Pos >= 2);
-	container LegPieces     := for_each_ne(Pieces/name, 'LegPiece_T(' + string(Pieces/K_rel) + '[Allowed_ChainsK], ' + quote(Pieces/KName) + ', ' + string(Pieces/Pos) + ', FALSE)');
-	container TransferPieces_ := for_each_ne(TransferPieces/name, 'LegPiece_T(' + string(TransferPieces/K_rel) + '[Allowed_ChainsK], ' + quote(TransferPieces/KName) + ', ' + string(TransferPieces/Pos) + ', TRUE)');
+	unit<uint32>      TransferPieces          := select_with_attr_by_cond(Pieces, Pieces/Pos >= 2);
+	container         LegPieces               := for_each_ne(Pieces/name, 'LegPiece_T(' + string(Pieces/K_rel) + '[Allowed_ChainsK], ' + quote(Pieces/KName) + ', ' + string(Pieces/Pos) + ', FALSE)');
+	container         TransferPieces_         := for_each_ne(TransferPieces/name, 'LegPiece_T(' + string(TransferPieces/K_rel) + '[Allowed_ChainsK], ' + quote(TransferPieces/KName) + ', ' + string(TransferPieces/Pos) + ', TRUE)');
 
 	Template LegPiece_T
 	{
 		parameter<Allowed_ChainsK> K_id;
-		parameter<string>          KName;
-		parameter<uint32>          Pos;
-		parameter<bool>            IsOverstap;
+		parameter<string> KName;
+		parameter<uint32> Pos;
+		parameter<bool>   IsOverstap;
 		///
 		parameter<uint32> N       := strlen(KName);
 		parameter<string> KPos    := left(KName, Pos);
@@ -70,8 +70,8 @@ container OD_Chains : using = "impl", Descr = "The chains of the OD pair with th
 		// The leg: at the first position the chain of one leg itself (Chain_Generation/L or R), otherwise the right leg of KPos; or the transfer before it.
 		parameter<string> Unit    := IsOverstap ? G + KPos + '/Transfers' : Pos == 1 ? G + KPos + '/result' : G + KPos + '/Right';
 		parameter<string> Row     := IsOverstap
-			? G + KPos + '/Join_LeftT_Right/Valid1/Transfers_rel[' + G + KPos + '/Result/Valid1_rel[' + RowExpr + ']]'
-			: Pos == 1 ? RowExpr : G + KPos + '/Result/Right_rel[' + RowExpr + ']';
+		                             ? G + KPos + '/Join_LeftT_Right/Valid1/Transfers_rel[' + G + KPos + '/Result/Valid1_rel[' + RowExpr + ']]'
+		                             : Pos == 1 ? RowExpr : G + KPos + '/Result/Right_rel[' + RowExpr + ']';
 
 		unit<uint64> Rows := select_with_org_rel(/NetworkSetup/PublicTransport_Prep/OD_Chains/K_rel == K_id)
 		{
@@ -89,33 +89,33 @@ container OD_Chains : using = "impl", Descr = "The chains of the OD pair with th
 			attribute<s>        Wachttijd     := =IsOverstap ? Unit + '/WaitingAtStop_time[' + Row + ']' : 'const(0[s], .)';
 			attribute<Ct>       Prijs         := =IsOverstap ? 'const(0[Ct], .)' : Unit + '/Price[' + Row + ']', Descr = "The price of the leg alone; in the chain a through fare or the maximum of the boarding fares can apply.";
 			attribute<dam>      Afstand       := =IsOverstap ? Unit + '/Walking_Dist[' + Row + ']'
-				: Unit + '/TravelDist_Bus[' + Row + '] + ' + Unit + '/Traveldist_Metro[' + Row + '] + ' + Unit + '/Traveldist_Tram[' + Row + '] + ' + Unit + '/Traveldist_Rail[' + Row + '] + ' + Unit + '/Traveldist_Ferry[' + Row + ']';
+			                                     : Unit + '/TravelDist_Bus[' + Row + '] + ' + Unit + '/Traveldist_Metro[' + Row + '] + ' + Unit + '/Traveldist_Tram[' + Row + '] + ' + Unit + '/Traveldist_Rail[' + Row + '] + ' + Unit + '/Traveldist_Ferry[' + Row + ']';
 			attribute<uint32>   BeginKnoop    := =IsOverstap ? 'const(null_u, .)' : 'uint32(' + Unit + '/OrgZone_rel[' + Row + '])', Descr = "The node at the start of the leg in Set_L/Set/NodeSet (IsL) or Set_R/Set/NodeSet.";
 			attribute<uint32>   EindKnoop     := =IsOverstap ? 'const(null_u, .)' : 'uint32(' + Unit + '/DstZone_rel[' + Row + '])', Descr = "The node at the end of the leg in Set_L/Set/NodeSet (IsL) or Set_R/Set/NodeSet.";
 		}
 	}
 
-	parameter<string> PieceNames := AsItemList('LegPieces/' + Pieces/name + '/Rows') + ',' + AsItemList('TransferPieces_/' + TransferPieces/name + '/Rows');
+	parameter<string> PieceNames              := AsItemList('LegPieces/' + Pieces/name + '/Rows') + ',' + AsItemList('TransferPieces_/' + TransferPieces/name + '/Rows');
 	unit<uint64> ChainLegs := ='union_unit_uint64(' + PieceNames + ')'
 	,	Descr = "Per chain of the cache the public transport legs and the transfers, unsorted; BlockChain_rel and Volgnr give the order."
 	{
-		attribute<BlockChains>   BlockChain_rel     := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/BlockChain_rel') + ')';
-		attribute<uint32>   Volgnr        := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Volgnr') + ')';
-		attribute<bool>     IsOverstap    := ='union_data(., ' + AsItemList('const(FALSE, LegPieces/' + Pieces/name + '/Rows)') + ',' + AsItemList('const(TRUE, TransferPieces_/' + TransferPieces/name + '/Rows)') + ')';
-		attribute<bool>     IsL           := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/IsL') + ')';
-		attribute<Stops>    From_Stop_rel := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/From_Stop_rel') + ')';
-		attribute<Stops>    To_Stop_rel   := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/To_Stop_rel') + ')';
-		attribute<Time>     From_Time_rel := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/From_Time_rel') + ')';
-		attribute<Time>     To_Time_rel   := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/To_Time_rel') + ')';
-		attribute<Routes>   Route_rel     := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Route_rel') + ')';
-		attribute<Agencies> Agency_rel    := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Agency_rel') + ')';
-		attribute<Modes>    Mode_rel      := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Mode_rel') + ')';
-		attribute<s>        Duur          := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Duur') + ')';
-		attribute<s>        Wachttijd     := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Wachttijd') + ')';
-		attribute<Ct>       Prijs         := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Prijs') + ')';
-		attribute<dam>      Afstand       := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Afstand') + ')';
-		attribute<uint32>   BeginKnoop    := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/BeginKnoop') + ')';
-		attribute<uint32>   EindKnoop     := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/EindKnoop') + ')';
+		attribute<BlockChains> BlockChain_rel := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/BlockChain_rel') + ')';
+		attribute<uint32>      Volgnr         := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Volgnr') + ')';
+		attribute<bool>        IsOverstap     := ='union_data(., ' + AsItemList('const(FALSE, LegPieces/' + Pieces/name + '/Rows)') + ',' + AsItemList('const(TRUE, TransferPieces_/' + TransferPieces/name + '/Rows)') + ')';
+		attribute<bool>        IsL            := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/IsL') + ')';
+		attribute<Stops>       From_Stop_rel  := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/From_Stop_rel') + ')';
+		attribute<Stops>       To_Stop_rel    := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/To_Stop_rel') + ')';
+		attribute<Time>        From_Time_rel  := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/From_Time_rel') + ')';
+		attribute<Time>        To_Time_rel    := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/To_Time_rel') + ')';
+		attribute<Routes>      Route_rel      := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Route_rel') + ')';
+		attribute<Agencies>    Agency_rel     := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Agency_rel') + ')';
+		attribute<Modes>       Mode_rel       := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Mode_rel') + ')';
+		attribute<s>           Duur           := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Duur') + ')';
+		attribute<s>           Wachttijd      := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Wachttijd') + ')';
+		attribute<Ct>          Prijs          := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Prijs') + ')';
+		attribute<dam>         Afstand        := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Afstand') + ')';
+		attribute<uint32>      BeginKnoop     := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/BeginKnoop') + ')';
+		attribute<uint32>      EindKnoop      := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/EindKnoop') + ')';
 	}
 
 	// The cache of the legs, next to the chain cache of the block (StorageBlockDir_Str), with the same signature.
@@ -141,7 +141,7 @@ container OD_Chains : using = "impl", Descr = "The chains of the OD pair with th
 		attribute<uint32>   BeginKnoop    := ChainLegs/BeginKnoop;
 		attribute<uint32>   EindKnoop     := ChainLegs/EindKnoop;
 	}
-	unit<uint64> Read_ChainLegs : StorageName = "=/NetworkSetup/PublicTransport_Prep/PT_Chains_Sig/ForReading + '/benen.mmd'", StorageReadOnly = "true"
+	unit<uint64>      Read_ChainLegs          : StorageName = "=/NetworkSetup/PublicTransport_Prep/PT_Chains_Sig/ForReading + '/benen.mmd'", StorageReadOnly = "true"
 	, Descr = "Bare reader of the legs of the chains of the OD pair, without declared attributes.";
 	unit<uint64> ChainLegs_Empty := range(uint64, 0u64, 0u64)
 	, Descr = "The legs in a run without public transport (WW, CC, Car), with the columns of Read_ChainLegs, because there is no chain cache there."
@@ -165,6 +165,6 @@ container OD_Chains : using = "impl", Descr = "The chains of the OD pair with th
 		attribute<uint32>   EindKnoop     := const(null_u, .);
 	}
 
-	parameter<string> Write := 'Ready', ExplicitSuppliers = "Block/Write;Write_ChainLegs"
+	parameter<string> Write                   := 'Ready', ExplicitSuppliers = "Block/Write;Write_ChainLegs"
 	, Descr = "The chain step of the OD pair: the chains of the block and their legs, in one request (PT_Chains_Blocks/ToDo).";
 }

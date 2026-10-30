@@ -7,83 +7,83 @@ Template CreateTransfers_T : Descr = "Template for the transfers from the alight
 	
 	unit<uint32> Uq_From := unique_uint32(FromDomain/c_ToTime_Stop_rel)
 	{
-		attribute<Stops>         To_Stop_rel         := value(values % uint64(#Stops), Stops);
-		attribute<rdc>           To_Point            := Stops/geometry[To_Stop_rel];
+		attribute<Stops> To_Stop_rel := value(values % uint64(#Stops), Stops);
+		attribute<rdc>   To_Point    := Stops/geometry[To_Stop_rel];
 	}
-	unit<uint32> Uq_To   := unique_uint32(ToDomain/c_FromTime_Stop_rel)
+	unit<uint32> Uq_To := unique_uint32(ToDomain/c_FromTime_Stop_rel)
 	{
-		attribute<Stops>         From_Stop_rel        := value(values % uint64(#Stops), Stops);
-		attribute<rdc>           From_Point           := Stops/geometry[From_Stop_rel];
+		attribute<Stops> From_Stop_rel := value(values % uint64(#Stops), Stops);
+		attribute<rdc>   From_Point    := Stops/geometry[From_Stop_rel];
 	}
 
 	unit<uint32> Transfers := join_near_values_uint32(Uq_From/To_Point, Uq_To/From_Point, float64(ModelParameters/Advanced/MaxTransferDist)), Descr = "Every pair of an alighting event and a boarding event within MaxTransferDist of each other, valid or not."
 	{
-		attribute<c_Time_Stops>       c_FromTime_Stop_rel      := Uq_From/values[first_rel]; //c_toTime_Stop_rel
-		attribute<uq_c_ToTime_Stop>   uq_c_Exit_rel            := rlookup(c_FromTime_Stop_rel, uq_c_ToTime_Stop/values);
+		attribute<c_Time_Stops> c_FromTime_Stop_rel      := Uq_From/values[first_rel]; //c_toTime_Stop_rel
+		attribute<uq_c_ToTime_Stop> uq_c_Exit_rel := rlookup(c_FromTime_Stop_rel, uq_c_ToTime_Stop/values);
 
-		attribute<Time>               From_Time_rel            := value(c_FromTime_Stop_rel / uint64(#Stops), Time);
-		attribute<Stops>              From_Stop_rel            := value(c_FromTime_Stop_rel % uint64(#Stops), Stops);
-		attribute<rdc>                From_Point               := Stops/geometry[From_Stop_rel];
+		attribute<Time>         From_Time_rel            := value(c_FromTime_Stop_rel / uint64(#Stops), Time);
+		attribute<Stops>        From_Stop_rel            := value(c_FromTime_Stop_rel % uint64(#Stops), Stops);
+		attribute<rdc>          From_Point               := Stops/geometry[From_Stop_rel];
 		
-		attribute<c_Time_Stops>       c_ToTime_Stop_rel        := Uq_To/values[second_rel]; //c_fromTime_Stop_rel
-		attribute<uq_c_FromTime_Stop> uq_c_Reboard_rel         := rlookup(c_ToTime_Stop_rel, uq_c_FromTime_Stop/values);
+		attribute<c_Time_Stops> c_ToTime_Stop_rel        := Uq_To/values[second_rel]; //c_fromTime_Stop_rel
+		attribute<uq_c_FromTime_Stop> uq_c_Reboard_rel := rlookup(c_ToTime_Stop_rel, uq_c_FromTime_Stop/values);
 		
-		attribute<Time>               To_Time_rel              := value(c_ToTime_Stop_rel / uint64(#Stops), Time);
-		attribute<Stops>              To_Stop_rel              := value(c_ToTime_Stop_rel % uint64(#Stops), Stops);
-		attribute<rdc >               To_Point                 := Stops/geometry[To_Stop_rel];
+		attribute<Time>         To_Time_rel              := value(c_ToTime_Stop_rel / uint64(#Stops), Time);
+		attribute<Stops>        To_Stop_rel              := value(c_ToTime_Stop_rel % uint64(#Stops), Stops);
+		attribute<rdc >         To_Point                 := Stops/geometry[To_Stop_rel];
 		
-		attribute<rdc>                geometry           (arc) := points2sequence(GenLines/Points,GenLines/Seq,GenLines/Ord);
-		attribute<dam>                Walking_Dist             := arc_length(geometry, m_f64)[dam];
-		attribute<Time>               Walking_Time_rel         := (Walking_Dist[m] / ModelParameters/Advanced/TransferEffectiveSpeed)[Time];
-		attribute<Time>               WaitingAtStop_Time_rel   := sub_or_null(Transfer_Time_rel, Walking_Time_rel);
-		attribute<Time>               Transfer_Time_rel        := sub_or_null(To_Time_rel, from_Time_rel);
-		attribute<s>                  Transfer_time            := Transfer_Time_rel[s];
+		attribute<rdc>          geometry           (arc) := points2sequence(GenLines/Points,GenLines/Seq,GenLines/Ord);
+		attribute<dam>          Walking_Dist             := arc_length(geometry, m_f64)[dam];
+		attribute<Time>         Walking_Time_rel         := (Walking_Dist[m] / ModelParameters/Advanced/TransferEffectiveSpeed)[Time];
+		attribute<Time>         WaitingAtStop_Time_rel   := sub_or_null(Transfer_Time_rel, Walking_Time_rel);
+		attribute<Time>         Transfer_Time_rel        := sub_or_null(To_Time_rel, from_Time_rel);
+		attribute<s>            Transfer_time            := Transfer_Time_rel[s];
 		
 		// #123: between two different train stops (platforms) of the same NS station at least the IFF transfer time of that station
 		// (Stops/IFF_TransferTime_rel, ModelParameters/Advanced/IFF_TransferTime), next to the walking time over the straight-line distance.
 		// At the same stop and between train and bus, tram or metro it stays the walking time.
-		attribute<bool>               IsTrainTransferInStation := From_Stop_rel != To_Stop_rel && IsDefined(Stops/IFF_TransferTime_rel[From_Stop_rel]) && IsDefined(Stops/IFF_TransferTime_rel[To_Stop_rel]) && Stops/NS_Stations_rel[From_Stop_rel] == Stops/NS_Stations_rel[To_Stop_rel];
-		attribute<Time>               MinTransfer_Time_rel     := IsTrainTransferInStation ? max_elem(Walking_Time_rel, Stops/IFF_TransferTime_rel[From_Stop_rel]) : Walking_Time_rel;
+		attribute<bool>         IsTrainTransferInStation := From_Stop_rel != To_Stop_rel && IsDefined(Stops/IFF_TransferTime_rel[From_Stop_rel]) && IsDefined(Stops/IFF_TransferTime_rel[To_Stop_rel]) && Stops/NS_Stations_rel[From_Stop_rel] == Stops/NS_Stations_rel[To_Stop_rel];
+		attribute<Time>         MinTransfer_Time_rel     := IsTrainTransferInStation ? max_elem(Walking_Time_rel, Stops/IFF_TransferTime_rel[From_Stop_rel]) : Walking_Time_rel;
 
-		attribute<bool>               IsValidTransfer          := Transfer_Time_rel >= MinTransfer_Time_rel && To_Time_rel > From_Time_rel && Transfer_Time_rel > 0[Time] && Transfer_time <= convert(ModelParameters/MaxPTTime, s);
+		attribute<bool>         IsValidTransfer          := Transfer_Time_rel >= MinTransfer_Time_rel && To_Time_rel > From_Time_rel && Transfer_Time_rel > 0[Time] && Transfer_time <= convert(ModelParameters/MaxPTTime, s);
 
-		unit<uint32> GenLines:= union_unit(., .)
+		unit<uint32> GenLines := union_unit(., .)
 		{
-			attribute<rdc>              Points := union_data(., Stops/geometry[from_Stop_rel], Stops/geometry[to_Stop_rel]);
-			attribute<..>               Seq    := union_data(., id(..), id(..));
-			attribute<uint32>           Ord    := union_data(., const(0,..,uint32), const(1,..,uint32));
+			attribute<rdc>    Points := union_data(., Stops/geometry[from_Stop_rel], Stops/geometry[to_Stop_rel]);
+			attribute<..>     Seq    := union_data(., id(..), id(..));
+			attribute<uint32> Ord    := union_data(., const(0,..,uint32), const(1,..,uint32));
 		}
 		
 		unit<uint32> ValidTransfers := select_with_org_rel(IsValidTransfer), Descr = "The transfers that leave time to walk (at a train station at least the IFF transfer time), arrive after they leave and take no longer than MaxPTTime."
 		{
-			attribute<rdc >          From_Point               := org_rel -> From_Point;
-			attribute<Stops>         From_Stop_rel            := org_rel -> From_Stop_rel;
-			attribute<c_Time_Stops>  c_FromTime_Stop_rel      := org_rel -> c_FromTime_Stop_rel;
+			attribute<rdc >         From_Point             := org_rel -> From_Point;
+			attribute<Stops>        From_Stop_rel          := org_rel -> From_Stop_rel;
+			attribute<c_Time_Stops> c_FromTime_Stop_rel    := org_rel -> c_FromTime_Stop_rel;
 			
-			attribute<uq_c_ToTime_Stop>   uq_c_Exit_rel       := org_rel->uq_c_Exit_rel;
-			attribute<uq_c_FromTime_Stop> uq_c_Reboard_rel    := org_rel->uq_c_Reboard_rel;
+			attribute<uq_c_ToTime_Stop> uq_c_Exit_rel := org_rel->uq_c_Exit_rel;
+			attribute<uq_c_FromTime_Stop> uq_c_Reboard_rel := org_rel->uq_c_Reboard_rel;
 			
-			attribute<Time>          From_Time_rel            := org_rel -> From_Time_rel;
+			attribute<Time>         From_Time_rel          := org_rel -> From_Time_rel;
 			
-			attribute<rdc>           To_Point                 := org_rel -> To_Point;
-			attribute<Stops>         To_Stop_rel              := org_rel -> To_Stop_rel;
-			attribute<c_Time_Stops>  c_ToTime_Stop_rel        := org_rel -> c_ToTime_Stop_rel;
-			attribute<Time>          To_Time_rel              := org_rel -> To_Time_rel;
+			attribute<rdc>          To_Point               := org_rel -> To_Point;
+			attribute<Stops>        To_Stop_rel            := org_rel -> To_Stop_rel;
+			attribute<c_Time_Stops> c_ToTime_Stop_rel      := org_rel -> c_ToTime_Stop_rel;
+			attribute<Time>         To_Time_rel            := org_rel -> To_Time_rel;
 			
-			attribute<rdc>           geometry           (arc) := org_rel -> geometry;
-			attribute<Time>          Transfer_Time_rel        := org_rel -> Transfer_Time_rel;
-			attribute<Time>          WaitingAtStop_Time_rel   := org_rel -> WaitingAtStop_Time_rel;
-			attribute<Time>          Walking_Time_rel         := org_rel -> Walking_Time_rel;
+			attribute<rdc>          geometry         (arc) := org_rel -> geometry;
+			attribute<Time>         Transfer_Time_rel      := org_rel -> Transfer_Time_rel;
+			attribute<Time>         WaitingAtStop_Time_rel := org_rel -> WaitingAtStop_Time_rel;
+			attribute<Time>         Walking_Time_rel       := org_rel -> Walking_Time_rel;
 			
-			attribute<s>             WaitingAtStop_time       := WaitingAtStop_Time_rel[s];
-			attribute<s>             Walking_time             := Walking_Time_rel[s];
-			attribute<s>             Transfer_time            := Transfer_Time_rel[s];
-			attribute<dam>           Walking_Dist             := org_rel -> Walking_Dist;
-			attribute<string>        Label                    := 'Transfer: ' + Time/Label[from_Time_rel] + ' @ ' + Stops/Name[from_Stop_rel] + ' to ' + Time/Label[To_Time_rel] + ' @ ' + Stops/Name[to_Stop_rel], DialogType = "LabelText";
+			attribute<s>            WaitingAtStop_time     := WaitingAtStop_Time_rel[s];
+			attribute<s>            Walking_time           := Walking_Time_rel[s];
+			attribute<s>            Transfer_time          := Transfer_Time_rel[s];
+			attribute<dam>          Walking_Dist           := org_rel -> Walking_Dist;
+			attribute<string>       Label                  := 'Transfer: ' + Time/Label[from_Time_rel] + ' @ ' + Stops/Name[from_Stop_rel] + ' to ' + Time/Label[To_Time_rel] + ' @ ' + Stops/Name[to_Stop_rel], DialogType = "LabelText";
 
-			attribute<Ct>            Walking_Time_cost        := rounded_convert(Walking_time      [min_f] * ModelParameters/Transfer_Walking_Time_Costs, Ct);
-			attribute<Ct>            Waiting_Time_cost        := rounded_convert(WaitingAtStop_time[min_f] * ModelParameters/Transfer_Waiting_Time_Costs, Ct);
-			attribute<Ct>            Time_cost                := Walking_Time_cost + Waiting_Time_cost;
+			attribute<Ct>           Walking_Time_cost      := rounded_convert(Walking_time      [min_f] * ModelParameters/Transfer_Walking_Time_Costs, Ct);
+			attribute<Ct>           Waiting_Time_cost      := rounded_convert(WaitingAtStop_time[min_f] * ModelParameters/Transfer_Waiting_Time_Costs, Ct);
+			attribute<Ct>           Time_cost              := Walking_Time_cost + Waiting_Time_cost;
 			
 		}
 	}

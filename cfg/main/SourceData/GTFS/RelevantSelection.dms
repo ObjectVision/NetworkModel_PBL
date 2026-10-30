@@ -1,135 +1,135 @@
 container RelevantSelection : using = "LoadFeeds"
 , Descr = "Subset of GTFS-schedule relevant for the analysis."
 {
-	unit<uint8> Modes                    := GTFS_Modes/Selection;
+	unit<uint8> Modes := GTFS_Modes/Selection;
 		
 	unit<uint32> StopTimes := RawStopTimes
 	, Descr = "Times that a vehicle arrives at and departs from stops for each trip."
 	{
-		attribute<uint32>                  shape_id         := Trips/shape_id[Trip_rel];
-		attribute<Trips>                   Trip_rel         := rlookup(Read/Stop_times/data/trip_id, Trips/trip_id);
-		attribute<GTFS_Modes/Selection>     Mode_rel         := Trips/Mode_rel[Trip_rel];
-		attribute<GTFS_Modes/Selection>     Mode_perstop     := modus(Mode_rel, Stop_rel)[Stop_rel];
-		attribute<string>                  stop_id          := Read/Stop_times/data/stop_id;
-		attribute<Stops>                   Stop_rel         := rlookup(stop_id, Stops/stop_id);
-		attribute<uint32>                  Stop_Sequence    := uint32(Read/Stop_times/data/stop_sequence);
+		attribute<uint32> shape_id      := Trips/shape_id[Trip_rel];
+		attribute<Trips>  Trip_rel      := rlookup(Read/Stop_times/data/trip_id, Trips/trip_id);
+		attribute<GTFS_Modes/Selection> Mode_rel := Trips/Mode_rel[Trip_rel];
+		attribute<GTFS_Modes/Selection> Mode_perstop := modus(Mode_rel, Stop_rel)[Stop_rel];
+		attribute<string> stop_id       := Read/Stop_times/data/stop_id;
+		attribute<Stops>  Stop_rel      := rlookup(stop_id, Stops/stop_id);
+		attribute<uint32> Stop_Sequence := uint32(Read/Stop_times/data/stop_sequence);
 		
 	}
 	
 	unit<uint32> Stops := select_with_org_rel_with_attr_by_cond(LoadFeeds/RawStops, LoadFeeds/RawStops/StopUsed)
 	, Descr = "Stops where vehicles pick up or drop off riders. Also defines stations and station entrances."
 	{
-		attribute<GTFS_Modes/Selection>          Mode_rel                 := modus(StopTimes/Mode_rel, StopTimes/Stop_rel);
-		attribute<GTFS_Modes/Modes_Combinations> ModeComb_rel             := switch(
-																				case(uint32(Count_bus > 0)  + uint32(Count_tram > 0) == 2, GTFS_Modes/Modes_Combinations/v/trambus)
-																				,case(Doubles == 1, rlookup(Mode_rel, GTFS_Modes/Modes_Combinations/mode_rel))
-																				, null_b
-																			);
-		attribute<uint32>       Count_bus                    := sum_uint32(StopTimes/Mode_rel == Modes/v/bus, StopTimes/Stop_rel);
-		attribute<uint32>       Count_tram                   := sum_uint32(StopTimes/Mode_rel == Modes/v/tram, StopTimes/Stop_rel);
-		attribute<uint32>       Count_rail                   := sum_uint32(StopTimes/Mode_rel == Modes/v/rail, StopTimes/Stop_rel);
-		attribute<uint32>       Count_metro                  := sum_uint32(StopTimes/Mode_rel == Modes/v/metro, StopTimes/Stop_rel);
-		attribute<uint32>       Count_ferry                  := sum_uint32(StopTimes/Mode_rel == Modes/v/ferry, StopTimes/Stop_rel);
+		attribute<GTFS_Modes/Selection> Mode_rel := modus(StopTimes/Mode_rel, StopTimes/Stop_rel);
+		attribute<GTFS_Modes/Modes_Combinations> ModeComb_rel := switch(
+		                                                             case(uint32(Count_bus > 0)  + uint32(Count_tram > 0) == 2, GTFS_Modes/Modes_Combinations/v/trambus)
+		                                                             ,case(Doubles == 1, rlookup(Mode_rel, GTFS_Modes/Modes_Combinations/mode_rel))
+		                                                             , null_b
+		                                                         );
+		attribute<uint32> Count_bus     := sum_uint32(StopTimes/Mode_rel == Modes/v/bus, StopTimes/Stop_rel);
+		attribute<uint32> Count_tram    := sum_uint32(StopTimes/Mode_rel == Modes/v/tram, StopTimes/Stop_rel);
+		attribute<uint32> Count_rail    := sum_uint32(StopTimes/Mode_rel == Modes/v/rail, StopTimes/Stop_rel);
+		attribute<uint32> Count_metro   := sum_uint32(StopTimes/Mode_rel == Modes/v/metro, StopTimes/Stop_rel);
+		attribute<uint32> Count_ferry   := sum_uint32(StopTimes/Mode_rel == Modes/v/ferry, StopTimes/Stop_rel);
 		
-		attribute<uint32>       NrTripsPerDay                := pcount(StopTimes/seltoday ? StopTimes/RawStop_rel : null_u)[RawStops][org_rel];
+		attribute<uint32> NrTripsPerDay := pcount(StopTimes/seltoday ? StopTimes/RawStop_rel : null_u)[RawStops][org_rel];
 
 		
-		attribute<uint32>       Doubles                      := uint32(Count_bus > 0)  + uint32(Count_tram > 0) + uint32(Count_rail > 0) + uint32(Count_metro > 0) + uint32(Count_ferry > 0); 
+		attribute<uint32> Doubles       := uint32(Count_bus > 0)  + uint32(Count_tram > 0) + uint32(Count_rail > 0) + uint32(Count_metro > 0) + uint32(Count_ferry > 0);
 		
 		
-		attribute<uint32>                    orgStopId                := org_rel;
-		attribute<uint32>                    feedId                   := const(0, ., uint32);
-		attribute<upoint>                    uni_StopId               := point_xy(feedId, orgStopId, upoint);
-		attribute<string>                    Name                     := Label;
+		attribute<uint32> orgStopId     := org_rel;
+		attribute<uint32> feedId        := const(0, ., uint32);
+		attribute<upoint> uni_StopId    := point_xy(feedId, orgStopId, upoint);
+		attribute<string> Name          := Label;
 	}
 	
-	unit<uint32> Trips  := Read/Trips/domain
+	unit<uint32> Trips := Read/Trips/domain
 	, Descr = "Trips for each route. A trip is a sequence of two or more stops that occur during a specific time period."
 	{
-		attribute<string>                  trip_nr         := string(id(.));
-		attribute<string>                  trip_id         := Read/Trips/data/trip_id;
-		attribute<string>                  route_id        := Read/Trips/data/route_id;
-		attribute<uint32>                  shape_id        := uint32(Read/Trips/data/shape_id);
-		attribute<string>                  service_id      := Read/Trips/data/service_id;
-		attribute<Routes>                  Route_rel       := rlookup(route_id, Routes/route_id);
-		attribute<string>                  RouteName       := Routes/route_name[Route_rel];
-		attribute<string>                  RouteName_short := Routes/route_short_name[Route_rel];
-		attribute<Agencies>                Agency_rel      := Routes/Agency_rel[Route_rel];
-		attribute<Modes>                   Mode_rel        := rlookup(uint32(Routes/route_type)[Route_rel], Modes/ModeNr);
-		attribute<Services>                Services_rel    := rlookup(service_id, Services/Values);
-		attribute<bool>                    sel_today       := Services/Today_exc[Services_rel] = 1;
-		attribute<bool>                    sel_yesterday   := Services/Yesterday_exc[Services_rel] = 1;
-		attribute<string>                  label           := RouteName;
+		attribute<string>    trip_nr         := string(id(.));
+		attribute<string>    trip_id         := Read/Trips/data/trip_id;
+		attribute<string>    route_id        := Read/Trips/data/route_id;
+		attribute<uint32>    shape_id        := uint32(Read/Trips/data/shape_id);
+		attribute<string>    service_id      := Read/Trips/data/service_id;
+		attribute<Routes>    Route_rel       := rlookup(route_id, Routes/route_id);
+		attribute<string>    RouteName       := Routes/route_name[Route_rel];
+		attribute<string>    RouteName_short := Routes/route_short_name[Route_rel];
+		attribute<Agencies>  Agency_rel      := Routes/Agency_rel[Route_rel];
+		attribute<Modes>     Mode_rel        := rlookup(uint32(Routes/route_type)[Route_rel], Modes/ModeNr);
+		attribute<Services>  Services_rel    := rlookup(service_id, Services/Values);
+		attribute<bool>      sel_today       := Services/Today_exc[Services_rel] = 1;
+		attribute<bool>      sel_yesterday   := Services/Yesterday_exc[Services_rel] = 1;
+		attribute<string>    label           := RouteName;
 		
-		attribute<rdc>                     geometry (arc)  := shapes/uq/geometry[shapes_uq_rel];
-		attribute<shapes>                  shapes_rel      := rlookup(shape_id, shapes/shape_id);
-		attribute<shapes/uq>               shapes_uq_rel   := rlookup(shape_id, shapes/uq/shape_id);
+		attribute<rdc>       geometry  (arc) := shapes/uq/geometry[shapes_uq_rel];
+		attribute<shapes>    shapes_rel      := rlookup(shape_id, shapes/shape_id);
+		attribute<shapes/uq> shapes_uq_rel   := rlookup(shape_id, shapes/uq/shape_id);
 	}
 	
 	unit<uint32> ScheduledLinks := union_unit(RawStopTimes/Yesterday/Links, RawStopTimes/Today/Links, RawStopTimes/Tomorrow/Links)
 	, Descr = "The scheduled links of the service days D-1, D and D+1 on one time axis (LoadFeeds/ServiceDays); building them calculates the checks of ServiceDays."
 	, ExplicitSuppliers = "/SourceData/Infrastructure/GTFS/LoadFeeds/ServiceDays/Check_ServiceDaysComplete;/SourceData/Infrastructure/GTFS/LoadFeeds/ServiceDays/Check_WeekdayMatchesCongestionDay;/SourceData/Infrastructure/GTFS/LoadFeeds/ServiceDays/Check_NoDSTChange"
 	{
-		attribute<rdc>                     geometry (arc)  := union_data(., RawStopTimes/Yesterday/Links/geometry, RawStopTimes/Today/Links/geometry, RawStopTimes/Tomorrow/Links/geometry);
-		attribute<Stops>                   FromStop_rel    := rlookup(union_data(., RawStopTimes/Yesterday/Links/From_RawStop_rel, RawStopTimes/Today/Links/From_RawStop_rel, RawStopTimes/Tomorrow/Links/From_RawStop_rel), Stops/org_rel);
-		attribute<Stops>                   ToStop_rel      := rlookup(union_data(., RawStopTimes/Yesterday/Links/To_RawStop_rel, RawStopTimes/Today/Links/To_RawStop_rel, RawStopTimes/Tomorrow/Links/To_RawStop_rel), Stops/org_rel);
-		attribute<Time>                    fromTime_rel    := union_data(., RawStopTimes/Yesterday/Links/depTime, RawStopTimes/Today/Links/depTime, RawStopTimes/Tomorrow/Links/depTime);
-		attribute<Time>                    toTime_rel      := union_data(., RawStopTimes/Yesterday/Links/arrTime, RawStopTimes/Today/Links/arrTime, RawStopTimes/Tomorrow/Links/arrTime);
-		attribute<Trips>                   Trip_rel        := union_data(., RawStopTimes/Yesterday/Links/RawTrip_rel, RawStopTimes/Today/Links/RawTrip_rel, RawStopTimes/Tomorrow/Links/RawTrip_rel);
-		attribute<Modes>                   Mode_rel        := Trips/Mode_rel[Trip_rel];
-		attribute<string>                  RouteName       := Trips/RouteName[Trip_rel];
-		attribute<Routes>                  Route_rel       := Trips/Route_rel[Trip_rel];
-		attribute<string>                  RouteName_short := Trips/RouteName_short[Trip_rel];
-		attribute<Agencies>                Agency_rel      := Trips/Agency_rel[Trip_rel];
-		attribute<rdc>                     fromPoint       := first_point(geometry);
-		attribute<rdc>                     toPoint         := last_point(geometry);
-		attribute<km>                      Length          := union_data(., RawStopTimes/Yesterday/Links/Length, RawStopTimes/Today/Links/Length, RawStopTimes/Tomorrow/Links/Length);
+		attribute<rdc>          geometry      (arc) := union_data(., RawStopTimes/Yesterday/Links/geometry, RawStopTimes/Today/Links/geometry, RawStopTimes/Tomorrow/Links/geometry);
+		attribute<Stops>        FromStop_rel        := rlookup(union_data(., RawStopTimes/Yesterday/Links/From_RawStop_rel, RawStopTimes/Today/Links/From_RawStop_rel, RawStopTimes/Tomorrow/Links/From_RawStop_rel), Stops/org_rel);
+		attribute<Stops>        ToStop_rel          := rlookup(union_data(., RawStopTimes/Yesterday/Links/To_RawStop_rel, RawStopTimes/Today/Links/To_RawStop_rel, RawStopTimes/Tomorrow/Links/To_RawStop_rel), Stops/org_rel);
+		attribute<Time>         fromTime_rel        := union_data(., RawStopTimes/Yesterday/Links/depTime, RawStopTimes/Today/Links/depTime, RawStopTimes/Tomorrow/Links/depTime);
+		attribute<Time>         toTime_rel          := union_data(., RawStopTimes/Yesterday/Links/arrTime, RawStopTimes/Today/Links/arrTime, RawStopTimes/Tomorrow/Links/arrTime);
+		attribute<Trips>        Trip_rel            := union_data(., RawStopTimes/Yesterday/Links/RawTrip_rel, RawStopTimes/Today/Links/RawTrip_rel, RawStopTimes/Tomorrow/Links/RawTrip_rel);
+		attribute<Modes>        Mode_rel            := Trips/Mode_rel[Trip_rel];
+		attribute<string>       RouteName           := Trips/RouteName[Trip_rel];
+		attribute<Routes>       Route_rel           := Trips/Route_rel[Trip_rel];
+		attribute<string>       RouteName_short     := Trips/RouteName_short[Trip_rel];
+		attribute<Agencies>     Agency_rel          := Trips/Agency_rel[Trip_rel];
+		attribute<rdc>          fromPoint           := first_point(geometry);
+		attribute<rdc>          toPoint             := last_point(geometry);
+		attribute<km>           Length              := union_data(., RawStopTimes/Yesterday/Links/Length, RawStopTimes/Today/Links/Length, RawStopTimes/Tomorrow/Links/Length);
 		// #3: may one board or alight at the start (From) and the end (To) of the link (GTFS pickup_type/drop_off_type, see LoadFeeds/RawStopTimes)?
-		attribute<bool>                    FromPickupAllowed  := union_data(., RawStopTimes/Yesterday/Links/FromPickupAllowed,  RawStopTimes/Today/Links/FromPickupAllowed,  RawStopTimes/Tomorrow/Links/FromPickupAllowed);
-		attribute<bool>                    FromDropOffAllowed := union_data(., RawStopTimes/Yesterday/Links/FromDropOffAllowed, RawStopTimes/Today/Links/FromDropOffAllowed, RawStopTimes/Tomorrow/Links/FromDropOffAllowed);
-		attribute<bool>                    ToPickupAllowed    := union_data(., RawStopTimes/Yesterday/Links/ToPickupAllowed,    RawStopTimes/Today/Links/ToPickupAllowed,    RawStopTimes/Tomorrow/Links/ToPickupAllowed);
-		attribute<bool>                    ToDropOffAllowed   := union_data(., RawStopTimes/Yesterday/Links/ToDropOffAllowed,   RawStopTimes/Today/Links/ToDropOffAllowed,   RawStopTimes/Tomorrow/Links/ToDropOffAllowed);
-		attribute<s_f>                     Duration        := fromTime_rel <= toTime_rel 
-																? float32(sub_or_null(toTime_rel,fromTime_rel))[s_f]
-																: float32(sub_or_null(toTime_rel + #Time, fromTime_rel))[s_f];
-		attribute<string>                  Label           := 'Scheduled: ' + Time/Label[fromTime_rel] + ' @ ' + Stops/Name[FromStop_rel] + ' to ' + Time/Label[toTime_rel] + ' @ ' + Stops/Name[ToStop_rel];
+		attribute<bool>         FromPickupAllowed   := union_data(., RawStopTimes/Yesterday/Links/FromPickupAllowed,  RawStopTimes/Today/Links/FromPickupAllowed,  RawStopTimes/Tomorrow/Links/FromPickupAllowed);
+		attribute<bool>         FromDropOffAllowed  := union_data(., RawStopTimes/Yesterday/Links/FromDropOffAllowed, RawStopTimes/Today/Links/FromDropOffAllowed, RawStopTimes/Tomorrow/Links/FromDropOffAllowed);
+		attribute<bool>         ToPickupAllowed     := union_data(., RawStopTimes/Yesterday/Links/ToPickupAllowed,    RawStopTimes/Today/Links/ToPickupAllowed,    RawStopTimes/Tomorrow/Links/ToPickupAllowed);
+		attribute<bool>         ToDropOffAllowed    := union_data(., RawStopTimes/Yesterday/Links/ToDropOffAllowed,   RawStopTimes/Today/Links/ToDropOffAllowed,   RawStopTimes/Tomorrow/Links/ToDropOffAllowed);
+		attribute<s_f>          Duration            := fromTime_rel <= toTime_rel
+		                                               ? float32(sub_or_null(toTime_rel,fromTime_rel))[s_f]
+		                                               : float32(sub_or_null(toTime_rel + #Time, fromTime_rel))[s_f];
+		attribute<string>       Label               := 'Scheduled: ' + Time/Label[fromTime_rel] + ' @ ' + Stops/Name[FromStop_rel] + ' to ' + Time/Label[toTime_rel] + ' @ ' + Stops/Name[ToStop_rel];
 		
-		attribute<c_Time_Stops>            c_FromTime_Stop_rel := combine_data(c_Time_Stops, fromTime_rel, FromStop_rel);
-		attribute<c_Time_Stops>            c_ToTime_Stop_rel   := combine_data(c_Time_Stops, toTime_rel, ToStop_rel);
+		attribute<c_Time_Stops> c_FromTime_Stop_rel := combine_data(c_Time_Stops, fromTime_rel, FromStop_rel);
+		attribute<c_Time_Stops> c_ToTime_Stop_rel   := combine_data(c_Time_Stops, toTime_rel, ToStop_rel);
 		
 		unit<uint32> findUniqueSpaceTimeEvents := union_unit(., .)
 		, Descr = "in order to get a set of all time-place events"
 		{
-			attribute<c_Time_Stops> c_Time_Stops_rel   := union_data(., ../c_FromTime_Stop_rel, ../c_ToTime_Stop_rel);
-			attribute<Time>         Time_rel           := value(c_Time_Stops_rel / uint64(#Stops), Time);
-			attribute<Stops>        Stop_rel           := value(c_Time_Stops_rel % uint64(#Stops), Stops);
-			attribute<string>       Stop_name          := Stops/Name[Stop_rel];
-			attribute<rdc>          geometry           := union_data(., ../fromPoint, ../toPoint);
+			attribute<c_Time_Stops> c_Time_Stops_rel := union_data(., ../c_FromTime_Stop_rel, ../c_ToTime_Stop_rel);
+			attribute<Time>         Time_rel         := value(c_Time_Stops_rel / uint64(#Stops), Time);
+			attribute<Stops>        Stop_rel         := value(c_Time_Stops_rel % uint64(#Stops), Stops);
+			attribute<string>       Stop_name        := Stops/Name[Stop_rel];
+			attribute<rdc>          geometry         := union_data(., ../fromPoint, ../toPoint);
 			
-			attribute<string>       stop_geom_iden     := string(Stop_rel) + '_' + string(geometry);
+			attribute<string>       stop_geom_iden   := string(Stop_rel) + '_' + string(geometry);
 			
-			attribute<SL_Places>    SL_Places_rel := rlookup(stop_geom_iden, SL_Places/values);
+			attribute<SL_Places>    SL_Places_rel    := rlookup(stop_geom_iden, SL_Places/values);
 		}
 		
 		unit<uint32> SL_Places := unique(findUniqueSpaceTimeEvents/stop_geom_iden)
 		, Descr = "The unique locations of the scheduled links; a location can still occur twice with a different Stop_rel."
 		{
-			attribute<Stops>   Stop_rel    := findUniqueSpaceTimeEvents/Stop_rel[invert(findUniqueSpaceTimeEvents/SL_Places_rel)];
-			attribute<string>  Stop_name   := Stops/Name[Stop_rel];
-			attribute<string>  Label       := Stop_name;
-			attribute<rdc>     geometry    := findUniqueSpaceTimeEvents/geometry[invert(findUniqueSpaceTimeEvents/SL_Places_rel)];
+			attribute<Stops>  Stop_rel  := findUniqueSpaceTimeEvents/Stop_rel[invert(findUniqueSpaceTimeEvents/SL_Places_rel)];
+			attribute<string> Stop_name := Stops/Name[Stop_rel];
+			attribute<string> Label     := Stop_name;
+			attribute<rdc>    geometry  := findUniqueSpaceTimeEvents/geometry[invert(findUniqueSpaceTimeEvents/SL_Places_rel)];
 		}
 
 		unit<uint32> uq_TimeStop := unique(ScheduledLinks/findUniqueSpaceTimeEvents/c_Time_Stops_rel)
 		, Descr = "The unique combinations of time and stop of the scheduled links (scheduled space-time events, SSTE)."
 		{
-			attribute<c_Time_Stops> c_Time_Stops_rel       := values;
-			attribute<Time>         Time_rel               := value(c_Time_Stops_rel / uint64(#Stops), Time);
-			attribute<Stops>        Stop_rel               := value(c_Time_Stops_rel % uint64(#Stops), Stops);
-			attribute<string>       Label                  := Stops/Name[Stop_rel] + ' @ ' + Time/Label[Time_rel];
-			attribute<uint32>       cumu_events_Stop       := cumulate(const(1,.,uint32), Stop_rel) - 1;
-			attribute<upoint>       unique_id              := point_xy(cumu_events_Stop, Stop_rel, upoint);
-			attribute<uint32>       nr_times_per_stop      := pcount(Stop_rel)[Stop_rel];
+			attribute<c_Time_Stops> c_Time_Stops_rel  := values;
+			attribute<Time>         Time_rel          := value(c_Time_Stops_rel / uint64(#Stops), Time);
+			attribute<Stops>        Stop_rel          := value(c_Time_Stops_rel % uint64(#Stops), Stops);
+			attribute<string>       Label             := Stops/Name[Stop_rel] + ' @ ' + Time/Label[Time_rel];
+			attribute<uint32>       cumu_events_Stop  := cumulate(const(1,.,uint32), Stop_rel) - 1;
+			attribute<upoint>       unique_id         := point_xy(cumu_events_Stop, Stop_rel, upoint);
+			attribute<uint32>       nr_times_per_stop := pcount(Stop_rel)[Stop_rel];
 		}
 	}
 
@@ -137,34 +137,34 @@ container RelevantSelection : using = "LoadFeeds"
 	unit<uint32> Routes := union_unit(Read/Routes/domain, Classifications/TimeInvariantTypes)
 	, Descr = "Transit routes, a route being a group of trips that riders see as a single service, plus the pseudo-routes of pre- and post-transport."
 	{
-		attribute<string>   agency_id        := union_data(., Read/Routes/data/agency_id, Classifications/TimeInvariantTypes/NetworkType);
-		attribute<string>   agency_name      := rjoin(agency_id, Read/agency/data/agency_id, Read/agency/data/agency_name);
-		attribute<Agencies> agency_rel       := rlookup(AsItemName(lowercase(agency_name)), Agencies/name);
-		attribute<string>   route_id         := union_data(., Read/Routes/data/route_id, Classifications/TimeInvariantTypes/name);
-		attribute<string>   route_type       := union_data(., Read/Routes/data/route_type, string(Classifications/TimeInvariantTypes/mode_rel));
-		attribute<string>   route_long_name  := union_data(., Read/Routes/data/route_long_name, Classifications/TimeInvariantTypes/name);
-		attribute<string>   route_short_name := union_data(., Read/Routes/data/route_short_name, Classifications/TimeInvariantTypes/name_short);
-		attribute<string>   route_name       := route_short_name+ ' ' +route_long_name;
-		attribute<string>   label            := route_name;
+		attribute<string>   agency_id                := union_data(., Read/Routes/data/agency_id, Classifications/TimeInvariantTypes/NetworkType);
+		attribute<string>   agency_name              := rjoin(agency_id, Read/agency/data/agency_id, Read/agency/data/agency_name);
+		attribute<Agencies> agency_rel               := rlookup(AsItemName(lowercase(agency_name)), Agencies/name);
+		attribute<string>   route_id                 := union_data(., Read/Routes/data/route_id, Classifications/TimeInvariantTypes/name);
+		attribute<string>   route_type               := union_data(., Read/Routes/data/route_type, string(Classifications/TimeInvariantTypes/mode_rel));
+		attribute<string>   route_long_name          := union_data(., Read/Routes/data/route_long_name, Classifications/TimeInvariantTypes/name);
+		attribute<string>   route_short_name         := union_data(., Read/Routes/data/route_short_name, Classifications/TimeInvariantTypes/name_short);
+		attribute<string>   route_name               := route_short_name+ ' ' +route_long_name;
+		attribute<string>   label                    := route_name;
 		
-		attribute<Modes>    Mode_rel         := rlookup(uint8(route_type), Modes/route_type);
-		attribute<rdc>      geometry   (arc) := Trips/geometry[invert(trips/Route_rel)];
+		attribute<Modes>    Mode_rel                 := rlookup(uint8(route_type), Modes/route_type);
+		attribute<rdc>      geometry           (arc) := Trips/geometry[invert(trips/Route_rel)];
 
-		// #113: flex and on-demand bus lines by name (search terms in ModelParameters/Advanced/FlexRouteTerms). MakeDefined, because a null in one
+		// #113: flex and on-demand bus lines by name (search terms in Classifications/FlexRouteTerms). MakeDefined, because a null in one
 		// of the two names would make the search text null and leave the route silently unmarked. lowercase(), because the flag parameter of
 		// regex_search does not reach the engine (Regex.cpp reads args[3] with a ternary operator). regex_search gives the matched term, or null.
-		attribute<string>   flex_searchtext   := lowercase(MakeDefined(route_short_name, '') + ' ' + MakeDefined(route_long_name, ''));
-		attribute<string>   FlexMatch        := regex_search(flex_searchtext, ModelParameters/Impl/FlexRoutePattern), Descr = "The matched flex term; null means no match.";
-		attribute<string>   FlexNearMiss     := regex_search(flex_searchtext, ModelParameters/Impl/FlexNearMissPattern), Descr = "The matched near-miss term; null means no match.";
-		attribute<bool>     IsPseudoRoute    := union_data(., const(false, Read/Routes/domain, bool), const(true, Classifications/TimeInvariantTypes, bool)), Descr = "The pseudo-routes of pre- and post-transport from the union_unit.";
-		attribute<bool>     IsFlex           := not(IsPseudoRoute) && IsDefined(FlexMatch), Descr = "A flex or on-demand bus line: booked in advance, without a fixed timetable; see ModelParameters/Advanced/IncludeFlex and the flex parameters after it.";
-		attribute<bool>     IsFlexNearMiss   := not(IsPseudoRoute) && not(IsFlex) && IsDefined(FlexNearMiss);
+		attribute<string>   flex_searchtext          := lowercase(MakeDefined(route_short_name, '') + ' ' + MakeDefined(route_long_name, ''));
+		attribute<string>   FlexMatch                := regex_search(flex_searchtext, ModelParameters/Impl/FlexRoutePattern), Descr = "The matched flex term; null means no match.";
+		attribute<string>   FlexNearMiss             := regex_search(flex_searchtext, ModelParameters/Impl/FlexNearMissPattern), Descr = "The matched near-miss term; null means no match.";
+		attribute<bool>     IsPseudoRoute            := union_data(., const(false, Read/Routes/domain, bool), const(true, Classifications/TimeInvariantTypes, bool)), Descr = "The pseudo-routes of pre- and post-transport from the union_unit.";
+		attribute<bool>     IsFlex                   := not(IsPseudoRoute) && IsDefined(FlexMatch), Descr = "A flex or on-demand bus line: booked in advance, without a fixed timetable; see ModelParameters/Advanced/IncludeFlex and the flex parameters after it.";
+		attribute<bool>     IsFlexNearMiss           := not(IsPseudoRoute) && not(IsFlex) && IsDefined(FlexNearMiss);
 
-		// #3: the product with a trip surcharge (ModelParameters/Advanced/TripSurchargeTrains) of a route of the L-net, recognised by its
+		// #3: the product with a trip surcharge (SourceData/Infrastructure/OVprijzen/NS/TripSurchargeTrains) of a route of the L-net, recognised by its
 		// route_short_name (TripSurchargeRouteNames); null means no surcharge. Routes outside the L-net get an empty search name.
 		attribute<string>   TripSurcharge_searchname := not(IsPseudoRoute) && Agencies/IsLnet[agency_rel] ? lowercase(MakeDefined(route_short_name, '')) : '';
-		attribute<ModelParameters/Advanced/TripSurchargeTrains> TripSurcharge_rel := ModelParameters/Advanced/TripSurchargeRouteNames/TripSurcharge_rel[rlookup(TripSurcharge_searchname, ModelParameters/Advanced/TripSurchargeRouteNames/route_short_name)];
-		attribute<bool>     IsWithoutNSTicket := IsDefined(rlookup(lowercase(MakeDefined(route_short_name, '')), ModelParameters/Advanced/TrainsWithoutNSTicket/route_short_name))
+		attribute<SourceData/Infrastructure/OVprijzen/NS/TripSurchargeTrains> TripSurcharge_rel := SourceData/Infrastructure/OVprijzen/NS/TripSurchargeRouteNames/TripSurcharge_rel[rlookup(TripSurcharge_searchname, SourceData/Infrastructure/OVprijzen/NS/TripSurchargeRouteNames/route_short_name)];
+		attribute<bool>     IsWithoutNSTicket        := IsDefined(rlookup(lowercase(MakeDefined(route_short_name, '')), SourceData/Infrastructure/OVprijzen/NS/TrainsWithoutNSTicket/route_short_name))
 		, Descr = "#3: a train on which an NS ticket never applies (Eurostar, Nightjet and others); it is not part of the L-net, see PublicTransport_Prep/Set_L.";
 	}
 	

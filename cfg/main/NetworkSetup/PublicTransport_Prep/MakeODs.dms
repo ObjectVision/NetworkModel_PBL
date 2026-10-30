@@ -17,7 +17,7 @@ unit<uint32> OD_L := =
 	)'
 	, using = "impl"
 {
-	unit<uint32>             ThisSet                         := Set_L/Set;
+	unit<uint32>      ThisSet                         := Set_L/Set;
 	
 	#include<../OD_extra_attributen.dms>
 	
@@ -26,24 +26,24 @@ unit<uint32> OD_L := =
 	// Price_L null, and a row with a null criterion is never optimal in pareto_optimal_eps, so that the leg and every chain over it would silently
 	// drop out of the chains. The trains of NS International also run in the L network (#3); their legs to or from abroad have no NS price and
 	// drop out of Result (IsDomesticLeg), so the check applies to the legs of NS itself.
-	attribute<bool>          NS_Station_Price_IntegrityCheck := =ModelParameters/Impl/PriceExportsAndIntegrityChecksNeeded
-																	? 'Agency_rel == Agencies/V/ns ? IsDefined(rjoin(impl/c_NS_start_end_rel, TariffUnitsMatrix/c_NS_start_end_rel, TariffUnitsMatrix/Price_ct)) : TRUE'
-																	: 'const(TRUE, .)';
-	attribute<Ct>            Price_L                         := rjoin(impl/c_NS_start_end_rel, TariffUnitsMatrix/c_NS_start_end_rel, TariffUnitsMatrix/Price_ct)
+	attribute<bool>   NS_Station_Price_IntegrityCheck := =ModelParameters/Impl/PriceExportsAndIntegrityChecksNeeded
+	                                                     ? 'Agency_rel == Agencies/V/ns ? IsDefined(rjoin(impl/c_NS_start_end_rel, TariffUnitsMatrix/c_NS_start_end_rel, TariffUnitsMatrix/Price_ct)) : TRUE'
+	                                                     : 'const(TRUE, .)';
+	attribute<Ct>     Price_L                         := rjoin(impl/c_NS_start_end_rel, TariffUnitsMatrix/c_NS_start_end_rel, TariffUnitsMatrix/Price_ct)
 																, IntegrityCheck = "all(NS_Station_Price_IntegrityCheck)";
-	attribute<bool>          IsDomesticLeg               := Agency_rel == Agencies/V/ns
-																	|| (IsDefined(Price_L) && NS_Stations/IsInNL[impl/From_NS_Stations_rel] && NS_Stations/IsInNL[impl/To_NS_Stations_rel])
+	attribute<bool>   IsDomesticLeg                   := Agency_rel == Agencies/V/ns
+	                                                     || (IsDefined(Price_L) && NS_Stations/IsInNL[impl/From_NS_Stations_rel] && NS_Stations/IsInNL[impl/To_NS_Stations_rel])
 																, Descr = "Whether the leg counts as domestic: a leg of NS, or a leg between two NS stations in the Netherlands with an NS price, such as NS International within the country (#3).";
 
-	// TRIP SURCHARGE (#3). The surcharge of a special train (ModelParameters/Advanced/TripSurchargeTrains) depends on the trip, not on the station
+	// TRIP SURCHARGE (#3). The surcharge of a special train (SourceData/Infrastructure/OVprijzen/NS/TripSurchargeTrains) depends on the trip, not on the station
 	// pair. A leg lies on a route, and because the waiting links are standstill within a trip, in practice on one trip: that of the link with
 	// which it departs from its begin node (NodeSet/DepTrip_rel). A product with a section (HSL: Schiphol-Rotterdam) costs the surcharge if that
 	// trip passes both stations between boarding and alighting time, also without stopping or transferring there; a product without a section
 	// (ICE) costs it on every leg. The surcharge is kept apart in Price_S, so that the chain joiner does not lose it with a through NS fare (which
 	// recalculates Price_L).
-	unit<uint8>                  TripSurchargeTrains            := ModelParameters/Advanced/TripSurchargeTrains;
-	attribute<TripSurchargeTrains>  TripSurcharge_rel               := Routes/TripSurcharge_rel[Route_rel];
-	attribute<uint32>            Leg_Trip_rel               := ThisSet/NodeSet/DepTrip_rel[OrgZone_rel];
+	unit<uint8>       TripSurchargeTrains             := SourceData/Infrastructure/OVprijzen/NS/TripSurchargeTrains;
+	attribute<TripSurchargeTrains> TripSurcharge_rel := Routes/TripSurcharge_rel[Route_rel];
+	attribute<uint32> Leg_Trip_rel                    := ThisSet/NodeSet/DepTrip_rel[OrgZone_rel];
 
 	// The passages of the trips with a section product along the stations of their section: per scheduled link its begin and end.
 	unit<uint32> SectionLinks := select_with_org_rel(ThisSet/LinkType_rel == LinkTypes/V/Scheduled && MakeDefined(/SourceData/Infrastructure/OVprijzen/NS/TripSurcharge/HasSection[Routes/TripSurcharge_rel[ThisSet/Route_rel]], false))
@@ -52,12 +52,12 @@ unit<uint32> OD_L := =
 	}
 	unit<uint32> SectionPassages := union_unit(SectionLinks, SectionLinks)
 	{
-		attribute<uint32>           Trip_rel      := union_data(., ThisSet/Trip_rel[SectionLinks/org_rel], ThisSet/Trip_rel[SectionLinks/org_rel]);
-		attribute<Time>             Time_rel      := union_data(., ThisSet/From_Time_rel[SectionLinks/org_rel], ThisSet/To_Time_rel[SectionLinks/org_rel]);
-		attribute<NS_Stations>      Station_rel   := union_data(., ThisSet/NS_StartPoint_rel[SectionLinks/org_rel], ThisSet/NS_EndPoint_rel[SectionLinks/org_rel]);
+		attribute<uint32>              Trip_rel          := union_data(., ThisSet/Trip_rel[SectionLinks/org_rel], ThisSet/Trip_rel[SectionLinks/org_rel]);
+		attribute<Time>                Time_rel          := union_data(., ThisSet/From_Time_rel[SectionLinks/org_rel], ThisSet/To_Time_rel[SectionLinks/org_rel]);
+		attribute<NS_Stations>         Station_rel       := union_data(., ThisSet/NS_StartPoint_rel[SectionLinks/org_rel], ThisSet/NS_EndPoint_rel[SectionLinks/org_rel]);
 		attribute<TripSurchargeTrains> TripSurcharge_rel := union_data(., SectionLinks/TripSurcharge_rel, SectionLinks/TripSurcharge_rel);
-		attribute<bool>             IsA           := IsDefined(Station_rel) && Station_rel == /SourceData/Infrastructure/OVprijzen/NS/TripSurcharge/StationA_rel[TripSurcharge_rel];
-		attribute<bool>             IsB           := IsDefined(Station_rel) && Station_rel == /SourceData/Infrastructure/OVprijzen/NS/TripSurcharge/StationB_rel[TripSurcharge_rel];
+		attribute<bool>                IsA               := IsDefined(Station_rel) && Station_rel == /SourceData/Infrastructure/OVprijzen/NS/TripSurcharge/StationA_rel[TripSurcharge_rel];
+		attribute<bool>                IsB               := IsDefined(Station_rel) && Station_rel == /SourceData/Infrastructure/OVprijzen/NS/TripSurcharge/StationB_rel[TripSurcharge_rel];
 	}
 	unit<uint32> SectionLegs := select_with_org_rel(MakeDefined(/SourceData/Infrastructure/OVprijzen/NS/TripSurcharge/HasSection[TripSurcharge_rel], false))
 	{
@@ -68,39 +68,39 @@ unit<uint32> OD_L := =
 	unit<uint32> SectionPairs := join_equal_values_uint32(SectionLegs/Trip_rel, SectionPassages/Trip_rel)
 	{
 		attribute<bool> InLeg := SectionPassages/Time_rel[second_rel] >= SectionLegs/From_Time_rel[first_rel] && SectionPassages/Time_rel[second_rel] <= SectionLegs/To_Time_rel[first_rel];
-		attribute<bool> IsA    := InLeg && SectionPassages/IsA[second_rel];
-		attribute<bool> IsB    := InLeg && SectionPassages/IsB[second_rel];
+		attribute<bool> IsA   := InLeg && SectionPassages/IsA[second_rel];
+		attribute<bool> IsB   := InLeg && SectionPassages/IsB[second_rel];
 	}
-	attribute<bool>              RidesSection (SectionLegs) := any(SectionPairs/IsA, SectionPairs/first_rel) && any(SectionPairs/IsB, SectionPairs/first_rel);
-	attribute<bool>              IsTripSurchargeLeg             := IsDefined(TripSurcharge_rel) && (not(MakeDefined(/SourceData/Infrastructure/OVprijzen/NS/TripSurcharge/HasSection[TripSurcharge_rel], false)) || MakeDefined(RidesSection[invert(SectionLegs/org_rel)], false))
+	attribute<bool>   RidesSection      (SectionLegs) := any(SectionPairs/IsA, SectionPairs/first_rel) && any(SectionPairs/IsB, SectionPairs/first_rel);
+	attribute<bool>   IsTripSurchargeLeg              := IsDefined(TripSurcharge_rel) && (not(MakeDefined(/SourceData/Infrastructure/OVprijzen/NS/TripSurcharge/HasSection[TripSurcharge_rel], false)) || MakeDefined(RidesSection[invert(SectionLegs/org_rel)], false))
 	, Descr = "Does this leg cost the trip surcharge of its product?";
-	attribute<Ct>                Price_S                     := =ModelParameters/Advanced/IncludeTripSurcharge ? 'IsTripSurchargeLeg ? rounded_convert(/SourceData/Infrastructure/OVprijzen/NS/TripSurcharge/Surcharge[TripSurcharge_rel], Ct) : 0[Ct]' : 'const(0[Ct], .)'
+	attribute<Ct>     Price_S                         := =ModelParameters/Advanced/IncludeTripSurcharge ? 'IsTripSurchargeLeg ? rounded_convert(/SourceData/Infrastructure/OVprijzen/NS/TripSurcharge/Surcharge[TripSurcharge_rel], Ct) : 0[Ct]' : 'const(0[Ct], .)'
 	, Descr = "Trip surcharge of this leg (#3), which the chain joiner adds next to the NS fare.";
-	attribute<s>                 TripSurcharge_ExtraTime         := =ModelParameters/Impl/TripSurchargeHasTimePenalty ? 'IsTripSurchargeLeg ? /SourceData/Infrastructure/OVprijzen/NS/TripSurcharge/ExtraTime[TripSurcharge_rel] : 0[s]' : 'const(0[s], .)'
+	attribute<s>      TripSurcharge_ExtraTime         := =ModelParameters/Impl/TripSurchargeHasTimePenalty ? 'IsTripSurchargeLeg ? /SourceData/Infrastructure/OVprijzen/NS/TripSurcharge/ExtraTime[TripSurcharge_rel] : 0[s]' : 'const(0[s], .)'
 	, Descr = "Extra travel time of the trip surcharge (TripSurchargeTrains/ExtraTime), added through Traveltime in OD_extra_attributen.";
-	attribute<Ct>                Price                       := Price_L + Price_S;
+	attribute<Ct>     Price                           := Price_L + Price_S;
 
 	unit<uint32> Result := =ModelParameters/Impl/TripSurchargeHasTimePenalty
-		? 'select_with_org_rel_with_attr_by_cond(., !impl/IsStartEndWithinSameStopCluster && IsBoardAlightAllowed && IsDomesticLeg && Traveltime <= convert(ModelParameters/MaxPTTime, s))'
-		: 'select_with_org_rel_with_attr_by_cond(., !impl/IsStartEndWithinSameStopCluster && IsBoardAlightAllowed && IsDomesticLeg)'
+	                       ? 'select_with_org_rel_with_attr_by_cond(., !impl/IsStartEndWithinSameStopCluster && IsBoardAlightAllowed && IsDomesticLeg && Traveltime <= convert(ModelParameters/MaxPTTime, s))'
+	                       : 'select_with_org_rel_with_attr_by_cond(., !impl/IsStartEndWithinSameStopCluster && IsBoardAlightAllowed && IsDomesticLeg)'
 	{
-		parameter<uint32>             ModeFactor                  := 16u, Descr = "16 to the power of the number of legs of this chain (one leg): a chain joiner with this chain on the right shifts the ModeCode of the left chain by ModeFactor (ChainJoiner_T).";
-		attribute<Time>               BoardingTime_RO              := const(null_u,.);
-		attribute<Time>               BoardingTime_NS              := From_time_rel;
-		attribute<Ct>                 Price_NonNS                 := const(0, ., Ct);
-		attribute<Ct>                 Price_F                     := const(0[Ct],.), Descr = "Final costs, not subject to subsequent recalculation";
-		attribute<Ct>                 Price_T                     := const(0[Ct],.), Descr = "Augmented costs for transfers";
-		attribute<Ct>                 Price_augm                  := Price_L + Price_S;
+		parameter<uint32>      ModeFactor         := 16u, Descr = "16 to the power of the number of legs of this chain (one leg): a chain joiner with this chain on the right shifts the ModeCode of the left chain by ModeFactor (ChainJoiner_T).";
+		attribute<Time>        BoardingTime_RO    := const(null_u,.);
+		attribute<Time>        BoardingTime_NS    := From_time_rel;
+		attribute<Ct>          Price_NonNS        := const(0, ., Ct);
+		attribute<Ct>          Price_F            := const(0[Ct],.), Descr = "Final costs, not subject to subsequent recalculation";
+		attribute<Ct>          Price_T            := const(0[Ct],.), Descr = "Augmented costs for transfers";
+		attribute<Ct>          Price_augm         := Price_L + Price_S;
 		
-		attribute<Stops>              Last_Stop_rel               := ThisSet/NodeSet/Stop_rel[DstZone_rel];
-		attribute<NS_Stations>        First_NS_Station            := impl/From_NS_Stations_rel[org_rel];
-		attribute<NS_Stations>        Last_NS_Station             := impl/To_NS_Stations_rel[org_rel];
-		attribute<Time>               Last_NS_AlightTime     := To_Time_rel;
-		attribute<Time>               Last_RO_AlightTime     := const(null_u,.), Descr = "The last alighting time from a regional leg, kept through NS legs (K or L), to check whether a following regional leg continues the same fare journey (ChainJoiner_T, RO_continuation_allowed).";
+		attribute<Stops>       Last_Stop_rel      := ThisSet/NodeSet/Stop_rel[DstZone_rel];
+		attribute<NS_Stations> First_NS_Station   := impl/From_NS_Stations_rel[org_rel];
+		attribute<NS_Stations> Last_NS_Station    := impl/To_NS_Stations_rel[org_rel];
+		attribute<Time>        Last_NS_AlightTime := To_Time_rel;
+		attribute<Time>        Last_RO_AlightTime := const(null_u,.), Descr = "The last alighting time from a regional leg, kept through NS legs (K or L), to check whether a following regional leg continues the same fare journey (ChainJoiner_T, RO_continuation_allowed).";
 
 		#include<../OD_traveldist.dms>
-		attribute<uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel  := rlookup(c_FromTime_Stop_rel, uq_c_FromTime_Stop/c_FromTime_Stop_rel);
-		attribute<uq_c_ToTime_Stop>   uq_c_ToTime_Stop_rel    := rlookup(c_ToTime_Stop_rel, uq_c_ToTime_Stop/c_ToTime_Stop_rel);
+		attribute<uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel := rlookup(c_FromTime_Stop_rel, uq_c_FromTime_Stop/c_FromTime_Stop_rel);
+		attribute<uq_c_ToTime_Stop> uq_c_ToTime_Stop_rel := rlookup(c_ToTime_Stop_rel, uq_c_ToTime_Stop/c_ToTime_Stop_rel);
 	}
 	// For an OD pair (#129): the legs to a stop from which the destination can be reached (OD_Stops/IsNStop), as the last leg of the longest
 	// chains (ChainGeneration_PerBlock_T); org_rel still refers to OD_L.
@@ -124,19 +124,19 @@ unit<uint32> OD_R := =
 	)'
 	, using = "impl"
 {
-	unit<uint32>                 ThisSet                          := Set_R/Set;
+	unit<uint32>  ThisSet                 := Set_R/Set;
 	
 	// R specific
-	attribute<Ct>                Price_I                          := rounded_convert(FareTable/FixedPrice[impl/FareTable_rel], Ct), IntegrityCheck = "all(impl/Price_IntegrityCheck)";
-	attribute<Ct>                Price_O                          := ='rounded_convert(FareTable/VariablePrice[impl/FareTable_rel] * impl/PT_TravelledDistance, Ct)'
-		+ (ModelParameters/Advanced/IncludeFlex && ModelParameters/Advanced/FlexCallCosts > 0[Euro] ? ' + (IsFlexLeg ? rounded_convert(ModelParameters/Advanced/FlexCallCosts, Ct) : 0[Ct])' : '')
+	attribute<Ct> Price_I                 := rounded_convert(FareTable/FixedPrice[impl/FareTable_rel], Ct), IntegrityCheck = "all(impl/Price_IntegrityCheck)";
+	attribute<Ct> Price_O                 := ='rounded_convert(FareTable/VariablePrice[impl/FareTable_rel] * impl/PT_TravelledDistance, Ct)'
+	                                         + (ModelParameters/Advanced/IncludeFlex && ModelParameters/Advanced/FlexCallCosts > 0[Euro] ? ' + (IsFlexLeg ? rounded_convert(ModelParameters/Advanced/FlexCallCosts, Ct) : 0[Ct])' : '')
 		, IntegrityCheck = "all(impl/Price_IntegrityCheck)", Descr = "Variable part of the price plus the call costs per boarding on a flex line (ModelParameters/Advanced/FlexCallCosts); the chain joiner adds Price_O at every transfer and takes the maximum of Price_I within a journey, so call costs belong here.";
-	attribute<Ct>                Price_F                          := const(0[Ct],.), Descr = "Final costs, not subject to subsequent recalculation";
-	attribute<Ct>                Price_T                          := const(0[Ct],.), Descr = "Augmented costs for transfers";
-	attribute<Ct>                Price_S                          := const(0[Ct],.), Descr = "Trip surcharge (#3), only in the L network.";
-	attribute<s>                 TripSurcharge_ExtraTime              := const(0[s],.), Descr = "Extra time of the trip surcharge (#3), only in the L network.";
-	attribute<Ct>                Price                            := Price_I + Price_O;
-	attribute<Ct>                Price_augm                       := Price;
+	attribute<Ct> Price_F                 := const(0[Ct],.), Descr = "Final costs, not subject to subsequent recalculation";
+	attribute<Ct> Price_T                 := const(0[Ct],.), Descr = "Augmented costs for transfers";
+	attribute<Ct> Price_S                 := const(0[Ct],.), Descr = "Trip surcharge (#3), only in the L network.";
+	attribute<s>  TripSurcharge_ExtraTime := const(0[s],.), Descr = "Extra time of the trip surcharge (#3), only in the L network.";
+	attribute<Ct> Price                   := Price_I + Price_O;
+	attribute<Ct> Price_augm              := Price;
 
 	#include<../OD_extra_attributen.dms>
 
@@ -146,20 +146,20 @@ unit<uint32> OD_R := =
 	// #3: only legs where the GTFS allows boarding and alighting (IsBoardAlightAllowed); this drops, among others, GoVolta within the Netherlands
 	// (at its Dutch stops boarding only, with reservation; alighting only in Germany).
 	unit<uint32> Result := =ModelParameters/Impl/FlexHasTimePenalty
-		? 'select_with_org_rel_with_attr_by_cond(., !impl/IsOD_completely_foreign && !impl/IsStartEndWithinSameStopCluster && IsBoardAlightAllowed && Traveltime <= convert(ModelParameters/MaxPTTime, s))'
-		: 'select_with_org_rel_with_attr_by_cond(., !impl/IsOD_completely_foreign && !impl/IsStartEndWithinSameStopCluster && IsBoardAlightAllowed)'
+	                       ? 'select_with_org_rel_with_attr_by_cond(., !impl/IsOD_completely_foreign && !impl/IsStartEndWithinSameStopCluster && IsBoardAlightAllowed && Traveltime <= convert(ModelParameters/MaxPTTime, s))'
+	                       : 'select_with_org_rel_with_attr_by_cond(., !impl/IsOD_completely_foreign && !impl/IsStartEndWithinSameStopCluster && IsBoardAlightAllowed)'
 	{
-		parameter<uint32>             ModeFactor                  := 16u, Descr = "16 to the power of the number of legs of this chain (one leg): a chain joiner with this chain on the right shifts the ModeCode of the left chain by ModeFactor (ChainJoiner_T).";
-		attribute<Time>               BoardingTime_NS              := const(null_u,.);
-		attribute<Time>               BoardingTime_RO              := From_time_rel;
-		attribute<Time>               Last_NS_AlightTime      := const(null_u,.);
-		attribute<Time>               Last_RO_AlightTime           := To_Time_rel, Descr = "The last alighting time from a regional leg, kept through NS legs (K or L), to check whether a following regional leg continues the same fare journey (ChainJoiner_T, RO_continuation_allowed).";
-		attribute<NS_Stations>        First_NS_Station             := const(null_u,.);
-		attribute<NS_Stations>        Last_NS_Station              := const(null_u,.);
+		parameter<uint32>      ModeFactor         := 16u, Descr = "16 to the power of the number of legs of this chain (one leg): a chain joiner with this chain on the right shifts the ModeCode of the left chain by ModeFactor (ChainJoiner_T).";
+		attribute<Time>        BoardingTime_NS    := const(null_u,.);
+		attribute<Time>        BoardingTime_RO    := From_time_rel;
+		attribute<Time>        Last_NS_AlightTime := const(null_u,.);
+		attribute<Time>        Last_RO_AlightTime := To_Time_rel, Descr = "The last alighting time from a regional leg, kept through NS legs (K or L), to check whether a following regional leg continues the same fare journey (ChainJoiner_T, RO_continuation_allowed).";
+		attribute<NS_Stations> First_NS_Station   := const(null_u,.);
+		attribute<NS_Stations> Last_NS_Station    := const(null_u,.);
 
 		#include<../OD_traveldist.dms>
-		attribute<uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel  := rlookup(c_FromTime_Stop_rel, uq_c_FromTime_Stop/c_FromTime_Stop_rel);
-		attribute<uq_c_ToTime_Stop>   uq_c_ToTime_Stop_rel    := rlookup(c_ToTime_Stop_rel, uq_c_ToTime_Stop/c_ToTime_Stop_rel);
+		attribute<uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel := rlookup(c_FromTime_Stop_rel, uq_c_FromTime_Stop/c_FromTime_Stop_rel);
+		attribute<uq_c_ToTime_Stop> uq_c_ToTime_Stop_rel := rlookup(c_ToTime_Stop_rel, uq_c_ToTime_Stop/c_ToTime_Stop_rel);
 	}
 	// For an OD pair (#129): the legs to a stop from which the destination can be reached (OD_Stops/IsNStop), as the last leg of the longest
 	// chains (ChainGeneration_PerBlock_T); org_rel still refers to OD_R.

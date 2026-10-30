@@ -35,7 +35,7 @@ REM                                 and Tellingen\tellingen_*.*. With ModelParam
 REM                                 parquet instead of csv; the counts per block go to Tellingen (tellingen_*.csv).
 REM                                 The step runs in portions of blocks (WriteOutputBlocks.ps1, a GeoDmsRun per portion,
 REM                                 then the counts with OdTellingen.py); blocks per portion per component in
-REM                                 ModelParameters/Advanced/Components/BlocksPerPortion, or set with OUTPUT_BATCHSIZE;
+REM                                 Classifications/Components/BlocksPerPortion, or set with OUTPUT_BATCHSIZE;
 REM                                 with OUTPUT_SINGLE in one request.
 REM A run calculates one component (ModelParameters/Component, #117): cars skips the car caches when the component has
 REM no direct car trip (everything except Car), chains skips the chain cache when public transport is not part of it
@@ -218,7 +218,7 @@ if exist "!OUTDIR!\" (
   del /q "!OUTDIR!\PerBlock\tt_*.csv" "!OUTDIR!\PerBlock\tt_*.xml" "!OUTDIR!\Mediaan\tt_*.csv" "!OUTDIR!\Mediaan\tt_*.xml" "!OUTDIR!\tt_*.csv" "!OUTDIR!\tt_*.xml" "!OUTDIR!\signature.txt" "!OUTDIR!\signature.xml" "!OUTDIR!\od_tellingen.*" "!OUTDIR!\unieke_od_tellingen.*" "!OUTDIR!\PerBlock\tt_*.parquet" "!OUTDIR!\Mediaan\tt_*.parquet" "!OUTDIR!\Tellingen\tellingen_*.*" 2>nul
 )
 REM The output runs in portions of origin blocks, each in its own GeoDmsRun, followed by the counts with OdTellingen.py
-REM (WriteOutputBlocks.ps1). Blocks per portion: ModelParameters/Advanced/Components/BlocksPerPortion of the component,
+REM (WriteOutputBlocks.ps1). Blocks per portion: Classifications/Components/BlocksPerPortion of the component,
 REM or the environment variable OUTPUT_BATCHSIZE; OUTPUT_MAXBLOCKS calculates at most that many blocks (for testing).
 REM The environment variable OUTPUT_SINGLE runs one request for all blocks, with the counts included
 REM (NetworkSetup/GenerateOutput/Generate_Output). With MergeOutput (#117) the merging of the Components also runs per

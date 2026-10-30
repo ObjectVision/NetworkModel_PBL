@@ -6,90 +6,90 @@ container Infrastructure : Descr = "The train stations of NS, the OV-fiets locat
 	,	StorageReadOnly = "True"
 	,	URL             = "https://hub.arcgis.com/datasets/822b7e9ad10e476e9092265416ad484d/explore?location=50.006768%2C8.947104%2C6.62"
 	{
-		attribute<wgs84_base>                geometry;
-		attribute<rdc>                       geometry_rd := LatLongWgs842RD(geometry, dpoint)[rdc];
-		attribute<string>                    Land;
-		attribute<string>                    lang;
-		attribute<string>                    Type;
-		attribute<string>                    type_code      := (Type == 'knooppuntintercitystation' || Type == 'intercitystation' || Type == 'megastation')
-															? 'IC'
-															: (Type == 'knooppuntsneltreinstation' || Type == 'sneltreinstation')
-																? 'ST'
-																: (Type == 'knooppuntstoptreinstation' || Type == 'stoptreinstation')
-																	? 'SPR'
-																	: 'Anders', Descr = "The station type in short: 'IC' for (hub) intercity and mega stations, 'ST' for (hub) fast train stations, 'SPR' for (hub) local train stations, else 'Anders'.";
+		attribute<wgs84_base> geometry;
+		attribute<rdc>        geometry_rd := LatLongWgs842RD(geometry, dpoint)[rdc];
+		attribute<string>     Land;
+		attribute<string>     lang;
+		attribute<string>     Type;
+		attribute<string>     type_code   := (Type == 'knooppuntintercitystation' || Type == 'intercitystation' || Type == 'megastation')
+		                                     ? 'IC'
+		                                     : (Type == 'knooppuntsneltreinstation' || Type == 'sneltreinstation')
+		                                         ? 'ST'
+		                                         : (Type == 'knooppuntstoptreinstation' || Type == 'stoptreinstation')
+		                                             ? 'SPR'
+		                                             : 'Anders', Descr = "The station type in short: 'IC' for (hub) intercity and mega stations, 'ST' for (hub) fast train stations, 'SPR' for (hub) local train stations, else 'Anders'.";
 	}
 	
 	unit<uint32> IC_Stations := select_with_org_rel(Read_NS_Stations_SHP/type_code == 'IC' && Read_NS_Stations_SHP/Land == 'NL'), Descr = "The intercity stations in the Netherlands."
 	{
-		attribute<rdc>       geometry := Read_NS_Stations_SHP/geometry_rd[org_rel];
-		attribute<string>    code     := Read_NS_Stations_SHP/code[org_rel];
-		attribute<string>    label    := Read_NS_Stations_SHP/lang[org_rel];
+		attribute<rdc>    geometry := Read_NS_Stations_SHP/geometry_rd[org_rel];
+		attribute<string> code     := Read_NS_Stations_SHP/code[org_rel];
+		attribute<string> label    := Read_NS_Stations_SHP/lang[org_rel];
 		
-		attribute<uq> uq_rel := rlookup(geometry, uq/geometry);
+		attribute<uq>     uq_rel   := rlookup(geometry, uq/geometry);
 		unit<uint32> uq := unique(geometry)
 		{
-			attribute<rdc>     geometry := values;
-			attribute<string>  label    := ../label[invert(uq_rel)];
-			attribute<string>  code    := ../code[invert(uq_rel)];
+			attribute<rdc>    geometry := values;
+			attribute<string> label    := ../label[invert(uq_rel)];
+			attribute<string> code     := ../code[invert(uq_rel)];
 		}
 	}
 	unit<uint32> Trainstations := select_with_org_rel(Read_NS_Stations_SHP/Land == 'NL'), Descr = "The train stations in the Netherlands, with IsIC for the intercity stations; GTFS matches its rail stops to them for the NS fares."
 	{
-		attribute<rdc>       geometry := Read_NS_Stations_SHP/geometry_rd[org_rel];
-		attribute<string>    code     := Read_NS_Stations_SHP/code[org_rel];
-		attribute<string>    label    := Read_NS_Stations_SHP/lang[org_rel];
-		attribute<bool>      IsIC     := Read_NS_Stations_SHP/type_code[org_rel] == 'IC';
+		attribute<rdc>    geometry := Read_NS_Stations_SHP/geometry_rd[org_rel];
+		attribute<string> code     := Read_NS_Stations_SHP/code[org_rel];
+		attribute<string> label    := Read_NS_Stations_SHP/lang[org_rel];
+		attribute<bool>   IsIC     := Read_NS_Stations_SHP/type_code[org_rel] == 'IC';
 		
-		attribute<uq> uq_rel := rlookup(geometry, uq/geometry);
+		attribute<uq>     uq_rel   := rlookup(geometry, uq/geometry);
 		unit<uint32> uq := unique(geometry)
 		{
-			attribute<rdc>     geometry := values;
-			attribute<string>  label    := ../label[invert(uq_rel)];
-			attribute<string>  code    := ../code[invert(uq_rel)];
+			attribute<rdc>    geometry := values;
+			attribute<string> label    := ../label[invert(uq_rel)];
+			attribute<string> code     := ../code[invert(uq_rel)];
 			
 			unit<uint32> doubledpoints := combine(uq, uq)
 			, dialogtype = "map", dialogdata = "origin"
 			{
-				attribute<rdc> origin      := ../geometry[first_rel];
-				attribute<rdc> destination := ../geometry[second_rel];
-				attribute<m>   dist      := value(dist(origin, destination),m);
+				attribute<rdc>    origin      := ../geometry[first_rel];
+				attribute<rdc>    destination := ../geometry[second_rel];
+				attribute<m>      dist        := value(dist(origin, destination),m);
 				attribute<string> org_code    := ../code[first_rel];
 				attribute<string> dst_code    := ../code[second_rel];
 			}
 			
 			unit<uint32> NS_short_stations := select_with_org_rel(doubledpoints/dist <= 10000[m] && doubledpoints/dist > 0[m] )
 			{
-				attribute<rdc>    geometry      := org_rel -> origin;
-				attribute<m>      dist          := org_rel -> dist;
-				attribute<string> code          := org_rel -> org_code;
+				attribute<rdc>    geometry := org_rel -> origin;
+				attribute<m>      dist     := org_rel -> dist;
+				attribute<string> code     := org_rel -> org_code;
 				
 			}
 		}
 	}
 	
-	unit<uint32> OV_Fiets_Stations 
+	unit<uint32> OV_Fiets_Stations
 	:	StorageName     = "='%NetworkModel_dir%/Infrastructuur/' + ModelParameters/Impl/OVFiets_File"
 	,	StorageType     = "gdal.vect"
 	,	StorageReadOnly = "True"
 	,	Descr           = "The OV-fiets rental locations of the analysis moment, from the file of ModelParameters/Impl/OVFiets_File."
 	{
-		attribute<rdc> geometry := point_yx(float64(y), float64(x), rdc);
-		attribute<string> label := naam;
+		attribute<rdc>    geometry := point_yx(float64(y), float64(x), rdc);
+		attribute<string> label    := naam;
 		
 	}
 	// The transfer time per station from the IFF timetable of NS (#123): stations.dat from ns-latest.zip of NDOV Loket, as a csv with a header
 	// next to the zip (code, overstaptijd and max_overstaptijd in minutes, land, x, y, naam). Its code is that of OVprijzen/NS/NS_Stations,
 	// so it reaches the GTFS stops through their NS_Stations_rel.
 	unit<uint32> IFF_Stations
-	:	StorageName     = "='%NetworkModel_dir%/Infrastructuur/IFF/' + ModelParameters/Advanced/IFF_file_date + '/stations.csv'"
+	:	StorageName     = "='%NetworkModel_dir%/Infrastructuur/IFF/' + ModelParameters/IFF_file_date + '/stations.csv'"
 	,	StorageType     = "gdal.vect"
 	,	StorageReadOnly = "True"
 	,	URL             = "https://data.ndovloket.nl/ns/ns-latest.zip"
 	,	Descr           = "The stations of the IFF timetable of NS with their transfer time."
 	,	Source          = "IFF timetable of NS from NDOV Loket (ns-latest.zip, stations.dat); delivery of 13-10-2026, valid from 12-10-2026 to 12-12-2026."
 	{
-		attribute<string> code_l      := lowercase(code);
+		attribute<string> code_l           := lowercase(code);
 		attribute<Time>   TransferTime_rel := value(uint32(overstaptijd) * 60, Time), Descr = "The transfer time of the station (changetime in stations.dat).";
 	}
 		

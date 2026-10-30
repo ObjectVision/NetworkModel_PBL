@@ -8,31 +8,31 @@ Template CreateNetwork_Pedestrian_Bike_T : using = "Geography", Descr = "Calcula
 	parameter<string> ConnectionType;
 	container         Optimised_Network;
 	////
-	parameter<min_f> MaxDistSelection_min := ='ModelParameters/' + (TravelMode == 'Walking' && ConnectionType != 'Org2Stops' && ConnectionType != 'Stops2Dest' && ConnectionType != 'Org2Dest' ? 'Advanced/' : '') + 'Max'+TravelMode+'Time_'+ConnectionType; // the walking times that no component uses are in Advanced
-	parameter<s_f>   MaxDistSelection_sec := convert(MaxDistSelection_min, s_f);
+	parameter<min_f>  MaxDistSelection_min := ='ModelParameters/' + (TravelMode == 'Walking' && ConnectionType != 'Org2Stops' && ConnectionType != 'Stops2Dest' && ConnectionType != 'Org2Dest' ? 'Advanced/' : '') + 'Max'+TravelMode+'Time_'+ConnectionType; // the walking times that no component uses are in Advanced
+	parameter<s_f>    MaxDistSelection_sec := convert(MaxDistSelection_min, s_f);
 	
-	unit<uint32> LinkSet0 := Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet;
-	unit<uint32> LinkSet  := select_with_org_rel(IsDefined(LinkSet0/F1) && IsDefined(LinkSet0/F2))
+	unit<uint32>      LinkSet0             := Optimised_Network/CreateMoreEfficientNetwork/FinalLinkSet;
+	unit<uint32> LinkSet := select_with_org_rel(IsDefined(LinkSet0/F1) && IsDefined(LinkSet0/F2))
 	{
-		attribute<NodeSet> F1                   := LinkSet0/F1[org_rel];
-		attribute<NodeSet> F2                   := LinkSet0/F2[org_rel];
-		attribute<bool>    IsBidirectional      := not(LinkSet0/IsOneDirection[org_rel]), Descr = "Can the link be used in both directions? A one-way cycle path of the Fietsersbond can be used only from F1 to F2 (#124); the OSM networks for walking and cycling have no one-way links.";
+		attribute<NodeSet> F1              := LinkSet0/F1[org_rel];
+		attribute<NodeSet> F2              := LinkSet0/F2[org_rel];
+		attribute<bool>    IsBidirectional := not(LinkSet0/IsOneDirection[org_rel]), Descr = "Can the link be used in both directions? A one-way cycle path of the Fietsersbond can be used only from F1 to F2 (#124); the OSM networks for walking and cycling have no one-way links.";
 	}
 	
 	unit<uint32> NodeSet := Optimised_Network/CreateMoreEfficientNetwork/FinalNodeSet
 	{
-		attribute<.>   OrgNode_rel  (inStart)    := rlookup(inStart/geometry, geometry);
-		attribute<.>   DestNode_rel (inEnd)     := rlookup(inEnd/geometry, geometry);
+		attribute<.> OrgNode_rel (inStart) := rlookup(inStart/geometry, geometry);
+		attribute<.> DestNode_rel  (inEnd) := rlookup(inEnd/geometry, geometry);
 	}
-	unit<uint32> Places  := impl/Places;
+	unit<uint32>      Places               := impl/Places;
 	
-	attribute<s_f> impedance (LinkSet) := ='LinkSet0/Impedance_per_ImpedanceType/max_'+NetworkType+'[LinkSet/org_rel]';
-	attribute<km>  distance  (LinkSet) := ='LinkSet0/Distance_per_ImpedanceType/max_'+NetworkType+'[LinkSet/org_rel]';
+	attribute<s_f>    impedance  (LinkSet) := ='LinkSet0/Impedance_per_ImpedanceType/max_'+NetworkType+'[LinkSet/org_rel]';
+	attribute<km>     distance   (LinkSet) := ='LinkSet0/Distance_per_ImpedanceType/max_'+NetworkType+'[LinkSet/org_rel]';
 	
 	// In the OD pair mode (ModelParameters/Impl/IsOD, #129) the search also requests the LinkSet, and Links gives per leg the links of its route
 	// (Templates/RouteLinks_T); the travel times are the same.
 	unit<uint64> ODMatrix := ='impedance_matrix_od64(''bidirectional(link_flag);startPoint(Node_rel):max_imp;endPoint(Node_rel);cut(OrgZone_max_imp);alternative(link_imp):alt_imp;od:impedance,OrgZone_rel,DstZone_rel'
-		+ (ModelParameters/Impl/IsOD ? ',LinkSet' : '') + '''
+	                         + (ModelParameters/Impl/IsOD ? ',LinkSet' : '') + '''
 			, impedance
 			, LinkSet/F1
 			, LinkSet/F2
@@ -43,59 +43,59 @@ Template CreateNetwork_Pedestrian_Bike_T : using = "Geography", Descr = "Calcula
 			, distance
 		)'
 	{
-		attribute<Time>	   Duration                         := RoundUp(Impedance)[uint32][Time];
-		attribute<s_f>     Duration_seconds                 := Impedance;
-		attribute<float32> Duration_minutes                 := Impedance / 60f;
-		attribute<inStart> Start_rel                        := OrgZone_rel; 
-		attribute<inEnd>   End_rel                          := DstZone_rel; 
-		attribute<string>  StartName                        := inStart/name[Start_rel];
-		attribute<string>  EndName                          := inEnd/name[End_rel];
-		attribute<km>      LengthKm                         := alt_imp; 
-		attribute<dam>     Distance                         := alt_imp[dam]; 
+		attribute<Time>    Duration             := RoundUp(Impedance)[uint32][Time];
+		attribute<s_f>     Duration_seconds     := Impedance;
+		attribute<float32> Duration_minutes     := Impedance / 60f;
+		attribute<inStart> Start_rel            := OrgZone_rel;
+		attribute<inEnd>   End_rel              := DstZone_rel;
+		attribute<string>  StartName            := inStart/name[Start_rel];
+		attribute<string>  EndName              := inEnd/name[End_rel];
+		attribute<km>      LengthKm             := alt_imp;
+		attribute<dam>     Distance             := alt_imp[dam];
 		// Extra time on the leg on top of the network travel time: for a cycling leg the start time, in the PreTransport also the parking time at
 		// the stop and, when the leg ends at an IC station, the extra parking time there. The V and N unions in PublicTransport.dms read
 		// Duration_seconds_ext, and the price below is calculated over the same extended time, so that parking also counts in the time costs.
 		// Ending at an IC station is a property of the leg (the stop where it ends is in impl/Ric_Stops), not of the type, so a cycling leg of
 		// Org2Stops_Cycling to an IC station, as in a cycling component (#117), also gets the extra parking time.
-		parameter<bool>    IsCycling                        := TravelMode == 'Cycling';
-		attribute<bool>    EndsAtICStation                  := IsPreTransport && IsDefined(Places/Ric_Stop_rel[To_Place_rel]);
-		parameter<min_f>   ExtraTime_min                    := (IsCycling ? ModelParameters/Cycling_StartTime : 0[min_f])
-		                                                     + (IsCycling && IsPreTransport ? ModelParameters/Advanced/Cycling_PreTransport_Penalty : 0[min_f]);
-		parameter<s_f>     ExtraTime_IC_seconds             := convert(ModelParameters/Cycling_ParkingTime_IC_Station, s_f);
-		attribute<s_f>     ExtraTime_seconds                := = IsCycling && IsPreTransport
-		                                                     ? 'convert(ExtraTime_min, s_f) + (EndsAtICStation ? ExtraTime_IC_seconds : 0[s_f])'
-		                                                     : 'const(convert(ExtraTime_min, s_f), .)'
+		parameter<bool>    IsCycling            := TravelMode == 'Cycling';
+		attribute<bool>    EndsAtICStation      := IsPreTransport && IsDefined(Places/Ric_Stop_rel[To_Place_rel]);
+		parameter<min_f>   ExtraTime_min        := (IsCycling ? ModelParameters/Cycling_StartTime : 0[min_f])
+		                                           + (IsCycling && IsPreTransport ? ModelParameters/Advanced/Cycling_PreTransport_Penalty : 0[min_f]);
+		parameter<s_f>     ExtraTime_IC_seconds := convert(ModelParameters/Cycling_ParkingTime_IC_Station, s_f);
+		attribute<s_f>     ExtraTime_seconds    := = IsCycling && IsPreTransport
+		                                           ? 'convert(ExtraTime_min, s_f) + (EndsAtICStation ? ExtraTime_IC_seconds : 0[s_f])'
+		                                           : 'const(convert(ExtraTime_min, s_f), .)'
 		,	Descr = "Only a cycling leg in the PreTransport looks up whether it ends at an IC station; the other legs have a fixed extra time.";
-		attribute<s_f>     Duration_seconds_ext             := Impedance + ExtraTime_seconds;
-		attribute<rdc>     FromPoint                        := inStart/geometry[Start_rel];
-		attribute<rdc>     ToPoint                          := inEnd/geometry[End_rel];
-		attribute<rdc>     geometry (arc)                   := points2sequence(LinkPoints/geometry, LinkPoints/ODPathRel, LinkPoints/CumulOrdinal);
-		attribute<string>  Label                            := TravelMode+' path from: ' + StartName + ' to ' + EndName;
+		attribute<s_f>     Duration_seconds_ext := Impedance + ExtraTime_seconds;
+		attribute<rdc>     FromPoint            := inStart/geometry[Start_rel];
+		attribute<rdc>     ToPoint              := inEnd/geometry[End_rel];
+		attribute<rdc>     geometry       (arc) := points2sequence(LinkPoints/geometry, LinkPoints/ODPathRel, LinkPoints/CumulOrdinal);
+		attribute<string>  Label                := TravelMode+' path from: ' + StartName + ' to ' + EndName;
 
-		parameter<string>  OriginSetStr                     := OriginSet == 'Org' ? 'Origin' : OriginSet;
+		parameter<string>  OriginSetStr         := OriginSet == 'Org' ? 'Origin' : OriginSet;
 
-		attribute<Places>  From_Place_rel                   := ='rlookup(Start_rel, Places/'+OriginSetStr+'_rel)';
-		attribute<Places>  To_Place_rel                     := ='rlookup(End_rel,  Places/'+DestinationSet+'_rel)';
-		attribute<ct>      Price                            := =IsOVFiets
-																	? 'const(rounded_convert(ModelParameters/OVFiets_RentalPrice, ct),.)'
-																	: 'rounded_convert(Duration_seconds_ext[min_f] * ModelParameters/'+PreTransportStr+'_'+TravelMode+'_Time_Costs, ct)'
+		attribute<Places>  From_Place_rel       := ='rlookup(Start_rel, Places/'+OriginSetStr+'_rel)';
+		attribute<Places>  To_Place_rel         := ='rlookup(End_rel,  Places/'+DestinationSet+'_rel)';
+		attribute<ct>      Price                := =IsOVFiets
+		                                           ? 'const(rounded_convert(ModelParameters/OVFiets_RentalPrice, ct),.)'
+		                                           : 'rounded_convert(Duration_seconds_ext[min_f] * ModelParameters/'+PreTransportStr+'_'+TravelMode+'_Time_Costs, ct)'
 		,	Descr = "The rental price of an OV-fiets; otherwise the time costs over the extended time, which for cycling in the PostTransport stand for an own bike parked at the last stop.";
-		parameter<bool>               IsOVFiets                      := TimeInvariantTypes/IsOVfiets[TimeInvariantTypes_rel];
+		parameter<bool>    IsOVFiets            := TimeInvariantTypes/IsOVfiets[TimeInvariantTypes_rel];
 		parameter<TimeInvariantTypes> Current_TimeInvariantTypes_rel := TimeInvariantTypes_rel;
-		parameter<bool>               IsPreTransport                := VN_Transport == 'V';
-		parameter<string>             PreTransportStr               := IsPreTransport ? 'PreTransport' : 'PostTransport';
-		attribute<Modes>              Mode_rel                       := const(.../Mode_rel,.);
+		parameter<bool>    IsPreTransport       := VN_Transport == 'V';
+		parameter<string>  PreTransportStr      := IsPreTransport ? 'PreTransport' : 'PostTransport';
+		attribute<Modes>   Mode_rel             := const(.../Mode_rel,.);
 		
 		unit<uint32> LinkPoints := union_unit(., .)
 		{
-			attribute<..>                   ODPathRel    := union_data(., id(..), id(..));
-			attribute<rdc>                  geometry     := union_data(., ../FromPoint, ../ToPoint);
-			attribute<uint32>               CumulOrdinal := union_data(., const(0,..,uint32), const(1,..,uint32));
+			attribute<..>     ODPathRel    := union_data(., id(..), id(..));
+			attribute<rdc>    geometry     := union_data(., ../FromPoint, ../ToPoint);
+			attribute<uint32> CumulOrdinal := union_data(., const(0,..,uint32), const(1,..,uint32));
 		}
 		
 	}
-	container Links := =ModelParameters/Impl/IsOD
-		? 'Templates/RouteLinks_T(ODMatrix, ODMatrix/LinkSet, LinkSet, NodeSet, LinkSet/F1, LinkSet/F2, NodeSet/geometry, NodeSet/DestNode_rel[ODMatrix/End_rel])'
-		: 'Templates/NoRouteLinks_T()'
+	container         Links                := =ModelParameters/Impl/IsOD
+	                                          ? 'Templates/RouteLinks_T(ODMatrix, ODMatrix/LinkSet, LinkSet, NodeSet, LinkSet/F1, LinkSet/F2, NodeSet/geometry, NodeSet/DestNode_rel[ODMatrix/End_rel])'
+	                                          : 'Templates/NoRouteLinks_T()'
 	, Descr = "The links of the route of each leg, only in the OD pair mode (IsOD); the geometry is that of the simplified network, a straight line per link.";
 }
