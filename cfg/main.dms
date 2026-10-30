@@ -1,15 +1,99 @@
 container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 20.2402" // 20.24.2: pareto_optimal_eps with a relative epsilon; format 17.1.2 -> 17.0102
 { 	
 	// HOW TO RUN THE MODEL (the wiki, How to run the model, has the details):
-	// 1. Choose in ModelParameters the analysis moment, the origins and destinations, and the component, or the components to merge.
-	// 2. Make the decoupled data with the steps under MakeUnlinkedData, in order. A cache is made once per edition or setting, and its signature tells whether it fits.
-	// 3. Calculate the results with batch\UpdateAll.cmd output. It runs the origin blocks in portions, each in its own GeoDmsRun, so that memory is freed in between;
-	//    NetworkSetup/GenerateOutput/Generate_Output does the same in the GUI in one process, which only suits a small set or one OD pair.
-	// 4. To merge components into one front, set MergeOutput in ModelParameters and run batch\UpdateAll.cmd output again.
-	// Outside the GUI, batch\UpdateAll.cmd sources, legs, chains and cars make the same caches as step 2.
+	// 1. Choose in ModelParameters the analysis moment and day, the part of the day, the origins and destinations, the variant (the pre- and
+	//    post-transport types and the direct trips) and the criteria of the merge.
+	// 2. Run batch\UpdateAll.cmd (or batch\ScheduleUpdateAll.cmd all, which keeps running after logging off). It checks the settings
+	//    (ChecksBeforeRunning/Report), makes the caches, calculates the components of the variant one after the other, each in its own GeoDmsRun
+	//    steps and output folder, skips a component whose output is complete, and merges them.
+	// 3. In GeoDmsGui, ModelParameters/GuiComponent chooses the component to look at; the steps under MakeUnlinkedData make the same caches as
+	//    UpdateAll, and NetworkSetup/GenerateOutput/Generate_Output the output in one process, which only suits a small set or one OD pair.
 
-	container ChecksBeforeRunning : Descr = "Checks to run before the chain and output steps; each gives PASS or FAIL with what to change."
+	container ChecksBeforeRunning : Descr = "Checks of the settings, which batch/UpdateAll.cmd runs first (Report), and of the blocks and prices before the chain and output steps; each gives PASS or FAIL with what to change."
 	{
+		// The settings, in Report. They read ModelParameters and its small tables, and reach an item with an IntegrityCheck (such as
+		// Impl/Analysis_date) only through an indirect expression, after the check it depends on has passed: a wrong setting then gives this
+		// message and not the IntegrityCheck of a later item.
+		unit<uint8>       RunnableMoments       := select_with_attr_by_cond(ModelParameters/AnalysisMomentPresets, ModelParameters/AnalysisMomentPresets/Analysis_date != '' && ModelParameters/AnalysisMomentPresets/GTFS_file_date != '')
+		, Descr = "The analysis moments with an analysis day and a GTFS feed.";
+		parameter<string> Moment                := ModelParameters/AnalysisMoment;
+		parameter<bool>   Moment_Known          := IsDefined(rlookup(Moment, ModelParameters/AnalysisMomentPresets/name));
+		parameter<string> Moment_Feed           := MakeDefined(rjoin(Moment, ModelParameters/AnalysisMomentPresets/name, ModelParameters/AnalysisMomentPresets/GTFS_file_date), '');
+		parameter<string> Moment_Day            := ModelParameters/AnalysisDay != '' ? ModelParameters/AnalysisDay : MakeDefined(rjoin(Moment, ModelParameters/AnalysisMomentPresets/name, ModelParameters/AnalysisMomentPresets/Analysis_date), '');
+		parameter<string> Check_AnalysisMoment  := !Moment_Known ? 'FAIL: AnalysisMoment ' + Moment + ' is not in AnalysisMomentPresets; choose one of ' + asList(RunnableMoments/name, ', ') + '.'
+		                                           : Moment_Feed == '' ? 'FAIL: AnalysisMoment ' + Moment + ' has no GTFS feed in AnalysisMomentPresets; choose one of ' + asList(RunnableMoments/name, ', ') + '.'
+		                                           : strlen(Moment_Day) != 8 ? 'FAIL: no analysis day: AnalysisDay ''' + ModelParameters/AnalysisDay + ''' is not yyyymmdd, or AnalysisMoment ' + Moment + ' has no analysis day; set AnalysisDay as yyyymmdd or choose one of ' + asList(RunnableMoments/name, ', ') + '.'
+		                                           : 'PASS: AnalysisMoment ' + Moment + ', analysis day ' + Moment_Day + ', GTFS feed ' + Moment_Feed + '.'
+		, Descr = "Does AnalysisMoment have a GTFS feed, and is there an analysis day (AnalysisDay, or that of AnalysisMoment)?";
+		parameter<string> Check_PartOfDay       := IsDefined(rlookup(ModelParameters/PartOfDay, ModelParameters/PartsOfDay/name))
+		                                           ? 'PASS: PartOfDay ' + ModelParameters/PartOfDay + ', departures from ' + string(rjoin(ModelParameters/PartOfDay, ModelParameters/PartsOfDay/name, ModelParameters/PartsOfDay/DepartureHour)) + ':00.'
+		                                           : 'FAIL: PartOfDay ' + ModelParameters/PartOfDay + ' is not in PartsOfDay; choose one of ' + asList(ModelParameters/PartsOfDay/name, ', ') + '.'
+		, Descr = "Is PartOfDay a row of PartsOfDay?";
+		parameter<bool>   Orgset_Known          := IsDefined(rlookup(lowercase(ModelParameters/Orgset), lowercase(ModelParameters/Advanced/org_domain_list/label)));
+		parameter<bool>   Destset_Known         := IsDefined(rlookup(lowercase(ModelParameters/Destset), lowercase(ModelParameters/Advanced/dest_domain_list/label)));
+		parameter<string> Check_Sets            := !Orgset_Known ? 'FAIL: Orgset ' + ModelParameters/Orgset + ' is not in Advanced/org_domain_list; choose one of ' + asList(ModelParameters/Advanced/org_domain_list/label, ', ') + '.'
+		                                           : !Destset_Known ? 'FAIL: Destset ' + ModelParameters/Destset + ' is not in Advanced/dest_domain_list; choose one of ' + asList(ModelParameters/Advanced/dest_domain_list/label, ', ') + '.'
+		                                           : 'PASS: origins ' + ModelParameters/Orgset + ', destinations ' + ModelParameters/Destset + '.'
+		, Descr = "Are Orgset and Destset in the lists of origin and destination sets?";
+		unit<uint8>       PreOn                 := select_with_attr_by_cond(Classifications/PreTransportTypes, Classifications/PreTransportTypes/Selected), Descr = "The pre-transport types that are on.";
+		unit<uint8>       PostOn                := select_with_attr_by_cond(Classifications/PostTransportTypes, Classifications/PostTransportTypes/Selected), Descr = "The post-transport types that are on.";
+		parameter<string> Check_Variant         := #PreOn > 0 && #PostOn == 0 ? 'FAIL: pre-transport types are on (' + asList(PreOn/code, ', ') + ') but no post-transport type; switch one on in ModelParameters/PostTransport, or switch the pre-transport types off.'
+		                                           : #PreOn == 0 && #PostOn > 0 ? 'FAIL: post-transport types are on (' + asList(PostOn/code, ', ') + ') but no pre-transport type; switch one on in ModelParameters/PreTransport, or switch the post-transport types off.'
+		                                           : #ModelParameters/Impl/VariantComponents == 0 ? 'FAIL: the variant has no components; switch on a pre- and a post-transport type, or a direct trip (ModelParameters, group 2).'
+		                                           : 'PASS: the variant has ' + string(#ModelParameters/Impl/VariantComponents) + ' components: ' + asList(ModelParameters/Impl/VariantComponents/name, ', ') + '.'
+		, Descr = "Does the variant have components, and is no pre-transport type on without a post-transport type, or the other way round?";
+		// The criteria of the merge: every name must be Price, Price_Augm, Time, Car or Bike. Removing the known names one by one, each with the
+		// comma before and after it, leaves only commas when there are no others; a comma stays between two neighbours.
+		parameter<string> MergeCriteria_List    := ',' + lowercase(replace(ModelParameters/MergeCriteria, ' ', '')) + ',';
+		parameter<string> MergeCriteria_Rest    := replace(replace(replace(replace(replace(MergeCriteria_List, ',price_augm,', ','), ',price,', ','), ',time,', ','), ',car,', ','), ',bike,', ',');
+		parameter<string> Check_MergeCriteria   := !ModelParameters/Merge ? 'PASS: no merge (Merge is FALSE).'
+		                                           : replace(MergeCriteria_Rest, ',', '') != '' ? 'FAIL: MergeCriteria ''' + ModelParameters/MergeCriteria + ''' names an unknown or repeated criterion; use a subset of Price or Price_Augm, Time, Car and Bike, separated by commas.'
+		                                           : !IsDefined(strpos(MergeCriteria_List, ',price')) && !IsDefined(strpos(MergeCriteria_List, ',time,')) ? 'FAIL: MergeCriteria ''' + ModelParameters/MergeCriteria + ''' needs Price, Price_Augm or Time.'
+		                                           : 'PASS: merge on ' + ModelParameters/MergeCriteria + '.'
+		, Descr = "Are the criteria of the merge a subset of Price or Price_Augm, Time, Car and Bike, with price or time among them?";
+		// The GTFS feed: its cache must exist, and it must hold every service day that the analysis window of PartOfDay on the analysis day needs
+		// (LoadFeeds/ServiceDays); only after Check_AnalysisMoment and Check_PartOfDay, because both set the day and the window.
+		parameter<bool>   DayAndWindowKnown     := substr(Check_AnalysisMoment, 0, 4) == 'PASS' && substr(Check_PartOfDay, 0, 4) == 'PASS';
+		parameter<string> Check_GTFS            := = DayAndWindowKnown ? 'GTFS/Result' : quote('FAIL: the GTFS feed is not checked, because the analysis moment, day or part of the day is wrong (see above).')
+		, Descr = "Does the GTFS cache of the feed exist, and does the feed hold the service days that the part of the day on the analysis day needs, without a change of daylight saving time?";
+		container GTFS : Descr = "The check of the GTFS feed, reached only when the analysis day and the part of the day are known."
+		{
+			parameter<string> Cache          := expand(., /SourceData/Infrastructure/GTFS/LoadFeeds/CachePath);
+			parameter<bool>   CacheExists    := ExistingFile('', Cache) != '';
+			parameter<string> Result         := = CacheExists ? 'Days' : quote('FAIL: the GTFS cache ' + Cache + ' does not exist; run batch/UpdateAll.cmd sources, or all without -nosources.');
+			container         ServiceDays    := /SourceData/Infrastructure/GTFS/LoadFeeds/ServiceDays;
+			parameter<string> Days           := !ServiceDays/ServiceDaysComplete ? 'FAIL: the GTFS feed ' + ModelParameters/Impl/GTFS_file_date + ' does not hold all service days that PartOfDay ' + ModelParameters/PartOfDay + ' on ' + ModelParameters/Impl/Analysis_date + ' needs: ' + ServiceDays/Report + '. Choose another AnalysisDay or PartOfDay, or an AnalysisMoment whose feed covers them.'
+			                                    : !ServiceDays/NoDSTChange ? 'FAIL: the analysis day ' + ModelParameters/Impl/Analysis_date + ' or, for a window past midnight, the next day changes to or from daylight saving time; choose another AnalysisDay.'
+			                                    : 'PASS: the GTFS feed ' + ModelParameters/Impl/GTFS_file_date + ' holds the service days of the window: ' + ServiceDays/Report + '.';
+		}
+		// The OSM network cache of the analysis moment, which the walking and cycling legs and trips read; only after Check_AnalysisMoment.
+		parameter<string> Check_OSM             := = substr(Check_AnalysisMoment, 0, 4) == 'PASS' ? 'OSM/Result' : quote('FAIL: the OSM network is not checked, because the analysis moment or day is wrong (see above).')
+		, Descr = "Does the OSM network cache of the analysis moment exist?";
+		container OSM : Descr = "The check of the OSM network cache, reached only when the analysis moment is known."
+		{
+			parameter<string> Cache          := expand(., '%LocalDataProjDir%/OSM/Final_Network_' + /SourceData/Infrastructure/OSM/file_date + /SourceData/Infrastructure/OSM/CacheRevision + '.mmd');
+			parameter<string> Result         := ExistingFile('', Cache) != '' ? 'PASS: the OSM network cache ' + Cache + ' exists.' : 'FAIL: the OSM network cache ' + Cache + ' does not exist; run batch/UpdateAll.cmd sources, or all without -nosources.';
+		}
+		parameter<bool>   VariantHasCar         := any(ModelParameters/Impl/VariantComponents/DirectCar);
+		parameter<string> Check_CarDay          := = !VariantHasCar ? quote('PASS: no direct car trip in the variant.')
+		                                           : substr(Check_AnalysisMoment, 0, 4) != 'PASS' ? quote('FAIL: the day of the car is not checked, because the analysis moment or day is wrong (see above).')
+		                                           : '/SourceData/Infrastructure/GTFS/LoadFeeds/ServiceDays/WeekdayMatchesCongestionDay ? ' + quote('PASS: the analysis day falls on the TomTom day ' + ModelParameters/CongestionSpeed_DaySelection + ' of the car.') + ' : ' + quote('FAIL: the analysis day does not fall on the TomTom day ' + ModelParameters/CongestionSpeed_DaySelection + ' of the car (CongestionSpeed_DaySelection); choose another AnalysisDay or day selection.')
+		, Descr = "With a direct car trip in the variant: does the analysis day fall on the day of the TomTom speeds?";
+		parameter<string> Report_Settings       := Check_AnalysisMoment + '\n' + Check_PartOfDay + '\n' + Check_Sets + '\n' + Check_Variant + '\n' + Check_MergeCriteria + '\n'
+		, StorageName = "%ConfigDir%/../../batch/log/checks_settings.txt", StorageType = "str"
+		, Descr = "The checks of the settings alone, one per line, which batch/UpdateAll.cmd writes and shows before the sources step; it stops at a line with FAIL.";
+		parameter<string> Report                := Report_Settings + Check_OSM + '\n' + Check_GTFS + '\n' + Check_CarDay + '\n'
+		, StorageName = "%ConfigDir%/../../batch/log/checks.txt", StorageType = "str"
+		, Descr = "The checks of the settings and of the caches of the sources (OSM and GTFS), one per line, which batch/UpdateAll.cmd writes and shows after the sources step; it stops at a line with FAIL.";
+		parameter<string> Components            := asList(ModelParameters/Impl/VariantComponents/name + ';' + (ModelParameters/Impl/VariantComponents/WithPT ? '1' : '0') + ';' + (ModelParameters/Impl/VariantComponents/DirectCar ? '1' : '0'), '\n') + '\n'
+		                                           + (ModelParameters/Merge && #ModelParameters/Impl/VariantComponents >= 2 ? 'Merged;0;0\n' : '')
+		, StorageName = "%ConfigDir%/../../batch/log/components.txt", StorageType = "str"
+		, Descr = "The components of the variant for batch/UpdateAll.cmd, one per line: the name, whether it needs the chains and legs (WithPT), and whether it needs the car caches (DirectCar); then Merged when Merge is on and there are two components or more.";
+		// Report and Components write no metadata file beside them: the global ExportSettings/MetaInfo reads settings that a wrong setting makes
+		// fail with an IntegrityCheck, before Report can say what is wrong. A local MetaInfo without Contents writes none (GeoDMS,
+		// AbstrStorageManager.cpp, ExportMetaInfoToFileImpl).
+		container ExportSettings { container MetaInfo; }
+
 		parameter<string> PT_CheckBlocks        := uint64(ModelParameters/Advanced/MaxStopBlockSize) * uint64(ModelParameters/Advanced/NumberOfStopBlocks) > uint64(#/NetworkSetup/PublicTransport_Prep/Impl/BlockSelections)
 		                                           ? 'PASS: block numbers and size are adequate. It needs to be at least '+string(#/NetworkSetup/PublicTransport_Prep/Impl/BlockSelections)+' and now it is '+string(ModelParameters/Advanced/MaxStopBlockSize)+' * '+string(ModelParameters/Advanced/NumberOfStopBlocks)+' = '+string(uint64(ModelParameters/Advanced/MaxStopBlockSize) * uint64(ModelParameters/Advanced/NumberOfStopBlocks))
 		                                           : 'FAIL: you need more or larger blocks to accomodate all stops. It needs to be at least '+string(#/NetworkSetup/PublicTransport_Prep/Impl/BlockSelections)+' and now it is '+string(ModelParameters/Advanced/MaxStopBlockSize)+' * '+string(ModelParameters/Advanced/NumberOfStopBlocks)+' = '+string(uint64(ModelParameters/Advanced/MaxStopBlockSize) * uint64(ModelParameters/Advanced/NumberOfStopBlocks))+''

@@ -95,7 +95,7 @@ container NetworkSetup : using = "units;Geography;SourceData;Classifications;Mod
 			+ (/ModelParameters/OutputFormat == 'parquet' ? '_parquet-' + /ModelParameters/Impl/ExportClass : '')
 		, Descr = "The signature of the public transport output: date, set of origins and PT_Output_ParamTag, the exported columns, the signatures of the chain cache (with WithPT) and of the car cache, and with OutputFormat 'parquet' _parquet- plus the kind of component (ModelParameters/Impl/ExportClass), which sets the columns.";
 		
-		parameter<string> Output_Signature     := =/ModelParameters/Impl/IsMerged ? 'ComponentMerge_Def/Signature' : 'Output_Signature_Run', Descr = "The signature of the output folder: Output_Signature_Run of a run, or with MergeOutput (#117) that of ComponentMerge, with the signatures of the merged Components.";
+		parameter<string> Output_Signature     := =/ModelParameters/Impl/IsMerged ? 'ComponentMerge_Def/Signature' : 'Output_Signature_Run', Descr = "The signature of the output folder: Output_Signature_Run of a run, or for the component Merged (#117) that of ComponentMerge, with the signatures of the merged components.";
 		
 		container         Output_Sig           := /Templates/Signature_T(
 		                                          /ModelParameters/Impl/OutputDir
@@ -107,8 +107,23 @@ container NetworkSetup : using = "units;Geography;SourceData;Classifications;Mod
 	
 		parameter<string> OutputDir_ForBatch   := replace(expand(., /ModelParameters/Impl/OutputDir), '/', '\\'), StorageName = "%ConfigDir%/../../batch/log/output_dir.txt", StorageType = "str"
 		, Descr = "The output folder for batch/UpdateAll.cmd output, which removes the files of the model from it before the output step (tt_*.csv, tt_*.xml and the signature).";
+
+		// Is the output of this run complete? Then batch/UpdateAll.cmd skips it. The folder must hold the signature of the current settings, the
+		// counts file of every origin block with origins (Tellingen, written with the last file of the block), and the counts of all blocks
+		// (od_tellingen.csv, which batch/OdTellingen.py writes after the last portion).
+		parameter<string> OutputDir_Expanded   := expand(., /ModelParameters/Impl/OutputDir);
+		attribute<bool>   BlockDone (impl/OrgBlockDomain) := impl/OrgBlockDomain/BlockSize == 0 || ExistingFile('', OutputDir_Expanded + '/Tellingen/tellingen_' + impl/OrgBlockDomain/FileName + '.csv') != ''
+		, Descr = "Does the origin block have its counts file, or no origins?";
+		parameter<bool>   IsComplete           := Output_Sig/IsChecked && all(BlockDone) && ExistingFile('', OutputDir_Expanded + '/od_tellingen.csv') != ''
+		, Descr = "Is the output of this run complete: the signature of the current settings, the counts of every block, and od_tellingen.csv?";
+		container ForBatch : Descr = "IsComplete for batch/UpdateAll.cmd, without a metadata file beside it: with the global ExportSettings/MetaInfo the write of this file did not finish (GeoDMS 20.27.0)."
+		{
+			container ExportSettings { container MetaInfo; }
+			parameter<string> IsComplete := ../IsComplete ? 'complete' : 'incomplete', StorageName = "%ConfigDir%/../../batch/log/output_complete.txt", StorageType = "str"
+			, Descr = "complete or incomplete; batch/UpdateAll.cmd skips the output step of a complete component.";
+		}
 		parameter<string> Generate_Output      := =/ModelParameters/Impl/IsMerged ? 'ComponentMerge/Generate' : 'ConfigurationPerBlock/Generate_Output/OUTPUT_Generate_PublicTransport_fullOD_long_CSVFiles'
-		, Descr = "The output step (batch/UpdateAll.cmd output): the output per block and departure moment with the counts, or with MergeOutput the merge of the Components (ComponentMerge, #117), for which batch/OdTellingen.py makes the counts.";
+		, Descr = "The output step (batch/UpdateAll.cmd output): the output per block and departure moment with the counts, or for the component Merged the merge of the components of the variant (ComponentMerge, #117), for which batch/OdTellingen.py makes the counts.";
 	}
 	
 
@@ -132,7 +147,7 @@ container NetworkSetup : using = "units;Geography;SourceData;Classifications;Mod
 			                                                              : '/NetworkSetup/ConfigurationPerBlock/' + /NetworkSetup/Impl/OrgBlockDomain/name + '/PublicTransport/Generate_Output/Traveltime_ForEachDepTime_Fence/Generate', '\n')
 			, StorageName = "%ConfigDir%/../../batch/log/output_blocks.txt", StorageType = "str"
 			, ExplicitSuppliers = "/NetworkSetup/GenerateOutput/Output_Sig/ForWriting"
-			, Descr = "The requests per origin block, one per line, for batch/WriteOutputBlocks.ps1: the output per block, or with MergeOutput the merge per block (ComponentMerge/PerBlock); through Output_Sig/ForWriting it first writes or checks the signature of the output folder and the longest path.";
+			, Descr = "The requests per origin block, one per line, for batch/WriteOutputBlocks.ps1: the output per block, or for the component Merged the merge per block (ComponentMerge/PerBlock); through Output_Sig/ForWriting it first writes or checks the signature of the output folder and the longest path.";
 			
 			parameter<string> OutputBlocks_PerPortion                  := string(/ModelParameters/Impl/BlocksPerPortion)
 			, StorageName = "%ConfigDir%/../../batch/log/output_blocks_per_portion.txt", StorageType = "str"

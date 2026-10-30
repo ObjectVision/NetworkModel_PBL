@@ -5,9 +5,11 @@ container ModelParameters : using = "units;classifications"
 	// what follows from the settings is in Impl. Each group of assumptions says whether it only changes the output, or also the caches in
 	// %LocalDataProjDir%/IntermediateResults, which the model then makes again.
 
-	// 1. WHAT: analysis moment, part of the day, origins and destinations, and the output
-	parameter<string>   AnalysisMoment                        := 'Y2025'                 , Descr = "The analysis moment, a year in AnalysisMomentPresets in group 7 (Y2015, Y2023 to Y2026), which sets the analysis day, the GTFS feed, OSM, TomTom, the CBS area division and the BAG (#125).";
-	parameter<string>   PartOfDay                             := 'Ochtendspits'          , Descr = "The part of the day of the departure moments, from PartsOfDay in group 8: 'Ochtendspits', 'Middag' or 'Avond', each with four moments a quarter of an hour apart (#125).", IntegrityCheck = "IsDefined(rlookup(this, PartsOfDay/name))";
+	// 1. WHAT: analysis moment and day, part of the day, origins and destinations, and the output. batch/UpdateAll.cmd checks these
+	// choices first (ChecksBeforeRunning in main.dms) and stops with a message that says what to change.
+	parameter<string>   AnalysisMoment                        := 'Y2025'                 , Descr = "The analysis moment, a year in AnalysisMomentPresets in group 7 with an analysis day and a GTFS feed (Y2023 to Y2026), which sets the analysis day, the GTFS feed, OSM, TomTom, the CBS area division and the BAG (#125).";
+	parameter<string>   AnalysisDay                           := ''                      , Descr = "The day of the public transport analysis as yyyymmdd, or empty for the analysis day of AnalysisMoment, the second Tuesday of October; the GTFS feed of AnalysisMoment must cover it (ChecksBeforeRunning/Check_GTFS).";
+	parameter<string>   PartOfDay                             := 'Ochtendspits'          , Descr = "The part of the day of the departure moments, from PartsOfDay in group 8: 'Ochtendspits', 'Middag' or 'Avond', each with four moments a quarter of an hour apart (#125).";
 	parameter<string>   Orgset                                := 'Buurt2025'             , Descr = "The origin set, one of Advanced/org_domain_list.";
 	parameter<string>   Destset                               := 'Buurt2025'             , Descr = "The destination set, one of Advanced/dest_domain_list.";
 	parameter<string>   Orgset_SingleNeighbourhood_Selection  := 'BU0363AD05'            , Descr = "The neighbourhood code (BU_CODE) when Orgset is a single neighbourhood.";
@@ -23,31 +25,38 @@ container ModelParameters : using = "units;classifications"
 	parameter<bool>     Export_PriceInformation               := TRUE                    , Descr = "Does the output include the price, split into pre-transport, public transport and post-transport and per mode?";
 	parameter<string>   MinimiseCriteria                      := 'Price,Time'            , Descr = "Criteria of the front of a component: 'Price', 'Price_Augm', 'Time' or a combination such as 'Price,Time' (#117); part of the signature of the chain cache, so another value makes that cache again.";
 
-	// 2. THE COMPONENT OF THIS RUN (#117): a direct trip (WW, CC or Car) or a public transport trip (PT) with a pre-transport and a
-	// post-transport. Every component has its own output folder; Classifications/Components lists all combinations.
-	parameter<string>   Component                             := 'PT'                    , Descr = "What this run calculates: 'WW' direct walking, 'CC' direct cycling, 'Car' the direct car trip with start and parking time, or 'PT' public transport with PreTransport and PostTransport (#117).", IntegrityCheck = "this == 'WW' || this == 'CC' || this == 'Car' || this == 'PT'";
-	
-	parameter<TimeInvariantTypes> PreTransport :=
-		TimeInvariantTypes/V/Org2Stops_Walking      // W: walking to every stop
-		// TimeInvariantTypes/V/Org2Stops_Cycling      // C: cycling to every stop
-		// TimeInvariantTypes/V/Org2RM_Stops_Cycling   // C_RM: cycling to a rail or metro stop
-		// TimeInvariantTypes/V/Org2RMT_Stops_Cycling  // C_RMT: cycling to a rail, metro or tram stop
-		// TimeInvariantTypes/V/Org2Ric_Stops_Cycling  // C_Ric: cycling to an intercity station
-	, Descr = "The pre-transport of a public transport trip (Component 'PT'), one of Classifications/PreTransportTypes; the alternatives are listed below the value.", IntegrityCheck = "Component != 'PT' || IsDefined(rlookup(this, Classifications/PreTransportTypes/TimeInvariantTypes_rel))";
-	
-	parameter<TimeInvariantTypes> PostTransport :=
-		TimeInvariantTypes/V/Stops2Dest_Walking     // W: walking
-		// TimeInvariantTypes/V/Stops2Dest_Cycling     // C: cycling from every stop
-		// TimeInvariantTypes/V/RM_Stops2Dest_Cycling  // RM_C: cycling from a rail or metro stop
-		// TimeInvariantTypes/V/RMT_Stops2Dest_Cycling // RMT_C: cycling from a rail, metro or tram stop
-		// TimeInvariantTypes/V/OVF_Stops2Dest_Cycling // OVf_C: the OV-fiets, only from a stop at an OV-fiets location
-	, Descr = "The post-transport of a public transport trip (Component 'PT'), one of Classifications/PostTransportTypes; only OVf_C rents a bike, the other cycling types use an own bike at the last stop.", IntegrityCheck = "Component != 'PT' || IsDefined(rlookup(this, Classifications/PostTransportTypes/TimeInvariantTypes_rel))";
+	// 2. THE VARIANT (#117): the pre- and post-transport types and the direct trips that take part. Every pre-transport type that is on,
+	// combined with every post-transport type that is on, is a public transport component <pre>_PT_<post>, such as W_PT_W or C_PT_OVf_C;
+	// with the direct trips that are on they are the components of the variant (Classifications/Components/Selected). batch/UpdateAll.cmd
+	// calculates the components one after the other, each in its own GeoDmsRun steps and output folder, skips a component whose output is
+	// complete, and then merges them.
+	container PreTransport
+	: Descr = "The pre-transport types of the variant, one switch per row of Classifications/PreTransportTypes."
+	{
+		parameter<bool> Org2Stops_Walking      := TRUE , Descr = "W: walking to every stop.";
+		parameter<bool> Org2Stops_Cycling      := TRUE , Descr = "C: cycling to every stop.";
+		parameter<bool> Org2RM_Stops_Cycling   := FALSE, Descr = "C_RM: cycling to a rail or metro stop.";
+		parameter<bool> Org2RMT_Stops_Cycling  := FALSE, Descr = "C_RMT: cycling to a rail, metro or tram stop.";
+		parameter<bool> Org2Ric_Stops_Cycling  := FALSE, Descr = "C_Ric: cycling to an intercity station.";
+	}
+	container PostTransport
+	: Descr = "The post-transport types of the variant, one switch per row of Classifications/PostTransportTypes; only OVf_C rents a bike, the other cycling types use an own bike at the last stop."
+	{
+		parameter<bool> Stops2Dest_Walking     := TRUE , Descr = "W: walking.";
+		parameter<bool> Stops2Dest_Cycling     := FALSE, Descr = "C: cycling from every stop.";
+		parameter<bool> RM_Stops2Dest_Cycling  := FALSE, Descr = "RM_C: cycling from a rail or metro stop.";
+		parameter<bool> RMT_Stops2Dest_Cycling := FALSE, Descr = "RMT_C: cycling from a rail, metro or tram stop.";
+		parameter<bool> OVF_Stops2Dest_Cycling := TRUE , Descr = "OVf_C: the OV-fiets, only from a stop at an OV-fiets location.";
+	}
+	parameter<bool>     DirectWalking                         := TRUE                    , Descr = "Is the direct walking trip (WW) a component of the variant?";
+	parameter<bool>     DirectCycling                         := TRUE                    , Descr = "Is the direct cycling trip (CC) a component of the variant?";
+	parameter<bool>     DirectCar                             := TRUE                    , Descr = "Is the direct car trip (Car) a component of the variant?";
+	parameter<string>   GuiComponent                          := 'W_PT_W'                , Descr = "Only for GeoDmsGui: the component that the GUI shows, a name from Classifications/Components or 'Merged' for the merge of the variant; batch/UpdateAll.cmd chooses the component of each step itself (ConfigSettings/Overridable/RunComponent).";
 
-	// 3. MERGING components into one front (NetworkSetup/ComponentMerge)
-	parameter<bool>     MergeOutput                           := FALSE                   , Descr = "Does this run merge the output of MergeComponents into one Pareto front on MergeCriteria, instead of calculating a component (#117)?";
-	parameter<string>   MergeComponents                       := 'WW,W_PT_W,CC,C_PT_W,C_PT_OVf_C,Car', Descr = "The components to merge, separated by commas, from Classifications/Components/name; their output must have the same OutputLabel, analysis moment, part of the day, origins and destinations (#117).";
-	parameter<uint32>   MergeRunNr                            := 1                       , Descr = "Number of the merge in the name of its output folder (_Merged<MergeRunNr>); give a different set of components or criteria a different number.";
-	parameter<string>   MergeCriteria                         := 'Price,Time,Car,Bike'   , Descr = "Criteria of the merged front: Price or Price_Augm, Time, Car (needs a car) and Bike (needs a bike); without Car and Bike an option with a car or bike can push out one without.", IntegrityCheck = "IsDefined(strpos(lowercase(this), 'price')) || IsDefined(strpos(lowercase(this), 'time'))";
+	// 3. MERGING the components of the variant into one front (NetworkSetup/ComponentMerge), after the components
+	parameter<bool>     Merge                                 := TRUE                    , Descr = "Does batch/UpdateAll.cmd merge the components of the variant into one Pareto front on MergeCriteria after calculating them (#117)?";
+	parameter<string>   MergeCriteria                         := 'Price,Time,Car,Bike'   , Descr = "Criteria of the merged front, a subset of Price or Price_Augm, Time, Car (needs a car) and Bike (needs a bike), separated by commas; without Car and Bike an option with a car or bike can push out one without.";
+	parameter<uint32>   MergeRunNr                            := 1                       , Descr = "Number of the merge in the name of its output folder (_Merged<MergeRunNr>); a merge with other criteria or another variant under the same number replaces the earlier one.";
 
 	// 4. ASSUMPTIONS THAT ONLY CHANGE THE OUTPUT; the caches stay valid
 	parameter<min_f>    MaxTravelTime                         := 90[min_f]               , Descr = "Maximum travel time of the whole public transport journey.";

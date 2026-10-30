@@ -2,12 +2,14 @@
 REM ---------------------------------------------------------------------------------------------
 REM ScheduleUpdateAll.cmd <section> [arguments]: starts batch\UpdateAll.cmd with those arguments as the one-off
 REM scheduled task NM_PBL_UpdateAll, in a visible console window of the logged-on user, and returns at once.
-REM This way a run of hours survives closing the window or the session it was started from.
-REM The task runs batch\UpdateAllTask.cmd, which writes the progress to batch\log\UpdateAll_status.txt and deletes the
-REM task afterwards. At most one such task runs at a time.
+REM This way a run of hours or days survives closing the window or the session it was started from; the task has no
+REM time limit (Windows stops a task after 72 hours by default, and a variant with cycling components can take longer).
+REM The task runs batch\UpdateAllTask.cmd; it and UpdateAll.cmd write the progress per step to
+REM batch\log\UpdateAll_status.txt, and the task is deleted afterwards. At most one such task runs at a time.
 REM
-REM   ScheduleUpdateAll.cmd cars                     the four car caches
-REM   ScheduleUpdateAll.cmd all -nosources           the car caches, the chain cache, the pre- and post-transport caches and the output
+REM   ScheduleUpdateAll.cmd all                      the whole variant: sources, checks, per component the caches and the output, the merge
+REM   ScheduleUpdateAll.cmd all -nosources           the same without the OSM and GTFS caches
+REM   ScheduleUpdateAll.cmd output -component Car    only the output of one component of the variant
 REM   set GEODMS_EXE=C:\...\GeoDmsRun.exe            beforehand: another engine for this run
 REM ---------------------------------------------------------------------------------------------
 setlocal
@@ -34,6 +36,11 @@ schtasks /Create /TN %TASK% /TR "cmd.exe /c \"%LAUNCH%\"" /SC ONCE /ST 00:00 /F 
 if errorlevel 1 (
   echo Creating the task %TASK% failed.
   exit /b 1
+)
+REM schtasks gives the task the default limit of 72 hours (ExecutionTimeLimit PT72H); PT0S means no limit.
+powershell -NoProfile -Command "$t = Get-ScheduledTask -TaskName '%TASK%'; $t.Settings.ExecutionTimeLimit = 'PT0S'; Set-ScheduledTask -InputObject $t | Out-Null"
+if errorlevel 1 (
+  echo Removing the time limit of the task %TASK% failed; it stops after 72 hours.
 )
 schtasks /Run /TN %TASK% >nul
 if errorlevel 1 (

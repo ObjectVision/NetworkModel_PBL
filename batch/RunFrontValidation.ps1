@@ -9,8 +9,9 @@
 #
 # Run A gets MinimiseCriteria CritA, run B CritB; otherwise they are equal. The analysis moment (AnalysisMoment, with the
 # day and the feed from the preset table) and the part of the day (PartOfDay) are parameters of the model (#125). The
-# component (#117) is a parameter of the model too: WW, CC, Car or <PreTransport>_PT_<PostTransport>, such as W_PT_W
-# (Component 'PT' with PreTransport and PostTransport, which this script sets from the name); the default is W_PT_W.
+# component (#117) is WW, CC, Car or <pre-transport>_PT_<post-transport>, such as W_PT_W; the default is W_PT_W. In a fresh
+# run copy the script makes it the only component of the variant (ModelParameters, group 2: its pre- and post-transport type,
+# or its direct trip, on, the rest off, no merge), and its GeoDmsRun steps get it as GEODMS_Overridable_RunComponent.
 # Each run that is calculated is a run copy in <RunsDir>\<Label>\{A,B}\NetworkModel_PBL with OutputLabel <Label>_A or
 # <Label>_B, so that its output lands in <OutRoot>\<Analysis_date>_<Label>_{A,B}_<component> (a folder per variant, #118,
 # with the component after it, #117). Then come the chain step (batch\UpdateAll.cmd chains in the copy), the output for the
@@ -137,19 +138,22 @@ $NaTypen = [ordered]@{ 'W' = 'Stops2Dest_Walking'; 'C' = 'Stops2Dest_Cycling'; '
 # before 2026-10-27 call the parameters Voortransport and Natransport.
 $PreTransportRe = '((?:PreTransport|Voortransport)\s+:=\s+(?:/Classifications/)?TimeInvariantTypes/V/)(\w+)'
 $PostTransportRe = '((?:PostTransport|Natransport)\s+:=\s+(?:/Classifications/)?TimeInvariantTypes/V/)(\w+)'
-# Sets the component in a ModelParameters.dms: WW, CC or Car in Component, otherwise Component 'PT' with PreTransport and PostTransport.
+# Makes the component the only component of the variant of a ModelParameters.dms (group 2, #117): the switch of its pre- and
+# post-transport type, or of its direct trip, on, all other switches off, and no merge.
 function SetComponent($mp, $name) {
-	if ($name -in 'WW', 'CC', 'Car') { SetParam $mp 'Component' "'$name'"; return }
-	$m = [regex]::Match($name, '^(.+)_PT_(.+)$'); SetParam $mp 'Component' "'PT'"
-	$t = [IO.File]::ReadAllText($mp)
-	foreach ($re in $PreTransportRe, $PostTransportRe) { if (([regex]::Matches($t, $re)).Count -ne 1) { throw "$re does not occur exactly once in $mp" } }
-	$t = [regex]::Replace($t, $PreTransportRe, { param($x) $x.Groups[1].Value + $VoorTypen[$m.Groups[1].Value] })
-	$t = [regex]::Replace($t, $PostTransportRe, { param($x) $x.Groups[1].Value + $NaTypen[$m.Groups[2].Value] })
-	[IO.File]::WriteAllText($mp, $t, (New-Object System.Text.UTF8Encoding($true)))
+	foreach ($n in @($VoorTypen.Values) + @($NaTypen.Values) + @('DirectWalking', 'DirectCycling', 'DirectCar', 'Merge')) { SetParam $mp $n 'FALSE' }
+	switch ($name) {
+		'WW'    { SetParam $mp 'DirectWalking' 'TRUE' }
+		'CC'    { SetParam $mp 'DirectCycling' 'TRUE' }
+		'Car'   { SetParam $mp 'DirectCar' 'TRUE' }
+		default { $m = [regex]::Match($name, '^(.+)_PT_(.+)$'); SetParam $mp $VoorTypen[$m.Groups[1].Value] 'TRUE'; SetParam $mp $NaTypen[$m.Groups[2].Value] 'TRUE' }
+	}
 }
-# The name of the component of a run copy: All for a copy without Component (from before 2026-10-05), otherwise Component
-# itself, and for Component 'PT' the codes of PreTransport and PostTransport.
+# The name of the component of a run copy: for a copy with the variant (from 2026-10-30) the component of this validation; All
+# for a copy without Component (from before 2026-10-05); otherwise Component itself, and for Component 'PT' the codes of
+# PreTransport and PostTransport.
 function ComponentName($mpText, $mp) {
+	if ($mpText -match "container\s+PreTransport\b") { return $Component }
 	if ($mpText -notmatch "parameter<\w+>\s+Component\s+:=") { return 'All' }
 	$c = GetParam $mp 'Component'; if ($c -ne 'PT') { return $c }
 	$v = [regex]::Match($mpText, $PreTransportRe).Groups[2].Value; $n = [regex]::Match($mpText, $PostTransportRe).Groups[2].Value
@@ -241,6 +245,9 @@ if ($BaseRun) {
 }
 if ($DryRun) { Say 'DryRun: only the run copies were made'; exit 0 }
 
+# The GeoDmsRun steps of a copy with the variant calculate this component (ConfigSettings/Overridable/RunComponent, #117); a copy
+# from before 2026-10-30 does not read it.
+$env:GEODMS_Overridable_RunComponent = $Component
 foreach ($r in $runs) {
 	WaitTurn
 	Say "chain step $($r.Name) starts"

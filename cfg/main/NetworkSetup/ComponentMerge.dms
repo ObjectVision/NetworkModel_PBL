@@ -1,10 +1,8 @@
 container ComponentMerge_Def
-: Descr = "The Components and the signature of the merge (MergeOutput, #117), kept apart from ComponentMerge because the writers there request this signature through NetworkSetup/GenerateOutput/Output_Sig."
+: Descr = "The components and the signature of the merge (#117), kept apart from ComponentMerge because the writers there request this signature through NetworkSetup/GenerateOutput/Output_Sig."
 {
-	unit<uint8>       Comps              := select_with_attr_by_cond(/Classifications/Components, /Classifications/Components/InMerge)
-	,	Descr = "The Components that are merged, in the order of Classifications/Components.";
-	parameter<bool>   MergeComponents_OK := sum_uint32(/Classifications/Components/InMerge) == strcount(/ModelParameters/MergeComponents, ',') + 1
-	,	Descr = "Does MergeComponents name only names from Classifications/Components, each once (checked by the IntegrityCheck of ComponentMerge/PerBlock/../Write; otherwise the signature has _samen?-)?";
+	unit<uint8>       Comps              := /ModelParameters/Impl/VariantComponents
+	,	Descr = "The components that are merged: those of the variant, in the order of Classifications/Components.";
 	parameter<string> BaseDir            := '%LocalDataProjDir%/Output' + /ModelParameters/Impl/OD_Tag + '/' + /ModelParameters/Impl/Analysis_date + '_' + /ModelParameters/OutputLabel
 	,	Descr = "The output folder of the variant without the suffix of the component.";
 
@@ -22,14 +20,14 @@ container ComponentMerge_Def
 	,	Descr = "The signatures of the Components in a row, each between [ and ].";
 	parameter<string> Signature          :=
 		  'tt_' + /ModelParameters/Impl/Analysis_date + '_ORG-' + /ModelParameters/Impl/OrgSet_string
-		+ (MergeComponents_OK ? '_samen-' : '_samen?-') + asList(Comps/name, ',')
+		+ '_samen-' + asList(Comps/name, ',')
 		+ '_MinCrit-' + asList(/Classifications/OutputParetoAttr/FileNameElement, '_') + /ModelParameters/Impl/ChainPareto_FileTag
 		+ '_' + /ModelParameters/OutputFormat + '-m2'
 		+ '_' + CompSignatures
 	,	Descr = "The signature of the merged output: date, set of origins, Components, criteria (MergeCriteria) and epsilons, format (-m2: read from the parquet of the Components) and the signatures of the Components, so that it changes when a component is recalculated with other parameters.";
 }
 
-// MERGING THE Components (MergeOutput, #117). Per origin block and departure moment it reads the parquet of the Components in MergeComponents
+// MERGING THE COMPONENTS OF THE VARIANT (#117). Per origin block and departure moment it reads the parquet of the components
 // (Output/<Analysis_date>_<OutputLabel>_<component>/PerBlock), each with the columns of its kind (Classifications/Components/ExportClass), and fills
 // in what is constant there or follows from the columns:
 // - WW and CC: the price from the travel time (Direct_Walking_Time_Costs, Direct_Cycling_Time_Costs, as in PublicTransport_Prep/Direct),
@@ -42,7 +40,7 @@ container ComponentMerge_Def
 // parquet, to Output/<Analysis_date>_<OutputLabel>_Merged<MergeRunNr>/PerBlock, with the column Component (where the row comes from), and
 // the counts per block to Tellingen (batch/OdTellingen.py adds them up).
 container ComponentMerge
-: Descr = "Merges the Components into one Pareto front (MergeOutput) from their parquet, as the comment above describes; Generate or batch/UpdateAll.cmd output with MergeOutput runs it."
+: Descr = "Merges the components of the variant into one Pareto front from their parquet, as the comment above describes; Generate, or batch/UpdateAll.cmd with the component MergedergeOutput runs it."
 {
 	container         PerBlock                  := for_each_ne(/NetworkSetup/impl/OrgBlockDomain/name, 'MergeBlock_T(' + string(id(/NetworkSetup/impl/OrgBlockDomain)) + ')');
 	parameter<string> Generate                  := =asList('PerBlock/' + /NetworkSetup/impl/OrgBlockDomain/name + '/Fence/Generate', ' + ')
@@ -344,7 +342,6 @@ container ComponentMerge
 			,	StorageName = "=/ModelParameters/Impl/OutputDir + '/PerBlock/tt' + FileTail + '.csv'", StorageType = "str"
 			,	ExplicitSuppliers = "/NetworkSetup/GenerateOutput/Output_Sig/ForWriting";
 			parameter<string> Write                               := 'Ready', ExplicitSuppliers = "=/ModelParameters/OutputFormat == 'parquet' ? 'Parquet/tt' : 'File'"
-			,	IntegrityCheck = "ComponentMerge_Def/MergeComponents_OK"
 			,	Descr = "Writes the merged output of this block and departure moment as parquet or csv (OutputFormat).";
 		}
 	}

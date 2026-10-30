@@ -146,8 +146,10 @@ container Classifications: Using = "Units"
 	}
 
 	// COMPONENTS (#117): a component is a direct trip (WW, CC or Car) or a public transport trip <pre-transport>_PT_<post-transport>,
-	// with a type from PreTransportTypes and one from PostTransportTypes; all 25 combinations exist. ModelParameters/Component chooses
-	// one. Merging is not a component but a run with MergeOutput over MergeComponents, with car and bike ownership as criteria.
+	// with a type from PreTransportTypes and one from PostTransportTypes; all 25 combinations exist. The switches of the variant in
+	// ModelParameters (PreTransport, PostTransport, DirectWalking, DirectCycling, DirectCar) select the components (Selected), and a
+	// GeoDmsRun step calculates one of them (Impl/ComponentName). Merging is not a component but a step that merges the selected
+	// components, with car and bike ownership as criteria.
 	unit<uint8> PreTransportTypes : nrofrows = 5
 	, Descr = "The pre-transport types of the public transport components: walking to every stop (W), cycling to every stop (C), to a rail or metro stop (C_RM), to a rail, metro or tram stop (C_RMT) or to an intercity station (C_Ric)."
 	{
@@ -155,6 +157,7 @@ container Classifications: Using = "Units"
 		attribute<uint32> BlocksPerPortion : [50, 25, 25, 25, 25], Descr = "Origin blocks per GeoDmsRun in the output step (batch/WriteOutputBlocks.ps1) of the public transport components with this pre-transport: smaller portions use less memory, 0 puts all blocks in one portion.";
 		attribute</Classifications/TimeInvariantTypes> TimeInvariantTypes_rel := rlookup(name, /Classifications/TimeInvariantTypes/name);
 		attribute<string> code             := /Classifications/TimeInvariantTypes/Mode_abbrev[TimeInvariantTypes_rel] + (/Classifications/TimeInvariantTypes/StopClass[TimeInvariantTypes_rel] != '' ? '_' + /Classifications/TimeInvariantTypes/StopClass[TimeInvariantTypes_rel] : ''), Descr = "W, C, C_RM, C_RMT or C_Ric, as in ModeUsed.";
+		attribute<bool>   Selected         := ='union_data(., ' + asList('/ModelParameters/PreTransport/' + name, ', ') + ')', Descr = "Is the type on in the variant (ModelParameters/PreTransport, a switch per name)?";
 	}
 	unit<uint8> PostTransportTypes : nrofrows = 5
 	, Descr = "The post-transport types of the public transport components: walking (W), cycling from every stop (C), from a rail or metro stop (RM_C), from a rail, metro or tram stop (RMT_C), or the OV-fiets (OVf_C) from a stop at an OV-fiets location."
@@ -162,6 +165,7 @@ container Classifications: Using = "Units"
 		attribute<string> name : ['Stops2Dest_Walking', 'Stops2Dest_Cycling', 'RM_Stops2Dest_Cycling', 'RMT_Stops2Dest_Cycling', 'OVF_Stops2Dest_Cycling'], IntegrityCheck = "IsDefined(rlookup(this, /Classifications/TimeInvariantTypes/name))";
 		attribute</Classifications/TimeInvariantTypes> TimeInvariantTypes_rel := rlookup(name, /Classifications/TimeInvariantTypes/name);
 		attribute<string> code := (/Classifications/TimeInvariantTypes/StopClass[TimeInvariantTypes_rel] != '' ? /Classifications/TimeInvariantTypes/StopClass[TimeInvariantTypes_rel] + '_' : '') + /Classifications/TimeInvariantTypes/Mode_abbrev[TimeInvariantTypes_rel], Descr = "W, C, RM_C, RMT_C or OVf_C, as in ModeUsed.";
+		attribute<bool>   Selected := ='union_data(., ' + asList('/ModelParameters/PostTransport/' + name, ', ') + ')', Descr = "Is the type on in the variant (ModelParameters/PostTransport, a switch per name)?";
 	}
 	unit<uint8> PT_Components := combine_uint8(PreTransportTypes, PostTransportTypes)
 	, Descr = "The public transport components: every combination of a pre- and a post-transport type."
@@ -172,6 +176,7 @@ container Classifications: Using = "Units"
 		attribute<uint32> BlocksPerPortion := PreTransportTypes/BlocksPerPortion[first_rel];
 		attribute<bool>   NeedsBike        := /Classifications/TimeInvariantTypes/NeedsOwnBike[PreTransportTypes/TimeInvariantTypes_rel[first_rel]] || /Classifications/TimeInvariantTypes/NeedsOwnBike[PostTransportTypes/TimeInvariantTypes_rel[second_rel]], Descr = "Does the component need an own bike, cycling in the pre-transport or in the post-transport other than the OV-fiets?";
 		attribute<bool>   UsesCycling      := /Classifications/TimeInvariantTypes/NetworkType[PreTransportTypes/TimeInvariantTypes_rel[first_rel]] == 'Cycling' || /Classifications/TimeInvariantTypes/NetworkType[PostTransportTypes/TimeInvariantTypes_rel[second_rel]] == 'Cycling', Descr = "Does the component use the cycling network, in pre- or post-transport, the OV-fiets included?";
+		attribute<bool>   Selected         := PreTransportTypes/Selected[first_rel] && PostTransportTypes/Selected[second_rel], Descr = "Is the component in the variant: are both its pre- and its post-transport type on?";
 	}
 	unit<uint8> DirectComponents : nrofrows = 3
 	, Descr = "The direct trips as components: WW walking, CC cycling and Car (AA in ModeUsed)."
@@ -180,9 +185,11 @@ container Classifications: Using = "Units"
 		attribute<bool>   DirectWalking : [TRUE, FALSE, FALSE];
 		attribute<bool>   DirectCycling : [FALSE, TRUE, FALSE];
 		attribute<bool>   DirectCar     : [FALSE, FALSE, TRUE];
+		// one switch per element, in the order of name
+		attribute<bool>   Selected      := union_data(., /ModelParameters/DirectWalking, /ModelParameters/DirectCycling, /ModelParameters/DirectCar), Descr = "Is the direct trip in the variant (ModelParameters/DirectWalking, DirectCycling, DirectCar)?";
 	}
 	unit<uint8> Components := union_unit_uint8(DirectComponents, PT_Components)
-	, Descr = "The components to choose with ModelParameters/Component: the direct trips and the public transport components (#117)."
+	, Descr = "All components, of which the switches of the variant select some (Selected): the direct trips and the public transport components (#117)."
 	{
 		attribute<string> name                      := union_data(., DirectComponents/name, PT_Components/name);
 		attribute<string> PreTransport              := union_data(., const('Org2Stops_Walking', DirectComponents), PT_Components/PreTransport), Descr = "The pre-transport type; not used for a direct trip.";
@@ -199,7 +206,7 @@ container Classifications: Using = "Units"
 		attribute<string> ExportClass               := union_data(., DirectComponents/name == 'Car' ? 'Car' : 'Direct', const('PT', PT_Components)), Descr = "The kind of columns of the parquet output of the component: Direct (WW, CC), Car or PT; merging reads them that way.";
 		attribute<bool>   NeedsCar                  := DirectCar, Descr = "Does the component need a car? Only Car.";
 		attribute<bool>   NeedsBike                 := union_data(., DirectComponents/DirectCycling, PT_Components/NeedsBike), Descr = "Does the component need an own bike: CC, and a public transport component with cycling in pre- or post-transport other than the OV-fiets?";
-		attribute<bool>   InMerge                   := IsDefined(strpos(',' + lowercase(/ModelParameters/MergeComponents) + ',', ',' + lowercase(name) + ',')), Descr = "Is this component in MergeComponents?";
+		attribute<bool>   Selected                  := union_data(., DirectComponents/Selected, PT_Components/Selected), Descr = "Is the component in the variant, so that batch/UpdateAll.cmd calculates it and the merge takes it along?";
 	}
 	unit<uint8> DirectModes : nrofrows = 3
 	, Descr = "The direct modes that can join public transport in the front per OD pair, with their switch; the name is that of the source under NetworkSetup/PublicTransport_Prep/Direct."
@@ -405,8 +412,8 @@ container Classifications: Using = "Units"
 		attribute<string> CriteriaName     : [ 'Car', 'Bike' ], Descr = "The element in MinimiseCriteria.";
 		attribute<string> FileNameElement  : [ 'A', 'C' ], Descr = "The element in the signature of the output (PT_Output_ParamTag): the letter of car or bike in ModeUsed (NetworkModel_PBL#118).";
 		attribute<string> EpsilonExpr      : [ '', '' ], Descr = "Empty: a bool criterion has no epsilon in pareto_optimal_eps.";
-		attribute<bool>   IsCriteriaInList := IsDefined(strpos(lowercase(ModelParameters/Impl/IsMerged ? ModelParameters/MergeCriteria : ModelParameters/MinimiseCriteria), lowercase(CriteriaName))), Descr = "Does MinimiseCriteria, or MergeCriteria when merging (MergeOutput), name the criterion?";
-		attribute<bool>   IsRelevant       := union_data(., ModelParameters/Impl/AllowDirectCar, ModelParameters/Impl/IsMerged ? any(Classifications/Components/InMerge && Classifications/Components/NeedsBike) : ModelParameters/Impl/AllowDirectCycling || VN_ModeClasses/AnyNeedsBike)
+		attribute<bool>   IsCriteriaInList := IsDefined(strpos(lowercase(ModelParameters/Impl/IsMerged ? ModelParameters/MergeCriteria : ModelParameters/MinimiseCriteria), lowercase(CriteriaName))), Descr = "Does MinimiseCriteria, or MergeCriteria when merging, name the criterion?";
+		attribute<bool>   IsRelevant       := union_data(., ModelParameters/Impl/AllowDirectCar, ModelParameters/Impl/IsMerged ? any(Classifications/Components/Selected && Classifications/Components/NeedsBike) : ModelParameters/Impl/AllowDirectCycling || VN_ModeClasses/AnyNeedsBike)
 		,	Descr = "Can an option need a car or a bike: a car only for the direct car trip (there is no P+R pre-transport), a bike for the direct cycling route and for pre- or post-transport with an own bike; a criterion that is equal for all options does not change the front and is left out.";
 		attribute<bool>   IsSelected       := IsCriteriaInList && IsRelevant;
 	}
