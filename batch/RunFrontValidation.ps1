@@ -126,7 +126,7 @@ function PresetDates($t, $moment) {
 	if ($f[5] -notmatch '^\d{8}$' -or $f[6] -notmatch '^\d{8}$') { Say "STOP: AnalysisMoment $moment has no analysis date or feed ('$($f[5])', '$($f[6])')"; exit 3 }
 	return @($f[5], $f[6])
 }
-# The suffix of the output folder of a component (ModelParameters/Advanced/Components/OutputSuffix, #117): _ and the name.
+# The suffix of the output folder of a component (Classifications/Components/OutputSuffix, #117): _ and the name.
 # For a base run from before 2026-10-19 also the old names: _lopen, _fiets and _auto for Lopen, Fiets and Auto, and nothing
 # for All and Alles.
 # The parts of a public transport component: the code in the name and the type in Classifications/TimeInvariantTypes.

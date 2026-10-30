@@ -1,12 +1,12 @@
 ﻿// The syntax of this configuration (items, units, expressions and operators) is described on the GeoDMS wiki: https://github.com/ObjectVision/GeoDMS/wiki
 container ModelParameters : using = "units;classifications"
 {
-	// THE SETTINGS OF A RUN: what a run calculates and the assumptions PBL may vary. Agreed and technical choices and the tables are in Advanced,
+	// THE SETTINGS OF A RUN: what a run calculates and the assumptions PBL may vary. Agreed and technical choices and most tables are in Advanced,
 	// what follows from the settings is in Impl. Each group of assumptions says whether it only changes the output, or also the caches in
 	// %LocalDataProjDir%/IntermediateResults, which the model then makes again.
 
 	// 1. WHAT: analysis moment, part of the day, origins and destinations, and the output
-	parameter<string>   AnalysisMoment                        := 'Y2025'                , Descr = "The analysis moment, a year in Advanced/AnalysisMomentPresets (Y2015, Y2023 to Y2026), which sets the analysis day, the GTFS feed, OSM, TomTom, the CBS area division and the BAG (#125).";
+	parameter<string>   AnalysisMoment                        := 'Y2025'                , Descr = "The analysis moment, a year in AnalysisMomentPresets at the bottom of this file (Y2015, Y2023 to Y2026), which sets the analysis day, the GTFS feed, OSM, TomTom, the CBS area division and the BAG (#125).";
 	parameter<string>   PartOfDay                             := 'Ochtendspits'         , Descr = "The part of the day of the departure moments, from Advanced/PartsOfDay: 'Ochtendspits', 'Middag' or 'Avond', each with four moments a quarter of an hour apart (#125).", IntegrityCheck = "IsDefined(rlookup(this, Advanced/PartsOfDay/name))";
 	parameter<string>   Orgset                                := 'Buurt2025'            , Descr = "The origin set, one of Advanced/org_domain_list.";
 	parameter<string>   Destset                               := 'Buurt2025'            , Descr = "The destination set, one of Advanced/dest_domain_list.";
@@ -21,9 +21,10 @@ container ModelParameters : using = "units;classifications"
 	parameter<string>   OutputFormat                          := 'parquet'              , Descr = "Format of the output per origin block and departure moment: 'parquet', typed and with only the columns that vary within the component, or 'csv' with all columns.", IntegrityCheck = "OutputFormat == 'csv' || OutputFormat == 'parquet'";
 	parameter<bool>     Export_TravelledDistance              := TRUE                   , Descr = "Does the output include the travelled distance?";
 	parameter<bool>     Export_PriceInformation               := TRUE                   , Descr = "Does the output include the price, split into pre-transport, public transport and post-transport and per mode?";
+	parameter<string>   MinimiseCriteria                      := 'Price,Time'            , Descr = "Criteria of the front of a component: 'Price', 'Price_Augm', 'Time' or a combination such as 'Price,Time' (#117); part of the signature of the chain cache, so another value makes that cache again.";
 
 	// 2. THE COMPONENT OF THIS RUN (#117): a direct trip (WW, CC or Car) or a public transport trip (PT) with a pre-transport and a
-	// post-transport. Every component has its own output folder; Advanced/Components lists all combinations.
+	// post-transport. Every component has its own output folder; Classifications/Components lists all combinations.
 	parameter<string>   Component := 'PT'                   , Descr = "What this run calculates: 'WW' direct walking, 'CC' direct cycling, 'Car' the direct car trip with start and parking time, or 'PT' public transport with PreTransport and PostTransport (#117).", IntegrityCheck = "this == 'WW' || this == 'CC' || this == 'Car' || this == 'PT'";
 	parameter<TimeInvariantTypes> PreTransport := 
 		TimeInvariantTypes/V/Org2Stops_Walking      // W: walking to every stop
@@ -31,20 +32,20 @@ container ModelParameters : using = "units;classifications"
 		// TimeInvariantTypes/V/Org2RM_Stops_Cycling   // C_RM: cycling to a rail or metro stop
 		// TimeInvariantTypes/V/Org2RMT_Stops_Cycling  // C_RMT: cycling to a rail, metro or tram stop
 		// TimeInvariantTypes/V/Org2Ric_Stops_Cycling  // C_Ric: cycling to an intercity station
-	, Descr = "The pre-transport of a public transport trip (Component 'PT'), one of Advanced/PreTransportTypes; the alternatives are listed below the value."
-	, IntegrityCheck = "Component != 'PT' || IsDefined(rlookup(this, Advanced/PreTransportTypes/TimeInvariantTypes_rel))";
+	, Descr = "The pre-transport of a public transport trip (Component 'PT'), one of Classifications/PreTransportTypes; the alternatives are listed below the value."
+	, IntegrityCheck = "Component != 'PT' || IsDefined(rlookup(this, Classifications/PreTransportTypes/TimeInvariantTypes_rel))";
 	parameter<TimeInvariantTypes> PostTransport :=
 		TimeInvariantTypes/V/Stops2Dest_Walking     // W: walking
 		// TimeInvariantTypes/V/Stops2Dest_Cycling     // C: cycling from every stop
 		// TimeInvariantTypes/V/RM_Stops2Dest_Cycling  // RM_C: cycling from a rail or metro stop
 		// TimeInvariantTypes/V/RMT_Stops2Dest_Cycling // RMT_C: cycling from a rail, metro or tram stop
 		// TimeInvariantTypes/V/OVF_Stops2Dest_Cycling // OVf_C: the OV-fiets, only from a stop at an OV-fiets location
-	, Descr = "The post-transport of a public transport trip (Component 'PT'), one of Advanced/PostTransportTypes; only OVf_C rents a bike, the other cycling types use an own bike at the last stop."
-	, IntegrityCheck = "Component != 'PT' || IsDefined(rlookup(this, Advanced/PostTransportTypes/TimeInvariantTypes_rel))";
+	, Descr = "The post-transport of a public transport trip (Component 'PT'), one of Classifications/PostTransportTypes; only OVf_C rents a bike, the other cycling types use an own bike at the last stop."
+	, IntegrityCheck = "Component != 'PT' || IsDefined(rlookup(this, Classifications/PostTransportTypes/TimeInvariantTypes_rel))";
 
 	// 3. MERGING components into one front (NetworkSetup/ComponentMerge)
 	parameter<bool>     MergeOutput     := FALSE                  , Descr = "Does this run merge the output of MergeComponents into one Pareto front on MergeCriteria, instead of calculating a component (#117)?";
-	parameter<string>   MergeComponents := 'WW,W_PT_W,CC,C_PT_W,C_PT_OVf_C,Car', Descr = "The components to merge, separated by commas, from Advanced/Components/name; their output must have the same OutputLabel, analysis moment, part of the day, origins and destinations (#117).";
+	parameter<string>   MergeComponents := 'WW,W_PT_W,CC,C_PT_W,C_PT_OVf_C,Car', Descr = "The components to merge, separated by commas, from Classifications/Components/name; their output must have the same OutputLabel, analysis moment, part of the day, origins and destinations (#117).";
 	parameter<uint32>   MergeRunNr      := 1                      , Descr = "Number of the merge in the name of its output folder (_Merged<MergeRunNr>); give a different set of components or criteria a different number.";
 	parameter<string>   MergeCriteria   := 'Price,Time,Car,Bike'  , Descr = "Criteria of the merged front: Price or Price_Augm, Time, Car (needs a car) and Bike (needs a bike); without Car and Bike an option with a car or bike can push out one without.", IntegrityCheck = "IsDefined(strpos(lowercase(this), 'price')) || IsDefined(strpos(lowercase(this), 'time'))";
 
@@ -89,6 +90,7 @@ container ModelParameters : using = "units;classifications"
 	// The car caches (batch/UpdateAll.cmd cars):
 	parameter<min_f>    MaxCarTime              := 90[min_f]              , Descr = "Maximum travel time of the direct car trip.";
 	parameter<bool>     UseTomTomNetworkForCars := TRUE                   , Descr = "Does the car use the TomTom network with its congested speeds, or else the OSM network?";
+	parameter<string>   CongestionSpeed_DaySelection          := 'tuesday'               , Descr = "Day or group of days of the TomTom congested speeds: 'Weekday', 'Weekend', 'Week' or a day such as 'tuesday'; the analysis day must fall on it (LoadFeeds/Check_WeekdayMatchesCongestionDay).";
 
 	// 6. ONE OD PAIR (#129): with OD_Origin and OD_Destination the whole model calculates only that pair, with the same steps, and keeps the
 	// links of the route of every option. Its caches go to IntermediateResults_<O>_<D>, its output to Output_<O>_<D>, and /Output/OD_PairRoutes
@@ -97,6 +99,66 @@ container ModelParameters : using = "units;classifications"
 	parameter<string>   OD_Destination   := ''                     , Descr = "The destination of the OD pair, a name from Destset such as 'BU0363KP03'; empty for all destinations.";
 	parameter<string>   OD_DepartureTime := ''                     , Descr = "With an OD pair, one departure moment of PartOfDay as hh:mm, for example '07:30'; empty for all moments of the part of the day.", IntegrityCheck = "this == '' || (strlen(this) == 5 && substr(this, 2, 1) == ':')";
 	parameter<uint32>   OD_Option        := 0                      , Descr = "The option that the map of /Output/OD_PairRoutes shows separately, numbered from 1; 0 for all options.";
+
+	// 7. THE SOURCES: which delivery of each source the model reads. AnalysisMomentPresets gives a row per year that AnalysisMoment can
+	// choose (#125), and below it are the deliveries that every analysis moment uses. The analysis day is the second Tuesday of October; the
+	// feed of an analysis moment covers the service days D-1 to D+1 (LoadFeeds/ServiceDays, MinServiceDayTripShare). OSM: Y2012 to Y2015 use
+	// the extract of 20140101, Y2023 and Y2024 that of 20240524, Y2025 that of 20250101 and Y2026 that of 20260601, the other years one of their
+	// own. TomTom: the December edition of the year; Y2026 uses yr2025_12 for now and the years up to Y2021 yr2021_12, the oldest.
+	// CarCongestionSpeed_date is the folder %NetworkModel_PrivDir%/TomTom/<name> with the four caches Roads, Junctions, Speednetworks and
+	// Speedprofiles, licensed source data that SourceData/TomTom/Impl makes from the MultiNet delivery. Regios is the year of the CBS map of
+	// the region sets without a year of their own (Buurt, Wijk, Gemeente, COROP, Provincie); their centroids are weighted with the BAG of
+	// 1 January of that year. Regios stays at 2025 for Y2026 until CBS publishes the neighbourhood map of 2026. BAG_snapshot is the folder
+	// under %NetworkModel_Dir%/RegioIndelingen/BAG for the origin sets that read the BAG directly (PC4, PC6, BAG_woonpanden); snapshots
+	// exist for 2012 and 2021 to 2026.
+	unit<uint8>  AnalysisMomentPresets : nrofrows = 12
+	, Descr = "Per analysis moment the sources: OSM, CBS area division, TomTom, BAG snapshot, the analysis day and the GTFS feed (#125); a year without analysis day or feed does not run."
+	{
+		unit<uint32> Elements  := Range(uint32, 0, nrAttr*#.)
+		{
+			attribute<String> Text:
+			// name, OSM date , Regios, TomTom-Cong, BAG_snapsh, AnalysisDate,  GTFS_date,OVF_year, OSM_pProv,
+			[
+			'Y2012','20140101', '2012', 'yr2021_12', '20120101',           '',         '',  '2023',    'TRUE',
+			'Y2013','20140101', '2013', 'yr2021_12', '20130101',           '',         '',  '2023',   'FALSE',
+			'Y2014','20140101', '2014', 'yr2021_12', '20140101',           '',         '',  '2023',   'FALSE',
+			'Y2015','20140101', '2015', 'yr2021_12', '20150101',   '20151013',         '',  '2023',    'TRUE',
+			'Y2018','20190101', '2018', 'yr2021_12', '20180101',           '',         '',  '2023',   'FALSE',
+			'Y2020','20200117', '2020', 'yr2021_12', '20200101',           '',         '',  '2023',   'FALSE',
+			'Y2021','20211221', '2021', 'yr2021_12', '20210101',           '',         '',  '2023',    'TRUE',
+			'Y2022','20221201', '2022', 'yr2022_12', '20220101',           '',         '',  '2023',    'TRUE',
+			'Y2023','20240524', '2023', 'yr2023_12', '20230101',   '20231010', '20231003',  '2023',    'TRUE',
+			'Y2024','20240524', '2024', 'yr2024_12', '20240101',   '20241008', '20241001',  '2023',    'TRUE',
+			'Y2025','20250101', '2025', 'yr2025_12', '20250101',   '20251014', '20250930',  '2025',    'TRUE',
+			'Y2026','20260601', '2025', 'yr2025_12', '20260101',   '20261013', '20260925',  '2025',    'TRUE'
+			];
+		}
+
+		attribute<string> name                    := Elements/Text[value(UInt32(ID(.))* nrAttr + 0, Elements)];
+		attribute<string> OSM_file_date           := Elements/Text[value(UInt32(ID(.))* nrAttr + 1, Elements)];
+		attribute<string> RegioIndelingen_year    := Elements/Text[value(UInt32(ID(.))* nrAttr + 2, Elements)];
+		attribute<string> CarCongestionSpeed_date := Elements/Text[value(UInt32(ID(.))* nrAttr + 3, Elements)];
+		attribute<string> BAG_snapshot            := Elements/Text[value(UInt32(ID(.))* nrAttr + 4, Elements)];
+		attribute<string> Analysis_date           := Elements/Text[value(UInt32(ID(.))* nrAttr + 5, Elements)], Descr = "The analysis day (yyyymmdd, #125); empty for no analysis day.";
+		attribute<string> GTFS_file_date          := Elements/Text[value(UInt32(ID(.))* nrAttr + 6, Elements)], Descr = "The GTFS feed of the analysis moment (yyyymmdd, #125); empty for no feed yet.";
+		attribute<string> OVFiets_year            := Elements/Text[value(UInt32(ID(.))* nrAttr + 7, Elements)], Descr = "The year of the OV-fiets locations (OVFiets_Locations).";
+		attribute<bool>   OSM_NL_prov             := Elements/Text[value(UInt32(ID(.))* nrAttr + 8, Elements)][bool];
+
+		parameter<uint32> nrAttr                  := 9;
+	}
+	
+	// The deliveries that every analysis moment uses:
+	parameter<string>   IFF_file_date                         := '20261013'              , Descr = "The delivery of the NS IFF timetable, used for all analysis moments (%NetworkModel_Dir%/Infrastructuur/IFF/<date>/stations.csv).";
+	parameter<string>   Fietsersbond_file_date                := '20250525'              , Descr = "The delivery of the Fietsersbond route network, used for all analysis moments (%NetworkModel_Dir%/Infrastructuur/Fietsersbond_<date>).";
+	parameter<string>   Population_Year                       := '2022'                  , Descr = "The year of the CBS grid of residents per 100 m cell (%NetworkModel_dir%/Populatie/cbs_vk100_<year>.gpkg), which gives the residents of every origin.";
+	parameter<string>   NDW_year                              := '2023'                  , Descr = "The year of the NDW traffic counts (%NetworkModel_dir%/Infrastructuur/NDW/Jaargemiddelden).";
+	
+	unit<uint8> OVFiets_Locations : nrofrows = 2
+	, Descr = "The files with the OV-fiets locations in %NetworkModel_dir%/Infrastructuur, per year in AnalysisMomentPresets/OVFiets_year.", Source = "2023: 283 locations, geocoded by Object Vision; 2025: list of PBL of 13-10-2026, 293 locations, geocoded with batch/OVFiets2025_Geocode.dms"
+	{
+		attribute<string> year : ['2023', '2025'];
+		attribute<string> file : ['20260408_Locaties.OVF_2023_Geocoded.csv', '20261013_Locaties.OVF_2025_Geocoded.csv'];
+	}
 
 	#include<Advanced.dms>
 	#include<Impl.dms>

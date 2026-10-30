@@ -11,7 +11,7 @@
 # one request of NetworkSetup/GenerateOutput/Generate_Output.
 #
 # Call (by UpdateAll.cmd output): WriteOutputBlocks.ps1 -Exe <GeoDmsRun.exe> -Cfg <cfg\main.dms> -LogDir <batch\log> -OutDir <output folder>
-#   -BatchSize  blocks per GeoDmsRun; without this parameter that of the component, ModelParameters/Advanced/Components/
+#   -BatchSize  blocks per GeoDmsRun; without this parameter that of the component, Classifications/Components/
 #               BlocksPerPortion (the model writes it to batch\log\output_blocks_per_portion.txt); 0 = all blocks in
 #               one portion. Every portion pays the start-up again, which takes a few minutes for a national run.
 #   -MaxBlocks  at most this many blocks (0 = all; for testing)
