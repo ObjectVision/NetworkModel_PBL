@@ -198,8 +198,9 @@ container PublicTransport_Prep
 		// final selection keeps the non-dominated part per pair. The price follows on reading: distance x Car_CostPerKm +
 		// Car_FixedCosts_PerTrip (#88).
 		//
-		// One cache per congestion moment following the MMD rules of GeoDMS (ObjectVision/GeoDMS#1245), like the chains: Calc_Car is the
-		// calculating side, Write_Car the holder that stores only the four columns, Read_Car the bare reader (it declares nothing; the
+		// One cache per congestion moment following the MMD rules of GeoDMS (ObjectVision/GeoDMS#1245): Calc_Car is the calculating side,
+		// Write_Car the holder that stores only the four columns, with the travel time rounded to whole seconds (uint16, as in the chain
+		// cache) and the distance to whole metres (uint32), Read_Car the bare reader (it declares nothing; the
 		// dictionary of the mmd supplies the columns) and Car (CarFront_T) the derived values, the summary per OD pair and the thinned front
 		// (Car/Front). The signature (Signature) carries everything that determines the content; the name holds only the road network, the
 		// moment, the origin and destination sets and a hash of the signature (NetworkModel_PBL#118). Calculate Write_Car first
@@ -249,8 +250,8 @@ container PublicTransport_Prep
 			unit<uint64> Write_Car := Calc_Car, StorageName = "=StorageName_Str", ExplicitSuppliers = "='Sig/ForWriting' + (/ModelParameters/Impl/IsOD && IsTD ? ';Write_CarLinks/links' : '')"
 			,	Descr = "Writes the distance matrix of the direct car trip at this moment to StorageName_Str, with the signature beside it (Sig); calculate this item to make or remake the cache."
 			{
-				attribute<s_f>       impedance   := Calc_Car/Car_Time, Descr = "The travel time of the route, with the relative epsilon the second search criterion after the distance.";
-				attribute<km>        alt_imp     := Calc_Car/Car_Distance, Descr = "The distance of the route (#88).";
+				attribute<s>         impedance   := rounded_convert(Calc_Car/Car_Time, s), Descr = "The travel time of the route, rounded to whole seconds.";
+				attribute<m_uint32>  alt_imp     := rounded_convert(Calc_Car/Car_Distance, m_uint32), Descr = "The distance of the route, rounded to whole metres (#88).";
 				attribute<impl/org>  OrgZone_rel := Calc_Car/OrgZone_rel;
 				attribute<impl/dest> DstZone_rel := Calc_Car/DstZone_rel;
 			}
@@ -284,22 +285,22 @@ container PublicTransport_Prep
 		}
 
 		// The direct car trip from (part of) a car cache: Rows with the four columns of the cache, the derived values per route, the
-		// summary per OD pair and the thinned front (Front). DirectCar_T takes the whole cache; with CarTimeDependent the final
-		// selection of each block and departure moment takes only the rows of the origins of its block (PerDepartureMoment_T, DirectCar;
-		// #132). An OD pair lies within one origin, and pareto_optimal_eps decides per pair in the order of the rows, so the front of a pair
-		// is the same in both. The paths are absolute: within a block the origin set of the block is also called impl/org.
+		// summary per OD pair and the front (Front). DirectCar_T takes the whole cache; with CarTimeDependent the final selection of each
+		// block and departure moment takes only the rows of the origins of its block (PerDepartureMoment_T, DirectCar; #132). The paths
+		// are absolute: within a block the origin set of the block is also called impl/org.
 		Template CarFront_T
 		{
-			unit<uint64>   Rows;
-			attribute<s_f> impedance (Rows);
-			attribute<km>  alt_imp   (Rows);
+			unit<uint64>        Rows;
+			attribute<s>        impedance (Rows);
+			attribute<m_uint32> alt_imp   (Rows);
 			attribute</NetworkSetup/PublicTransport_Prep/impl/org> OrgZone_rel (Rows);
 			attribute</NetworkSetup/PublicTransport_Prep/impl/dest> DstZone_rel (Rows);
 			///
 			attribute<string>  Org_Dest         (Rows) := string(OrgZone_rel) + '_' + string(DstZone_rel);
-			attribute<s>       Duration_seconds (Rows) := convert(impedance[min_f] + /ModelParameters/Car_StartTime + /ModelParameters/Car_ParkingTime, s);
-			attribute<dam>     Distance         (Rows) := convert(alt_imp, dam), Descr = "The distance of the route.";
-			attribute<Euro>    Cost_Euro        (Rows) := /ModelParameters/Car_FixedCosts_PerTrip + alt_imp * /ModelParameters/Car_CostPerKm, Descr = "Distance x Car_CostPerKm plus the fixed amount per trip (#88).";
+			parameter<s>       StartAndParking         := rounded_convert(/ModelParameters/Car_StartTime + /ModelParameters/Car_ParkingTime, s), Descr = "Car_StartTime plus Car_ParkingTime in whole seconds, so that the travel time stays a whole number of seconds.";
+			attribute<s>       Duration_seconds (Rows) := impedance + StartAndParking;
+			attribute<dam>     Distance         (Rows) := rounded_convert(convert(alt_imp, m), dam), Descr = "The distance of the route.";
+			attribute<Euro>    Cost_Euro        (Rows) := /ModelParameters/Car_FixedCosts_PerTrip + convert(alt_imp, km) * /ModelParameters/Car_CostPerKm, Descr = "Distance x Car_CostPerKm plus the fixed amount per trip (#88).";
 			attribute<Ct>      Price            (Rows) := =/ModelParameters/Advanced/IncludeCarCostsInPrice ? 'rounded_convert(Cost_Euro, Ct)' : 'const(0, Rows, Ct)';
 			attribute<Ct>      Price_Augm       (Rows) := Price;
 			attribute</NetworkSetup/PublicTransport_Prep/impl/Modes> Mode_rel (Rows) := const(/NetworkSetup/PublicTransport_Prep/impl/Modes/V/Car, Rows);
@@ -314,10 +315,10 @@ container PublicTransport_Prep
 				attribute</NetworkSetup/PublicTransport_Prep/impl/dest> DstZone_rel := value(mod(values, uint64(#/NetworkSetup/PublicTransport_Prep/impl/dest)), /NetworkSetup/PublicTransport_Prep/impl/dest);
 				attribute<string> Org_Dest      := string(OrgZone_rel) + '_' + string(DstZone_rel);
 				attribute<uint32> nr_routes     := uint32(pcount(../Summary_rel)), Descr = "The number of routes of the pair; converted because pcount over a uint64 domain gives uint64.";
-				attribute<s_f>    min_impedance := min(../impedance, ../Summary_rel);
-				attribute<s_f>    max_impedance := max(../impedance, ../Summary_rel);
-				attribute<km>     min_alt_imp   := min(../alt_imp, ../Summary_rel);
-				attribute<km>     max_alt_imp   := max(../alt_imp, ../Summary_rel);
+				attribute<s>        min_impedance := min(../impedance, ../Summary_rel);
+				attribute<s>        max_impedance := max(../impedance, ../Summary_rel);
+				attribute<m_uint32> min_alt_imp   := min(../alt_imp, ../Summary_rel);
+				attribute<m_uint32> max_alt_imp   := max(../alt_imp, ../Summary_rel);
 			}
 			attribute<Summary> Summary_rel      (Rows) := rlookup(od_key, Summary/values);
 			parameter<uint32>  stat_rows               := sum(Summary/nr_routes);
@@ -325,26 +326,23 @@ container PublicTransport_Prep
 			parameter<uint32>  stat_front_max          := max(Summary/nr_routes);
 			parameter<float32> stat_front_mean         := float32(stat_rows) / float32(stat_od_pairs);
 
-			// Thinning on reading (pareto_optimal_eps) with the relative CarFrontEpsilon (ObjectVision/GeoDMS#1282): in order of distance (the
-			// price), a longer route stays only when it is more than that fraction faster than the shorter routes that stay, the rule of the
-			// search itself, so with the same epsilon as the cache this thins out nothing more. The shortest route always stays.
-			attribute<bool>    keep             (Rows) := = /ModelParameters/Advanced/CarFrontEpsilon > 0f
-			                                              ? 'pareto_optimal_eps(Summary_rel, alt_imp, impedance, /ModelParameters/Advanced/CarFrontEpsilon)'
-			                                              : 'const(TRUE, Rows, bool)';
-			unit<uint64> Front := select_with_org_rel(keep)
-			,	Descr = "The thinned front (keep) that takes part in Direct_OD; equal to Rows without epsilon."
+			// The front is the cache as it is, without thinning on reading: the search that made it already keeps, in order of distance (the
+			// price), a longer route only when it is more than CarFrontEpsilon faster than the shorter routes it keeps (ObjectVision/GeoDMS#1282),
+			// and that epsilon is in the signature of the cache. The same rule applied to the rounded values of the cache would drop routes that
+			// pass it by less than a second or a metre.
+			unit<uint64> Front := Rows
+			,	Descr = "The routes that take part in Direct_OD: all rows of the cache, with their derived values."
 			{
-				attribute<s_f>     impedance        := ../impedance[org_rel];
-				attribute<km>      alt_imp          := ../alt_imp[org_rel];
-				attribute</NetworkSetup/PublicTransport_Prep/impl/org> OrgZone_rel := ../OrgZone_rel[org_rel];
-				attribute</NetworkSetup/PublicTransport_Prep/impl/dest> DstZone_rel := ../DstZone_rel[org_rel];
-				attribute<s>       Duration_seconds := ../Duration_seconds[org_rel];
-				attribute<dam>     Distance         := ../Distance[org_rel];
-				attribute<Ct>      Price            := ../Price[org_rel];
-				attribute<Ct>      Price_Augm       := ../Price_Augm[org_rel];
-				attribute</NetworkSetup/PublicTransport_Prep/impl/Modes> Mode_rel := ../Mode_rel[org_rel];
-				parameter<uint64>  stat_rows        := #Front;
-				parameter<float32> stat_front_mean  := float32(stat_rows) / float32(../stat_od_pairs), Descr = "Routes per OD pair after thinning; compare with ../stat_front_mean.";
+				attribute<Rows>    org_rel          := id(Rows);
+				attribute<s>       impedance        := ../impedance;
+				attribute<m_uint32> alt_imp         := ../alt_imp;
+				attribute</NetworkSetup/PublicTransport_Prep/impl/org> OrgZone_rel := ../OrgZone_rel;
+				attribute</NetworkSetup/PublicTransport_Prep/impl/dest> DstZone_rel := ../DstZone_rel;
+				attribute<s>       Duration_seconds := ../Duration_seconds;
+				attribute<dam>     Distance         := ../Distance;
+				attribute<Ct>      Price            := ../Price;
+				attribute<Ct>      Price_Augm       := ../Price_Augm;
+				attribute</NetworkSetup/PublicTransport_Prep/impl/Modes> Mode_rel := ../Mode_rel;
 			}
 		}
 
