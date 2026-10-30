@@ -120,10 +120,11 @@ function SetParam($file, $name, $value) {
 function PresetDates($t, $moment) {
 	$row = [regex]::Match($t, "(?m)^\s*'$moment'\s*,(.*)$")
 	if (-not $row.Success) { Say "STOP: AnalysisMoment $moment is not in the preset table"; exit 3 }
-	# name, OSM date, Regios, OSM_perProv, TomTom, BAG_snapshot, Analysis_date, GTFS_file_date
-	$f = @(("'$moment'," + $row.Groups[1].Value) -split ',' | ForEach-Object { $_.Trim().Trim("'") })
-	if ($f[6] -notmatch '^\d{8}$' -or $f[7] -notmatch '^\d{8}$') { Say "STOP: AnalysisMoment $moment has no analysis date or feed ('$($f[6])', '$($f[7])')"; exit 3 }
-	return @($f[6], $f[7])
+	# name, OSM date, Regios, TomTom, BAG_snapshot, Analysis_date, GTFS_file_date, OVFiets_year, with the column OSM_perProv (TRUE or
+	# FALSE) left out: older run copies have it as the fourth column, the current model as the last.
+	$f = @(("'$moment'," + $row.Groups[1].Value) -split ',' | ForEach-Object { $_.Trim().Trim("'") } | Where-Object { $_ -notmatch '^(TRUE|FALSE)$' })
+	if ($f[5] -notmatch '^\d{8}$' -or $f[6] -notmatch '^\d{8}$') { Say "STOP: AnalysisMoment $moment has no analysis date or feed ('$($f[5])', '$($f[6])')"; exit 3 }
+	return @($f[5], $f[6])
 }
 # The suffix of the output folder of a component (ModelParameters/Advanced/Components/OutputSuffix, #117): _ and the name.
 # For a base run from before 2026-10-19 also the old names: _lopen, _fiets and _auto for Lopen, Fiets and Auto, and nothing
