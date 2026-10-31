@@ -15,10 +15,12 @@ REM it calculates the components one after the other, each in its own GeoDmsRun 
 REM environment variable GEODMS_Overridable_RunComponent, which the model reads as ConfigSettings/Overridable/RunComponent.
 REM A component whose output is complete (NetworkSetup/GenerateOutput/IsComplete: the signature of the current settings
 REM and the counts of all blocks) is skipped, so a run that stopped continues with the next component when started again;
-REM with section all that check comes first, so that a complete component also skips its cache steps.
+REM with section all that check comes first, so that a complete component also skips its cache steps. The chain cache
+REM that the public transport components share is one step before the components (see chains below).
 REM With ModelParameters/Merge the merge of the components follows, as the last component, Merged.
 REM
-REM   UpdateAll.cmd                 all sections: sources, then per component cars, chains, legs and output, then the merge
+REM   UpdateAll.cmd                 all sections: sources, the chain cache, then per component cars, legs and output, then
+REM                                 the merge
 REM   UpdateAll.cmd all -nosources  everything except the named sections: -nosources, -nocars, -nochains, -nolegs, -nooutput
 REM   UpdateAll.cmd sources         the OSM network and GTFS caches (only needed for a new edition; about 15 min). The car on
 REM                                 the TomTom network reads the four TomTom caches as source data from
@@ -35,8 +37,11 @@ REM   UpdateAll.cmd chains          the public transport chain cache per stop bl
 REM                                 environment variable CHAINCACHE_SINGLE the single cache of
 REM                                 PublicTransport_Prep/ChainGeneration_Single/Write), after the pre-check of the stop
 REM                                 blocks and the price coverage; takes hours and much memory. The chain cache does not
-REM                                 depend on the pre- and post-transport, so the first public transport component makes
-REM                                 it and the others find it.
+REM                                 depend on the pre- and post-transport, so the public transport components share it:
+REM                                 it is one step before the components, with the settings of the first public transport
+REM                                 component of the variant whose output is not complete, and with section all it is
+REM                                 skipped when the output of every public transport component is complete. Its logs
+REM                                 carry no component: UpdateAll_chains_precheck, UpdateAll_chains_todo, UpdateAll_chains.
 REM   UpdateAll.cmd legs            the caches of the pre- and post-transport connections of the public transport
 REM                                 components: the base sets without a cache (PublicTransport_Prep/Write_PrePostTransport);
 REM                                 writes only with ModelParameters/Advanced/PrePostTransportDecoupled (on by default)
@@ -157,8 +162,14 @@ if defined ONLY (
   )
 )
 
+REM The chain cache that the public transport components share, once, before the components.
+if /I "%SECTION%"=="chains" call :chains_shared
+if /I "%SECTION%"=="all" if not "%SKIP_CHAINS%"=="1" call :chains_shared
+if not "!RC!"=="0" goto failed
+if /I "%SECTION%"=="chains" goto done
+
 REM The components of the variant, one after the other; components.txt has per line the name, whether it uses public
-REM transport (chains and legs) and whether it uses the car caches, and as the last line Merged when Merge is on.
+REM transport (the chain cache and legs) and whether it uses the car caches, and as the last line Merged when Merge is on.
 for /f "usebackq tokens=1-3 delims=;" %%A in ("%LOGDIR%\components.txt") do (
   set /a ICOMP+=1
   call :component %%A %%B %%C
@@ -225,9 +236,6 @@ if "%~3"=="1" (
   if not "!RC!"=="0" exit /b !RC!
 )
 if "%~2"=="1" (
-  if /I "%SECTION%"=="chains" call :chains_comp
-  if /I "%SECTION%"=="all" if not "%SKIP_CHAINS%"=="1" call :chains_comp
-  if not "!RC!"=="0" exit /b !RC!
   if /I "%SECTION%"=="legs" call :legs_write
   if /I "%SECTION%"=="all" if not "%SKIP_LEGS%"=="1" call :legs_write
   if not "!RC!"=="0" exit /b !RC!
@@ -272,7 +280,60 @@ call :say "--- direct car trip: cache for %~1 ---"
 call :run car_%~1 %PREP%/Direct/CarPerMoment/%~1/Write_Car
 exit /b !RC!
 
-:chains_comp
+:chains_shared
+REM The chain cache that the public transport components share. CHAINCOMP is the component whose settings the step uses:
+REM with section all the first public transport component whose output is not complete (the step is skipped when there
+REM is none), otherwise the first public transport component; with -component only that one. The step itself carries no
+REM component, so its logs and status lines do not either.
+set RC=0
+set CHAINCOMP=
+set NEEDCHAINS=
+for /f "usebackq tokens=1-2 delims=;" %%A in ("%LOGDIR%\components.txt") do (
+  call :chains_need %%A %%B
+  if not "!RC!"=="0" exit /b !RC!
+)
+set COMP=
+set CTAG=
+set OUTSTATE_OF=
+set GEODMS_Overridable_RunComponent=
+if not defined CHAINCOMP (
+  if /I "%SECTION%"=="chains" if defined ONLY call :say "--- chains: %ONLY% uses no public transport, no chain cache ---"
+  if /I "%SECTION%"=="chains" if not defined ONLY call :say "--- chains: the variant has no public transport component, no chain cache ---"
+  exit /b 0
+)
+if not defined NEEDCHAINS (
+  call :say "--- chains: the output of every public transport component is complete, the chain cache is skipped ---"
+  exit /b 0
+)
+call :say "=== chains: the cache that the public transport components share, with the settings of %CHAINCOMP% ==="
+set "GEODMS_Overridable_RunComponent=%CHAINCOMP%"
+call :chains_write
+set GEODMS_Overridable_RunComponent=
+exit /b !RC!
+
+:chains_need
+REM %1 = component, %2 = 1 when it uses public transport. Sets CHAINCOMP and, once a component needs the chain cache,
+REM NEEDCHAINS; with section all a component needs it only when its output is not complete (output_state).
+set RC=0
+if not "%~2"=="1" exit /b 0
+if defined ONLY if /I not "%~1"=="%ONLY%" exit /b 0
+if defined NEEDCHAINS exit /b 0
+if not defined CHAINCOMP set "CHAINCOMP=%~1"
+if /I not "%SECTION%"=="all" set NEEDCHAINS=1
+if "%SKIP_OUTPUT%"=="1" set NEEDCHAINS=1
+if defined NEEDCHAINS exit /b 0
+set "COMP=%~1"
+set "CTAG=_%~1"
+set "GEODMS_Overridable_RunComponent=%~1"
+call :output_state
+if not "!RC!"=="0" exit /b !RC!
+if /I not "!OUTSTATE!"=="complete" (
+  set "CHAINCOMP=%~1"
+  set NEEDCHAINS=1
+)
+exit /b 0
+
+:chains_write
 call :say "--- chains: pre-check of the stop blocks and the price coverage ---"
 call :run chains_precheck /ChecksBeforeRunning/PT_CheckBlocks /SourceData/Infrastructure/OVprijzen/PriceCoverage/Table_OK_DOVA
 if not "!RC!"=="0" exit /b !RC!
@@ -290,7 +351,7 @@ if defined CHAINCACHE_SINGLE (
 )
 call :say "--- chains: the stop blocks without a cache, in portions (WriteChainBlocks.ps1) ---"
 set STEP=chains
-powershell -NoProfile -ExecutionPolicy Bypass -File "%BATCHDIR%WriteChainBlocks.ps1" -Exe "%EXE%" -Cfg "%CFG%" -LogDir "%LOGDIR%" -Tag "%CTAG%" -Status "%STATUS%"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%BATCHDIR%WriteChainBlocks.ps1" -Exe "%EXE%" -Cfg "%CFG%" -LogDir "%LOGDIR%" -Status "%STATUS%"
 set RC=!ERRORLEVEL!
 exit /b !RC!
 

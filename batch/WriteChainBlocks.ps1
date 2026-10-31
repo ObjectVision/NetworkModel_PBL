@@ -11,7 +11,8 @@
 #               minute, so the size makes little difference to the calculation time. A few slow blocks need 150 to 200 GB
 #               of live data and page on a machine with 128 GB, whatever the portion size.
 #   -MaxBlocks  at most this many blocks in this call (0 = all; for testing)
-#   -Tag        appended to the names of the log and console files, _<component> (UpdateAll.cmd sets it)
+#   -Tag        appended to the names of the log and console files (UpdateAll.cmd passes none: the chain cache is shared
+#               by the public transport components, so its step carries no component)
 #   -Status     a file to which every progress line is appended as well (UpdateAll.cmd: batch\log\UpdateAll_status.txt)
 # Exit code 0 when all blocks have a cache (or MaxBlocks is reached), otherwise 1; a failed GeoDmsRun call also prints its
 # error messages (ShowGeoDmsErrors.ps1).

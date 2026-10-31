@@ -7,7 +7,7 @@ REM time limit (Windows stops a task after 72 hours by default, and a variant wi
 REM The task runs batch\UpdateAllTask.cmd; it and UpdateAll.cmd write the progress per step to
 REM batch\log\UpdateAll_status.txt, and the task is deleted afterwards. At most one such task runs at a time.
 REM
-REM   ScheduleUpdateAll.cmd all                      the whole variant: sources, checks, per component the caches and the output, the merge
+REM   ScheduleUpdateAll.cmd all                      the whole variant: sources, checks, the chain cache, per component the caches and the output, the merge
 REM   ScheduleUpdateAll.cmd all -nosources           the same without the OSM and GTFS caches
 REM   ScheduleUpdateAll.cmd output -component Car    only the output of one component of the variant
 REM   set GEODMS_EXE=C:\...\GeoDmsRun.exe            beforehand: another engine for this run
