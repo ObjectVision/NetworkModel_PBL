@@ -28,7 +28,9 @@ REM   UpdateAll.cmd cars [moment..] the caches of the direct car trip per depart
 REM                                 (PublicTransport_Prep/Direct/CarPerMoment/<moment>/Write_Car); without moments the
 REM                                 moments the model reads (MakeUnlinkedData/Step4_DirectCar/Moments); with moments, for
 REM                                 example MorningRush NoonRush LateEveningRush and Freeflow (TomTom) or MaxSpeed (OSM);
-REM                                 about 40 min per moment with a scalar search, longer with ParetoLegs_Car
+REM                                 about 40 min per moment with a scalar search, longer with ParetoLegs_Car. A moment whose
+REM                                 cache exists with the current signature is skipped (CarPerMoment/<moment>/IsWritten);
+REM                                 remove its folder in IntermediateResults to make it again
 REM   UpdateAll.cmd chains          the public transport chain cache per stop block (WriteChainBlocks.ps1; with the
 REM                                 environment variable CHAINCACHE_SINGLE the single cache of
 REM                                 PublicTransport_Prep/ChainGeneration_Single/Write), after the pre-check of the stop
@@ -208,8 +210,7 @@ if /I "%~1"=="Merged" (
   exit /b !RC!
 )
 if /I "%SECTION%"=="merge" exit /b 0
-REM With section all, a component whose output is complete skips its cache steps as well: they serve its output, and the
-REM car caches would be written again (Write_Car calculates on every request).
+REM With section all, a component whose output is complete skips its cache steps as well: they serve only its output.
 if /I "%SECTION%"=="all" if not "%SKIP_OUTPUT%"=="1" (
   call :output_state
   if not "!RC!"=="0" exit /b !RC!
@@ -242,11 +243,34 @@ if "%MOMENTS%"=="" (
   set /p MOMENTS=<"%LOGDIR%\car_moments.txt"
 )
 for %%M in (%MOMENTS%) do (
-  call :say "--- direct car trip: cache for %%M ---"
-  call :run car_%%M %PREP%/Direct/CarPerMoment/%%M/Write_Car
+  call :car_moment %%M
   if not "!RC!"=="0" exit /b !RC!
 )
 exit /b 0
+
+:car_moment
+REM %1 = moment. Write_Car calculates on every request, so a moment whose cache exists with the signature of the current
+REM settings is skipped, as the legs and the chain blocks are; CarPerMoment/<moment>/ForBatch/CacheState writes written
+REM or missing to batch\log\car_cache_<moment>.txt.
+set "CARSTATE_FILE=%LOGDIR%\car_cache_%~1.txt"
+if exist "%CARSTATE_FILE%" del "%CARSTATE_FILE%"
+call :run car_state_%~1 %PREP%/Direct/CarPerMoment/%~1/ForBatch/CacheState
+if not "!RC!"=="0" exit /b !RC!
+set CARSTATE=
+if exist "%CARSTATE_FILE%" set /p CARSTATE=<"%CARSTATE_FILE%"
+if not defined CARSTATE (
+  call :say "ABORT: no state of the car cache of %~1 in %CARSTATE_FILE%"
+  set STEP=car_state_%~1
+  set RC=1
+  exit /b 1
+)
+if /I "%CARSTATE%"=="written" (
+  call :say "--- direct car trip: the cache for %~1 exists with the current signature, skipped ---"
+  exit /b 0
+)
+call :say "--- direct car trip: cache for %~1 ---"
+call :run car_%~1 %PREP%/Direct/CarPerMoment/%~1/Write_Car
+exit /b !RC!
 
 :chains_comp
 call :say "--- chains: pre-check of the stop blocks and the price coverage ---"
