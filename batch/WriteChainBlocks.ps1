@@ -42,7 +42,19 @@ function Get-ToDo {
 }
 
 $todo = @(Get-ToDo)   # @(): otherwise a list with one line (the OD pair mode, #129) becomes a string, and $todo[0..0] its first character
-Say ("chain step per block: {0} blocks without a cache" -f $todo.Count)
+# The number of stop blocks is in the names of their writers, .../Block_<n>of<N>/Write; the OD pair mode has one writer without it.
+$nAll = if ($todo.Count -gt 0 -and $todo[0] -match 'of(\d+)/Write$') { [int]$Matches[1] } else { 0 }
+# The signature is that of the whole cache folder, so the cache with the current signature is complete, missing or, after an
+# interrupted run, partly there.
+if ($todo.Count -eq 0) {
+	Say 'chain step per block: the chain cache with the current signature is complete, nothing to calculate'
+} elseif ($todo.Count -eq $nAll) {
+	Say ("chain step per block: there is no chain cache with the current signature yet, all {0} stop blocks are calculated" -f $nAll)
+} elseif ($nAll -gt 0) {
+	Say ("chain step per block: the chain cache with the current signature is partly there, {0} of {1} stop blocks are done and the other {2} are calculated" -f ($nAll - $todo.Count), $nAll, $todo.Count)
+} else {
+	Say ("chain step per block: the chain cache with the current signature is not complete, {0} writers to calculate" -f $todo.Count)
+}
 if ($MaxBlocks -gt 0 -and $todo.Count -gt $MaxBlocks) { $todo = $todo[0..($MaxBlocks - 1)] }
 $nb = [Math]::Ceiling($todo.Count / [double]$BatchSize)
 $total = [Diagnostics.Stopwatch]::StartNew()
