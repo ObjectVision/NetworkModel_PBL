@@ -442,7 +442,8 @@ REM Empty the output folder (NetworkModel_PBL#118): the file names carry only th
 REM are in signature.txt in the folder, so without emptying a run after a code change would put its blocks next to those
 REM of the previous run. Only the files the model writes there are removed, and only if the folder lies under a folder
 REM Output. Does the path contain \Output\, or \Output_ of an OD pair (Output_<O>_<D>, #129)? Replacing it by nothing then
-REM makes the string shorter; cmd replaces case-insensitively.
+REM makes the string shorter; cmd replaces case-insensitively. Each matching file is removed on its own, because del with several
+REM patterns removes nothing as soon as one of them matches no file.
 set OUTOK=
 if not "!OUTDIR:\Output\=!"=="!OUTDIR!" set OUTOK=1
 if not "!OUTDIR:\Output_=!"=="!OUTDIR!" set OUTOK=1
@@ -454,7 +455,13 @@ if not defined OUTOK (
 )
 if exist "!OUTDIR!\" (
   call :say "emptying the output folder: !OUTDIR!"
-  del /q "!OUTDIR!\PerBlock\tt_*.csv" "!OUTDIR!\PerBlock\tt_*.xml" "!OUTDIR!\Mediaan\tt_*.csv" "!OUTDIR!\Mediaan\tt_*.xml" "!OUTDIR!\tt_*.csv" "!OUTDIR!\tt_*.xml" "!OUTDIR!\signature.txt" "!OUTDIR!\signature.xml" "!OUTDIR!\od_tellingen.*" "!OUTDIR!\unieke_od_tellingen.*" "!OUTDIR!\PerBlock\tt_*.parquet" "!OUTDIR!\Mediaan\tt_*.parquet" "!OUTDIR!\Tellingen\tellingen_*.*" 2>nul
+  for %%F in ("!OUTDIR!\PerBlock\tt_*.csv" "!OUTDIR!\PerBlock\tt_*.xml" "!OUTDIR!\Mediaan\tt_*.csv" "!OUTDIR!\Mediaan\tt_*.xml" "!OUTDIR!\tt_*.csv" "!OUTDIR!\tt_*.xml" "!OUTDIR!\signature.txt" "!OUTDIR!\signature.xml" "!OUTDIR!\od_tellingen.*" "!OUTDIR!\unieke_od_tellingen.*" "!OUTDIR!\PerBlock\tt_*.parquet" "!OUTDIR!\Mediaan\tt_*.parquet" "!OUTDIR!\Tellingen\tellingen_*.*") do del /q "%%~fF"
+  if exist "!OUTDIR!\signature.txt" (
+    call :say "ABORT: the output folder !OUTDIR! could not be emptied, a file in it may be open in another program"
+    set STEP=output_dir
+    set RC=1
+    exit /b 1
+  )
 )
 REM The output runs in portions of origin blocks, each in its own GeoDmsRun, followed by the counts with OdTellingen.py
 REM (WriteOutputBlocks.ps1). Blocks per portion: Classifications/Components/BlocksPerPortion of the component,
