@@ -44,7 +44,7 @@ param(
 	[int]   $NrOrgBlocks  = 450,
 	[ValidateSet('others', 'base', 'none')][string]$WaitFor = '',
 	[int]   $MinFreeRamGB = 24,
-	[string]$Exe          = 'C:\Program Files\ObjectVision\GeoDms20.27.0.m\GeoDmsRun.exe',
+	[string]$Exe          = 'C:\Program Files\ObjectVision\GeoDms20.28.0.m\GeoDmsRun.exe',
 	[string]$RunsDir      = 'C:\LocalData\NM_PBL_runs',
 	[string]$OutRoot      = 'C:\LocalData\NetworkModel_PBL\Output',
 	[switch]$DryRun

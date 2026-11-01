@@ -26,7 +26,7 @@ param(
 	[string]$Destset = 'Buurt2025',
 	[string]$Label = 'od',
 	[string]$Components = '',
-	[string]$Exe = 'C:\Program Files\ObjectVision\GeoDms20.27.0.m\GeoDmsRun.exe',
+	[string]$Exe = 'C:\Program Files\ObjectVision\GeoDms20.28.0.m\GeoDmsRun.exe',
 	[string]$Root = 'C:\LocalData\NM_PBL_runs',
 	[int]$WaitForMemoryGB = 0,
 	[switch]$AlleenUitvoer
