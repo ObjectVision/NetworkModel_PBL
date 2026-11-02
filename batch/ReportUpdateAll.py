@@ -9,7 +9,7 @@
 # skipped because their output or cache was already there.
 #
 #   step        car_<moment>, legs, output, with _<component> after it, or chains_precheck, chains (the chain cache that
-#               the public transport components share, without a component), osm_network, gtfs, checks, ... (see UpdateAll.cmd)
+#               the public transport components share, without a component), sources_state, osm_network, gtfs, checks, ... (see UpdateAll.cmd)
 #   --since     the logs written since this moment instead, for a run that was stopped and started again (the status file
 #               then begins at the restart)
 #   --localdata the LocalDataProjDir of the model (default: NM_PBL_LOCALDATA, else localDataProjDir in the machine-local

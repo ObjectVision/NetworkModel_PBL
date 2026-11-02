@@ -4,7 +4,8 @@
 # written to batch\log\chain_blocks_todo.txt; a block counts as done when its <n>of<N>.done exists, which the model writes
 # after the parquet of the block is complete) and then calculates them in portions of BatchSize blocks per GeoDmsRun. Each
 # portion is a separate process, so that memory is freed between the portions; an interrupted or failed chain step continues
-# at the next call with the first block without a cache.
+# at the next call with the first block without a cache. With ModelParameters/Advanced/PT_Chains_PerBlock FALSE the list
+# holds instead the writer of the one cache (ChainGeneration_Single/Write) while that cache is missing.
 #
 # Call (by UpdateAll.cmd chains): WriteChainBlocks.ps1 -Exe <GeoDmsRun.exe> -Cfg <cfg\main.dms> -LogDir <batch\log>
 #   -BatchSize  blocks per GeoDmsRun (default 20). The blocks of a portion share only the start-up of about half a

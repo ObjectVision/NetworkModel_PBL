@@ -162,9 +162,31 @@ container OSM : using = "classifications/OSM", Descr = "The OpenStreetMap road n
 
 	parameter<string> CacheRevision      := '_r3'
 	,   Descr = "Revision of the network building in the name of the OSM network cache; raise it with every change that alters the content of the cache, or else the old cache is read.";
+	parameter<string> Signature          := 'OSM-' + file_date + (OSM_NL_prov ? '-prov' : '')
+	                                        + '_q' + string(ModelParameters/Advanced/OSM_MaxSpeedQuantile)
+	                                        + '_car' + string(ModelParameters/Advanced/CarDefaultSpeed) + '-' + string(ModelParameters/Advanced/CarDefaultSpeed_low)
+	                                        + '_ferry' + string(ModelParameters/Advanced/Ferry_Speed)
+	                                        + '_snap' + string(ModelParameters/Advanced/ExtraLink_MaxSnapDistance)
+	                                        + '_fietstel' + string(ModelParameters/Advanced/Fietstel_OSM_link_dist)
+	                                        + CacheRevision
+	,   Descr = "Signature of the OSM network cache: the extract and whether it is read per province, the settings that set the stored car speeds, the extra connections and the cycling speeds of the Fietstelweek, and CacheRevision.";
+	container         Hash               := /Templates/StringHash_T(Signature);
+	parameter<string> CachePath          := '%LocalDataProjDir%/OSM/Final_Network_' + file_date + CacheRevision + '_' + Hash/Hex + '.mmd'
+	,   Descr = "The OSM network cache: the date of the extract, CacheRevision and a hash of Signature, so that other settings give another cache (#118).";
+	container         Sig                := /Templates/Signature_T(CachePath, CachePath + '/signature.txt', Signature, strlen('/congestion_speed_bike'))
+	,   Descr = "The signature in the folder of the cache (signature.txt, next to 0Dictionary.dms), which Make_Final_Network writes.";
+	parameter<bool>   IsWritten          := Sig/IsChecked && ExistingFile('', expand(., CachePath + '/0Dictionary.dms')) != ''
+	,   Descr = "Is there an OSM network cache with the current signature? GeoDMS writes the dictionary of the mmd last, so a cache whose writing was interrupted counts as missing.";
+	container         ForBatch           : Descr = "IsWritten for batch/UpdateAll.cmd, without a metadata file beside it (as GenerateOutput/ForBatch)."
+	{
+		container ExportSettings { container MetaInfo; }
+		parameter<string> CacheState := IsWritten ? 'written' : 'missing', StorageName = "%ConfigDir%/../../batch/log/osm_cache.txt", StorageType = "str"
+		,   Descr = "written or missing, in batch/log/osm_cache.txt; batch/UpdateAll.cmd makes the cache only when it is missing.";
+	}
 
-	unit<uint32> Make_Final_Network := Final_Network_src, Descr = "Writes the final OSM network to the mmd cache, whose name holds the OSM date and CacheRevision."
-	,   StorageName = "='%LocalDataProjDir%/OSM/Final_Network_'+file_date+CacheRevision+'.mmd'"
+	unit<uint32> Make_Final_Network := Final_Network_src, Descr = "Writes the final OSM network to the mmd cache CachePath, with its signature beside it (Sig)."
+	,   StorageName = "=CachePath"
+	,   ExplicitSuppliers = "Sig/ForWriting"
 	{
 		attribute<rdc>      geometry        (arc) := Final_Network_src/geometry;
 		attribute<roadType> roadType_rel          := Final_Network_src/roadType_rel;

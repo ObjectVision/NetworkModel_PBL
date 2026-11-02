@@ -10,32 +10,43 @@ REM batch\log\UpdateAll_status.txt.
 REM
 REM The variant (ModelParameters, group 2) is every combination of a pre-transport type that is on with a post-transport
 REM type that is on, plus the direct trips that are on (WW, CC, Car), #117. The script first checks the settings
-REM (ChecksBeforeRunning/Report, written to batch\log\checks.txt) and stops at a FAIL, with the message of the model. Then
-REM it calculates the components one after the other, each in its own GeoDmsRun steps: it sets the component in the
-REM environment variable GEODMS_Overridable_RunComponent, which the model reads as ConfigSettings/Overridable/RunComponent.
-REM A component whose output is complete (NetworkSetup/GenerateOutput/IsComplete: the signature of the current settings
-REM and the counts of all blocks) is skipped, so a run that stopped continues with the next component when started again;
-REM with section all that check comes first, so that a complete component also skips its cache steps. The chain cache
-REM that the public transport components share is a step of its own, before the first public transport component (see
-REM chains below); the console numbers the components and that step together, for example "step 4 of 9".
-REM With ModelParameters/Merge the merge of the components follows, as the last component, Merged.
+REM (ChecksBeforeRunning/Report_Settings, written to batch\log\checks_settings.txt), makes the source caches that are
+REM missing, and checks the settings and the caches (ChecksBeforeRunning/Report, batch\log\checks.txt); it stops at a FAIL,
+REM with the message of the model. Then it calculates the components one after the other, each in its own GeoDmsRun steps:
+REM it sets the component in the environment variable GEODMS_Overridable_RunComponent, which the model reads as
+REM ConfigSettings/Overridable/RunComponent. Every step skips the work that is already there: a cache whose name and
+REM signature match the current settings is read and not made again, and a component whose output is complete
+REM (NetworkSetup/GenerateOutput/IsComplete: the signature of the current settings and the counts of all blocks) is
+REM skipped with its cache steps. So a run that stopped continues where it stopped when it is started again, and after a
+REM change of a setting only what depends on it is calculated. The chain cache that the public transport components share
+REM is a step of its own, before the first public transport component (see chains below); the console numbers the
+REM components and that step together, for example "step 4 of 11". With ModelParameters/Merge the merge of the components
+REM follows, as the last component, Merged.
 REM
-REM   UpdateAll.cmd                 all sections: sources, then per component cars, legs and output, with the chain cache
-REM                                 before the first public transport component, then the merge
-REM   UpdateAll.cmd all -nosources  everything except the named sections: -nosources, -nocars, -nochains, -nolegs, -nooutput
-REM   UpdateAll.cmd sources         the OSM network and GTFS caches (only needed for a new edition; about 15 min). The car on
-REM                                 the TomTom network reads the four TomTom caches as source data from
-REM                                 NetworkModel_PrivDir\TomTom\<edition>; UpdateAll does not make them.
-REM   UpdateAll.cmd checks          only the checks of the settings and the list of components (batch\log\components.txt)
+REM   UpdateAll.cmd [all]           everything: the checks, the source caches, then per component the car caches, the pre-
+REM                                 and post-transport caches and the output, with the chain cache before the first public
+REM                                 transport component, and the merge. Also without arguments, for example after a
+REM                                 double-click in Explorer; the script then waits for a key at the end
+REM   UpdateAll.cmd sources         the source caches: the OSM network (SourceData/Infrastructure/OSM/CachePath, whose name
+REM                                 holds a hash of OSM/Signature) and the GTFS cache of the feed of the analysis moment
+REM                                 (GTFS/LoadFeeds/CachePath, named after the feed date), a few minutes each. A cache that
+REM                                 exists is skipped (OSM/ForBatch/CacheState and GTFS/LoadFeeds/ForBatch/CacheState, written
+REM                                 to batch\log\osm_cache.txt and gtfs_cache.txt); remove its folder to make it again, for
+REM                                 example after a new delivery of a feed under the same date. The car on the TomTom network
+REM                                 reads the four TomTom caches as source data from NetworkModel_PrivDir\TomTom\<edition>;
+REM                                 UpdateAll does not make them.
+REM   UpdateAll.cmd checks          only the checks of the settings and the caches, and the list of components
+REM                                 (batch\log\components.txt)
 REM   UpdateAll.cmd cars [moment..] the caches of the direct car trip per departure moment, for the component Car
 REM                                 (PublicTransport_Prep/Direct/CarPerMoment/<moment>/Write_Car); without moments the
-REM                                 moments the model reads (MakeUnlinkedData/Step4_DirectCar/Moments); with moments, for
-REM                                 example MorningRush NoonRush LateEveningRush and Freeflow (TomTom) or MaxSpeed (OSM);
-REM                                 about 40 min per moment with a scalar search, longer with ParetoLegs_Car. A moment whose
-REM                                 cache exists with the current signature is skipped (CarPerMoment/<moment>/IsWritten);
-REM                                 remove its folder in IntermediateResults to make it again
-REM   UpdateAll.cmd chains          the public transport chain cache per stop block (WriteChainBlocks.ps1; with the
-REM                                 environment variable CHAINCACHE_SINGLE the single cache of
+REM                                 moments the model reads (MakeUnlinkedData/Step4_DirectCar/Moments: TD07h00m and on with
+REM                                 CarTimeDependent); with moments those, for example MorningRush NoonRush LateEveningRush
+REM                                 and Freeflow (TomTom) or MaxSpeed (OSM). About 40 min per static moment with a scalar
+REM                                 search, longer with ParetoLegs_Car, and about 3 hours per time-dependent departure moment.
+REM                                 A moment whose cache exists with the current signature is skipped (CarPerMoment/<moment>/
+REM                                 IsWritten); remove its folder in IntermediateResults to make it again
+REM   UpdateAll.cmd chains          the public transport chain cache per stop block (WriteChainBlocks.ps1; with
+REM                                 ModelParameters/Advanced/PT_Chains_PerBlock FALSE the one cache of
 REM                                 PublicTransport_Prep/ChainGeneration_Single/Write), after the pre-check of the stop
 REM                                 blocks and the price coverage; takes hours and much memory. The chain cache does not
 REM                                 depend on the pre- and post-transport, so the public transport components share it:
@@ -51,72 +62,106 @@ REM                                 component: UpdateAll_chains_precheck, Update
 REM   UpdateAll.cmd legs            the caches of the pre- and post-transport connections of the public transport
 REM                                 components: the base sets without a cache (PublicTransport_Prep/Write_PrePostTransport);
 REM                                 writes only with ModelParameters/Advanced/PrePostTransportDecoupled (on by default)
-REM   UpdateAll.cmd output          the output of every component that is not complete: a file per origin block and
-REM                                 departure moment in %LocalDataProjDir%\Output\<Analysis_date>_<OutputLabel>_<component>[_fb]\PerBlock
-REM                                 (_fb: a component on the cycling network with CyclingNetwork 'Fietsersbond'), with the
-REM                                 chain cache of the departure moments of PartOfDay, and then the merge. The step first
-REM                                 writes the missing pre- and post-transport caches, as legs does, and empties the output
-REM                                 folder of the component (#118), removing only the files of the model: tt_*.csv,
-REM                                 tt_*.parquet and tt_*.xml, signature.txt/.xml, the counts od_tellingen.csv and
-REM                                 unieke_od_tellingen.csv (with .xml) and Tellingen\tellingen_*.*. It runs in portions of
-REM                                 blocks (WriteOutputBlocks.ps1, a GeoDmsRun per portion, then the counts with
-REM                                 OdTellingen.py); blocks per portion per component in Classifications/Components/
-REM                                 BlocksPerPortion, or set with OUTPUT_BATCHSIZE; with OUTPUT_SINGLE in one request.
-REM   UpdateAll.cmd merge           only the merge of the components of the variant (their output must be complete)
-REM   ... -component <name>         only that component of the variant, for example -component C_PT_OVf_C, or Merged
+REM   ... -component <name>         with all, cars, chains or legs: only that component of the variant, for example
+REM                                 -component C_PT_OVf_C; not Merged, because the merge is the last step of all
+REM The section comes first; cars takes moments, any other word or option stops the script before it starts.
+REM
+REM The output step of a component, with all after its cache steps: a file per origin block and departure moment in
+REM %LocalDataProjDir%\Output\<Analysis_date>_<OutputLabel>_<component>[_fb]\PerBlock (_fb: a component on the cycling
+REM network with CyclingNetwork 'Fietsersbond'), with the chain cache of the departure moments of PartOfDay. The step
+REM first empties the output folder of the component (#118), removing only the files of the model: tt_*.csv, tt_*.parquet
+REM and tt_*.xml, signature.txt/.xml, the counts od_tellingen.csv and unieke_od_tellingen.csv (with .xml) and
+REM Tellingen\tellingen_*.*. It runs in portions of blocks (WriteOutputBlocks.ps1, a GeoDmsRun per portion, then the
+REM counts with OdTellingen.py); blocks per portion per component in Classifications/Components/BlocksPerPortion, or set
+REM with OUTPUT_BATCHSIZE; OUTPUT_MAXBLOCKS calculates at most that many blocks, for a test.
 REM Run one UpdateAll at a time, not two at the same time: the output step of a component can need more than 100 GB of
 REM memory, and two at once make the machine page.
 REM ---------------------------------------------------------------------------------------------
-REM Engine. The model asks for the pareto epsilon and the bool criteria of pareto_optimal_eps, which older versions of
-REM GeoDMS do not know; GEODMS_VERSION is the version it was tested with. GeoDmsRun.exe comes from, in this order:
-REM the environment variable GEODMS_EXE (another engine, for example a test build); the local build in
-REM C:\dev\GeoDMS_2026; the installed GEODMS_VERSION, flavor m or c, in the folder that the installer writes to the
-REM registry (by default C:\Program Files\ObjectVision\GeoDms<version>.<flavor>).
-set GEODMS_VERSION=20.28.0
-set "EXE="
-if defined GEODMS_EXE set "EXE=%GEODMS_EXE%"
-if not defined EXE if exist "C:\dev\GeoDMS_2026\bin\Release\x64\GeoDmsRun.exe" set "EXE=C:\dev\GeoDMS_2026\bin\Release\x64\GeoDmsRun.exe"
-if not defined EXE for %%F in (m c) do if not defined EXE (
-  for /f "tokens=2,*" %%A in ('reg query "HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\GeoDms%GEODMS_VERSION%.%%F" /v InstallLocation /reg:64 2^>nul ^| findstr /i InstallLocation') do if exist "%%B\GeoDmsRun.exe" set "EXE=%%B\GeoDmsRun.exe"
-  if not defined EXE if exist "%ProgramW6432%\ObjectVision\GeoDms%GEODMS_VERSION%.%%F\GeoDmsRun.exe" set "EXE=%ProgramW6432%\ObjectVision\GeoDms%GEODMS_VERSION%.%%F\GeoDmsRun.exe"
-)
-if not defined EXE (
-  echo ABORT: no GeoDmsRun.exe found. Install GeoDMS %GEODMS_VERSION%, or set GEODMS_EXE to the full path of GeoDmsRun.exe.
-  exit /b 1
-)
 REM The full path name without "..": GeoDMS derives %LocalDataProjDir% from the name of the folder above cfg, and
 REM with batch\..\cfg\main.dms that name is "..", which puts the caches in C:\LocalData\..\IntermediateResults, that is C:\.
 for %%I in ("%~dp0..\cfg\main.dms") do set CFG=%%~fI
 REM Store the batch folder for the argument loop: after shift, %~dp0 no longer points to this folder.
 set "BATCHDIR=%~dp0"
 set LOGDIR=%~dp0log
-if not exist "%LOGDIR%" mkdir "%LOGDIR%"
 set "STATUS=%LOGDIR%\UpdateAll_status.txt"
 set PREP=/NetworkSetup/PublicTransport_Prep
 
+REM The arguments: the section, with cars the moments, and -component <name>. Anything else stops the script before it writes to
+REM the status file, so that a typing error cannot start another run than the one meant.
 set SECTION=%~1
-if "%SECTION%"=="" set SECTION=all
-REM The arguments after the section: -no<section> skips a section, -component <name> chooses one component, the others
-REM are moments for cars. (shift leaves %* unchanged, so the script collects them itself.)
+REM Without arguments, as after a double-click in Explorer, the section is all, and the script waits for a key at the end:
+REM the window closes when the script ends, and would otherwise not show how the run ended.
+set PAUSE_END=
+if "%SECTION%"=="" (
+  set SECTION=all
+  set PAUSE_END=1
+)
+if "%SECTION%"=="/?" goto usage_ok
+for %%H in (-h -help --help help) do if /I "%SECTION%"=="%%H" goto usage_ok
+set KNOWN=0
+for %%S in (all sources checks cars chains legs) do if /I "%SECTION%"=="%%S" set KNOWN=1
+if "%KNOWN%"=="0" (
+  echo Unknown section "%SECTION%".
+  goto usage
+)
 set MOMENTS=
 set ONLY=
-set SKIP_SOURCES=0
-set SKIP_CARS=0
-set SKIP_CHAINS=0
-set SKIP_LEGS=0
-set SKIP_OUTPUT=0
 :args
 shift
-if "%~1"=="" goto argsdone
-if /I "%~1"=="-component" (
+set "ARG=%~1"
+if not defined ARG goto argsdone
+if /I "!ARG!"=="-component" (
   set "ONLY=%~2"
+  if not defined ONLY (
+    echo -component needs the name of a component.
+    goto usage
+  )
+  if "!ONLY:~0,1!"=="-" (
+    echo -component needs the name of a component, not "!ONLY!".
+    goto usage
+  )
+  if /I "!ONLY!"=="Merged" (
+    echo -component takes a component, not Merged: the merge is the last step of all.
+    goto usage
+  )
   shift
   goto args
 )
-if /I "%~1"=="-nosources" (set SKIP_SOURCES=1) else if /I "%~1"=="-nocars" (set SKIP_CARS=1) else if /I "%~1"=="-nochains" (set SKIP_CHAINS=1) else if /I "%~1"=="-nolegs" (set SKIP_LEGS=1) else if /I "%~1"=="-nooutput" (set SKIP_OUTPUT=1) else set MOMENTS=!MOMENTS! %~1
+if "!ARG:~0,1!"=="-" (
+  echo Unknown option "!ARG!".
+  goto usage
+)
+if /I not "%SECTION%"=="cars" (
+  echo The section %SECTION% takes no moments or other words: "!ARG!".
+  goto usage
+)
+set "MOMENTS=!MOMENTS! !ARG!"
 goto args
 :argsdone
+if defined ONLY for %%S in (sources checks) do if /I "%SECTION%"=="%%S" (
+  echo The section %SECTION% takes no -component.
+  goto usage
+)
 
+REM Engine. The model asks for the pareto epsilon and the bool criteria of pareto_optimal_eps, which older versions of
+REM GeoDMS do not know; GEODMS_VERSION is the version it was tested with. GeoDmsRun.exe comes from the environment
+REM variable GEODMS_EXE (another engine, for example a test build), and otherwise from the installed GEODMS_VERSION,
+REM flavor m or c, in the folder that the installer writes to the registry (by default
+REM C:\Program Files\ObjectVision\GeoDms<version>.<flavor>).
+set GEODMS_VERSION=20.28.0
+set "EXE="
+if defined GEODMS_EXE set "EXE=%GEODMS_EXE%"
+if not defined EXE for %%F in (m c) do if not defined EXE (
+  for /f "tokens=2,*" %%A in ('reg query "HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\GeoDms%GEODMS_VERSION%.%%F" /v InstallLocation /reg:64 2^>nul ^| findstr /i InstallLocation') do if exist "%%B\GeoDmsRun.exe" set "EXE=%%B\GeoDmsRun.exe"
+  if not defined EXE if exist "%ProgramW6432%\ObjectVision\GeoDms%GEODMS_VERSION%.%%F\GeoDmsRun.exe" set "EXE=%ProgramW6432%\ObjectVision\GeoDms%GEODMS_VERSION%.%%F\GeoDmsRun.exe"
+)
+if not defined EXE (
+  echo ABORT: no GeoDmsRun.exe found. Install GeoDMS %GEODMS_VERSION%, or set GEODMS_EXE to the full path of GeoDmsRun.exe.
+  if defined PAUSE_END pause
+  exit /b 1
+)
+
+if not exist "%LOGDIR%" mkdir "%LOGDIR%"
 set "WHAT=UpdateAll %SECTION%%MOMENTS%"
 if defined ONLY set "WHAT=%WHAT% -component %ONLY%"
 call :say "%WHAT% started"
@@ -126,27 +171,16 @@ set CTAG=
 set OUTSTATE_OF=
 set GEODMS_Overridable_RunComponent=
 
-set KNOWN=0
-for %%S in (all sources checks cars chains legs output merge) do if /I "%SECTION%"=="%%S" set KNOWN=1
-if "%KNOWN%"=="0" (
-  echo Unknown section "%SECTION%": choose all, sources, checks, cars, chains, legs, output or merge.
-  exit /b 1
-)
-
 REM First the checks of the settings alone (ChecksBeforeRunning/Report_Settings), so that a wrong setting stops the run with a
-REM message before the sources step; then the sources, the OSM network and the GTFS cache that every component reads; then
-REM the checks of the settings and the caches (ChecksBeforeRunning/Report) and the list of components.
+REM message before the sources step; then the source caches that are missing, which every component reads; then the checks of
+REM the settings and the caches (ChecksBeforeRunning/Report) and the list of components.
 call :checkstep checks_settings checks_settings.txt /ChecksBeforeRunning/Report_Settings
 if not "!RC!"=="0" goto failed
 if /I "%SECTION%"=="sources" goto sources
-if /I "%SECTION%"=="all" if not "%SKIP_SOURCES%"=="1" goto sources
+if /I "%SECTION%"=="all" goto sources
 goto checks
 :sources
-call :say "=== sources: OSM network cache ==="
-call :run osm_network /SourceData/Infrastructure/OSM/Make_Final_Network
-if not "!RC!"=="0" goto failed
-call :say "=== sources: GTFS cache of the feed of the analysis moment ==="
-call :run gtfs /SourceData/Infrastructure/GTFS/LoadFeeds/Write
+call :sources_step
 if not "!RC!"=="0" goto failed
 if /I "%SECTION%"=="sources" goto done
 
@@ -154,12 +188,6 @@ if /I "%SECTION%"=="sources" goto done
 call :checkstep checks checks.txt /ChecksBeforeRunning/Report /ChecksBeforeRunning/Components
 if not "!RC!"=="0" goto failed
 if /I "%SECTION%"=="checks" goto done
-set NCOMP=0
-set NPT=0
-for /f "usebackq tokens=1-2 delims=;" %%A in ("%LOGDIR%\components.txt") do (
-  set /a NCOMP+=1
-  if "%%B"=="1" set /a NPT+=1
-)
 if defined ONLY (
   findstr /B /I /C:"%ONLY%;" "%LOGDIR%\components.txt" >nul
   if errorlevel 1 (
@@ -182,10 +210,18 @@ if /I "%SECTION%"=="chains" (
 REM The steps: the components of the variant one after the other, and with section all, before the first public transport
 REM component, the chain cache that they share; components.txt has per line the name, whether the component uses public
 REM transport (the chain cache and legs) and whether it uses the car caches, and as the last line Merged when Merge is on.
+REM NSTEP counts the steps that the section takes, for the numbering on the console.
+set NSTEP=0
 set CHAINSTEP=
-if /I "%SECTION%"=="all" if not "%SKIP_CHAINS%"=="1" if not "%NPT%"=="0" set CHAINSTEP=1
-set NSTEP=%NCOMP%
+for /f "usebackq tokens=1-3 delims=;" %%A in ("%LOGDIR%\components.txt") do call :count_step %%A %%B %%C
 if defined CHAINSTEP set /a NSTEP+=1
+if "%NSTEP%"=="0" (
+  if /I "%SECTION%"=="cars" if defined ONLY call :say "--- cars: %ONLY% uses no car caches ---"
+  if /I "%SECTION%"=="cars" if not defined ONLY call :say "--- cars: the variant has no direct car trip, no car caches ---"
+  if /I "%SECTION%"=="legs" if defined ONLY call :say "--- legs: %ONLY% uses no public transport, no pre- and post-transport caches ---"
+  if /I "%SECTION%"=="legs" if not defined ONLY call :say "--- legs: the variant has no public transport component, no pre- and post-transport caches ---"
+  goto done
+)
 set ISTEP=0
 for /f "usebackq tokens=1-3 delims=;" %%A in ("%LOGDIR%\components.txt") do (
   if "%%B"=="1" if defined CHAINSTEP (
@@ -195,11 +231,73 @@ for /f "usebackq tokens=1-3 delims=;" %%A in ("%LOGDIR%\components.txt") do (
     call :chains_shared
     if not "!RC!"=="0" goto failed
   )
-  set /a ISTEP+=1
   call :component %%A %%B %%C
   if not "!RC!"=="0" goto failed
 )
 goto done
+
+REM ---------------------------------------------------------------------------------------------
+:usage
+call :usage_text
+exit /b 1
+:usage_ok
+call :usage_text
+exit /b 0
+:usage_text
+echo Usage: UpdateAll.cmd [^<section^> [-component ^<name^>]]
+echo   all                everything that is missing, then the merge; also without arguments
+echo   sources            the OSM network cache and the GTFS cache, when they are missing
+echo   checks             the checks of the settings and the caches, and the list of components
+echo   cars [moment ...]  the car caches of the moments the model reads, or of the moments named
+echo   chains             the public transport chain cache
+echo   legs               the pre- and post-transport caches
+echo   -component ^<name^>  with all, cars, chains or legs: only that component of the variant
+echo See the header of batch\UpdateAll.cmd and the wiki page How to run the model.
+exit /b 0
+
+REM ---------------------------------------------------------------------------------------------
+:count_step
+REM %1 = component, %2 = 1 when it uses public transport, %3 = 1 when it uses the car caches. Counts the component in NSTEP when
+REM the section calculates it, and with section all sets CHAINSTEP for a public transport component.
+if defined ONLY if /I not "%~1"=="%ONLY%" exit /b 0
+if /I "%SECTION%"=="cars" if not "%~3"=="1" exit /b 0
+if /I "%SECTION%"=="legs" if not "%~2"=="1" exit /b 0
+set /a NSTEP+=1
+if /I "%SECTION%"=="all" if "%~2"=="1" set CHAINSTEP=1
+exit /b 0
+
+REM ---------------------------------------------------------------------------------------------
+:sources_step
+REM The OSM network cache and the GTFS cache, each only when it is missing. Their names hold what they depend on (OSM/Signature,
+REM the feed date), and their state follows from the dictionary of the mmd, which GeoDMS writes last, so a cache whose writing
+REM was interrupted is made again.
+set RC=0
+for %%F in (osm_cache.txt gtfs_cache.txt) do if exist "%LOGDIR%\%%F" del "%LOGDIR%\%%F"
+call :run sources_state /SourceData/Infrastructure/OSM/ForBatch/CacheState /SourceData/Infrastructure/GTFS/LoadFeeds/ForBatch/CacheState
+if not "!RC!"=="0" exit /b !RC!
+call :source_cache osm osm_network "OSM network cache" /SourceData/Infrastructure/OSM/Make_Final_Network
+if not "!RC!"=="0" exit /b !RC!
+call :source_cache gtfs gtfs "GTFS cache of the feed of the analysis moment" /SourceData/Infrastructure/GTFS/LoadFeeds/Write
+exit /b !RC!
+
+:source_cache
+REM %1 = the state in batch\log\<%1>_cache.txt, %2 = step name, %3 = the cache, %4 = its writer.
+set RC=0
+set SRCSTATE=
+if exist "%LOGDIR%\%~1_cache.txt" set /p SRCSTATE=<"%LOGDIR%\%~1_cache.txt"
+if not defined SRCSTATE (
+  call :say "ABORT: no state of the %~3 in %LOGDIR%\%~1_cache.txt"
+  set STEP=sources_state
+  set RC=1
+  exit /b 1
+)
+if /I "%SRCSTATE%"=="written" (
+  call :say "--- sources: the %~3 exists, skipped ---"
+  exit /b 0
+)
+call :say "=== sources: %~3 ==="
+call :run %~2 %~4
+exit /b !RC!
 
 REM ---------------------------------------------------------------------------------------------
 :checkstep
@@ -234,19 +332,19 @@ REM ----------------------------------------------------------------------------
 REM %1 = component, %2 = 1 when it uses public transport, %3 = 1 when it uses the car caches. RC holds the exit code.
 set RC=0
 if defined ONLY if /I not "%~1"=="%ONLY%" exit /b 0
+if /I "%SECTION%"=="cars" if not "%~3"=="1" exit /b 0
+if /I "%SECTION%"=="legs" if not "%~2"=="1" exit /b 0
+set /a ISTEP+=1
 set "COMP=%~1"
 set "CTAG=_%~1"
 set "GEODMS_Overridable_RunComponent=%~1"
 call :say "=== step %ISTEP% of %NSTEP%: %~1 ==="
 if /I "%~1"=="Merged" (
-  if /I "%SECTION%"=="all" if not "%SKIP_OUTPUT%"=="1" call :output_comp
-  if /I "%SECTION%"=="output" call :output_comp
-  if /I "%SECTION%"=="merge" call :output_comp
+  call :output_comp
   exit /b !RC!
 )
-if /I "%SECTION%"=="merge" exit /b 0
 REM With section all, a component whose output is complete skips its cache steps as well: they serve only its output.
-if /I "%SECTION%"=="all" if not "%SKIP_OUTPUT%"=="1" (
+if /I "%SECTION%"=="all" (
   call :output_state
   if not "!RC!"=="0" exit /b !RC!
   if /I "!OUTSTATE!"=="complete" (
@@ -254,18 +352,17 @@ if /I "%SECTION%"=="all" if not "%SKIP_OUTPUT%"=="1" (
     exit /b 0
   )
 )
-if "%~3"=="1" (
-  if /I "%SECTION%"=="cars" call :cars_comp
-  if /I "%SECTION%"=="all" if not "%SKIP_CARS%"=="1" call :cars_comp
+if "%~3"=="1" if /I not "%SECTION%"=="legs" (
+  call :cars_comp
   if not "!RC!"=="0" exit /b !RC!
 )
-if "%~2"=="1" (
-  if /I "%SECTION%"=="legs" call :legs_write
-  if /I "%SECTION%"=="all" if not "%SKIP_LEGS%"=="1" call :legs_write
+REM The legs before the output: every portion of the output reads the pre- and post-transport connections from their caches
+REM (ModelParameters/Advanced/PrePostTransportDecoupled), so the base sets without a cache are written first, once.
+if "%~2"=="1" if /I not "%SECTION%"=="cars" (
+  call :legs_write
   if not "!RC!"=="0" exit /b !RC!
 )
-if /I "%SECTION%"=="output" call :output_comp
-if /I "%SECTION%"=="all" if not "%SKIP_OUTPUT%"=="1" call :output_comp
+if /I "%SECTION%"=="all" call :output_comp
 exit /b !RC!
 
 :cars_comp
@@ -318,7 +415,7 @@ if not defined CHAINCOMP (
   exit /b 0
 )
 call :say "=== %STEPLABEL%chains, the cache that the public transport components share ==="
-if /I "%SECTION%"=="all" if not "%SKIP_OUTPUT%"=="1" (
+if /I "%SECTION%"=="all" (
   set CHAINCOMP=
   for /f "usebackq tokens=1-2 delims=;" %%A in ("%LOGDIR%\components.txt") do (
     call :chains_need %%A %%B
@@ -330,7 +427,8 @@ if /I "%SECTION%"=="all" if not "%SKIP_OUTPUT%"=="1" (
   set GEODMS_Overridable_RunComponent=
 )
 if not defined CHAINCOMP (
-  call :say "--- chains: the output of every public transport component is complete, the chain cache is skipped ---"
+  if defined ONLY call :say "--- chains: the output of %ONLY% is complete, the chain cache is skipped ---"
+  if not defined ONLY call :say "--- chains: the output of every public transport component is complete, the chain cache is skipped ---"
   exit /b 0
 )
 call :say "--- chains: with the settings of %CHAINCOMP% ---"
@@ -373,11 +471,6 @@ if errorlevel 1 (
   set RC=1
   exit /b 1
 )
-if defined CHAINCACHE_SINGLE (
-  call :say "--- chains: ChainGeneration_Single/Write, one cache for all blocks (CHAINCACHE_SINGLE; also set PT_Chains_PerBlock to FALSE) ---"
-  call :run chains %PREP%/ChainGeneration_Single/Write
-  exit /b !RC!
-)
 call :say "--- chains: the stop blocks that the chain cache with the current signature misses, in portions (WriteChainBlocks.ps1) ---"
 set STEP=chains
 powershell -NoProfile -ExecutionPolicy Bypass -File "%BATCHDIR%WriteChainBlocks.ps1" -Exe "%EXE%" -Cfg "%CFG%" -LogDir "%LOGDIR%" -Status "%STATUS%"
@@ -414,15 +507,6 @@ set "OUTSTATE_OF=%COMP%"
 exit /b 0
 
 :output_comp
-REM Pause before the output step: as long as batch\pause_before_output.flag exists, the output step waits without a
-REM calculation process, for example to free the machine for performance tests; removing the flag lets it start.
-set "PAUSEFLAG=%BATCHDIR%pause_before_output.flag"
-if exist "%PAUSEFLAG%" call :say "pause before the output step: waiting until %PAUSEFLAG% is gone"
-:output_wait
-if exist "%PAUSEFLAG%" (
-  ping -n 61 127.0.0.1 >nul
-  goto output_wait
-)
 REM The state of the output, unless the component step determined it already.
 if /I not "!OUTSTATE_OF!"=="%COMP%" (
   call :output_state
@@ -432,21 +516,16 @@ if /I "!OUTSTATE!"=="complete" (
   call :say "--- output of %COMP% is complete in !OUTDIR!, skipped ---"
   exit /b 0
 )
-REM Every portion reads the pre- and post-transport connections from their caches (ModelParameters/Advanced/PrePostTransportDecoupled),
-REM so the base sets without a cache are written first, once; with section all the legs step has done that already.
-if /I "%SECTION%"=="output" if not "%SKIP_LEGS%"=="1" if /I not "%COMP%"=="Merged" (
-  call :legs_write
-  if not "!RC!"=="0" exit /b !RC!
-)
 REM Empty the output folder (NetworkModel_PBL#118): the file names carry only the moment and the block, and the parameters
 REM are in signature.txt in the folder, so without emptying a run after a code change would put its blocks next to those
 REM of the previous run. Only the files the model writes there are removed, and only if the folder lies under a folder
 REM Output. Does the path contain \Output\, or \Output_ of an OD pair (Output_<O>_<D>, #129)? Replacing it by nothing then
-REM makes the string shorter; cmd replaces case-insensitively. Each matching file is removed on its own, because del with several
-REM patterns removes nothing as soon as one of them matches no file.
+REM makes the string shorter; cmd replaces case-insensitively. An empty OUTDIR is refused first: the replacement in an undefined
+REM variable yields the text of the replacement itself, and "\" would be the root of the drive. Each matching file is removed on
+REM its own, because del with several patterns removes nothing as soon as one of them matches no file.
 set OUTOK=
-if not "!OUTDIR:\Output\=!"=="!OUTDIR!" set OUTOK=1
-if not "!OUTDIR:\Output_=!"=="!OUTDIR!" set OUTOK=1
+if defined OUTDIR if not "!OUTDIR:\Output\=!"=="!OUTDIR!" set OUTOK=1
+if defined OUTDIR if not "!OUTDIR:\Output_=!"=="!OUTDIR!" set OUTOK=1
 if not defined OUTOK (
   call :say "ABORT: the output folder !OUTDIR! is not under a folder Output or Output_O_D of an OD pair"
   set STEP=output_dir
@@ -466,13 +545,7 @@ if exist "!OUTDIR!\" (
 REM The output runs in portions of origin blocks, each in its own GeoDmsRun, followed by the counts with OdTellingen.py
 REM (WriteOutputBlocks.ps1). Blocks per portion: Classifications/Components/BlocksPerPortion of the component,
 REM or the environment variable OUTPUT_BATCHSIZE; OUTPUT_MAXBLOCKS calculates at most that many blocks (for testing).
-REM The environment variable OUTPUT_SINGLE runs one request for all blocks, with the counts included
-REM (NetworkSetup/GenerateOutput/Generate_Output). The merge (Merged) also runs per block in portions (ComponentMerge/PerBlock).
-if defined OUTPUT_SINGLE (
-  call :say "--- output of %COMP%: a file per origin block and departure moment, one request (OUTPUT_SINGLE) ---"
-  call :run output /NetworkSetup/GenerateOutput/Generate_Output
-  exit /b !RC!
-)
+REM The merge (Merged) also runs per block in portions (ComponentMerge/PerBlock).
 call :say "--- output of %COMP%: a file per origin block and departure moment, in portions (WriteOutputBlocks.ps1) ---"
 set STEP=output
 set "OUTBS="
@@ -517,9 +590,12 @@ if not "%RC%"=="0" powershell -NoProfile -ExecutionPolicy Bypass -File "%BATCHDI
 exit /b %RC%
 
 :failed
-call :say "%WHAT% FAILED at step %STEP% of %COMP% (exit %RC%)"
+if defined COMP call :say "%WHAT% FAILED at step %STEP% of %COMP% (exit %RC%)"
+if not defined COMP call :say "%WHAT% FAILED at step %STEP% (exit %RC%)"
+if defined PAUSE_END pause
 exit /b 1
 
 :done
 call :say "%WHAT% done"
+if defined PAUSE_END pause
 exit /b 0

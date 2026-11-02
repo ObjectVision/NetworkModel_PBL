@@ -10,7 +10,7 @@
 # For the merge (component Merged) the list names the merging per block (ComponentMerge/PerBlock). If the list is empty, the
 # script runs one request of NetworkSetup/GenerateOutput/Generate_Output.
 #
-# Call (by UpdateAll.cmd output): WriteOutputBlocks.ps1 -Exe <GeoDmsRun.exe> -Cfg <cfg\main.dms> -LogDir <batch\log> -OutDir <output folder>
+# Call (by the output step of UpdateAll.cmd): WriteOutputBlocks.ps1 -Exe <GeoDmsRun.exe> -Cfg <cfg\main.dms> -LogDir <batch\log> -OutDir <output folder>
 #   -Tag        appended to the names of the log and console files, _<component> (UpdateAll.cmd sets it)
 #   -Status     a file to which every progress line is appended as well (UpdateAll.cmd: batch\log\UpdateAll_status.txt)
 #   -BatchSize  blocks per GeoDmsRun; without this parameter that of the component, Classifications/Components/

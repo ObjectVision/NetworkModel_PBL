@@ -1,7 +1,7 @@
 # WriteODResults.ps1 (#129): the routes of one OD pair, for every component of the variant and merged.
 #
 # Makes one run copy of HEAD (with git archive) with OD_Origin, OD_Destination and OD_DepartureTime and the variant (ModelParameters,
-# group 2, #117), and calculates it with batch\UpdateAll.cmd all -nosources of the copy: per component the legs of pre- and
+# group 2, #117), and calculates it with batch\UpdateAll.cmd all of the copy: per component the legs of pre- and
 # post-transport with their links and the chains of the pair with their legs (once, at the first public transport component), the car
 # cache of the departure moment (Car) and the output, PerBlock/tt_<moment>_1of1.parquet and PerBlock/od_<moment>.gpkg with options,
 # parts and links; then the merge. Intermediate results go to %LocalDataProjDir%\IntermediateResults_<O>_<D>, output to
@@ -12,8 +12,7 @@
 # The variant is that of cfg\main\ModelParameters.dms of the working copy; -Components 'WW,W_PT_W,C_PT_OVf_C' sets it instead, from
 # the direct trips and the pre- and post-transport types in the names (every pre-transport type with every post-transport type).
 # The engine must know pareto with LinkSet (ObjectVision/GeoDMS#1325) for the car routes: GeoDMS 20.26.0 or later.
-# -AlleenUitvoer skips the legs and the chains when their caches already exist (to repeat the output after a change to it).
-# Run long runs as a one-off scheduled task (see the wiki, How to run the model). -WaitForMemoryGB waits until that much
+# Every step skips a cache that exists, so after a change to the output only the output is calculated again. Run long runs as a one-off scheduled task (see the wiki, How to run the model). -WaitForMemoryGB waits until that much
 # memory is available before the run starts, so that the pair does not make other runs page; the chain step calculates all
 # public transport legs of the network (20 to 30 GB).
 param(
@@ -28,8 +27,7 @@ param(
 	[string]$Components = '',
 	[string]$Exe = 'C:\Program Files\ObjectVision\GeoDms20.28.0.m\GeoDmsRun.exe',
 	[string]$Root = 'C:\LocalData\NM_PBL_runs',
-	[int]$WaitForMemoryGB = 0,
-	[switch]$AlleenUitvoer
+	[int]$WaitForMemoryGB = 0
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
@@ -105,7 +103,7 @@ foreach ($n in $switches) { SetParam $mp $n $values[$n] }
 
 WaitForMemory
 $env:GEODMS_EXE = $Exe
-$args2 = if ($AlleenUitvoer) { 'output -nolegs' } else { 'all -nosources' }
+$args2 = 'all'
 $sw = [Diagnostics.Stopwatch]::StartNew()
 # The output of UpdateAll.cmd, stderr included, goes to a file in the log of the copy, so that a cmd message is not an error of this
 # script; UpdateAll.cmd writes its progress per step to batch\log\UpdateAll_status.txt of the copy.
