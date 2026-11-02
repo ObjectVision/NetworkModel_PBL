@@ -139,8 +139,16 @@ container Impl : using = "classifications"
 	}
 	parameter<Time>     PT_FirstDepartureMoment              := first(MeasureMoments/Moment), Descr = "Start of the public transport analysis window: the first departure moment, in seconds since 00:00 of Analysis_date.";
 	parameter<Time>     PT_LastArrivalMoment                 := last(MeasureMoments/Moment) + convert(ModelParameters/MaxPTTime, s_f)[Time] + uint32(NOT(Advanced/IncludeWaitingAtHomeInTravelTime)) * Advanced/MaxWaitingTimeAtOrigin, Descr = "End of the public transport analysis window: the last departure moment plus MaxPTTime and the waiting time at home; past 24:00 the window runs on into the next service day.";
-	parameter<min_f>    PT_Max_V_Time                        := max(PT_PreTransport_Types/MaxTime) + Cycling_StartTime + Advanced/Cycling_PreTransport_Penalty + Cycling_ParkingTime_IC_Station, Descr = "The longest pre-transport leg that can still be valid: the largest maximum time plus the start and parking times; it bounds the window of departures and the last boarding moment.";
-	parameter<Time>     PT_LastBoardingMoment                := last(MeasureMoments/Moment) + convert(PT_Max_V_Time, s_f)[Time] + Advanced/MaxWaitingTimeAtOrigin, Descr = "The last boarding moment at which a chain can still be used: the last departure moment plus the longest pre-transport and the waiting time at home; the chain step starts no later chains.";
+	parameter<min_f>    PT_Max_V_Time                        := max(PT_PreTransport_Types/MaxTime) + Cycling_StartTime + Advanced/Cycling_PreTransport_Penalty + Cycling_ParkingTime_IC_Station, Descr = "The longest pre-transport leg of the component of this run that can still be valid: the maximum time of its pre-transport type plus the start and parking times; it bounds the window of departures per departure moment (PerDepartureMoment_T).";
+	// The public transport components of the variant share one chain cache, which batch/UpdateAll.cmd makes once, so the window of the chains
+	// follows the longest pre-transport over the variant, not only that of the component of this run.
+	unit<uint8>         Variant_PT_Components                := select_with_attr_by_cond(VariantComponents, VariantComponents/WithPT)
+	, Descr = "The public transport components of the variant, which share the chain cache."
+	{
+		attribute<min_f> PreTransport_MaxTime := TimeInvariantTypes/MaxTime[rlookup(PreTransport, TimeInvariantTypes/name)], Descr = "The maximum time of the pre-transport type of the component.";
+	}
+	parameter<min_f>    PT_Chains_Max_V_Time                 := max_elem(MakeDefined(max(Variant_PT_Components/PreTransport_MaxTime), 0[min_f]), max(PT_PreTransport_Types/MaxTime)) + Cycling_StartTime + Advanced/Cycling_PreTransport_Penalty + Cycling_ParkingTime_IC_Station, Descr = "The longest pre-transport leg that can still be valid in a public transport component of the variant, or in the component of this run when that is not in the variant; it sets the last boarding moment of the chain cache, which these components share.";
+	parameter<Time>     PT_LastBoardingMoment                := last(MeasureMoments/Moment) + convert(PT_Chains_Max_V_Time, s_f)[Time] + Advanced/MaxWaitingTimeAtOrigin, Descr = "The last boarding moment at which a chain can still be used: the last departure moment plus the longest pre-transport of the variant (PT_Chains_Max_V_Time) and the waiting time at home; the chain step starts no later chains.";
 	parameter<Time>     PrevServiceDayTailEnd                := 21600[Time], Descr = "The trips of the service day before Analysis_date that run past midnight leave almost all before 06:00; a window starting earlier needs that day complete in the feed.";
 
 	// 5. REVISIONS: raised by hand with every code change that changes a cache, so that the model no longer reads the old cache.
@@ -178,7 +186,7 @@ container Impl : using = "classifications"
 			+ (PriceExportsAndIntegrityChecksNeeded ? '' : '-noprice')
 			+ '_ov' + string(round(Advanced/MaxTransferDist)) + '-' + string(round(Advanced/TransferEffectiveSpeed * 3600f)) + '-' + string(round(Transfer_Walking_Time_Costs * 100f)) + '-' + string(round(Transfer_Waiting_Time_Costs * 100f)) + '-' + string(round(Advanced/GradeSeparatedTransferPenalty)) + '-' + string(round(Advanced/MaxTransferTimeForBoardingSurcharge))
 			+ '_h' + string(round(Advanced/DistanceStopClusters)) + '-' + string(round(Advanced/DistanceTrainStationsSelection))
-			+ '_v' + string(round(PT_Max_V_Time))
+			+ '_v' + string(round(PT_Chains_Max_V_Time))
 			+ (Advanced/IFF_TransferTime ? '_iff' + IFF_file_date : '')
 		, Descr = "Part of the chain cache signature with the parameters the chains depend on that the rest of the signature does not name, such as the fare method and the transfer settings.";
 	parameter<string>   PT_CombinationType                   := 'V-' + (WithPT ? asList(PT_PreTransport_Types/ExportName, ',') + '_N-' + asList(PT_PostTransport_Types/ExportName, ',') : Direct_str), Descr = "The pre- and post-transport type of a public transport component (V-W_N-OVf_C), or the direct mode of a direct component (V-WW), as they appear in the output signature.";

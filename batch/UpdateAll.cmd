@@ -49,7 +49,8 @@ REM   UpdateAll.cmd chains          the public transport chain cache per stop bl
 REM                                 ModelParameters/Advanced/PT_Chains_PerBlock FALSE the one cache of
 REM                                 PublicTransport_Prep/ChainGeneration_Single/Write), after the pre-check of the stop
 REM                                 blocks and the price coverage; takes hours and much memory. The chain cache does not
-REM                                 depend on the pre- and post-transport, so the public transport components share it:
+REM                                 depend on the component, because its window follows the longest pre-transport of the
+REM                                 variant (Impl/PT_Chains_Max_V_Time), so the public transport components share it:
 REM                                 it is a step of its own before the first public transport component, with the
 REM                                 settings of the first public transport component whose output is not complete, and with
 REM                                 section all it is skipped when the output of every public transport component is
