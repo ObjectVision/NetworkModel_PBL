@@ -10,8 +10,8 @@
 // DISTANCE over the OSM walking network (including ferries), so that barriers have a realistic effect.
 //
 // - Origins: all 100 m cell centres in the Netherlands (perGridsize/size_100m/points).
-// - Destinations: 100 m cells with at least one facility object, from the BAG snapshots <year>0101_RS in SnapshotBaseDir, which unlike
-//   the stripped copies under RegioIndelingen/BAG also hold pand.fss with the construction year, for all years 2012 to 2025.
+// - Destinations: 100 m cells with at least one facility object, from the BAG of 1 January of the year (SourceData/BAG_T), for all years
+//   2012 to 2025.
 // - Weight per OD pair: 1 within the own cell (up to 100 m), beyond that (100 m / network distance)^4, cut off at CutoffRadius. At 1500 m
 //   the weight is (0.1/1.5)^4 = 2e-5; what lies farther away no longer contributes, hence the cut-off.
 // - The walking network follows ModelParameters/AnalysisMoment (OSM vintage). There is deliberately ONE network for all BAG years, so
@@ -28,10 +28,8 @@ container UAI
 	parameter<km>      CellSize           := 0.1[km] , Descr = "Within this distance the weight is 1, as in the AbsWeight kernel of RSopen, where the own cell and the cells at a distance of one cell have weight 1.";
 	parameter<float32> DecayPower         := 4f      , Descr = "Exponent of the distance decay: AbsWeight in RSopen is 1/distMatr^2 with distMatr the squared cell distance, so the weight is d^-4.";
 
-	parameter<string>  SnapshotBaseDir    := '%BAG_DataDir%/BAG/snapshots.ext', Descr = "Folder of the BAG snapshots of the RuimteScanner (vbo.fss, pand.fss and adres.fss), one per quarter.", Source = "BAG snapshots prepared for the RuimteScanner, one per quarter, 2012 to 2025.";
-
 	unit<uint32> Years : nrofrows = 14
-	, Descr = "The years with a 1 January snapshot including pand.fss in SnapshotBaseDir."
+	, Descr = "The years of the UAI, each with the BAG of 1 January."
 	{
 		attribute<uint32> year := id(.) + 2012;
 		attribute<string> name := 'Y'+string(year);
@@ -46,77 +44,41 @@ container UAI
 	{
 		parameter<string> year;
 		///
-		parameter<string> SnapshotDir                      := SnapshotBaseDir+'/'+year+'0101_RS', Descr = "The snapshot of 1 January of the year.";
-		parameter<string> ConstructionYear_truncation_expr := 'bouwjaar <= 1000w || bouwjaar > @YYYY@[yr] ? (0/0)[uint16] : bouwjaar < 1500w ? 1500w : bouwjaar';
+		parameter<string> BAG_date    := year + '0101', Descr = "1 January of the year, the date of the BAG.";
 
-		unit<spoint>      grid                             := Geography/rdc_100m;
+		unit<spoint>      grid        := Geography/rdc_100m;
 
-		container BAG
-		: Descr = "Reads the BAG parts needed for the year directly from the RuimteScanner snapshot, with the same schema as SourceData/Vastgoed/BAG in RSopen."
+		container         BAG         := /SourceData/BAG_T(BAG_date), Descr = "The BAG on 1 January of the year (#142).";
+
+		container Objects
+		: Descr = "The facility objects of the year: the vbo's in the stock with a retail function or an assembly or lodging function, and the monumental buildings."
 		{
-			unit<uint32> vbo_import
-			:	StorageName     = "= SnapshotDir+'/vbo.fss'"
-			,	StorageReadOnly = "True"
+			unit<uint32> vbo := BAG/VBOs/src
 			{
-				attribute<rdc_mm> geometry_mm;
-				attribute<string> pand_id;
-				attribute<string> status;
-
-				container         gebruiksdoelen := for_each_ndv(Classifications/vbo_gebruiksdoel/name, vbo_import, bool);
+				attribute<bool>            IsRetail          := BAG/VBOs/src/VBO_selection && BAG/VBOs/src/gebruiksdoelen/winkel;
+				attribute<bool>            IsAssemblyLodging := BAG/VBOs/src/VBO_selection && (BAG/VBOs/src/gebruiksdoelen/bijeenkomst || BAG/VBOs/src/gebruiksdoelen/logies);
+				attribute<BAG/Panden/pand> pand_rel_InStock  := BAG/VBOs/src/VBO_selection ? BAG/VBOs/src/pand_rel : (0/0)[BAG/Panden/pand];
+				attribute<rdc_100m>        rdc_100m_rel      := BAG/VBOs/src/geometry[rdc_100m];
 			}
 
-			unit<uint32> pand_import
-			:	StorageName     = "= SnapshotDir+'/pand.fss'"
-			,	StorageReadOnly = "True"
+			unit<uint32> pand := BAG/Panden/pand, Descr = "The buildings in the stock (SourceData/BAG_T, Pand_selection_condition)."
 			{
-				attribute<rdc_mm> geometry_mm (polygon);
-				attribute<string> identificatie;
-				attribute<int16>  bouwjaar;
-				attribute<string> status;
-			}
-
-			unit<uint32> vbo := vbo_import
-			{
-				attribute<rdc>         geometry          := vbo_import/geometry_mm[rdc];
-				attribute<vbo_status>  status_rel        := rlookup(vbo_import/status, vbo_status/label);
-				attribute<bool>        InStock           := status_rel == vbo_status/V/Verblijfsobject_in_gebruik
-				                                            || status_rel == vbo_status/V/Verblijfsobject_in_gebruik_niet_ingemeten
-				                                            || status_rel == vbo_status/V/Verblijfsobject_buiten_gebruik
-				                                            || status_rel == vbo_status/V/Verbouwing_verblijfsobject, Descr = "Is the vbo in the stock? The same status selection as VBO_selection in SourceData/BAG.";
-
-				attribute<bool>        IsRetail          := InStock && vbo_import/gebruiksdoelen/winkel;
-				attribute<bool>        IsAssemblyLodging := InStock && (vbo_import/gebruiksdoelen/bijeenkomst || vbo_import/gebruiksdoelen/logies);
-
-				attribute<pand_import> pand_rel          := rlookup(vbo_import/pand_id, pand_import/identificatie);
-				attribute<pand_import> pand_rel_InStock  := InStock ? pand_rel : (0/0)[pand_import];
-
-				attribute<rdc_100m>    rdc_100m_rel      := geometry[rdc_100m];
-			}
-
-			unit<uint32> pand := pand_import
-			{
-				attribute<pand_status> status_rel   := rlookup(pand_import/status, pand_status/label);
-				attribute<bool>        InStock      := status_rel == pand_status/V/Pand_in_gebruik
-				                                       || status_rel == pand_status/V/Pand_in_gebruik_niet_ingemeten
-				                                       || status_rel == pand_status/V/Pand_buiten_gebruik
-				                                       || status_rel == pand_status/V/Verbouwing_pand;
-
-				attribute<uint32>      nr_vbo       := pcount(vbo/pand_rel_InStock), Descr = "Number of vbo's in stock in the building, as pand/met_vbo in RSopen.";
-				attribute<bool>        IsMonumental := InStock && nr_vbo > 0
-				                                       && pand_import/bouwjaar >= 1000s && pand_import/bouwjaar <= 1900s
+				attribute<int16>           bouwjaar     := /SourceData/BAG_History/pand/oorspronkelijkBouwjaar[BAG/Panden/pand/store_rel];
+				attribute<uint32>          nr_vbo       := pcount(vbo/pand_rel_InStock), Descr = "Number of vbo's in stock in the building, as pand/met_vbo in RSopen.";
+				attribute<bool>            IsMonumental := nr_vbo > 0 && bouwjaar >= 1000s && bouwjaar <= 1900s
 				, Descr = "A monumental building is a building in stock with a vbo and a construction year up to 1900, as Monumentaal_Per_AllocDomain in RSopen (SourceData/Vastgoed/BAG.dms).";
 
-				attribute<rdc>         centroid     := centroid_or_mid(pand_import/geometry_mm[rdc]);
-				attribute<rdc_100m>    rdc_100m_rel := centroid[rdc_100m];
+				attribute<rdc>             centroid     := centroid_or_mid(/SourceData/BAG_History/pand/geometry[BAG/Panden/pand/store_rel][rdc]);
+				attribute<rdc_100m>        rdc_100m_rel := centroid[rdc_100m];
 			}
 		}
 
 		container Counts
 		: Descr = "Number of facility objects per 100 m cell, per UAI component."
 		{
-			attribute<float32> Retail          (rdc_100m) := sum(float32(BAG/vbo/IsRetail),       BAG/vbo/rdc_100m_rel);
-			attribute<float32> AssemblyLodging (rdc_100m) := sum(float32(BAG/vbo/IsAssemblyLodging),  BAG/vbo/rdc_100m_rel);
-			attribute<float32> Monumental      (rdc_100m) := sum(float32(BAG/pand/IsMonumental),       BAG/pand/rdc_100m_rel);
+			attribute<float32> Retail          (rdc_100m) := sum(float32(Objects/vbo/IsRetail),          Objects/vbo/rdc_100m_rel);
+			attribute<float32> AssemblyLodging (rdc_100m) := sum(float32(Objects/vbo/IsAssemblyLodging), Objects/vbo/rdc_100m_rel);
+			attribute<float32> Monumental      (rdc_100m) := sum(float32(Objects/pand/IsMonumental),     Objects/pand/rdc_100m_rel);
 		}
 
 		unit<uint32> FacilityCells := select_with_org_rel(Counts/Retail > 0f || Counts/AssemblyLodging > 0f || Counts/Monumental > 0f)
@@ -131,8 +93,8 @@ container UAI
 		container Diagnostics
 		: Descr = "Sanity checks per year that need no network or route search, so they are cheap to calculate."
 		{
-			parameter<uint32>  Nr_vbo                        := #BAG/vbo;
-			parameter<uint32>  Nr_pand                       := #BAG/pand;
+			parameter<uint32>  Nr_vbo                        := #BAG/VBOs/src;
+			parameter<uint32>  Nr_pand                       := #BAG/Panden/src;
 			parameter<float32> Nr_Detailhandel_objecten      := sum(Counts/Retail);
 			parameter<float32> Nr_BijeenkomstLogies_objecten := sum(Counts/AssemblyLodging);
 			parameter<float32> Nr_Monumentaal_panden         := sum(Counts/Monumental);
@@ -153,17 +115,17 @@ container UAI
 			}
 		}
 
-		unit<uint32>      Origins                          := Geography/perGridsize/size_100m/points
+		unit<uint32>      Origins     := Geography/perGridsize/size_100m/points
 		, Descr = "All 100 m cell centres in the Netherlands, including cells without buildings, because RSopen needs a UAI value in every AllocDomain cell.";
 
-		container         WalkNetwork                      := Templates/CreateNetwork_Efficient_T(Origins, FacilityCells, SourceData/Infrastructure/OSM/Network_Walking, 'Walking', FALSE)
+		container         WalkNetwork := Templates/CreateNetwork_Efficient_T(Origins, FacilityCells, SourceData/Infrastructure/OSM/Network_Walking, 'Walking', FALSE)
 		, Descr = "The OSM walking network, with ferries and without motorways, with the origins and the facility cells connected to it.";
 
 		unit<uint32> LinkSet := WalkNetwork/CreateMoreEfficientNetwork/FinalLinkSet
 		{
 			attribute<km> WalkLength := LinkSet/Distance_per_ImpedanceType/max_walking;
 		}
-		unit<uint32>      NodeSet                          := WalkNetwork/CreateMoreEfficientNetwork/FinalNodeSet;
+		unit<uint32>      NodeSet     := WalkNetwork/CreateMoreEfficientNetwork/FinalNodeSet;
 
 		unit<uint64> OD :=
 			impedance_matrix_od64('bidirectional;startPoint(Node_rel);endPoint(Node_rel);cut(OrgZone_max_imp);od:impedance,OrgZone_rel,DstZone_rel'
