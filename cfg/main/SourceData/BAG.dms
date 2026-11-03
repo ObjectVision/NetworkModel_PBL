@@ -1,77 +1,64 @@
-container BAG_History
-:	Descr  = "The BAG with all voorkomens of the verblijfsobjecten (vbo's), panden and nummeraanduidingen, one store per object type as Xml2MMD of BAG-Tools writes it; BAG_T selects from it the state on a date (#142)."
-,	Source = "Kadaster, BAG 2.0 extract of ModelParameters/BAG_file_date, converted with Xml2MMD of ObjectVision/BAG-Tools."
-{
-	parameter<string>      Dir                           := '%NetworkModel_Dir%/RegioIndelingen/BAG/BAG_' + ModelParameters/BAG_file_date + '_History', Descr = "The folder of the stores, under the name that BAG-Tools gives it.";
-
-	unit<uint32>           vbo                           : StorageName = "=Dir + '/vbo.mmd'"             , StorageReadOnly = "True";
-	unit<uint32>           pand                          : StorageName = "=Dir + '/pand.mmd'"            , StorageReadOnly = "True";
-	unit<uint32>           nummeraanduiding              : StorageName = "=Dir + '/nummeraanduiding.mmd'", StorageReadOnly = "True";
-
-	attribute<vbo_status>  vbo_status_rel   (vbo/status) := rlookup(lowercase(vbo/status/Label), lowercase(vbo_status/label)), IntegrityCheck = "all(IsDefined(this) || vbo/status/Label == 'onbekend')", Descr = "The status codes of the vbo store as elements of Classifications/vbo_status, matched on their label; the code onbekend has none.";
-	attribute<pand_status> pand_status_rel (pand/status) := rlookup(lowercase(pand/status/Label), lowercase(pand_status/label)), IntegrityCheck = "all(IsDefined(this) || pand/status/Label == 'onbekend')", Descr = "The status codes of the pand store as elements of Classifications/pand_status, matched on their label; the code onbekend has none.";
-	attribute<uint64>      vbo_pand_id             (vbo) := vbo/gerelateerdPand/pand_id[rlookup(id(vbo), vbo/gerelateerdPand/vbo_rel)], Descr = "The first pand of a vbo voorkomen in the order of the BAG, so that a vbo in more than one pand counts once.";
-	attribute<int32>       pand_X_ext             (pand) := sub_or_null(PointCol(upper_bound(pand/geometry)), PointCol(lower_bound(pand/geometry))), Descr = "The width of the polygon of a pand voorkomen in mm; null for an empty polygon, which Xml2MMD writes for a coordinate that does not fit in millimetres.";
-	attribute<int32>       pand_Y_ext             (pand) := sub_or_null(PointRow(upper_bound(pand/geometry)), PointRow(lower_bound(pand/geometry))), Descr = "The height of the polygon of a pand voorkomen in mm; null for an empty polygon.";
-}
-
-Template Valid_T
-:	Descr = "The voorkomens of a BAG store that are valid on a date, one per object: begun on or before the date and not ended on or before it, and of an object with more than one such voorkomen the one with the highest voorkomenidentificatie, as MakeSnapshot of BAG-Tools chooses."
-{
-	unit<uint32>      Store;
-	parameter<int32>  Peildatum;
-	attribute<uint64> ObjectId    (Store);
-	attribute<uint32> VoorkomenId (Store);
-	attribute<int32>  BeginDate   (Store);
-	attribute<int32>  EndDate     (Store);
-	//
-
-	unit<uint32> Valid := select_with_org_rel(BeginDate <= Peildatum && (EndDate == 0i || EndDate > Peildatum)), Descr = "The voorkomens valid on Peildatum; an end date of 0 means not ended."
-	{
-		attribute<uint64>  object_id    := ObjectId[org_rel];
-		attribute<uint32>  voorkomen_id := VoorkomenId[org_rel];
-		attribute<Objects> object_rel   := rlookup(object_id, Objects/values);
-		attribute<bool>    IsChosen     := voorkomen_id == Objects/LastVoorkomenId[object_rel];
-	}
-
-	unit<uint32> Objects := unique(Valid/object_id)
-	{
-		attribute<uint32>  LastVoorkomenId := max(Valid/voorkomen_id, Valid/object_rel);
-	}
-
-	unit<uint32> Result := select_with_org_rel(Valid/IsChosen), Descr = "One voorkomen per object, with its row in the store (store_rel)."
-	{
-		attribute<Store>   store_rel := Valid/org_rel[org_rel];
-	}
-}
-
 Template BAG_T
-:	Descr = "The BAG on the date: the vbo's, panden and addresses valid on it, selected from BAG_History (#142)."
+:	Descr  = "The BAG on a date: the vbo's, panden and addresses valid on it, selected from the stores with all voorkomens that Xml2MMD of BAG-Tools makes of a delivery (#142)."
+,	Source = "Kadaster, BAG 2.0 extract of ModelParameters/BAG_file_date, converted with Xml2MMD of ObjectVision/BAG-Tools."
 {
 	parameter<string> date;
 	//
+	parameter<string> HistoryDir          := '%NetworkModel_Dir%/RegioIndelingen/BAG/BAG_' + ModelParameters/BAG_file_date + '_History', Descr = "Folder with the stores of the vbo's, panden and nummeraanduidingen (vbo.mmd, pand.mmd, nummeraanduiding.mmd), one row per voorkomen, under the name that BAG-Tools gives it.";
 	parameter<int32>  Peildatum           := int32(date), Descr = "The date as yyyymmdd.";
 	unit<uint32>      RegionUnit_Wijk     := /SourceData/RegioIndelingen/Wijk;
 	unit<uint32>      RegionUnit_Gemeente := /SourceData/RegioIndelingen/Gemeente;
 
+	Template Valid_T
+	:	Descr = "The voorkomens of a BAG store that are valid on a date, one per object: begun on or before the date and not ended on or before it, and of an object with more than one such voorkomen the one with the highest voorkomenidentificatie, as MakeSnapshot of BAG-Tools chooses."
+	{
+		unit<uint32>      Store;
+		parameter<int32>  Peildatum;
+		attribute<uint64> ObjectId    (Store);
+		attribute<uint32> VoorkomenId (Store);
+		attribute<int32>  BeginDate   (Store);
+		attribute<int32>  EndDate     (Store);
+		//
+
+		unit<uint32> Valid := select_with_org_rel(BeginDate <= Peildatum && (EndDate == 0i || EndDate > Peildatum)), Descr = "The voorkomens valid on Peildatum; an end date of 0 means not ended."
+		{
+			attribute<uint64>  object_id    := ObjectId[org_rel];
+			attribute<uint32>  voorkomen_id := VoorkomenId[org_rel];
+			attribute<Objects> object_rel   := rlookup(object_id, Objects/values);
+			attribute<bool>    IsChosen     := voorkomen_id == Objects/LastVoorkomenId[object_rel];
+		}
+
+		unit<uint32> Objects := unique(Valid/object_id)
+		{
+			attribute<uint32>  LastVoorkomenId := max(Valid/voorkomen_id, Valid/object_rel);
+		}
+
+		unit<uint32> Result := select_with_org_rel(Valid/IsChosen), Descr = "One voorkomen per object, with its row in the store (store_rel)."
+		{
+			attribute<Store>   store_rel := Valid/org_rel[org_rel];
+		}
+	}
+
 	container VBOs
 	{
-		container Valid            := Valid_T(BAG_History/vbo, Peildatum, BAG_History/vbo/identificatie, BAG_History/vbo/meta/VOORKOMENIDENTIFICATIE, BAG_History/vbo/meta/BEGINDATUM, BAG_History/vbo/meta/EINDDATUM);
+		unit<uint32>          import                         : StorageName = "=HistoryDir + '/vbo.mmd'", StorageReadOnly = "True", Descr = "All voorkomens of the vbo's, one row each.";
+		attribute<vbo_status> StatusCode_rel (import/status) := rlookup(lowercase(import/status/Label), lowercase(vbo_status/label)), IntegrityCheck = "all(IsDefined(this) || import/status/Label == 'onbekend')", Descr = "The status codes of the store as elements of Classifications/vbo_status, matched on their label; the code onbekend has none.";
+		container             Valid                          := Valid_T(import, Peildatum, import/identificatie, import/meta/VOORKOMENIDENTIFICATIE, import/meta/BEGINDATUM, import/meta/EINDDATUM);
 
 		unit<uint32> src := Valid/Result
 		{
-			attribute<rdc_mm>      geometry_mm         := BAG_History/vbo/geometry[store_rel];
+			attribute<rdc_mm>      geometry_mm         := import/geometry[store_rel];
 			attribute<rdc>         geometry            := geometry_mm[rdc];
-			attribute<uint64>      identificatie       := BAG_History/vbo/identificatie[store_rel];
-			attribute<uint64>      nummeraanduiding_id := BAG_History/vbo/nummeraanduiding_id[store_rel];
-			attribute<vbo_status>  status_rel          := BAG_History/vbo_status_rel[BAG_History/vbo/meta/status_rel[store_rel]];
-			attribute<uint64>      pand_id             := BAG_History/vbo_pand_id[store_rel];
+			attribute<uint64>      identificatie       := import/identificatie[store_rel];
+			attribute<uint64>      nummeraanduiding_id := import/nummeraanduiding_id[store_rel];
+			attribute<vbo_status>  status_rel          := StatusCode_rel[import/meta/status_rel[store_rel]];
+			attribute<uint64>      pand_id             := import/gerelateerdPand/pand_id[rlookup(store_rel, import/gerelateerdPand/vbo_rel)], Descr = "The first pand of the vbo in the order of the BAG, so that a vbo in more than one pand counts once.";
 			attribute<panden/pand> pand_rel            := rlookup(pand_id, panden/pand/identificatie);
 
 			container              gebruiksdoelen      :=
 				for_each_nedv(
 					vbo_gebruiksdoel/name
-					, 'BAG_History/vbo/gebruiksdoelen/' + vbo_gebruiksdoel/name + '[store_rel]'
+					, 'import/gebruiksdoelen/' + vbo_gebruiksdoel/name + '[store_rel]'
 					, src
 					, bool
 				);
@@ -82,7 +69,7 @@ Template BAG_T
 			                                              || status_rel == Classifications/vbo_status/V/Verbouwing_verblijfsobject;
 		}
 
-		container GebruiksdoelSets :=
+		container             GebruiksdoelSets               :=
 			for_each_ne(
 				vbo_gebruiksdoel/name,
 				'MakeGebruiksdoelSets_T(' + quote(vbo_gebruiksdoel/name) +')'
@@ -106,14 +93,18 @@ Template BAG_T
 
 	container Panden
 	{
-		container Valid := Valid_T(BAG_History/pand, Peildatum, BAG_History/pand/identificatie, BAG_History/pand/meta/VOORKOMENIDENTIFICATIE, BAG_History/pand/meta/BEGINDATUM, BAG_History/pand/meta/EINDDATUM);
+		unit<uint32>           import                         : StorageName = "=HistoryDir + '/pand.mmd'", StorageReadOnly = "True", Descr = "All voorkomens of the panden, one row each.";
+		attribute<pand_status> StatusCode_rel (import/status) := rlookup(lowercase(import/status/Label), lowercase(pand_status/label)), IntegrityCheck = "all(IsDefined(this) || import/status/Label == 'onbekend')", Descr = "The status codes of the store as elements of Classifications/pand_status, matched on their label; the code onbekend has none.";
+		container              Valid                          := Valid_T(import, Peildatum, import/identificatie, import/meta/VOORKOMENIDENTIFICATIE, import/meta/BEGINDATUM, import/meta/EINDDATUM);
 
 		unit<uint32> src := Valid/Result
 		{
-			attribute<uint64>      identificatie            := BAG_History/pand/identificatie[store_rel];
-			attribute<pand_status> status_rel               := BAG_History/pand_status_rel[BAG_History/pand/meta/status_rel[store_rel]];
-			attribute<int32>       X_ext                    := BAG_History/pand_X_ext[store_rel];
-			attribute<int32>       Y_ext                    := BAG_History/pand_Y_ext[store_rel];
+			attribute<uint64>      identificatie            := import/identificatie[store_rel];
+			attribute<pand_status> status_rel               := StatusCode_rel[import/meta/status_rel[store_rel]];
+			attribute<rdc_mm>      NW                       := lower_bound(import/geometry)[store_rel];
+			attribute<rdc_mm>      SE                       := upper_bound(import/geometry)[store_rel];
+			attribute<int32>       X_ext                    := sub_or_null(PointCol(SE), PointCol(NW)), Descr = "The width of the polygon in mm; null for an empty polygon, which Xml2MMD writes for a coordinate that does not fit in millimetres.";
+			attribute<int32>       Y_ext                    := sub_or_null(PointRow(SE), PointRow(NW)), Descr = "The height of the polygon in mm; null for an empty polygon.";
 			attribute<bool>        Pand_selection_condition := X_ext < 1000000i && Y_ext < 1000000i
 			                                                   && (status_rel == pand_status/V/Pand_in_gebruik
 			                                                       || status_rel == pand_status/V/Pand_in_gebruik_niet_ingemeten
@@ -124,7 +115,7 @@ Template BAG_T
 
 		unit<uint32> pand := select_with_org_rel(src/Pand_selection_condition)
 		{
-			attribute<BAG_History/pand> store_rel := src/store_rel[org_rel];
+			attribute<import> store_rel                  := src/store_rel[org_rel];
 			attribute<uint64> identificatie              := src/identificatie[org_rel];
 			attribute<string> pand_id                    := right('0000000000000000' + string(identificatie), 16), Descr = "The identificatie as the BAG writes it, sixteen digits with leading zeros.";
 			unit<uint32>      vbo_residential_domain     := VBOs/GebruiksdoelSets/woon/GebruiksdoelSet;
@@ -132,7 +123,7 @@ Template BAG_T
 
 			unit<uint32> pand_residential_vbo := select_with_org_rel(pand/count_vbo_pand_residential > 0)
 			{
-				attribute<rdc_mm> geometry_mm      (polygon) := BAG_History/pand/geometry[org_rel -> store_rel];
+				attribute<rdc_mm> geometry_mm      (polygon) := import/geometry[org_rel -> store_rel];
 				attribute<rdc>    geometry                   := centroid_or_mid(geometry_mm[rdc]);
 
 				attribute<uint32> count_vbo_pand_residential := org_rel -> count_vbo_pand_residential;
@@ -166,25 +157,26 @@ Template BAG_T
 
 	container Adressen
 	{
-		container Valid := Valid_T(BAG_History/nummeraanduiding, Peildatum, BAG_History/nummeraanduiding/identificatie, BAG_History/nummeraanduiding/meta/VOORKOMENIDENTIFICATIE, BAG_History/nummeraanduiding/meta/BEGINDATUM, BAG_History/nummeraanduiding/meta/EINDDATUM);
+		unit<uint32> import : StorageName = "=HistoryDir + '/nummeraanduiding.mmd'", StorageReadOnly = "True", Descr = "All voorkomens of the nummeraanduidingen, one row each.";
+		container    Valid  := Valid_T(import, Peildatum, import/identificatie, import/meta/VOORKOMENIDENTIFICATIE, import/meta/BEGINDATUM, import/meta/EINDDATUM);
 
-		unit<uint32> nummeraanduiding := Valid/Result
+		unit<uint32> src := Valid/Result
 		{
-			attribute<uint64> identificatie := BAG_History/nummeraanduiding/identificatie[store_rel];
-			attribute<string> postcode      := BAG_History/nummeraanduiding/postcode[store_rel];
+			attribute<uint64> identificatie := import/identificatie[store_rel];
+			attribute<string> postcode      := import/postcode[store_rel];
 		}
 
 		unit<uint32> Residential_Stock := VBOs/GebruiksdoelSets/woon/GebruiksdoelSet, Descr = "The dwellings in the housing stock, the vbo's with a residential function in VBOs/src/VBO_selection, at their point and with the postcode of their main address, with their district and municipality; the neighbourhoods of a CBS year count them themselves (RegioIndelingen/Divisions)."
 		{
-			attribute<../nummeraanduiding> nummeraanduiding_rel := rlookup(nummeraanduiding_id, ../nummeraanduiding/identificatie);
-			attribute<string> postcode   := ../nummeraanduiding/postcode[nummeraanduiding_rel];
-			attribute<string> postcode4  := substr(postcode, 0, 4);
+			attribute<../src> nummeraanduiding_rel := rlookup(nummeraanduiding_id, ../src/identificatie);
+			attribute<string> postcode             := ../src/postcode[nummeraanduiding_rel];
+			attribute<string> postcode4            := substr(postcode, 0, 4);
 
 			attribute<RegionUnit_Wijk> wijk_rel := point_in_polygon(geometry,  RegionUnit_Wijk/geometry);
 			attribute<RegionUnit_Gemeente> gemeente_rel := point_in_polygon(geometry,  RegionUnit_Gemeente/geometry);
 
-			attribute<uint32> PC4_uq_rel := rlookup(postcode4, pc4_uq/values);
-			attribute<uint32> PC6_uq_rel := rlookup(postcode, pc6_uq/values);
+			attribute<uint32> PC4_uq_rel           := rlookup(postcode4, pc4_uq/values);
+			attribute<uint32> PC6_uq_rel           := rlookup(postcode, pc6_uq/values);
 
 			unit<uint32> wijk := RegionUnit_Wijk
 			{
