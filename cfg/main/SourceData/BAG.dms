@@ -1,141 +1,143 @@
 Template BAG_T
+:	Descr  = "The BAG on a date: the vbo's, panden and addresses valid on it, selected from the stores with all voorkomens that Xml2MMD of BAG-Tools makes of a delivery (#142)."
+,	Source = "Kadaster, BAG 2.0 extract of ModelParameters/BAG_file_date, converted with Xml2MMD of ObjectVision/BAG-Tools."
 {
-	parameter<string> snapshot;
+	parameter<string> date;
 	//
-	parameter<string> SnapshotDir         := '%NetworkModel_Dir%/RegioIndelingen/BAG/' + snapshot, Descr = "Folder with the BAG snapshot (vbo.fss, pand.fss, adres.fss): accommodation objects, buildings and addresses.";
+	parameter<string> HistoryDir          := '%NetworkModel_Dir%/RegioIndelingen/BAG/BAG_' + ModelParameters/BAG_file_date + '_History', Descr = "Folder with the stores of the vbo's, panden and nummeraanduidingen (vbo.mmd, pand.mmd, nummeraanduiding.mmd), one row per voorkomen, under the name that BAG-Tools gives it.";
+	parameter<int32>  Peildatum           := int32(date), Descr = "The date as yyyymmdd.";
 	unit<uint32>      RegionUnit_Wijk     := /SourceData/RegioIndelingen/Wijk;
 	unit<uint32>      RegionUnit_Gemeente := /SourceData/RegioIndelingen/Gemeente;
 
-	parameter<uint32> BAG_year            := uint32(substr(snapshot, 0, 4)), Descr = "The year of the BAG snapshot; later construction years are set to null.";
-	
+	Template Valid_T
+	:	Descr = "The voorkomens of a BAG store that are valid on a date, one per object: begun on or before the date and not ended on or before it, and of an object with more than one such voorkomen the one with the highest voorkomenidentificatie, as MakeSnapshot of BAG-Tools chooses."
+	{
+		unit<uint32>      Store;
+		parameter<int32>  Peildatum;
+		attribute<uint64> ObjectId    (Store);
+		attribute<uint32> VoorkomenId (Store);
+		attribute<int32>  BeginDate   (Store);
+		attribute<int32>  EndDate     (Store);
+		//
+
+		unit<uint32> Valid := select_with_org_rel(BeginDate <= Peildatum && (EndDate == 0i || EndDate > Peildatum)), Descr = "The voorkomens valid on Peildatum; an end date of 0 means not ended."
+		{
+			attribute<uint64>  object_id    := ObjectId[org_rel];
+			attribute<uint32>  voorkomen_id := VoorkomenId[org_rel];
+			attribute<Objects> object_rel   := rlookup(object_id, Objects/values);
+			attribute<bool>    IsChosen     := voorkomen_id == Objects/LastVoorkomenId[object_rel];
+		}
+
+		unit<uint32> Objects := unique(Valid/object_id)
+		{
+			attribute<uint32>  LastVoorkomenId := max(Valid/voorkomen_id, Valid/object_rel);
+		}
+
+		unit<uint32> Result := select_with_org_rel(Valid/IsChosen), Descr = "One voorkomen per object, with its row in the store (store_rel)."
+		{
+			attribute<Store>   store_rel := Valid/org_rel[org_rel];
+		}
+	}
+
 	container VBOs
 	{
-		parameter<bool> StatusInMeta     := ExistingFile('', expand(., SnapshotDir + '/vbo.fss/meta/STATUS.dmsdata')) != '', Descr = "True when the snapshot keeps the status of a vbo in meta/status, as the snapshot of 1-1-2026 does, instead of in status.";
+		unit<uint32>          import                         : StorageName = "=HistoryDir + '/vbo.mmd'", StorageReadOnly = "True", Descr = "All voorkomens of the vbo's, one row each.";
+		attribute<vbo_status> StatusCode_rel (import/status) := rlookup(lowercase(import/status/Label), lowercase(vbo_status/label)), IntegrityCheck = "all(IsDefined(this) || import/status/Label == 'onbekend')", Descr = "The status codes of the store as elements of Classifications/vbo_status, matched on their label; the code onbekend has none.";
+		container             Valid                          := Valid_T(import, Peildatum, import/identificatie, import/meta/VOORKOMENIDENTIFICATIE, import/meta/BEGINDATUM, import/meta/EINDDATUM);
 
-		unit<uint32> import
-		:	StorageName     = "= SnapshotDir+'/vbo.fss'"
-		,	StorageReadOnly = "True"
+		unit<uint32> src := Valid/Result
 		{
-			attribute<rdc_mm> geometry_mm;
-			attribute<string> identificatie;
-			attribute<int32>  oppervlakte;
-			attribute<string> nummeraanduiding_id;
-			attribute<string> pand_id;
-			attribute<string> status;
-			container         meta { attribute<string> status; }
-
-			container         gebruiksdoelen      := for_each_ndv(vbo_gebruiksdoel/name, import, bool);
-		}
-		
-		unit<uint32> src := import
-		{
-			attribute<rdc_mm>      geometry_mm         := import/geometry_mm;
+			attribute<rdc_mm>      geometry_mm         := import/geometry[store_rel];
 			attribute<rdc>         geometry            := geometry_mm[rdc];
-			attribute<string>      identificatie       := import/identificatie;
-			attribute<string>      nummeraanduiding_id := import/nummeraanduiding_id;
-			attribute<uint64>      vbo_bag_nr          := uint64(import/identificatie);
-			attribute<vbo_status>  status_rel          := rlookup(status, vbo_status/label);
-			attribute<string>      status              := = StatusInMeta ? 'import/meta/status' : 'import/status';
+			attribute<uint64>      identificatie       := import/identificatie[store_rel];
+			attribute<uint64>      nummeraanduiding_id := import/nummeraanduiding_id[store_rel];
+			attribute<vbo_status>  status_rel          := StatusCode_rel[import/meta/status_rel[store_rel]];
+			attribute<uint64>      pand_id             := import/gerelateerdPand/pand_id[rlookup(store_rel, import/gerelateerdPand/vbo_rel)], Descr = "The first pand of the vbo in the order of the BAG, so that a vbo in more than one pand counts once.";
 			attribute<panden/pand> pand_rel            := rlookup(pand_id, panden/pand/identificatie);
-			
+
 			container              gebruiksdoelen      :=
 				for_each_nedv(
 					vbo_gebruiksdoel/name
-					, 'import/gebruiksdoelen/'+vbo_gebruiksdoel/name
-					, import
+					, 'import/gebruiksdoelen/' + vbo_gebruiksdoel/name + '[store_rel]'
+					, src
 					, bool
 				);
-				
-			attribute<bool>        VBO_selection       := src/status_rel == Classifications/vbo_status/V/verblijfsobject_in_gebruik
-			                                              || src/status_rel == Classifications/vbo_status/V/verblijfsobject_in_gebruik_niet_ingemeten
-			                                              || src/status_rel == Classifications/vbo_status/V/verblijfsobject_buiten_gebruik
-			                                              || src/status_rel == Classifications/vbo_status/V/Verbouwing_verblijfsobject;
+
+			attribute<bool>        VBO_selection       := status_rel == Classifications/vbo_status/V/verblijfsobject_in_gebruik
+			                                              || status_rel == Classifications/vbo_status/V/verblijfsobject_in_gebruik_niet_ingemeten
+			                                              || status_rel == Classifications/vbo_status/V/verblijfsobject_buiten_gebruik
+			                                              || status_rel == Classifications/vbo_status/V/Verbouwing_verblijfsobject;
 		}
-											
-		container       GebruiksdoelSets :=
+
+		container             GebruiksdoelSets               :=
 			for_each_ne(
 				vbo_gebruiksdoel/name,
 				'MakeGebruiksdoelSets_T(' + quote(vbo_gebruiksdoel/name) +')'
 			);
-		
+
 		Template MakeGebruiksdoelSets_T
 		{
 			//
 			parameter<string> name;
 			//
-			
-			unit<uint32> GebruiksdoelSet := ='select_with_org_rel(src/gebruiksdoelen/'+name+'&& src/VBO_selection)'
+
+			unit<uint32> GebruiksdoelSet := ='select_with_org_rel(src/gebruiksdoelen/'+name+' && src/VBO_selection)'
 			{
-				attribute<rdc_mm>      geometry_mm         := org_rel -> geometry_mm;
-				attribute<rdc>         geometry            := geometry_mm[rdc];
-				attribute<string>      identificatie       := org_rel -> identificatie;
-				attribute<string>      nummeraanduiding_id := org_rel -> nummeraanduiding_id;
-				attribute<panden/pand> pand_rel            := org_rel -> src/pand_rel;
+				attribute<rdc>         geometry            := src/geometry[org_rel];
+				attribute<uint64>      identificatie       := src/identificatie[org_rel];
+				attribute<uint64>      nummeraanduiding_id := src/nummeraanduiding_id[org_rel];
+				attribute<panden/pand> pand_rel            := src/pand_rel[org_rel];
 			}
 		}
 	}
-	
+
 	container Panden
 	{
-		parameter<bool> StatusInMeta := ExistingFile('', expand(., SnapshotDir + '/pand.fss/meta/STATUS.dmsdata')) != '', Descr = "True when the snapshot keeps the status of a building in meta/status, as the snapshot of 1-1-2026 does, instead of in status.";
+		unit<uint32>           import                         : StorageName = "=HistoryDir + '/pand.mmd'", StorageReadOnly = "True", Descr = "All voorkomens of the panden, one row each.";
+		attribute<pand_status> StatusCode_rel (import/status) := rlookup(lowercase(import/status/Label), lowercase(pand_status/label)), IntegrityCheck = "all(IsDefined(this) || import/status/Label == 'onbekend')", Descr = "The status codes of the store as elements of Classifications/pand_status, matched on their label; the code onbekend has none.";
+		container              Valid                          := Valid_T(import, Peildatum, import/identificatie, import/meta/VOORKOMENIDENTIFICATIE, import/meta/BEGINDATUM, import/meta/EINDDATUM);
 
-		unit<uint32> import : StorageName = "= SnapshotDir+'/pand.fss'",	StorageReadOnly = "True"
+		unit<uint32> src := Valid/Result
 		{
-			attribute<rdc_mm> geometry_mm (polygon);
-			attribute<string> identificatie;
-			attribute<int16>  bouwjaar;
-			attribute<WPSrc>  woonpand_type;
-			attribute<string> status;
-			container         meta { attribute<string> status; }
+			attribute<uint64>      identificatie            := import/identificatie[store_rel];
+			attribute<pand_status> status_rel               := StatusCode_rel[import/meta/status_rel[store_rel]];
+			attribute<rdc_mm>      NW                       := lower_bound(import/geometry)[store_rel];
+			attribute<rdc_mm>      SE                       := upper_bound(import/geometry)[store_rel];
+			attribute<int32>       X_ext                    := sub_or_null(PointCol(SE), PointCol(NW)), Descr = "The width of the polygon in mm; null for an empty polygon, which Xml2MMD writes for a coordinate that does not fit in millimetres.";
+			attribute<int32>       Y_ext                    := sub_or_null(PointRow(SE), PointRow(NW)), Descr = "The height of the polygon in mm; null for an empty polygon.";
+			attribute<bool>        Pand_selection_condition := X_ext < 1000000i && Y_ext < 1000000i
+			                                                   && (status_rel == pand_status/V/Pand_in_gebruik
+			                                                       || status_rel == pand_status/V/Pand_in_gebruik_niet_ingemeten
+			                                                       || status_rel == pand_status/V/Pand_buiten_gebruik
+			                                                       || status_rel == pand_status/V/Verbouwing_pand)
+			, Descr = "The panden in use or in renovation, with a polygon smaller than 1 km in both directions; a pand without a polygon has no extent and drops out.";
 		}
-		
-		unit<uint32> src := import
+
+		unit<uint32> pand := select_with_org_rel(src/Pand_selection_condition)
 		{
-			attribute<rdc_mm>      geometry_mm          (polygon) := import/geometry_mm;
-			attribute<rdc>         geometry             (polygon) := geometry_mm[rdc];
-			attribute<string>      identificatie                  := import/identificatie;
-			attribute<uint64>      bag_nr                         := uint64(identificatie);
-			attribute<int16>       bouwjaar                       := import/bouwjaar;
-			attribute<int16>       bouwjaar_trunc                 := bouwjaar < 1000s || bouwjaar > BAG_year[int16] ? (0/0)[int16] : bouwjaar < 1600s ? 1600s : bouwjaar;
-			attribute<WPSrc>       woonpand_type                  := import/woonpand_type;
-			attribute<WPSrc>       WPSrc_rel                      := woonpand_type;
-			attribute<rdc_mm>      NW                             := lower_bound(src/geometry_mm);
-			attribute<rdc_mm>      SE                             := upper_bound(src/geometry_mm);
-			attribute<int32>       X_ext                          := sub_or_null(PointCol(SE), PointCol(NW)), Descr = "Null for buildings without geometry (empty bounds would otherwise give an int32 overflow), so that they drop out of Pand_selection_condition.";
-			attribute<int32>       Y_ext                          := sub_or_null(PointRow(SE), PointRow(NW));
-			attribute<string>      status                         := = StatusInMeta ? 'import/meta/status' : 'import/status';
-			attribute<pand_status> status_rel                     := rlookup(status, pand_status/label);
-			attribute<bool>        Pand_selection_condition (src) := src/X_ext < 1000000i && src/Y_ext < 1000000i
-			                                                         && (src/status_rel == pand_status/V/Pand_in_gebruik
-			                                                             || src/status_rel == pand_status/V/Pand_in_gebruik_niet_ingemeten
-			                                                             || src/status_rel == pand_status/V/Pand_buiten_gebruik
-			                                                             || src/status_rel == pand_status/V/Verbouwing_pand);
-		}
-	
-		unit<uint32> pand := select_with_attr_by_cond(src, src/Pand_selection_condition)
-		{
+			attribute<import> store_rel                  := src/store_rel[org_rel];
+			attribute<uint64> identificatie              := src/identificatie[org_rel];
+			attribute<string> pand_id                    := right('0000000000000000' + string(identificatie), 16), Descr = "The identificatie as the BAG writes it, sixteen digits with leading zeros.";
 			unit<uint32>      vbo_residential_domain     := VBOs/GebruiksdoelSets/woon/GebruiksdoelSet;
-			attribute<string> pand_id                    := identificatie;
-			attribute<rdc>    pand_centroid              := centroid_or_mid(geometry);
 			attribute<uint32> count_vbo_pand_residential := pcount(vbo_residential_domain/pand_rel);
-			
+
 			unit<uint32> pand_residential_vbo := select_with_org_rel(pand/count_vbo_pand_residential > 0)
 			{
-				attribute<rdc_mm> geometry_mm      (polygon) := org_rel -> pand/geometry_mm;
-				attribute<rdc>    geometry                   := org_rel -> pand_centroid;
-				
+				attribute<rdc_mm> geometry_mm      (polygon) := import/geometry[org_rel -> store_rel];
+				attribute<rdc>    geometry                   := centroid_or_mid(geometry_mm[rdc]);
+
 				attribute<uint32> count_vbo_pand_residential := org_rel -> count_vbo_pand_residential;
 				attribute<string> name                       := org_rel -> pand_id;
-	
+
 				unit<spoint>      domain                     := ='rdc_'+Gridsize;
-				
+
 				attribute<domain> domain_rel                 := geometry[domain];
 				attribute<uint32> Count_per_domain  (domain) := count(count_vbo_pand_residential[uint32], domain_rel);
 				attribute<uint32> Count_IsPositive  (domain) := Count_per_domain > 0 ? Count_per_domain : (0/0);
 				attribute<uint32> Sum_dwellings     (domain) := sum(count_vbo_pand_residential, domain_rel), Descr = "Number of dwellings (vbo's with a residential function) per cell; Count_per_domain counts the buildings.";
-				
+
 				parameter<string> Gridsize                   := ModelParameters/Advanced/Org_location_scale, Descr = "Cell size of the origin clustering.";
-				
+
 				unit<uint32> HasPanden := select_with_attr_by_org_rel(.,Count_IsPositive > 0), Descr = "The cells with at least one residential building, as origins named PandBlok_<n>."
 				{
 					attribute<rdc>    geometry       := domain/point[org_rel];
@@ -146,81 +148,68 @@ Template BAG_T
 					attribute<uint32> nr_panden      := Count_per_domain;
 					attribute<uint32> nr_dwellings   := Sum_dwellings;
 					attribute<uint32> nr_inhabitants := Sum_dwellings, Descr = "The origin weight that NetworkSetup asks every origin set for: here the number of dwellings in the cell, not a population count.";
-				} 
-				
+				}
+
 			}
 		}
 
-	}	
-	
+	}
+
 	container Adressen
-	{	
-		unit<uint32> import
-		:	StorageName     = "= SnapshotDir + '/adres.fss'"
-		,	StorageReadOnly = "True"
+	{
+		unit<uint32> import : StorageName = "=HistoryDir + '/nummeraanduiding.mmd'", StorageReadOnly = "True", Descr = "All voorkomens of the nummeraanduidingen, one row each.";
+		container    Valid  := Valid_T(import, Peildatum, import/identificatie, import/meta/VOORKOMENIDENTIFICATIE, import/meta/BEGINDATUM, import/meta/EINDDATUM);
+
+		unit<uint32> src := Valid/Result
 		{
-			attribute<string> straatnaam;
-			attribute<string> postcode;
-			attribute<int32>  huisnummer;
-			attribute<string> huisletter;
-			attribute<string> toevoeging;
-			attribute<string> woonplaatsnaam;
-			attribute<string> nummeraanduiding_id;
+			attribute<uint64> identificatie := import/identificatie[store_rel];
+			attribute<string> postcode      := import/postcode[store_rel];
 		}
-		
-		unit<uint32> src := import
+
+		unit<uint32> Residential_Stock := VBOs/GebruiksdoelSets/woon/GebruiksdoelSet, Descr = "The dwellings in the housing stock, the vbo's with a residential function in VBOs/src/VBO_selection, at their point and with the postcode of their main address, with their district and municipality; the neighbourhoods of a CBS year count them themselves (RegioIndelingen/Divisions)."
 		{
-			attribute<string> postcode      := import/postcode;
-			attribute<string> postcode4     := substr(postcode, 0, 4);
-			attribute<string> city          := woonplaatsnaam;
-			attribute<rdc>    geometry      := ='rjoin(nummeraanduiding_id, VBOs/src/nummeraanduiding_id, VBOs/src/geometry)';
-			attribute<bool>   IsResidential := ='rjoin(nummeraanduiding_id, VBOs/src/nummeraanduiding_id, VBOs/src/gebruiksdoelen/woon)';
-			attribute<bool>   IsInStock     := ='rjoin(nummeraanduiding_id, VBOs/src/nummeraanduiding_id, VBOs/src/VBO_selection)';
-			attribute<rdc>    point         := geometry;
-			attribute<string> pc_huisnr     := postcode +'_'+string(huisnummer);
-			attribute<string> name          := pc_huisnr;
-		}
-		
-		unit<uint32> Residential_Stock := select_with_attr_by_cond(src, src/IsResidential && src/IsInStock), Descr = "The addresses of dwellings in the housing stock, with their district and municipality; the neighbourhoods of a CBS year count their addresses themselves (RegioIndelingen/Divisions)."
-		{
+			attribute<../src> nummeraanduiding_rel := rlookup(nummeraanduiding_id, ../src/identificatie);
+			attribute<string> postcode             := ../src/postcode[nummeraanduiding_rel];
+			attribute<string> postcode4            := substr(postcode, 0, 4);
+
 			attribute<RegionUnit_Wijk> wijk_rel := point_in_polygon(geometry,  RegionUnit_Wijk/geometry);
 			attribute<RegionUnit_Gemeente> gemeente_rel := point_in_polygon(geometry,  RegionUnit_Gemeente/geometry);
 
-			attribute<uint32> PC4_uq_rel := rlookup(postcode4, pc4_uq/values);
-			attribute<uint32> PC6_uq_rel := rlookup(postcode, pc6_uq/values);
+			attribute<uint32> PC4_uq_rel           := rlookup(postcode4, pc4_uq/values);
+			attribute<uint32> PC6_uq_rel           := rlookup(postcode, pc6_uq/values);
 
 			unit<uint32> wijk := RegionUnit_Wijk
 			{
 				attribute<float64> x_mean           := mean(pointcol(../geometry), wijk_rel);
 				attribute<float64> y_mean           := mean(pointrow(../geometry), wijk_rel);
 				attribute<rdc>     centroid0        := point_xy(x_mean, y_mean, rdc);
-				
+
 				// checks
 				attribute<.>       poly_rel         := point_in_polygon(centroid0, ./geometry);
 				attribute<string>  statcode_poly    := ./statcode;
 				attribute<string>  statcode_centr   := statcode_poly[Poly_rel];
 				attribute<bool>    IsStatcode_equal := statcode_poly == statcode_centr;
-				
+
 				attribute<rdc>     centroid_or_mid  := centroid_or_mid(./geometry);
 				attribute<rdc>     centroid         := IsStatcode_equal ? centroid0 : centroid_or_mid;
 			}
-			
+
 			unit<uint32> gemeente := RegionUnit_Gemeente
 			{
 				attribute<float64> x_mean           := mean(pointcol(../geometry), gemeente_rel);
 				attribute<float64> y_mean           := mean(pointrow(../geometry), gemeente_rel);
 				attribute<rdc>     centroid0        := point_xy(x_mean, y_mean, rdc);
-				
+
 				// checks
 				attribute<.>       poly_rel         := point_in_polygon(centroid0, ./geometry);
 				attribute<string>  statcode_poly    := ./statcode;
 				attribute<string>  statcode_centr   := statcode_poly[Poly_rel];
 				attribute<bool>    IsStatcode_equal := statcode_poly == statcode_centr;
-				
+
 				attribute<rdc>     centroid_or_mid  := centroid_or_mid(./geometry);
 				attribute<rdc>     centroid         := IsStatcode_equal ? centroid0 : centroid_or_mid;
 			}
-			
+
 			unit<uint32> pc4_uq := unique(postcode4)
 			{
 				attribute<float64> x_mean   := mean(pointcol(../geometry), PC4_uq_rel);
@@ -228,25 +217,25 @@ Template BAG_T
 				attribute<rdc>     geometry := point_xy(x_mean, y_mean, rdc);
 				attribute<string>  PC4      := values;
 			}
-			
+
 			unit<uint32> PC4_centroids := select_with_attr_by_cond(pc4_uq, IsDefined(pc4_uq/geometry) && pc4_uq/PC4 != '')
 			{
 				attribute<rdc>    point     := geometry;
 				attribute<string> name      := PC4;
 				attribute<string> label     := PC4;
 				attribute<SourceData/RegioIndelingen/COROP> corop_rel := point_in_polygon(geometry, SourceData/RegioIndelingen/COROP/geometry);
-				
+
 				unit<uint32> sub1 := select_with_attr_by_cond(., name == '8891')
 				{
 				}
-				
+
 				container         Per_COROP :=
 					for_each_ne(
 						SourceData/RegioIndelingen/COROP/name
 						, '/SourceData/RegioIndelingen/Per_COROP_T('+string(id(SourceData/RegioIndelingen/COROP))+', ..)'
 					);
 			}
-			
+
 			unit<uint32> pc6_uq := unique(postcode)
 			{
 				attribute<float64> x_mean   := mean(pointcol(../geometry), PC6_uq_rel);
@@ -254,7 +243,7 @@ Template BAG_T
 				attribute<rdc>     geometry := point_xy(x_mean, y_mean, rdc);
 				attribute<string>  PC6      := values;
 			}
-			
+
 			unit<uint32> PC6_centroids := select_with_attr_by_cond(pc6_uq, IsDefined(pc6_uq/geometry) && pc6_uq/PC6 != '')
 			{
 				attribute<rdc>    point := geometry;
