@@ -1,0 +1,83 @@
+container FrontCheck
+:	Descr = "Checks the parquet output of a public transport component (Dir) against a reference output of the same component (RefDir), for the origin blocks 1 to NrBlocks and the departure moments of this run (#53): the size of both fronts, the rows that another row of the same OD pair dominates exactly on price and travel time (a front of the model holds none), the OD pairs that only one of the two reaches, and per pair the change in the shortest travel time, in the lowest price and in the price at the shortest travel time. File writes one line per block and departure moment, Result says whether any row is dominated."
+{
+	parameter<string>  Component     := 'W_PT_W', Descr = "The public transport component to check, a name from Classifications/Components.";
+	parameter<string>  Dir           := '%LocalDataProjDir%/Output' + /ModelParameters/Impl/OD_Tag + '/' + /ModelParameters/Impl/Analysis_date + '_' + /ModelParameters/OutputLabel + rjoin(Component, /Classifications/Components/name, /Classifications/Components/OutputSuffix), Descr = "The output folder of Component in this run, named as Impl/OutputDir names it.";
+	parameter<string>  RefDir        := Dir, Descr = "The output folder of the reference, such as an earlier run or delivery of the same component. Equal to Dir, the check only tests that no row is dominated.";
+	parameter<string>  Tag           := /ModelParameters/OutputLabel + '_' + Component, Descr = "Name of the check in the file name, frontcheck_<Tag>.csv.";
+	parameter<float32> MinPerUnit    := 1f / 60f, Descr = "Minutes per unit of Traveltime in Dir: 1/60, the output is in seconds.";
+	parameter<float32> RefMinPerUnit := 1f / 60f, Descr = "Minutes per unit of Traveltime in RefDir: 1/60 for output in seconds, 1 for output in minutes from before ac9c7cf.";
+	parameter<uint32>  NrBlocks      := 10, Descr = "The origin blocks 1 to NrBlocks are compared; 10 blocks and four departure moments take seconds.";
+	parameter<uint32>  NrBlocksTotal := /ModelParameters/Advanced/NumberOfOrgBlocks, Descr = "The number of origin blocks of both outputs, in their file names tt_<moment>_<n>of<N>.parquet.";
+	parameter<float32> TimeMargin    := 1f, Descr = "A change in the shortest travel time of a pair counts beyond this many minutes.";
+	parameter<float32> PriceMargin   := 0.10f, Descr = "A change in the lowest price of a pair counts beyond this many euros.";
+
+	unit<uint32> Blocks := range(uint32, 0, NrBlocks);
+	unit<uint32> Cases  := combine_uint32(Blocks, /ModelParameters/Impl/MeasureMoments)
+	{
+		attribute<string> Moment   := /ModelParameters/Impl/MeasureMoments/TemplatableTextShrt[second_rel];
+		attribute<string> FileTail := '/PerBlock/tt_' + Moment + '_' + string(uint32(first_rel) + 1) + 'of' + string(NrBlocksTotal) + '.parquet';
+		attribute<string> name     := 'B' + string(uint32(first_rel) + 1) + '_' + Moment;
+	}
+	container PerCase := for_each_ne(Cases/name, 'Case_T(' + quote(Cases/name) + ', ' + quote(Cases/FileTail) + ')');
+
+	Template Read_T : Descr = "The rows of one output file, with the shortest travel time (s) and the lowest price (ct) per OD pair."
+	{
+		parameter<string>  FileName;
+		parameter<float32> MinFactor;
+		///
+		unit<uint32> domain : StorageName = "=FileName", StorageType = "gdal.vect", StorageReadOnly = "true"
+		{
+			attribute<string>  OrgName;
+			attribute<string>  DestName;
+			attribute<float32> Traveltime;
+			attribute<float32> Price;
+		}
+		attribute<uint32> Time_s   (domain) := uint32(domain/Traveltime * MinFactor * 60f + 0.5f);
+		attribute<uint32> Price_ct (domain) := uint32(domain/Price * 100f + 0.5f);
+		attribute<string> OrgDest  (domain) := domain/OrgName + ';' + domain/DestName;
+		unit<uint32>      OD                := unique(OrgDest)
+		{
+			attribute<uint32> MinTime_s          := min(../Time_s, ../OD_rel);
+			attribute<uint32> MinPrice_ct        := min(../Price_ct, ../OD_rel);
+			attribute<uint32> PriceAtMinTime_ct  := min(../IsFastest ? ../Price_ct : null_u, ../OD_rel), Descr = "The lowest price among the rows with the shortest travel time of the pair.";
+		}
+		attribute<OD>     OD_rel   (domain) := rlookup(OrgDest, OD/values);
+		attribute<bool>   IsFastest (domain) := Time_s == OD/MinTime_s[OD_rel];
+		attribute<bool>   IsFront  (domain) := pareto_optimal(OD_rel, Price_ct, Time_s), Descr = "Is the row exactly Pareto-optimal on price and travel time within its pair? A front of the model holds only such rows.";
+		parameter<uint32> Dominated         := #domain - sum_uint32(IsFront), Descr = "The rows that another row of the same pair dominates exactly; must be 0.";
+	}
+
+	Template Case_T : Descr = "The comparison for one origin block and departure moment."
+	{
+		parameter<string> CaseName;
+		parameter<string> FileTail;
+		///
+		container New := Read_T(Dir    + FileTail, MinPerUnit);
+		container Ref := Read_T(RefDir + FileTail, RefMinPerUnit);
+		attribute<Ref/OD> Ref_rel   (New/OD) := rlookup(New/OD/values, Ref/OD/values);
+		attribute<bool>   InRef     (New/OD) := IsDefined(Ref_rel);
+		attribute<int32>  dTime_s   (New/OD) := int32(New/OD/MinTime_s) - int32(Ref/OD/MinTime_s[Ref_rel]);
+		attribute<int32>  dPrice_ct (New/OD) := int32(New/OD/MinPrice_ct) - int32(Ref/OD/MinPrice_ct[Ref_rel]);
+		attribute<int32>  dPriceAtMinTime_ct (New/OD) := int32(New/OD/PriceAtMinTime_ct) - int32(Ref/OD/PriceAtMinTime_ct[Ref_rel]);
+		parameter<uint32> Dominated          := New/Dominated + Ref/Dominated;
+		parameter<string> Line := CaseName
+			+ ';' + string(#New/domain) + ';' + string(#New/OD) + ';' + string(New/Dominated)
+			+ ';' + string(#Ref/domain) + ';' + string(#Ref/OD) + ';' + string(Ref/Dominated)
+			+ ';' + string(#New/OD - sum_uint32(InRef)) + ';' + string(#Ref/OD - sum_uint32(InRef))
+			+ ';' + string(sum_uint32(InRef && dTime_s < int32(-TimeMargin * 60f))) + ';' + string(sum_uint32(InRef && dTime_s > int32(TimeMargin * 60f)))
+			+ ';' + string(sum_uint32(InRef && dPrice_ct < int32(-PriceMargin * 100f))) + ';' + string(sum_uint32(InRef && dPrice_ct > int32(PriceMargin * 100f)))
+			+ ';' + string(sum_uint32(InRef && dPriceAtMinTime_ct > int32(PriceMargin * 100f)))
+			+ ';' + string(mean(InRef ? float32(dPrice_ct) : null_f) / 100f);
+	}
+
+	parameter<string> Lines := =asList('PerCase/' + Cases/name + '/Line', ' + ''\n'' + ');
+	parameter<string> File  := 'case;rows;pairs;dominated;rows_ref;pairs_ref;dominated_ref;pairs_only_new;pairs_only_ref;faster;slower;cheaper;dearer;dearer_at_fastest;mean_dprice_euro\n' + Lines + '\n'
+	, StorageName = "='%LocalDataProjDir%/Validatie/frontcheck_' + Tag + '.csv'", StorageType = "str"
+	, Descr = "One line per block and departure moment: rows and pairs of both, rows that are dominated (must be 0), pairs in only one of the two, the pairs whose shortest travel time or lowest price changed beyond TimeMargin or PriceMargin, the pairs whose price at the shortest travel time rose beyond PriceMargin, and the mean change in the lowest price. Against a reference without the price criterion, slower and dearer_at_fastest must be 0.";
+	parameter<uint32> Dominated := =asList('PerCase/' + Cases/name + '/Dominated', ' + '), Descr = "The dominated rows of both outputs over all compared blocks and departure moments.";
+	parameter<string> Result    := Dominated == 0
+		? 'PASS: no row of ' + Component + ' is dominated within its OD pair, in ' + string(#Cases) + ' files of each output.'
+		: 'FAIL: ' + string(Dominated) + ' rows are dominated within their OD pair; see the column dominated of frontcheck_' + Tag + '.csv.'
+	, Descr = "PASS or FAIL on the hard requirement of a front: no row that another row of the same pair dominates.";
+}
