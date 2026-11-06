@@ -528,22 +528,24 @@ Template PerDepartureMoment_T : Descr = "Calculates for one departure moment of 
 			// GDAL_LayerCreationOptions stands next to the containers with the storage: inside them the writer takes it for a column of a layer without
 			// domain; it also looks for it in the containers above.
 			parameter<string> GDAL_LayerCreationOptions := 'COMPRESSION=ZSTD';
-			// Per kind of component only the columns that vary within the component and do not follow linearly from other columns (such as the distance
-			// of a walking or cycling trip from its travel time, or the car price from the distance); ModelParameters/Impl/ExportClass picks the writer,
-			// and only that one is requested (Generate). The other columns are constant within the component (ModeUsed of a direct trip, NeedsCar,
-			// NeedsBike, WaitingTime 0) or a linear combination: TravelDist_V and _N from the pre-transport and post-transport times, TravelDist_PT as
-			// the sum of the public transport distances, PTTime = Traveltime - PretransTime - PosttransTime, the price parts from Price and those times
-			// (pre-transport and post-transport cost per minute, the OV-fiets a fixed amount), and the columns per mode from those of pre-transport and
-			// post-transport.
+			// Per kind of component only the columns that vary within the component and cannot be derived from its other columns (#144);
+			// ModelParameters/Impl/ExportClass picks the writer, and only that one is requested (Generate). The distance of a walking or cycling trip
+			// or leg is written, because its time also holds the junction penalties, the start and parking times and the wait at a ferry; the prices
+			// of pre-transport and post-transport are written, so that the parts add up to Price exactly in cents. The other columns are constant
+			// within the component (ModeUsed of a direct trip, NeedsCar, NeedsBike, WaitingTime 0) or follow from these: TravelDist_PT as the sum of
+			// the public transport distances, PTTime = Traveltime - PretransTime - PosttransTime (and WaitingTime when it counts), PTPrice = Price -
+			// PretransPrice - PosttransPrice, the car price from the distance, and the columns per mode from those of pre-transport and post-transport
+			// with the mode of the component; NetworkSetup/ComponentMerge derives them.
 			container Parquet_Direct
 			:	StorageName = "=fileNamePrefix+'tt'+fileNameSuffix+'.parquet'", StorageType = "gdalwrite.vect"
-			,	Descr = "The parquet writer for WW and CC, with only the travel time, because there is one route per OD pair and distance and price follow from the travel time."
+			,	Descr = "The parquet writer for WW and CC, with the travel time and the distance of the one route per OD pair; the price follows from the travel time."
 			{
 				unit<uint64> tt := domain, ExplicitSuppliers = "/NetworkSetup/GenerateOutput/Output_Sig/ForWriting"
 				{
-					attribute<string> OrgName    := domain/OrgName;
-					attribute<string> DestName   := domain/DestName;
-					attribute<s>      Traveltime := domain/Traveltime;
+					attribute<string> OrgName      := domain/OrgName;
+					attribute<string> DestName     := domain/DestName;
+					attribute<s>      Traveltime   := domain/Traveltime;
+					attribute<uint32> TravelDist_V := uint32(convert(domain/TravelDist_V, m));
 				}
 			}
 			container Parquet_Car
@@ -560,7 +562,7 @@ Template PerDepartureMoment_T : Descr = "Calculates for one departure moment of 
 			}
 			container Parquet_PT
 			:	StorageName = "=fileNamePrefix+'tt'+fileNameSuffix+'.parquet'", StorageType = "gdalwrite.vect"
-			,	Descr = "The parquet writer for a public transport component, with travel time, Price, Price_Augm, the modes used, waiting at home, the pre-transport and post-transport times and the distance per public transport mode."
+			,	Descr = "The parquet writer for a public transport component, with travel time, Price, Price_Augm, the modes used, waiting at home, the pre-transport and post-transport times, the distance per public transport mode, and the distance and price of pre-transport and post-transport."
 			{
 				unit<uint64> tt := domain, ExplicitSuppliers = "/NetworkSetup/GenerateOutput/Output_Sig/ForWriting"
 				{
@@ -578,6 +580,10 @@ Template PerDepartureMoment_T : Descr = "Calculates for one departure moment of 
 					attribute<uint32> TravelDist_Tram  := uint32(convert(domain/Traveldist_Tram, m));
 					attribute<uint32> TravelDist_Rail  := uint32(convert(domain/Traveldist_Rail, m));
 					attribute<uint32> TravelDist_Ferry := uint32(convert(domain/Traveldist_Ferry, m));
+					attribute<uint32> TravelDist_V     := uint32(convert(domain/TravelDist_V, m));
+					attribute<uint32> TravelDist_N     := uint32(convert(domain/Traveldist_N, m));
+					attribute<Euro>   PretransPrice    := convert(domain/Price_V, Euro);
+					attribute<Euro>   PosttransPrice   := convert(domain/Price_N, Euro);
 				}
 			}
 		

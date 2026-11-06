@@ -13,9 +13,17 @@ container ComponentMerge_Def
 		parameter<string> Suffix;
 		///
 		parameter<string> Stored : StorageName = "=BaseDir + Suffix + '/signature.txt'", StorageType = "str", StorageReadOnly = "true"
-		,	IntegrityCheck = "IsDefined(strpos(this, '_parquet-s-'))"
-		,	Descr = "The signature of the output of this component; if it is missing, the component has not been calculated (yet). It must name _parquet-s-, parquet with the times in whole seconds: an older output of the component has them in minutes as float32, which the readers below would take for seconds.";
+		,	IntegrityCheck = "IsDefined(strpos(this, '_parquet-s2-'))"
+		,	Descr = "The signature of the output of this component; if it is missing, the component has not been calculated (yet). It must name _parquet-s2-, parquet with the times in whole seconds and the distances and prices of pre- and post-transport (#144): an older output of the component has the times in minutes as float32, which the readers below would take for seconds, or lacks those columns.";
 	}
+
+	// The mode of the pre- and post-transport of every component (Classifications/Components/PreNetworkType, PostNetworkType), for the split
+	// per mode in MergeMoment_T (#144).
+	attribute<bool>   PreIsWalking  (Comps) := Comps/PreNetworkType == 'Walking';
+	attribute<bool>   PreIsCycling  (Comps) := Comps/PreNetworkType == 'Cycling';
+	attribute<bool>   PreIsCar      (Comps) := Comps/PreNetworkType == 'Car';
+	attribute<bool>   PostIsWalking (Comps) := Comps/PostNetworkType == 'Walking';
+	attribute<bool>   PostIsCycling (Comps) := Comps/PostNetworkType == 'Cycling';
 
 	parameter<string> CompSignatures     := =asList('''['' + PerComp/' + Comps/name + '/Stored + '']''', ' + ')
 	,	Descr = "The signatures of the Components in a row, each between [ and ].";
@@ -23,23 +31,27 @@ container ComponentMerge_Def
 		  'tt_' + /ModelParameters/Impl/Analysis_date + '_ORG-' + /ModelParameters/Impl/OrgSet_string
 		+ '_samen-' + asList(Comps/name, ',')
 		+ '_MinCrit-' + asList(/Classifications/OutputParetoAttr/FileNameElement, '_') + /ModelParameters/Impl/ChainPareto_FileTag
-		+ '_' + /ModelParameters/OutputFormat + '-m3'
+		+ '_' + /ModelParameters/OutputFormat + '-m4'
 		+ '_' + CompSignatures
-	,	Descr = "The signature of the merged output: date, set of origins, Components, criteria (MergeCriteria) and epsilons, format (-m3: read from the parquet of the Components, with the times in whole seconds) and the signatures of the Components, so that it changes when a component is recalculated with other parameters.";
+	,	Descr = "The signature of the merged output: date, set of origins, Components, criteria (MergeCriteria) and epsilons, format (-m4: read from the parquet of the Components, with the times in whole seconds, and with the split per part and per mode of #144) and the signatures of the Components, so that it changes when a component is recalculated with other parameters.";
 }
 
 // MERGING THE COMPONENTS OF THE VARIANT (#117). Per origin block and departure moment it reads the parquet of the components
 // (Output/<Analysis_date>_<OutputLabel>_<component>/PerBlock), each with the columns of its kind (Classifications/Components/ExportClass), and fills
 // in what is constant there or follows from the columns:
 // - WW and CC: the price from the travel time (Direct_Walking_Time_Costs, Direct_Cycling_Time_Costs, as in PublicTransport_Prep/Direct),
-//   ModeUsed WW or CC, PretransTime = Traveltime; they apply to every departure moment (SingleDepartureMoment);
-// - Car: the price from the distance (Car_FixedCosts_PerTrip + Car_CostPerKm), ModeUsed AA, PretransTime = Traveltime;
+//   ModeUsed WW or CC; they apply to every departure moment (SingleDepartureMoment);
+// - Car: the price from the distance (Car_FixedCosts_PerTrip + Car_CostPerKm), ModeUsed AA;
+// - a direct trip is its own pre-transport, as in the csv of a component: PretransTime, TravelDist_V and PretransPrice hold its time, distance
+//   and price;
 // - a public transport component: everything is in the file.
 // Then per OD pair the rows that are not dominated on the criteria of the merge (Classifications/OutputParetoAttr, from
 // ModelParameters/MergeCriteria), with the same epsilons and operator (pareto_optimal_eps) as in a run, with price and time in Ct and s;
-// NeedsCar and NeedsBike follow from the component (Classifications/Components). The result is written in ModelParameters/OutputFormat, csv or
-// parquet, to Output/<Analysis_date>_<OutputLabel>_Merged<MergeRunNr>/PerBlock, with the column Component (where the row comes from), and
-// the counts per block to Tellingen (batch/OdTellingen.py adds them up).
+// NeedsCar and NeedsBike follow from the component (Classifications/Components). Of the rows that stay it splits time, price and distance per
+// part and per mode, as the csv of a component does (#144): PTTime, PTPrice and TravelDist_PT, and per mode walking, cycling and car from
+// the pre- and post-transport with that mode. The result is written in ModelParameters/OutputFormat, csv or parquet, to
+// Output/<Analysis_date>_<OutputLabel>_Merged<MergeRunNr>/PerBlock, with the column Component (where the row comes from), and the counts per
+// block to Tellingen (batch/OdTellingen.py adds them up).
 container ComponentMerge
 : Descr = "Merges the components of the variant into one Pareto front from their parquet, as the comment above describes; Generate, or batch/UpdateAll.cmd with the component Merged runs it."
 {
@@ -110,7 +122,7 @@ container ComponentMerge
 
 			// Per kind of component (Classifications/Components/ExportClass) a reader that reads the columns of its writer (PerDepartureMoment_T,
 			// CreateExports/LongFormat/Parquet_<ExportClass>) and completes the others to the common schema.
-			// WW and CC: OrgName, DestName, Traveltime.
+			// WW and CC: OrgName, DestName, Traveltime, TravelDist_V.
 			Template ReadDirect_T
 			{
 				parameter<string> CompName;
@@ -122,12 +134,13 @@ container ComponentMerge
 					attribute<string>  OrgName;
 					attribute<string>  DestName;
 					attribute<s>       Traveltime;
+					attribute<uint32>  TravelDist_V;
 				}
 				parameter<bool>   IsWalking                 := CompName == 'WW';
 				attribute<string> OrgName          (domain) := domain/OrgName;
 				attribute<string> DestName         (domain) := domain/DestName;
 				attribute<s>      Traveltime       (domain) := domain/Traveltime;
-				// As in PublicTransport_Prep/Direct: the time valuation, which counts in Price only with Include*CostsInPrice.
+				// As in PublicTransport_Prep/Direct: the costs per minute (Direct_*_Time_Costs), which count in Price only with Include*CostsInPrice.
 				attribute<Euro>   Price_Augm       (domain) := convert(rounded_convert(convert(Traveltime, min_f) * (IsWalking ? /ModelParameters/Direct_Walking_Time_Costs : /ModelParameters/Direct_Cycling_Time_Costs), Ct), Euro);
 				attribute<Euro>   Price            (domain) := (IsWalking ? /ModelParameters/Advanced/IncludeWalkingCostsInPrice : /ModelParameters/Advanced/IncludeCyclingCostsInPrice) ? Price_Augm : const(0[Euro], domain);
 				attribute<string> ModeUsed         (domain) := const(CompName, domain);
@@ -142,6 +155,10 @@ container ComponentMerge
 				attribute<uint32> TravelDist_Rail  (domain) := const(0, domain, uint32);
 				attribute<uint32> TravelDist_Ferry (domain) := const(0, domain, uint32);
 				attribute<uint32> TravelDist_Car   (domain) := const(0, domain, uint32);
+				attribute<uint32> TravelDist_V     (domain) := domain/TravelDist_V;
+				attribute<uint32> TravelDist_N     (domain) := const(0, domain, uint32);
+				attribute<Euro>   PretransPrice    (domain) := Price;
+				attribute<Euro>   PosttransPrice   (domain) := const(0[Euro], domain);
 			}
 			// Car: OrgName, DestName, Traveltime, TravelDist_Car.
 			Template ReadCar_T
@@ -175,6 +192,10 @@ container ComponentMerge
 				attribute<uint32> TravelDist_Rail  (domain) := const(0, domain, uint32);
 				attribute<uint32> TravelDist_Ferry (domain) := const(0, domain, uint32);
 				attribute<uint32> TravelDist_Car   (domain) := domain/TravelDist_Car;
+				attribute<uint32> TravelDist_V     (domain) := domain/TravelDist_Car;
+				attribute<uint32> TravelDist_N     (domain) := const(0, domain, uint32);
+				attribute<Euro>   PretransPrice    (domain) := Price;
+				attribute<Euro>   PosttransPrice   (domain) := const(0[Euro], domain);
 			}
 			// A public transport component: the columns of Parquet_PT; NeedsBike follows from pre-transport and post-transport (Classifications/Components/NeedsBike).
 			Template ReadPT_T
@@ -199,6 +220,10 @@ container ComponentMerge
 					attribute<uint32>  TravelDist_Tram;
 					attribute<uint32>  TravelDist_Rail;
 					attribute<uint32>  TravelDist_Ferry;
+					attribute<uint32>  TravelDist_V;
+					attribute<uint32>  TravelDist_N;
+					attribute<float32> PretransPrice;
+					attribute<float32> PosttransPrice;
 				}
 				attribute<string> OrgName          (domain) := domain/OrgName;
 				attribute<string> DestName         (domain) := domain/DestName;
@@ -217,6 +242,10 @@ container ComponentMerge
 				attribute<uint32> TravelDist_Rail  (domain) := domain/TravelDist_Rail;
 				attribute<uint32> TravelDist_Ferry (domain) := domain/TravelDist_Ferry;
 				attribute<uint32> TravelDist_Car   (domain) := const(0, domain, uint32);
+				attribute<uint32> TravelDist_V     (domain) := domain/TravelDist_V;
+				attribute<uint32> TravelDist_N     (domain) := domain/TravelDist_N;
+				attribute<Euro>   PretransPrice    (domain) := value(domain/PretransPrice, Euro);
+				attribute<Euro>   PosttransPrice   (domain) := value(domain/PosttransPrice, Euro);
 			}
 
 			unit<uint32> Rows := ='union_unit(' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/domain', ',') + ')'
@@ -239,7 +268,11 @@ container ComponentMerge
 				attribute<uint32> TravelDist_Rail  := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/TravelDist_Rail', ',') + ')';
 				attribute<uint32> TravelDist_Ferry := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/TravelDist_Ferry', ',') + ')';
 				attribute<uint32> TravelDist_Car   := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/TravelDist_Car', ',') + ')';
-				attribute<string> Component        := ='union_data(., ' + asList('const(' + quote(ComponentMerge_Def/Comps/name) + ', PerComp/' + ComponentMerge_Def/Comps/name + '/domain)', ',') + ')';
+				attribute<uint32> TravelDist_V     := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/TravelDist_V', ',') + ')';
+				attribute<uint32> TravelDist_N     := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/TravelDist_N', ',') + ')';
+				attribute<Euro>   PretransPrice_euro  := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/PretransPrice', ',') + ')';
+				attribute<Euro>   PosttransPrice_euro := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/PosttransPrice', ',') + ')';
+				attribute<ComponentMerge_Def/Comps> Comp_rel := ='union_data(., ' + asList('const(' + string(id(ComponentMerge_Def/Comps)) + '[ComponentMerge_Def/Comps], PerComp/' + ComponentMerge_Def/Comps/name + '/domain)', ',') + ')', Descr = "The component the row comes from.";
 
 				// The criteria (Classifications/OutputParetoAttr) in the units of the final front, Ct and s, so that the epsilons work as in a run.
 				attribute<Ct>     Price            := rounded_convert(Price_euro, Ct);
@@ -272,7 +305,36 @@ container ComponentMerge
 				attribute<uint32> TravelDist_Rail  := Rows/TravelDist_Rail[org_rel];
 				attribute<uint32> TravelDist_Ferry := Rows/TravelDist_Ferry[org_rel];
 				attribute<uint32> TravelDist_Car   := Rows/TravelDist_Car[org_rel];
-				attribute<string> Component        := Rows/Component[org_rel];
+				attribute<uint32> TravelDist_V     := Rows/TravelDist_V[org_rel];
+				attribute<uint32> TravelDist_N     := Rows/TravelDist_N[org_rel];
+				attribute<Euro>   PretransPrice    := Rows/PretransPrice_euro[org_rel];
+				attribute<Euro>   PosttransPrice   := Rows/PosttransPrice_euro[org_rel];
+				attribute<ComponentMerge_Def/Comps> Comp_rel := Rows/Comp_rel[org_rel];
+				attribute<string> Component        := ComponentMerge_Def/Comps/name[Comp_rel];
+
+				// The split per part and per mode (#144), as in the csv of a component (PerDepartureMoment_T/BlockResult): public transport is the
+				// chain, including walking and waiting at transfers; walking, cycling and car are the pre- and post-transport with that mode, and a
+				// direct trip, which is its own pre-transport. The wait at home belongs to none of them. The prices are split in Ct, so that the parts
+				// add up to Price exactly.
+				attribute<s>      PTTime           := Traveltime - PretransTime - PosttransTime - uint16(/ModelParameters/Advanced/IncludeWaitingAtHomeInTravelTime) * WaitingTime;
+				attribute<Ct>     Price_ct         := Rows/Price[org_rel];
+				attribute<Ct>     Price_V_ct       := rounded_convert(PretransPrice, Ct);
+				attribute<Ct>     Price_N_ct       := rounded_convert(PosttransPrice, Ct);
+				attribute<Euro>   PTPrice          := convert(Price_ct - Price_V_ct - Price_N_ct, Euro);
+				attribute<uint32> TravelDist_PT    := TravelDist_Bus + TravelDist_Metro + TravelDist_Tram + TravelDist_Rail + TravelDist_Ferry;
+				attribute<bool>   V_IsWalking      := ComponentMerge_Def/PreIsWalking[Comp_rel];
+				attribute<bool>   V_IsCycling      := ComponentMerge_Def/PreIsCycling[Comp_rel];
+				attribute<bool>   V_IsCar          := ComponentMerge_Def/PreIsCar[Comp_rel];
+				attribute<bool>   N_IsWalking      := ComponentMerge_Def/PostIsWalking[Comp_rel];
+				attribute<bool>   N_IsCycling      := ComponentMerge_Def/PostIsCycling[Comp_rel];
+				attribute<uint32> TravelDist_Walking := (V_IsWalking ? TravelDist_V : 0u) + (N_IsWalking ? TravelDist_N : 0u);
+				attribute<uint32> TravelDist_Cycling := (V_IsCycling ? TravelDist_V : 0u) + (N_IsCycling ? TravelDist_N : 0u);
+				attribute<s>      WalkingTime      := (V_IsWalking ? PretransTime : 0[s]) + (N_IsWalking ? PosttransTime : 0[s]);
+				attribute<s>      CyclingTime      := (V_IsCycling ? PretransTime : 0[s]) + (N_IsCycling ? PosttransTime : 0[s]);
+				attribute<s>      CarTime          := V_IsCar ? PretransTime : 0[s];
+				attribute<Euro>   WalkingPrice     := convert((V_IsWalking ? Price_V_ct : 0[Ct]) + (N_IsWalking ? Price_N_ct : 0[Ct]), Euro);
+				attribute<Euro>   CyclingPrice     := convert((V_IsCycling ? Price_V_ct : 0[Ct]) + (N_IsCycling ? Price_N_ct : 0[Ct]), Euro);
+				attribute<Euro>   CarPrice         := convert(V_IsCar ? Price_V_ct : 0[Ct], Euro);
 			}
 
 			// The counts of this departure moment, for Counts in the block; a public transport chain has an _ in ModeUsed (W_BBR_W).
@@ -304,7 +366,8 @@ container ComponentMerge
 
 			// The output according to ModelParameters/OutputFormat: parquet, typed (times in whole seconds) and without the departure moment in the
 			// column names (it is in the file name), or csv, with the departure moment after the column names and the times in minutes like the csv of
-			// a component, and an unknown value empty.
+			// a component, and an unknown value empty. The split per part and per mode comes after Component, so that a reader that reads the csv by
+			// position keeps the earlier columns.
 			container Parquet : StorageName = "=/ModelParameters/Impl/OutputDir + '/PerBlock/tt' + FileTail + '.parquet'", StorageType = "gdalwrite.vect"
 			{
 				unit<uint32> tt := Kept, ExplicitSuppliers = "/NetworkSetup/GenerateOutput/Output_Sig/ForWriting"
@@ -327,17 +390,64 @@ container ComponentMerge
 					attribute<uint32> TravelDist_Ferry := Kept/TravelDist_Ferry;
 					attribute<uint32> TravelDist_Car   := Kept/TravelDist_Car;
 					attribute<string> Component        := Kept/Component;
+					attribute<uint32> TravelDist_V     := Kept/TravelDist_V;
+					attribute<uint32> TravelDist_N     := Kept/TravelDist_N;
+					attribute<s>      PTTime           := Kept/PTTime;
+					attribute<Euro>   PretransPrice    := Kept/PretransPrice;
+					attribute<Euro>   PTPrice          := Kept/PTPrice;
+					attribute<Euro>   PosttransPrice   := Kept/PosttransPrice;
+					attribute<uint32> TravelDist_PT    := Kept/TravelDist_PT;
+					attribute<uint32> TravelDist_Walking := Kept/TravelDist_Walking;
+					attribute<uint32> TravelDist_Cycling := Kept/TravelDist_Cycling;
+					attribute<s>      WalkingTime      := Kept/WalkingTime;
+					attribute<s>      CyclingTime      := Kept/CyclingTime;
+					attribute<s>      CarTime          := Kept/CarTime;
+					attribute<Euro>   WalkingPrice     := Kept/WalkingPrice;
+					attribute<Euro>   CyclingPrice     := Kept/CyclingPrice;
+					attribute<Euro>   CarPrice         := Kept/CarPrice;
 				}
 			}
-			unit<uint8> CsvColumns : nrofrows = 16, Descr = "The columns of the csv after OrgName and DestName, in the order of Parquet/tt."
+			// The csv: per column of Parquet/tt after OrgName and DestName its text, an item named after the column, with the times in minutes.
+			container CsvText
 			{
-				attribute<string> name : ['Traveltime', 'Price', 'Price_Augm', 'ModeUsed', 'NeedsCar', 'NeedsBike', 'WaitingTime', 'PretransTime', 'PosttransTime', 'TravelDist_Bus', 'TravelDist_Metro', 'TravelDist_Tram', 'TravelDist_Rail', 'TravelDist_Ferry', 'TravelDist_Car', 'Component'];
+				attribute<string> Traveltime         (Kept) := MakeDefined(string(convert(Kept/Traveltime, min_f)), '');
+				attribute<string> Price              (Kept) := MakeDefined(string(Kept/Price), '');
+				attribute<string> Price_Augm         (Kept) := MakeDefined(string(Kept/Price_Augm), '');
+				attribute<string> ModeUsed           (Kept) := Kept/ModeUsed;
+				attribute<string> NeedsCar           (Kept) := MakeDefined(string(Kept/NeedsCar), '');
+				attribute<string> NeedsBike          (Kept) := MakeDefined(string(Kept/NeedsBike), '');
+				attribute<string> WaitingTime        (Kept) := MakeDefined(string(convert(Kept/WaitingTime, min_f)), '');
+				attribute<string> PretransTime       (Kept) := MakeDefined(string(convert(Kept/PretransTime, min_f)), '');
+				attribute<string> PosttransTime      (Kept) := MakeDefined(string(convert(Kept/PosttransTime, min_f)), '');
+				attribute<string> TravelDist_Bus     (Kept) := MakeDefined(string(Kept/TravelDist_Bus), '');
+				attribute<string> TravelDist_Metro   (Kept) := MakeDefined(string(Kept/TravelDist_Metro), '');
+				attribute<string> TravelDist_Tram    (Kept) := MakeDefined(string(Kept/TravelDist_Tram), '');
+				attribute<string> TravelDist_Rail    (Kept) := MakeDefined(string(Kept/TravelDist_Rail), '');
+				attribute<string> TravelDist_Ferry   (Kept) := MakeDefined(string(Kept/TravelDist_Ferry), '');
+				attribute<string> TravelDist_Car     (Kept) := MakeDefined(string(Kept/TravelDist_Car), '');
+				attribute<string> Component          (Kept) := Kept/Component;
+				attribute<string> TravelDist_V       (Kept) := MakeDefined(string(Kept/TravelDist_V), '');
+				attribute<string> TravelDist_N       (Kept) := MakeDefined(string(Kept/TravelDist_N), '');
+				attribute<string> PTTime             (Kept) := MakeDefined(string(convert(Kept/PTTime, min_f)), '');
+				attribute<string> PretransPrice      (Kept) := MakeDefined(string(Kept/PretransPrice), '');
+				attribute<string> PTPrice            (Kept) := MakeDefined(string(Kept/PTPrice), '');
+				attribute<string> PosttransPrice     (Kept) := MakeDefined(string(Kept/PosttransPrice), '');
+				attribute<string> TravelDist_PT      (Kept) := MakeDefined(string(Kept/TravelDist_PT), '');
+				attribute<string> TravelDist_Walking (Kept) := MakeDefined(string(Kept/TravelDist_Walking), '');
+				attribute<string> TravelDist_Cycling (Kept) := MakeDefined(string(Kept/TravelDist_Cycling), '');
+				attribute<string> WalkingTime        (Kept) := MakeDefined(string(convert(Kept/WalkingTime, min_f)), '');
+				attribute<string> CyclingTime        (Kept) := MakeDefined(string(convert(Kept/CyclingTime, min_f)), '');
+				attribute<string> CarTime            (Kept) := MakeDefined(string(convert(Kept/CarTime, min_f)), '');
+				attribute<string> WalkingPrice       (Kept) := MakeDefined(string(Kept/WalkingPrice), '');
+				attribute<string> CyclingPrice       (Kept) := MakeDefined(string(Kept/CyclingPrice), '');
+				attribute<string> CarPrice           (Kept) := MakeDefined(string(Kept/CarPrice), '');
 			}
-			attribute<string> Line                         (Kept) := Kept/OrgName + ';' + Kept/DestName
-			                                                         + ';' + MakeDefined(string(convert(Kept/Traveltime, min_f)), '') + ';' + MakeDefined(string(Kept/Price), '') + ';' + MakeDefined(string(Kept/Price_Augm), '') + ';' + Kept/ModeUsed
-			                                                         + ';' + MakeDefined(string(Kept/NeedsCar), '') + ';' + MakeDefined(string(Kept/NeedsBike), '') + ';' + MakeDefined(string(convert(Kept/WaitingTime, min_f)), '') + ';' + MakeDefined(string(convert(Kept/PretransTime, min_f)), '')
-			                                                         + ';' + MakeDefined(string(convert(Kept/PosttransTime, min_f)), '') + ';' + MakeDefined(string(Kept/TravelDist_Bus), '') + ';' + MakeDefined(string(Kept/TravelDist_Metro), '') + ';' + MakeDefined(string(Kept/TravelDist_Tram), '')
-			                                                         + ';' + MakeDefined(string(Kept/TravelDist_Rail), '') + ';' + MakeDefined(string(Kept/TravelDist_Ferry), '') + ';' + MakeDefined(string(Kept/TravelDist_Car), '') + ';' + Kept/Component;
+			unit<uint8> CsvColumns : nrofrows = 31, Descr = "The columns of the csv after OrgName and DestName, in the order of Parquet/tt; each is an item of CsvText."
+			{
+				attribute<string> name : ['Traveltime', 'Price', 'Price_Augm', 'ModeUsed', 'NeedsCar', 'NeedsBike', 'WaitingTime', 'PretransTime', 'PosttransTime', 'TravelDist_Bus', 'TravelDist_Metro', 'TravelDist_Tram', 'TravelDist_Rail', 'TravelDist_Ferry', 'TravelDist_Car', 'Component'
+				                         , 'TravelDist_V', 'TravelDist_N', 'PTTime', 'PretransPrice', 'PTPrice', 'PosttransPrice', 'TravelDist_PT', 'TravelDist_Walking', 'TravelDist_Cycling', 'WalkingTime', 'CyclingTime', 'CarTime', 'WalkingPrice', 'CyclingPrice', 'CarPrice'];
+			}
+			attribute<string> Line                         (Kept) := ='Kept/OrgName + '';'' + Kept/DestName + '';'' + ' + asList('CsvText/' + CsvColumns/name, ' + '';'' + ');
 			parameter<string> File                                := 'OrgName;DestName;' + asList(CsvColumns/name + '_' + MomentShort, ';') + '\n' + asList(Line, '\n')
 			,	StorageName = "=/ModelParameters/Impl/OutputDir + '/PerBlock/tt' + FileTail + '.csv'", StorageType = "str"
 			,	ExplicitSuppliers = "/NetworkSetup/GenerateOutput/Output_Sig/ForWriting";
