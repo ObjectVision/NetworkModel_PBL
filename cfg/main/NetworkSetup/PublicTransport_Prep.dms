@@ -223,11 +223,11 @@ container PublicTransport_Prep
 		// (Car/Front). The signature (Signature) carries everything that determines the content; the name holds only the road network, the
 		// moment, the origin and destination sets and a hash of the signature (NetworkModel_PBL#118). Calculate Write_Car first
 		// (batch/UpdateAll.cmd cars does the moments of MakeUnlinkedData/Step4_DirectCar/Moments), then reload.
-		unit<uint8> CarMoments := range(uint8, 0b, uint8(4 + (/ModelParameters/Impl/CarTimeDependent ? #/ModelParameters/Impl/MeasureMoments : 0)))
-		,	Descr = "The congestion moments with a cache of the direct car trip: the three rush hours and free flow (TomTom: Freeflow, OSM: MaxSpeed), of which Car_CongestionMoment_ForDirect picks one, and with CarTimeDependent (#132) a time-dependent cache TD<moment> per departure moment (TD07h00m), which PerDepartureMoment_T/CarRows reads per block."
+		unit<uint8> CarMoments := range(uint8, 0b, uint8(4 + (/ModelParameters/Impl/CarTimeDependent ? #/ModelParameters/Impl/PartOfDay_Moments : 0)))
+		,	Descr = "The congestion moments with a cache of the direct car trip: the three rush hours and free flow (TomTom: Freeflow, OSM: MaxSpeed), of which Car_CongestionMoment_ForDirect picks one, and with CarTimeDependent (#132) a time-dependent cache TD<moment> per departure moment of the part of the day (TD07h00m, Impl/PartOfDay_Moments, the same in every run, so that every run can compute the signature of the car output, #145), which PerDepartureMoment_T/CarRows reads per block."
 		{
 			attribute<string> name := ='union_data(., ''MorningRush'', ''NoonRush'', ''LateEveningRush'', '+quote(/ModelParameters/UseTomTomNetworkForCars ? 'Freeflow' : 'MaxSpeed')
-			                          + (/ModelParameters/Impl/CarTimeDependent ? ', ' + asList(quote('TD' + /ModelParameters/Impl/MeasureMoments/TemplatableTextShrt), ', ') : '') + ')';
+			                          + (/ModelParameters/Impl/CarTimeDependent ? ', ' + asList(quote('TD' + /ModelParameters/Impl/PartOfDay_Moments/Shrt), ', ') : '') + ')';
 		}
 		container CarPerMoment := for_each_ne(CarMoments/name, 'DirectCar_T('+quote(CarMoments/name)+')')
 		,	Descr = "Per congestion moment: Write_Car (writes the cache), Read_Car (reads it) and Car (with price, the summary per OD pair in Summary and the front in Car/Front).";
@@ -251,10 +251,11 @@ container PublicTransport_Prep
 			                                         ? '_TomTom-' + /SourceData/Infrastructure/TomTom/file_date + '_' + /ModelParameters/CongestionSpeed_DaySelection
 			                                         : '_OSM-' + /SourceData/Infrastructure/OSM/file_date)
 			                                     + '_MaxTime-' + string(/ModelParameters/MaxCarTime) + 'min'
-			                                     + '_ORG-' + /ModelParameters/Impl/OrgSet_string + '_DEST-' + /ModelParameters/Impl/DestSet_string
+			                                     + '_ORG-' + /ModelParameters/Impl/OrgSet_string + '_DEST-' + /ModelParameters/Impl/DestSet_string + /ModelParameters/Impl/OrgDest_Tag
 			                                     + (MaxSpeed > 0[km_hr] ? '_vmax' + string(round(MaxSpeed)) : '')
+			                                     + /ModelParameters/Impl/CarNetwork_Tag
 			                                     + /ModelParameters/Impl/ParetoLegs_Car_FileTag + TD_Tag + /ModelParameters/Impl/CarNetwork_Revision
-			,	Descr = "Signature of the cache: congestion moment, network and edition, MaxCarTime, origin and destination sets, speed cap, Pareto tag and revision; the cache holds travel time and distance, and the price follows on reading (#88).";
+			,	Descr = "Signature of the cache: congestion moment, network and edition, MaxCarTime, origin and destination sets with the settings that place them (Impl/OrgDest_Tag), speed cap, the settings of the car network (Impl/CarNetwork_Tag), Pareto tag and revision; the cache holds travel time and distance, and the price and the start and parking times follow on reading (#88, #145).";
 			container         Hash            := /Templates/StringHash_T(Signature);
 			parameter<string> NetTag          := /ModelParameters/UseTomTomNetworkForCars
 			                                     ? 'TT' + replace(/SourceData/Infrastructure/TomTom/file_date, 'yr', '', '_', '-')
@@ -469,17 +470,15 @@ container PublicTransport_Prep
 		///
 		parameter<TimeInvariantTypes> TimeInvariantTypes_rel        := rlookup(TypeName, TimeInvariantTypes/name);
 		parameter<bool>               IsPre                         := TimeInvariantTypes/VN_Transport[TimeInvariantTypes_rel] == 'V';
-		parameter<string>             NetworkTag                    := TimeInvariantTypes/NetworkType[TimeInvariantTypes_rel] == 'Cycling'
-		                                                               ? 'cycling' + string(/ModelParameters/CyclingSpeed_kmhr) + 'kmh' + (/ModelParameters/Impl/CyclingNetwork_FileTag != '' ? /ModelParameters/Impl/CyclingNetwork_FileTag : '_osm' + /SourceData/Infrastructure/OSM/file_date + /SourceData/Infrastructure/OSM/CacheRevision)
-		                                                               : 'walking' + string(/ModelParameters/WalkingSpeed_kmhr) + 'kmh_osm' + /SourceData/Infrastructure/OSM/file_date + /SourceData/Infrastructure/OSM/CacheRevision
-		,	Descr = "The network and the speed, for the signature: the Fietsersbond cycling network (CyclingNetwork_FileTag) or the OSM network cache.";
+		parameter<string>             NetworkTag                    := TimeInvariantTypes/NetworkType[TimeInvariantTypes_rel] == 'Cycling' ? /ModelParameters/Impl/CyclingNetwork_Tag : /ModelParameters/Impl/WalkingNetwork_Tag
+		,	Descr = "The network and the speed, for the signature: Impl/CyclingNetwork_Tag or Impl/WalkingNetwork_Tag, with the Fietsersbond network or the OSM network cache and the settings of the network building (#145).";
 		parameter<string>             Signature                     := 'Legs_' + TypeName + '_' + NetworkTag
 		                                                               + '_MaxTime-' + string(TimeInvariantTypes/MaxTime[TimeInvariantTypes_rel]) + 'min'
-		                                                               + '_ORG-' + /ModelParameters/Impl/OrgSet_string + '_DEST-' + /ModelParameters/Impl/DestSet_string
+		                                                               + '_ORG-' + /ModelParameters/Impl/OrgSet_string + '_DEST-' + /ModelParameters/Impl/DestSet_string + /ModelParameters/Impl/OrgDest_Tag
 		                                                               + '_' + /ModelParameters/Impl/Analysis_date + (/ModelParameters/Impl/GTFS_file_date == /ModelParameters/Impl/Analysis_date ? '' : '_gtfs' + /ModelParameters/Impl/GTFS_file_date)
 		                                                               + '_places' + string(#impl/Places) + '-stops' + string(#impl/Stops)
 		                                                               + '_parquet_r3'
-		,	Descr = "Signature of the cache: the type, network and speed, the maximum time, the origins, the destinations and the stops (feed and analysis date, with the number of places and stops as a check), the format and the revision.";
+		,	Descr = "Signature of the cache: the type, network and speed, the maximum time, the origins and destinations with the settings that place them (Impl/OrgDest_Tag), the stops (feed and analysis date, with the number of places and stops as a check), the format and the revision.";
 		container                     Hash                          := /Templates/StringHash_T(Signature);
 		parameter<string>             StorageBase_Str               := /ModelParameters/Impl/IntermediateResultsDir + '/Legs_' + replace(TypeName, 'Org2', /ModelParameters/Impl/OrgSet_NameTag + 'to', 'Dest', /ModelParameters/Impl/DestSet_NameTag) + '_' + Hash/Hex
 		,	Descr = "Name of the cache without extension: the type with the origin or destination set (OrgSet_NameTag: Legs_B2025toStops_Walking, Legs_Stops2B2025_Cycling) and the rest as a hash of Signature.";
@@ -955,15 +954,18 @@ container PublicTransport_Prep
 	}
 
 	// The signature of the chain cache: all parameters the chains depend on. It stands as a hash in the name (StorageBase_Str,
-	// NetworkModel_PBL#118) and in full in signature.txt in the folder of the cache.
+	// NetworkModel_PBL#118) and in full in signature.txt in the folder of the cache. It takes the window from the departure moments of the part
+	// of the day and the criteria from MinimiseCriteria (Impl/PartOfDay_Moments, Classifications/ComponentParetoAttr), which in a run of a public
+	// transport component equal those of the run, so that a merge or a direct trip computes the same signature for the output of a public
+	// transport component (NetworkSetup/GenerateOutput/CompOutput_T, #145).
 	parameter<string> PT_Chains_Window         := Time/TemplatableTextShrt[impl/FirstDepartureMoment] + '-' + Time/TemplatableTextShrt[impl/LastArrivalMoment]
 	, Descr = "The time window of the chains, for example 07h00m-09h29m: from the first departure moment to the last arrival.";
 	parameter<string> PT_Chains_Signature      :=
-		'PT_Chains_'+Time/TemplatableTextShrt[impl/FirstDepartureMoment]+
-		'_to_'+Time/TemplatableTextShrt[impl/LastArrivalMoment]+
+		'PT_Chains_'+Time/TemplatableTextShrt[/ModelParameters/Impl/PartOfDay_FirstDepartureMoment]+
+		'_to_'+Time/TemplatableTextShrt[/ModelParameters/Impl/PartOfDay_LastArrivalMoment]+
 		'_'+/ModelParameters/Impl/Analysis_date+
 		(/ModelParameters/Impl/GTFS_file_date == /ModelParameters/Impl/Analysis_date ? '' : '_gtfs'+/ModelParameters/Impl/GTFS_file_date)+
-		'_min-'+asList(Classifications/FinalParetoAttr/FileNameElement, '_')+
+		'_min-'+asList(Classifications/ComponentParetoAttr/FileNameElement, '_')+
 		'_maxtransf-'+string(ModelParameters/Max_transfers)+
 		'_MaxOV-' + string(ModelParameters/MaxPTTime) + 'min'+
 		// The Pareto legs (ObjectVision/NetworkModel_PBL#115) change the content of this file, so they must be in the signature: otherwise a
@@ -978,7 +980,7 @@ container PublicTransport_Prep
 		// Fare, transfer and stop parameters: without this tag a changed parameter would silently read back the old chains.
 		ModelParameters/Impl/PT_Chains_ParamTag+
 		// An OD pair (#129): the chains from the stops of the origin to those of the destination, with the maximum times of the post-transport.
-		(ModelParameters/Impl/IsOD ? '_od' + ModelParameters/Impl/OD_Tag + OD_Stops/TypeTag + string(ModelParameters/MaxWalkingTime_Stops2Dest) + '-' + string(ModelParameters/MaxCyclingTime_Stops2Dest) : '')+
+		(ModelParameters/Impl/IsOD ? '_od' + ModelParameters/Impl/OD_Tag + OD_Stops/TypeTag + string(ModelParameters/MaxWalkingTime_Stops2Dest) + '-' + string(ModelParameters/MaxCyclingTime_Stops2Dest) + ModelParameters/Impl/OrgDest_Tag : '')+
 		ModelParameters/Impl/PT_Chains_Revision;
 	container         PT_Chains_Hash           := /Templates/StringHash_T(PT_Chains_Signature);
 	parameter<string> StorageBase_Str          := /ModelParameters/Impl/IntermediateResultsDir + '/PT_Chains_' + /ModelParameters/Impl/Analysis_date + '_' + PT_Chains_Window + '_' + PT_Chains_Hash/Hex

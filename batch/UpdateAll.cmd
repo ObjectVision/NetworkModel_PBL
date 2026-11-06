@@ -68,8 +68,9 @@ REM                                 -component C_PT_OVf_C; not Merged, because t
 REM The section comes first; cars takes moments, any other word or option stops the script before it starts.
 REM
 REM The output step of a component, with all after its cache steps: a file per origin block and departure moment in
-REM %LocalDataProjDir%\Output\<Analysis_date>_<OutputLabel>_<component>[_fb]\PerBlock (_fb: a component on the cycling
-REM network with CyclingNetwork 'Fietsersbond'), with the chain cache of the departure moments of PartOfDay. The step
+REM %LocalDataProjDir%\Output\<Analysis_date>_<OutputLabel>_<component>[_fb]_<hash>\PerBlock (_fb: a component on the cycling
+REM network with CyclingNetwork 'Fietsersbond'; <hash>: the hash of the signature of the output, NetworkModel_PBL#145), with
+REM the chain cache of the departure moments of PartOfDay. The step
 REM first empties the output folder of the component (#118), removing only the files of the model: tt_*.csv, tt_*.parquet
 REM and tt_*.xml, signature.txt/.xml, the counts od_tellingen.csv and unieke_od_tellingen.csv (with .xml) and
 REM Tellingen\tellingen_*.*. It runs in portions of blocks (WriteOutputBlocks.ps1, a GeoDmsRun per portion, then the
@@ -517,9 +518,9 @@ if /I "!OUTSTATE!"=="complete" (
   call :say "--- output of %COMP% is complete in !OUTDIR!, skipped ---"
   exit /b 0
 )
-REM Empty the output folder (NetworkModel_PBL#118): the file names carry only the moment and the block, and the parameters
-REM are in signature.txt in the folder, so without emptying a run after a code change would put its blocks next to those
-REM of the previous run. Only the files the model writes there are removed, and only if the folder lies under a folder
+REM Empty the output folder (NetworkModel_PBL#118): the file names carry only the moment and the block, and the folder name
+REM only the hash of the signature (#145), so without emptying a run would put its blocks next to those of an earlier run
+REM with the same signature: one that was stopped, or one before a code change that left the signature as it was. Only the files the model writes there are removed, and only if the folder lies under a folder
 REM Output. Does the path contain \Output\, or \Output_ of an OD pair (Output_<O>_<D>, #129)? Replacing it by nothing then
 REM makes the string shorter; cmd replaces case-insensitively. An empty OUTDIR is refused first: the replacement in an undefined
 REM variable yields the text of the replacement itself, and "\" would be the root of the drive. Each matching file is removed on

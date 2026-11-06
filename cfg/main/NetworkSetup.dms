@@ -84,32 +84,90 @@ container NetworkSetup : using = "units;Geography;SourceData;Classifications;Mod
 
 	container GenerateOutput
 	{	
-		// The signature of the public transport output (#118). The output is in ModelParameters/Impl/OutputDir (Output/<Analysis_date>_<OutputLabel>),
-		// with only departure moment and block in the file names; all parameters are in <OutputDir>/signature.txt. The writer per block
-		// (PublicTransport/PerDepartureMoment_T, LongFormat/File) writes it and refuses a folder with a different signature; the readers and mergers
-		// (ReadExport_OV_perTime_T, Merge_Regions_OV_T, Merge_Times, PostAnalysis/FindMedian) refuse to read when it is missing or differs. The chain
-		// cache and the car cache belong to it, because the output is calculated from their content.
-		parameter<string> Output_CarSignature  := = /ModelParameters/Impl/AllowDirectCar
-		                                          ? (/ModelParameters/Impl/CarTimeDependent
-		                                              ? '''_''+/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/TD' + first(/ModelParameters/Impl/MeasureMoments/TemplatableTextShrt) + '/Signature'
-		                                              : '''_''+/NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/' + /ModelParameters/Impl/Car_CongestionMoment_ForDirect + '/Signature')
-		                                          : '''''', Descr = "The signature of the car cache of the direct car trip (Car_CongestionMoment_ForDirect) with a _ in front, empty without AllowDirectCar; with CarTimeDependent that of the cache of the first departure moment, which carries the time-dependent search in TD_Tag.";
-		
-		parameter<string> Output_Signature_Run :=
-			'tt_' + /ModelParameters/Impl/Analysis_date + '_ORG-' + /ModelParameters/Impl/OrgSet_string + /ModelParameters/Impl/PT_Output_ParamTag
-			+ '_export' + (/ModelParameters/Export_TravelledDistance ? '-dist' : '') + (/ModelParameters/Export_PriceInformation ? '-price' : '')
-			+ (/ModelParameters/Impl/WithPT ? '_' + /NetworkSetup/PublicTransport_Prep/PT_Chains_Signature : '')
-			+ Output_CarSignature
-			+ (/ModelParameters/OutputFormat == 'parquet' ? '_parquet-s2-' + /ModelParameters/Impl/ExportClass : '')
-		, Descr = "The signature of the public transport output: date, set of origins and PT_Output_ParamTag, the exported columns, the signatures of the chain cache (with WithPT) and of the car cache, and with OutputFormat 'parquet' _parquet-s2- (times in whole seconds, with the distances and prices of pre- and post-transport, #144) plus the kind of component (ModelParameters/Impl/ExportClass), which sets the columns.";
-		
-		parameter<string> Output_Signature     := =/ModelParameters/Impl/IsMerged ? 'ComponentMerge_Def/Signature' : 'Output_Signature_Run', Descr = "The signature of the output folder: Output_Signature_Run of a run, or for the component Merged (#117) that of ComponentMerge, with the signatures of the merged components.";
-		
+		// The signature of the public transport output (#118, #145). The output is in ModelParameters/Impl/OutputDir,
+		// Output/<Analysis_date>_<OutputLabel>_<component>_<hash>, with the hash of the signature in the name, as the caches have it, so that output
+		// made with other settings has a folder of its own; only departure moment and block are in the file names, and all parameters in
+		// <OutputDir>/signature.txt. The writer per block (PublicTransport/PerDepartureMoment_T, LongFormat/File) writes it and refuses a folder with a
+		// different signature; the readers and mergers (ReadExport_OV_perTime_T, Merge_Regions_OV_T, Merge_Times, PostAnalysis/FindMedian,
+		// ComponentMerge) refuse to read when it is missing or differs, so that a collision of the hash gives an error. The chain cache and the car
+		// cache belong to it, because the output is calculated from their content.
+		//
+		// CompOutput_T gives for one component the signature of its output, the hash and the folder, the same in every run: the run uses it for its
+		// own component (ThisComp), the merge for every component of the variant (ComponentMerge_Def/PerComp), and Output/FrontCheck and
+		// Output/OD_PairRoutes for the components they read. What it uses besides the component therefore does not depend on the component of the
+		// run: the signatures of the chain cache and of the car cache follow from the part of the day and the variant
+		// (PublicTransport_Prep/PT_Chains_Signature, Impl/CarSignatureMoment). A setting that changes the output is in the signature of the
+		// components that use it, with its value, also the default.
+		Template CompOutput_T : Descr = "The signature, hash and folder of the output of one component (#145), the same in every run."
+		{
+			parameter<string> CompName;
+			///
+			parameter</Classifications/Components> Comp_rel := rlookup(CompName, /Classifications/Components/name), IntegrityCheck = "IsDefined(this)";
+			parameter<bool>   WithPT      := /Classifications/Components/WithPT[Comp_rel];
+			parameter<bool>   IsWW        := /Classifications/Components/DirectWalking[Comp_rel];
+			parameter<bool>   IsCC        := /Classifications/Components/DirectCycling[Comp_rel];
+			parameter<bool>   IsCar       := /Classifications/Components/DirectCar[Comp_rel];
+			parameter<bool>   UsesCycling := /Classifications/Components/UsesCycling[Comp_rel];
+			parameter<bool>   IsOVF       := WithPT && IsDefined(strpos(/Classifications/Components/PostTransport[Comp_rel], 'OVF'));
+			parameter</Classifications/TimeInvariantTypes> Pre_rel  := rlookup(/Classifications/Components/PreTransport[Comp_rel], /Classifications/TimeInvariantTypes/name);
+			parameter</Classifications/TimeInvariantTypes> Post_rel := rlookup(/Classifications/Components/PostTransport[Comp_rel], /Classifications/TimeInvariantTypes/name);
+
+			parameter<string> CombinationType := 'V-' + (WithPT ? /Classifications/Components/PreCode[Comp_rel] + '_N-' + /Classifications/Components/PostCode[Comp_rel] : /Classifications/Components/DirectCode[Comp_rel])
+			,	Descr = "The pre- and post-transport type of a public transport component (V-W_N-OVf_C), or the direct trip (V-WW).";
+			parameter<bool>   CarCriterion  := IsCar && IsDefined(strpos(lowercase(/ModelParameters/MinimiseCriteria), 'car'));
+			parameter<bool>   BikeCriterion := /Classifications/Components/NeedsBike[Comp_rel] && IsDefined(strpos(lowercase(/ModelParameters/MinimiseCriteria), 'bike'));
+			parameter<string> MinCrit       := asList(/Classifications/ComponentParetoAttr/FileNameElement, '_') + (CarCriterion ? '_A' : '') + (BikeCriterion ? '_C' : '')
+			,	Descr = "The criteria of the front of the component: MinimiseCriteria, with A and C for the ownership criteria that apply to it, as Classifications/OutputParetoAttr in a run of the component.";
+			parameter<string> CarPriceTag   := IsCar ? '_car' + (/ModelParameters/Advanced/IncludeCarCostsInPrice ? string(round(/ModelParameters/Car_CostPerKm * 100f)) + 'ctkm' + (/ModelParameters/Car_FixedCosts_PerTrip > 0[Euro] ? '-p' + string(round(/ModelParameters/Car_FixedCosts_PerTrip * 100f)) + 'ct' : '') : '0') : ''
+			,	Descr = "The price of the direct car trip in ct per km and, when not 0, per trip (#88); _car0 when Advanced/IncludeCarCostsInPrice is off.";
+			parameter<string> SettingsTag   :=
+				  (IsWW   ? '_WW-max' + string(/ModelParameters/MaxWalkingTime_Org2Dest) + 'min-cost' + string(/ModelParameters/Direct_Walking_Time_Costs) + 'eurmin' + (/ModelParameters/Advanced/IncludeWalkingCostsInPrice ? '-inprice' : '-notinprice') + '-' + /ModelParameters/Impl/WalkingNetwork_Tag : '')
+				+ (IsCC   ? '_CC-max' + string(/ModelParameters/MaxCyclingTime_Org2Dest) + 'min-start' + string(/ModelParameters/Cycling_StartTime) + 'min-cost' + string(/ModelParameters/Direct_Cycling_Time_Costs) + 'eurmin' + (/ModelParameters/Advanced/IncludeCyclingCostsInPrice ? '-inprice' : '-notinprice') + '-' + /ModelParameters/Impl/CyclingNetwork_Tag : '')
+				+ (WithPT ? '_PT-maxtt' + string(/ModelParameters/MaxTravelTime) + 'min-waitmax' + string(/ModelParameters/Advanced/MaxWaitingTimeAtOrigin) + 's-waitintt' + string(uint8(/ModelParameters/Advanced/IncludeWaitingAtHomeInTravelTime)) + '-inprice' + string(uint8(/ModelParameters/Advanced/IncludeWalkingCostsInPrice)) + string(uint8(/ModelParameters/Advanced/IncludeCyclingCostsInPrice))
+				          + '_V-' + /Classifications/TimeInvariantTypes/OutputSignatureTag[Pre_rel] + '_N-' + /Classifications/TimeInvariantTypes/OutputSignatureTag[Post_rel] : '')
+				+ (IsCar  ? '_Car-start' + string(/ModelParameters/Car_StartTime) + 'min-park' + string(/ModelParameters/Car_ParkingTime) + 'min' : '')
+				+ (/Classifications/Components/SingleDepartureMoment_Eff[Comp_rel] ? '_dep' + /ModelParameters/Impl/SingleDepartureMoment_Shrt : '')
+				+ '_median' + string(uint8(/ModelParameters/Advanced/MakeMedian))
+				+ /ModelParameters/Impl/OrgDest_Tag
+			,	Descr = "The settings that change the output of this kind of component and are in no cache it reads (#145): for WW and CC the maximum time, the costs and the network of the trip, for a public transport component the maximum travel time, the wait at home and the settings of its pre- and post-transport type (Classifications/TimeInvariantTypes/OutputSignatureTag), for Car the start and parking time, the departure moment of a component with one, the median and the origins and destinations (Impl/OrgDest_Tag).";
+			parameter<string> ParamTag      :=
+				'_DEST-' + /ModelParameters/Impl/DestSet_string_nodate + '_' + CombinationType
+				+ (WithPT ? '_Trsf-' + string(/ModelParameters/Max_transfers) : '')
+				+ '_MinCrit-' + MinCrit
+				+ (WithPT ? '_MaxPT-' + string(/ModelParameters/MaxPTTime) + 'min' + /ModelParameters/Impl/Flex_FileTag + /ModelParameters/Impl/TripSurcharge_FileTag : '')
+				+ (IsCar ? /ModelParameters/Impl/ParetoLegs_Car_FileTag : '')
+				+ CarPriceTag + /ModelParameters/Impl/ChainPareto_FileTag
+				+ (IsOVF ? /ModelParameters/Impl/OVFiets_FileTag : '')
+				+ (UsesCycling ? /ModelParameters/Impl/CyclingNetwork_FileTag : '')
+				+ SettingsTag
+			,	Descr = "The parameters of the output after date and origin set: destination set, modes, criteria, the tags and SettingsTag.";
+			parameter<string> CarSignature  := = IsCar ? '''_'' + /NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/' + /ModelParameters/Impl/CarSignatureMoment + '/Signature' : ''''''
+			,	Descr = "The signature of the car cache that the direct car trip reads, with a _ in front; empty for another component.";
+			parameter<string> Signature     :=
+				'tt_' + /ModelParameters/Impl/Analysis_date + '_ORG-' + /ModelParameters/Impl/OrgSet_string + ParamTag
+				+ '_export' + (/ModelParameters/Export_TravelledDistance ? '-dist' : '') + (/ModelParameters/Export_PriceInformation ? '-price' : '')
+				+ (WithPT ? '_' + /NetworkSetup/PublicTransport_Prep/PT_Chains_Signature : '')
+				+ CarSignature
+				+ (/ModelParameters/OutputFormat == 'parquet' ? '_parquet-s2-' + /Classifications/Components/ExportClass[Comp_rel] : '')
+			,	Descr = "The signature of the output of the component: date, origin set, ParamTag, the exported columns, the signatures of the chain cache (with WithPT) and the car cache, and with parquet _parquet-s2- (times in whole seconds, with the distances and prices of pre- and post-transport, #144) and the kind of component, which sets the columns.";
+			container         Hash          := /Templates/StringHash_T(Signature);
+			parameter<string> Dir           := '%LocalDataProjDir%/Output' + /ModelParameters/Impl/OD_Tag + '/' + /ModelParameters/Impl/Analysis_date + '_' + /ModelParameters/OutputLabel + /Classifications/Components/OutputSuffix[Comp_rel] + '_' + Hash/Hex
+			,	Descr = "The output folder of the component: date, OutputLabel, the component (with _fb on the Fietsersbond network) and the hash of Signature.";
+			container         Sig           := /Templates/Signature_T(Dir, Dir + '/signature.txt', Signature, /NetworkSetup/GenerateOutput/MaxSubPathLength)
+			,	Descr = "The signature in the folder, which a reader of the output of the component checks (Sig/ForReading).";
+		}
+		container         ThisComp             := CompOutput_T(/ModelParameters/Impl/ComponentName), Descr = "The output of the component of this run; not used when merging.";
+		parameter<uint32> MaxSubPathLength     := strlen('/PerBlock/tt_') + max_elem(max(strlen(/ModelParameters/Impl/MeasureMoments/TemplatableTextShrt)), strlen('mediaan')) + 1 + max(strlen(impl/OrgBlockDomain/FileName)) + strlen(/ModelParameters/Impl/OutputExt)
+		, Descr = "The length of the longest path in an output folder after its name: PerBlock/tt_<moment>_<n>of<N>.csv or .parquet.";
+
+		parameter<string> Output_Signature_Run := ThisComp/Signature, Descr = "The signature of the output of the component of this run (CompOutput_T).";
+		parameter<string> Output_Signature     := =/ModelParameters/Impl/IsMerged ? 'ComponentMerge_Def/Signature' : 'Output_Signature_Run', Descr = "The signature of the output folder: Output_Signature_Run of a run, or for the component Merged (#117) that of ComponentMerge, with the hashes of the merged components.";
+
 		container         Output_Sig           := /Templates/Signature_T(
 		                                          /ModelParameters/Impl/OutputDir
 		                                          , /ModelParameters/Impl/OutputDir + '/signature.txt'
 		                                          , Output_Signature
-		                                          , strlen('/PerBlock/tt_') + max_elem(max(strlen(/ModelParameters/Impl/MeasureMoments/TemplatableTextShrt)), strlen('mediaan')) + 1 + max(strlen(impl/OrgBlockDomain/FileName)) + strlen(/ModelParameters/Impl/OutputExt)
+		                                          , MaxSubPathLength
 		                                          )
 		, Descr = "The signature in the output folder, which the writer per block writes (checking also the longest path, PerBlock/tt_<moment>_<n>of<N>.csv or .parquet) and the readers and mergers check.";
 	

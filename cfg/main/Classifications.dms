@@ -84,8 +84,19 @@ container Classifications: Using = "Units"
 		attribute<bool>   IsOVfiets      := lowercase(StopClass) == lowercase('OVf');
 		attribute<bool>   NeedsOwnBike   := Mode_abbrev == 'C' && NOT(IsOVfiets), Descr = "Does this leg need an own bike (NetworkModel_PBL#117): yes for cycling, also in the PostTransport with an own bike at the last stop, except with a rented OV-fiets.";
 		attribute<min_f>  MaxTime        := ='union_data(.,'+asList('ModelParameters/' + (Mode == 'Walking' && ConnectionType != 'Org2Stops' && ConnectionType != 'Stops2Dest' ? 'Advanced/' : '') + 'Max'+Mode+'Time_'+ConnectionType, ',')+')';
-		
-		
+
+		// The settings of a pre- or post-transport type in the signature of the output of the public transport components that use it (#145):
+		// the network (Impl/WalkingNetwork_Tag, CyclingNetwork_Tag), the maximum time of its base set and its own, the start, parking and
+		// penalty times of a cycling leg, and its price per minute, or for the OV-fiets the rent and the search distance to the stops. The legs
+		// are calculated once per base set, and these settings are applied when they are read (PublicTransport_Prep/Legs).
+		attribute<min_f>    BaseMaxTime        := NetworkType == 'Walking' ? (VN_Transport == 'V' ? /ModelParameters/MaxWalkingTime_Org2Stops : /ModelParameters/MaxWalkingTime_Stops2Dest) : (VN_Transport == 'V' ? /ModelParameters/MaxCyclingTime_Org2Stops : /ModelParameters/MaxCyclingTime_Stops2Dest), Descr = "The maximum time of the base set from which the legs of this type are selected.";
+		attribute<euro_min> TimeCosts          := NetworkType == 'Walking' ? (VN_Transport == 'V' ? /ModelParameters/PreTransport_Walking_Time_Costs : /ModelParameters/PostTransport_Walking_Time_Costs) : (VN_Transport == 'V' ? /ModelParameters/PreTransport_Cycling_Time_Costs : /ModelParameters/PostTransport_Cycling_Time_Costs), Descr = "The price per minute of a leg of this type; not for the OV-fiets, which costs OVFiets_RentalPrice.";
+		attribute<string>   OutputSignatureTag := Name_short + '-' + (NetworkType == 'Walking' ? /ModelParameters/Impl/WalkingNetwork_Tag : /ModelParameters/Impl/CyclingNetwork_Tag)
+		                                          + '-base' + string(BaseMaxTime) + 'min-max' + string(MaxTime) + 'min'
+		                                          + (NetworkType == 'Cycling' ? '-start' + string(/ModelParameters/Cycling_StartTime) + 'min' + (VN_Transport == 'V' ? '-pen' + string(/ModelParameters/Advanced/Cycling_PreTransport_Penalty) + 'min-ic' + string(/ModelParameters/Cycling_ParkingTime_IC_Station) + 'min' : '') : '')
+		                                          + (IsOVfiets ? '-rent' + string(/ModelParameters/OVFiets_RentalPrice) + 'eur-dist' + string(/ModelParameters/Advanced/DistanceOVFietsStops) + 'm' : '-cost' + string(TimeCosts) + 'eurmin')
+		,	Descr = "The settings of this type in the signature of the output (NetworkSetup/GenerateOutput/CompOutput_T).";
+
 		container         V              := for_each_nedv(Name, String(ID(.))+'[..]', void, .);
 	}
 	
@@ -186,6 +197,7 @@ container Classifications: Using = "Units"
 		attribute<bool>   DirectCycling : [FALSE, TRUE, FALSE];
 		attribute<bool>   DirectCar     : [FALSE, FALSE, TRUE];
 		attribute<string> NetworkType   : ['Walking', 'Cycling', 'Car'], Descr = "The mode of the trip, as TimeInvariantTypes/NetworkType names it for pre- and post-transport.";
+		attribute<string> ModeUsed      : ['WW', 'CC', 'AA'], Descr = "The trip in ModeUsed and in the signature of the output.";
 		// one switch per element, in the order of name
 		attribute<bool>   Selected      := union_data(., /ModelParameters/DirectWalking, /ModelParameters/DirectCycling, /ModelParameters/DirectCar), Descr = "Is the direct trip in the variant (ModelParameters/DirectWalking, DirectCycling, DirectCar)?";
 	}
@@ -209,6 +221,8 @@ container Classifications: Using = "Units"
 		attribute<bool>   NeedsBike                 := union_data(., DirectComponents/DirectCycling, PT_Components/NeedsBike), Descr = "Does the component need an own bike: CC, and a public transport component with cycling in pre- or post-transport other than the OV-fiets?";
 		attribute<bool>   Selected                  := union_data(., DirectComponents/Selected, PT_Components/Selected), Descr = "Is the component in the variant, so that batch/UpdateAll.cmd calculates it and the merge takes it along?";
 		attribute<string> PostCode                  := union_data(., const('', DirectComponents), PostTransportTypes/code[PT_Components/second_rel]), Descr = "The code of the post-transport type (W, C, RM_C, RMT_C, OVf_C); empty for a direct trip.";
+		attribute<string> PreCode                   := union_data(., const('', DirectComponents), PreTransportTypes/code[PT_Components/first_rel]), Descr = "The code of the pre-transport type (W, C, C_RM, C_RMT, C_Ric); empty for a direct trip.";
+		attribute<string> DirectCode                := union_data(., DirectComponents/ModeUsed, const('', PT_Components)), Descr = "The direct trip as WW, CC or AA; empty for a public transport component.";
 		// The mode of the pre-transport and the post-transport, by which the merge splits time, price and distance per mode (#144), as the csv
 		// of a component does with V_mode_rel and N_mode_rel: a direct trip is its own pre-transport and has no post-transport, and the OV-fiets
 		// counts as cycling.
@@ -409,16 +423,22 @@ container Classifications: Using = "Units"
 		                                                , case(id(.) == v/Price && NOT(IsBothPriceAndAugm) && IsCriteriaInList, TRUE)
 		                                                , IsCriteriaInList
 		                                            );
-		
+		// The same selection from MinimiseCriteria alone, also when merging: the criteria of a component, which the signatures of the chain
+		// cache and of the output of a component name, so that the merge computes them as the run of the component does (#145).
+		attribute<bool>   IsInMinimiseCriteria   := IsDefined(strpos(lowercase(ModelParameters/MinimiseCriteria), lowercase(CandidateParetoAttr/FileNameElement))), Descr = "Does MinimiseCriteria name this criterion, regardless of upper or lower case?";
+		attribute<bool>   IsComponentSelection   := IsInMinimiseCriteria && NOT(id(.) == v/Price && IsInMinimiseCriteria[v/Price_augm]), Descr = "IsFinalParetoSelection of a run of a component: the criteria of MinimiseCriteria, and of Price and Price_augm only Price_augm when it names both.";
+
 		container         V                      := for_each_nedv(name, String(ID(.))+'[..]', void, .);
 	}
-	
-	
-	
+
+
+
 	unit<uint8> FinalParetoAttr := select_with_attr_by_cond(CandidateParetoAttr, CandidateParetoAttr/IsFinalParetoSelection)
 	{
 		attribute<string> ParetoArgs := Name + (id(.) > 0b && EpsilonExpr != '' ? ', ' + EpsilonExpr : ''), Descr = "The arguments of this criterion for pareto_optimal_eps(part, crit1, crit2, eps2, ...): the first criterion only sets the order and gets no epsilon, and neither does a bool (GeoDMS #1282).";
 	}
+	unit<uint8> ComponentParetoAttr := select_with_attr_by_cond(CandidateParetoAttr, CandidateParetoAttr/IsComponentSelection)
+	, Descr = "FinalParetoAttr of a run of a component, also when merging: for the signatures of the chain cache and of the output of a component (#145).";
 
 	// Car ownership and bike ownership as criteria in the final Pareto selection (NetworkModel_PBL#117): an option that needs no car or
 	// bike stays next to a cheaper and faster option that does. Only in the condensations per departure moment
@@ -428,7 +448,7 @@ container Classifications: Using = "Units"
 	{
 		attribute<string> Name             : [ 'NeedsCar', 'NeedsBike' ];
 		attribute<string> CriteriaName     : [ 'Car', 'Bike' ], Descr = "The element in MinimiseCriteria.";
-		attribute<string> FileNameElement  : [ 'A', 'C' ], Descr = "The element in the signature of the output (PT_Output_ParamTag): the letter of car or bike in ModeUsed (NetworkModel_PBL#118).";
+		attribute<string> FileNameElement  : [ 'A', 'C' ], Descr = "The element in the signature of the output (NetworkSetup/GenerateOutput/CompOutput_T/MinCrit): the letter of car or bike in ModeUsed (NetworkModel_PBL#118).";
 		attribute<string> EpsilonExpr      : [ '', '' ], Descr = "Empty: a bool criterion has no epsilon in pareto_optimal_eps.";
 		attribute<bool>   IsCriteriaInList := IsDefined(strpos(lowercase(ModelParameters/Impl/IsMerged ? ModelParameters/MergeCriteria : ModelParameters/MinimiseCriteria), lowercase(CriteriaName))), Descr = "Does MinimiseCriteria, or MergeCriteria when merging, name the criterion?";
 		attribute<bool>   IsRelevant       := union_data(., ModelParameters/Impl/AllowDirectCar, ModelParameters/Impl/IsMerged ? any(Classifications/Components/Selected && Classifications/Components/NeedsBike) : ModelParameters/Impl/AllowDirectCycling || VN_ModeClasses/AnyNeedsBike)

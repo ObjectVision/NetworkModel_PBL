@@ -1,21 +1,17 @@
 container ComponentMerge_Def
-: Descr = "The components and the signature of the merge (#117), kept apart from ComponentMerge because the writers there request this signature through NetworkSetup/GenerateOutput/Output_Sig."
+: Descr = "The components, the signature and the folder of the merge (#117, #145), kept apart from ComponentMerge because ModelParameters/Impl/OutputDir and the writers there request this folder and signature."
 {
 	unit<uint8>       Comps              := /ModelParameters/Impl/VariantComponents
 	,	Descr = "The components that are merged: those of the variant, in the order of Classifications/Components.";
 	parameter<string> BaseDir            := '%LocalDataProjDir%/Output' + /ModelParameters/Impl/OD_Tag + '/' + /ModelParameters/Impl/Analysis_date + '_' + /ModelParameters/OutputLabel
-	,	Descr = "The output folder of the variant without the suffix of the component.";
+	,	Descr = "The output folder of the variant without the suffix of the merge.";
 
-	// The signature of every component, as its output wrote it.
-	container         PerComp            := for_each_ne(Comps/name, 'CompSignature_T(' + quote(Comps/OutputSuffix) + ')');
-	Template CompSignature_T : Descr = "Reads the signature that the output of one component wrote."
-	{
-		parameter<string> Suffix;
-		///
-		parameter<string> Stored : StorageName = "=BaseDir + Suffix + '/signature.txt'", StorageType = "str", StorageReadOnly = "true"
-		,	IntegrityCheck = "IsDefined(strpos(this, '_parquet-s2-'))"
-		,	Descr = "The signature of the output of this component; if it is missing, the component has not been calculated (yet). It must name _parquet-s2-, parquet with the times in whole seconds and the distances and prices of pre- and post-transport (#144): an older output of the component has the times in minutes as float32, which the readers below would take for seconds, or lacks those columns.";
-	}
+	// The output of every component: its signature, hash and folder as its own run computes them (NetworkSetup/GenerateOutput/CompOutput_T). The
+	// merge reads a component only when the signature.txt in its folder equals that signature (CompDir), so that output with other settings or
+	// with the parquet of before #144 is never merged.
+	container         PerComp            := for_each_ne(Comps/name, '/NetworkSetup/GenerateOutput/CompOutput_T(' + quote(Comps/name) + ')');
+	attribute<string> CompDir (Comps)    := ='union_data(Comps, ' + asList('PerComp/' + Comps/name + '/Sig/ForReading', ', ') + ')'
+	,	Descr = "The output folder of every component; an error names the component whose signature.txt is missing or differs, which then has not been calculated with the current settings.";
 
 	// The mode of the pre- and post-transport of every component (Classifications/Components/PreNetworkType, PostNetworkType), for the split
 	// per mode in MergeMoment_T (#144).
@@ -25,19 +21,22 @@ container ComponentMerge_Def
 	attribute<bool>   PostIsWalking (Comps) := Comps/PostNetworkType == 'Walking';
 	attribute<bool>   PostIsCycling (Comps) := Comps/PostNetworkType == 'Cycling';
 
-	parameter<string> CompSignatures     := =asList('''['' + PerComp/' + Comps/name + '/Stored + '']''', ' + ')
-	,	Descr = "The signatures of the Components in a row, each between [ and ].";
+	parameter<string> CompHashes         := =asList('''[' + Comps/name + ':'' + PerComp/' + Comps/name + '/Hash/Hex + '']''', ' + ')
+	,	Descr = "The components with the hash of the signature of their output, each as [name:hash]; the full signatures are in the folders of the components, and in full they would make the signature too long for the hash.";
 	parameter<string> Signature          :=
 		  'tt_' + /ModelParameters/Impl/Analysis_date + '_ORG-' + /ModelParameters/Impl/OrgSet_string
 		+ '_samen-' + asList(Comps/name, ',')
 		+ '_MinCrit-' + asList(/Classifications/OutputParetoAttr/FileNameElement, '_') + /ModelParameters/Impl/ChainPareto_FileTag
 		+ '_' + /ModelParameters/OutputFormat + '-m4'
-		+ '_' + CompSignatures
-	,	Descr = "The signature of the merged output: date, set of origins, Components, criteria (MergeCriteria) and epsilons, format (-m4: read from the parquet of the Components, with the times in whole seconds, and with the split per part and per mode of #144) and the signatures of the Components, so that it changes when a component is recalculated with other parameters.";
+		+ '_' + CompHashes
+	,	Descr = "The signature of the merged output: date, set of origins, Components, criteria (MergeCriteria) and epsilons, format (-m4: read from the parquet of the Components, with the times in whole seconds and the split per part and per mode of #144) and the hashes of the signatures of the Components, so that it changes when a component is calculated with other settings.";
+	container         Hash               := /Templates/StringHash_T(Signature);
+	parameter<string> Dir                := BaseDir + '_Merged' + string(/ModelParameters/MergeRunNr) + (any(Comps/UsesCycling) ? /ModelParameters/Impl/CyclingNetwork_DirTag : '') + '_' + Hash/Hex
+	,	Descr = "The output folder of the merge (#145): _Merged<MergeRunNr>, with _fb when a component cycles on the Fietsersbond network, and the hash of Signature.";
 }
 
 // MERGING THE COMPONENTS OF THE VARIANT (#117). Per origin block and departure moment it reads the parquet of the components
-// (Output/<Analysis_date>_<OutputLabel>_<component>/PerBlock), each with the columns of its kind (Classifications/Components/ExportClass), and fills
+// (Output/<Analysis_date>_<OutputLabel>_<component>_<hash>/PerBlock, ComponentMerge_Def/CompDir), each with the columns of its kind (Classifications/Components/ExportClass), and fills
 // in what is constant there or follows from the columns:
 // - WW and CC: the price from the travel time (Direct_Walking_Time_Costs, Direct_Cycling_Time_Costs, as in PublicTransport_Prep/Direct),
 //   ModeUsed WW or CC; they apply to every departure moment (SingleDepartureMoment);
@@ -50,7 +49,7 @@ container ComponentMerge_Def
 // NeedsCar and NeedsBike follow from the component (Classifications/Components). Of the rows that stay it splits time, price and distance per
 // part and per mode, as the csv of a component does (#144): PTTime, PTPrice and TravelDist_PT, and per mode walking, cycling and car from
 // the pre- and post-transport with that mode. The result is written in ModelParameters/OutputFormat, csv or parquet, to
-// Output/<Analysis_date>_<OutputLabel>_Merged<MergeRunNr>/PerBlock, with the column Component (where the row comes from), and the counts per
+// Output/<Analysis_date>_<OutputLabel>_Merged<MergeRunNr>_<hash>/PerBlock (ComponentMerge_Def/Dir), with the column Component (where the row comes from), and the counts per
 // block to Tellingen (batch/OdTellingen.py adds them up).
 container ComponentMerge
 : Descr = "Merges the components of the variant into one Pareto front from their parquet, as the comment above describes; Generate, or batch/UpdateAll.cmd with the component Merged runs it."
@@ -115,7 +114,7 @@ container ComponentMerge
 
 			// The file of every component in this block and departure moment; a component with SingleDepartureMoment (WW, CC, and Car without
 			// CarTimeDependent) has one per block, that of the congestion moment, which applies to every departure moment.
-			attribute<string> CompFile (ComponentMerge_Def/Comps) := ComponentMerge_Def/BaseDir + ComponentMerge_Def/Comps/OutputSuffix + '/PerBlock/tt_'
+			attribute<string> CompFile (ComponentMerge_Def/Comps) := ComponentMerge_Def/CompDir + '/PerBlock/tt_'
 			                                                         + (ComponentMerge_Def/Comps/SingleDepartureMoment_Eff ? /ModelParameters/Impl/SingleDepartureMoment_Shrt : MomentShort) + '_' + BlockFile + '.parquet';
 			container         PerComp                             := for_each_ne(ComponentMerge_Def/Comps/name
 			                                                         , 'Read' + ComponentMerge_Def/Comps/ExportClass + '_T(' + quote(ComponentMerge_Def/Comps/name) + ', ' + string(id(ComponentMerge_Def/Comps)) + 'b)'); // b: Comps is uint8
