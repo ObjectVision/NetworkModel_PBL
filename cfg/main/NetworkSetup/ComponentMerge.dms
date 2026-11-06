@@ -27,9 +27,9 @@ container ComponentMerge_Def
 		  'tt_' + /ModelParameters/Impl/Analysis_date + '_ORG-' + /ModelParameters/Impl/OrgSet_string
 		+ '_samen-' + asList(Comps/name, ',')
 		+ '_MinCrit-' + asList(/Classifications/OutputParetoAttr/FileNameElement, '_') + /ModelParameters/Impl/ChainPareto_FileTag
-		+ '_' + /ModelParameters/OutputFormat + '-m4'
+		+ '_' + /ModelParameters/OutputFormat + '-m5'
 		+ '_' + CompHashes
-	,	Descr = "The signature of the merged output: date, set of origins, Components, criteria (MergeCriteria) and epsilons, format (-m4: read from the parquet of the Components, with the times in whole seconds and the split per part and per mode of #144) and the hashes of the signatures of the Components, so that it changes when a component is calculated with other settings.";
+	,	Descr = "The signature of the merged output: date, set of origins, Components, criteria (MergeCriteria) and epsilons, format (-m5: read from the parquet of the Components, with the times in whole seconds, the split per part and per mode of #144 and that of the public transport time of #146) and the hashes of the signatures of the Components, so that it changes when a component is calculated with other settings.";
 	container         Hash               := /Templates/StringHash_T(Signature);
 	parameter<string> Dir                := BaseDir + '_Merged' + string(/ModelParameters/MergeRunNr) + (any(Comps/UsesCycling) ? /ModelParameters/Impl/CyclingNetwork_DirTag : '') + '_' + Hash/Hex
 	,	Descr = "The output folder of the merge (#145): _Merged<MergeRunNr>, with _fb when a component cycles on the Fietsersbond network, and the hash of Signature.";
@@ -158,6 +158,8 @@ container ComponentMerge
 				attribute<uint32> TravelDist_N     (domain) := const(0, domain, uint32);
 				attribute<Euro>   PretransPrice    (domain) := Price;
 				attribute<Euro>   PosttransPrice   (domain) := const(0[Euro], domain);
+				attribute<s>      TransferWalkTime (domain) := const(0[s], domain);
+				attribute<s>      PTWaitTime       (domain) := const(0[s], domain);
 			}
 			// Car: OrgName, DestName, Traveltime, TravelDist_Car.
 			Template ReadCar_T
@@ -195,6 +197,8 @@ container ComponentMerge
 				attribute<uint32> TravelDist_N     (domain) := const(0, domain, uint32);
 				attribute<Euro>   PretransPrice    (domain) := Price;
 				attribute<Euro>   PosttransPrice   (domain) := const(0[Euro], domain);
+				attribute<s>      TransferWalkTime (domain) := const(0[s], domain);
+				attribute<s>      PTWaitTime       (domain) := const(0[s], domain);
 			}
 			// A public transport component: the columns of Parquet_PT; NeedsBike follows from pre-transport and post-transport (Classifications/Components/NeedsBike).
 			Template ReadPT_T
@@ -223,6 +227,8 @@ container ComponentMerge
 					attribute<uint32>  TravelDist_N;
 					attribute<float32> PretransPrice;
 					attribute<float32> PosttransPrice;
+					attribute<s>       TransferWalkTime;
+					attribute<s>       PTWaitTime;
 				}
 				attribute<string> OrgName          (domain) := domain/OrgName;
 				attribute<string> DestName         (domain) := domain/DestName;
@@ -245,6 +251,8 @@ container ComponentMerge
 				attribute<uint32> TravelDist_N     (domain) := domain/TravelDist_N;
 				attribute<Euro>   PretransPrice    (domain) := value(domain/PretransPrice, Euro);
 				attribute<Euro>   PosttransPrice   (domain) := value(domain/PosttransPrice, Euro);
+				attribute<s>      TransferWalkTime (domain) := domain/TransferWalkTime;
+				attribute<s>      PTWaitTime       (domain) := domain/PTWaitTime;
 			}
 
 			unit<uint32> Rows := ='union_unit(' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/domain', ',') + ')'
@@ -271,6 +279,8 @@ container ComponentMerge
 				attribute<uint32> TravelDist_N     := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/TravelDist_N', ',') + ')';
 				attribute<Euro>   PretransPrice_euro  := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/PretransPrice', ',') + ')';
 				attribute<Euro>   PosttransPrice_euro := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/PosttransPrice', ',') + ')';
+				attribute<s>      TransferWalkTime := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/TransferWalkTime', ',') + ')';
+				attribute<s>      PTWaitTime       := ='union_data(., ' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/PTWaitTime', ',') + ')';
 				attribute<ComponentMerge_Def/Comps> Comp_rel := ='union_data(., ' + asList('const(' + string(id(ComponentMerge_Def/Comps)) + '[ComponentMerge_Def/Comps], PerComp/' + ComponentMerge_Def/Comps/name + '/domain)', ',') + ')', Descr = "The component the row comes from.";
 
 				// The criteria (Classifications/OutputParetoAttr) in the units of the final front, Ct and s, so that the epsilons work as in a run.
@@ -316,6 +326,9 @@ container ComponentMerge
 				// direct trip, which is its own pre-transport. The wait at home belongs to none of them. The prices are split in Ct, so that the parts
 				// add up to Price exactly.
 				attribute<s>      PTTime           := Traveltime - PretransTime - PosttransTime - uint16(/ModelParameters/Advanced/IncludeWaitingAtHomeInTravelTime) * WaitingTime;
+				attribute<s>      TransferWalkTime := Rows/TransferWalkTime[org_rel];
+				attribute<s>      PTWaitTime       := Rows/PTWaitTime[org_rel];
+				attribute<s>      InVehicleTime    := PTTime - TransferWalkTime - PTWaitTime, Descr = "The time in the vehicles of the chain: PTTime without the walking and waiting at transfers; 0 for a direct trip (#146).";
 				attribute<Ct>     Price_ct         := Rows/Price[org_rel];
 				attribute<Ct>     Price_V_ct       := rounded_convert(PretransPrice, Ct);
 				attribute<Ct>     Price_N_ct       := rounded_convert(PosttransPrice, Ct);
@@ -404,6 +417,9 @@ container ComponentMerge
 					attribute<Euro>   WalkingPrice     := Kept/WalkingPrice;
 					attribute<Euro>   CyclingPrice     := Kept/CyclingPrice;
 					attribute<Euro>   CarPrice         := Kept/CarPrice;
+					attribute<s>      InVehicleTime    := Kept/InVehicleTime;
+					attribute<s>      TransferWalkTime := Kept/TransferWalkTime;
+					attribute<s>      PTWaitTime       := Kept/PTWaitTime;
 				}
 			}
 			// The csv: per column of Parquet/tt after OrgName and DestName its text, an item named after the column, with the times in minutes.
@@ -440,11 +456,15 @@ container ComponentMerge
 				attribute<string> WalkingPrice       (Kept) := MakeDefined(string(Kept/WalkingPrice), '');
 				attribute<string> CyclingPrice       (Kept) := MakeDefined(string(Kept/CyclingPrice), '');
 				attribute<string> CarPrice           (Kept) := MakeDefined(string(Kept/CarPrice), '');
+				attribute<string> InVehicleTime      (Kept) := MakeDefined(string(convert(Kept/InVehicleTime, min_f)), '');
+				attribute<string> TransferWalkTime   (Kept) := MakeDefined(string(convert(Kept/TransferWalkTime, min_f)), '');
+				attribute<string> PTWaitTime         (Kept) := MakeDefined(string(convert(Kept/PTWaitTime, min_f)), '');
 			}
-			unit<uint8> CsvColumns : nrofrows = 31, Descr = "The columns of the csv after OrgName and DestName, in the order of Parquet/tt; each is an item of CsvText."
+			unit<uint8> CsvColumns : nrofrows = 34, Descr = "The columns of the csv after OrgName and DestName, in the order of Parquet/tt; each is an item of CsvText."
 			{
 				attribute<string> name : ['Traveltime', 'Price', 'Price_Augm', 'ModeUsed', 'NeedsCar', 'NeedsBike', 'WaitingTime', 'PretransTime', 'PosttransTime', 'TravelDist_Bus', 'TravelDist_Metro', 'TravelDist_Tram', 'TravelDist_Rail', 'TravelDist_Ferry', 'TravelDist_Car', 'Component'
-				                         , 'TravelDist_V', 'TravelDist_N', 'PTTime', 'PretransPrice', 'PTPrice', 'PosttransPrice', 'TravelDist_PT', 'TravelDist_Walking', 'TravelDist_Cycling', 'WalkingTime', 'CyclingTime', 'CarTime', 'WalkingPrice', 'CyclingPrice', 'CarPrice'];
+				                         , 'TravelDist_V', 'TravelDist_N', 'PTTime', 'PretransPrice', 'PTPrice', 'PosttransPrice', 'TravelDist_PT', 'TravelDist_Walking', 'TravelDist_Cycling', 'WalkingTime', 'CyclingTime', 'CarTime', 'WalkingPrice', 'CyclingPrice', 'CarPrice'
+				                         , 'InVehicleTime', 'TransferWalkTime', 'PTWaitTime'];
 			}
 			attribute<string> Line                         (Kept) := ='Kept/OrgName + '';'' + Kept/DestName + '';'' + ' + asList('CsvText/' + CsvColumns/name, ' + '';'' + ');
 			parameter<string> File                                := 'OrgName;DestName;' + asList(CsvColumns/name + '_' + MomentShort, ';') + '\n' + asList(Line, '\n')

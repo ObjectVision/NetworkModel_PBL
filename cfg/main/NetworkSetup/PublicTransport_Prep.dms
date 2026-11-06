@@ -703,7 +703,9 @@ container PublicTransport_Prep
 			attribute<dam>     Traveldist_Tram  := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/Traveldist_Tram')+')';
 			attribute<dam>     Traveldist_Rail  := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/Traveldist_Rail')+')';
 			attribute<dam>     Traveldist_Ferry := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/Traveldist_Ferry')+')';
-			
+			attribute<s>       TransferWalkTime := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/TransferWalkTime')+')', Descr = "Walking at the transfers of the chain (ChainJoiner_T, #146).";
+			attribute<s>       PTWaitTime       := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/PTWaitTime')+')', Descr = "Waiting at the transfers of the chain and the extra time per boarding of its flex legs and trains with a trip surcharge (ChainJoiner_T, #146).";
+
 			unit<uint64>       StarEvent2Stop   := combine_unit_uint64(uq_c_FromTime_Stop, Stops), Descr = "The key of a pair (boarding event, destination stop): uq_c_FromTime_Stop x Stops.";
 			attribute<StarEvent2Stop> OD_pair_key := combine_data(StarEvent2Stop, uq_c_FromTime_Stop_rel, To_Stop_rel); //fka OD_key
 			unit<uint32>       OD_pair          := unique_uint32(OD_pair_key);
@@ -735,14 +737,16 @@ container PublicTransport_Prep
 				attribute<dam>    Traveldist_Tram  := collect_by_cond(., Allowed_Chains/Traveldist_Tram);
 				attribute<dam>    Traveldist_Rail  := collect_by_cond(., Allowed_Chains/Traveldist_Rail);
 				attribute<dam>    Traveldist_Ferry := collect_by_cond(., Allowed_Chains/Traveldist_Ferry);
+				attribute<s>      TransferWalkTime := collect_by_cond(., Allowed_Chains/TransferWalkTime);
+				attribute<s>      PTWaitTime       := collect_by_cond(., Allowed_Chains/PTWaitTime);
 			}
 		}
 	 	container Fence := PhaseContainer(BlockResultContainer, 'Calculated: '+string(StartCalc/BlockDomain_name));
 		// Each block writes its chains to a parquet file of its own (StorageBlockDir_Str/<n>of<N>.parquet, zstd), so that the results do not
 		// stay in memory until the end and an interrupted chain step can resume at the first missing block (batch/WriteChainBlocks.ps1,
-		// PT_Chains_Blocks/ToDo). The prices (Ct), the travel time (s) and the distances (dam) are uint16 in the model but are written as
-		// uint32, because GDAL would write a uint16 as int16, which ends at 32767; compressed, the file is as large. The reader
-		// (PT_Chains_Blocks/PerBlock/<block>/Read) reads them back as uint16.
+		// PT_Chains_Blocks/ToDo). The prices (Ct), the times (s: the travel time, and the walking and waiting at transfers of #146) and the
+		// distances (dam) are uint16 in the model but are written as uint32, because GDAL would write a uint16 as int16, which ends at 32767;
+		// compressed, the file is as large. The reader (PT_Chains_Blocks/PerBlock/<block>/Read) reads them back as uint16.
 		parameter<string> GDAL_LayerCreationOptions := 'COMPRESSION=ZSTD';
 		container Parquet
 		: StorageName = "=/NetworkSetup/PublicTransport_Prep/StorageBlockDir_Str + '/' + BlockDomain/CacheName[BlockDomain_id] + '.parquet'"
@@ -760,6 +764,8 @@ container PublicTransport_Prep
 				attribute<uint32> Traveldist_Tram  := uint32(Fence/Result/Traveldist_Tram);
 				attribute<uint32> Traveldist_Rail  := uint32(Fence/Result/Traveldist_Rail);
 				attribute<uint32> Traveldist_Ferry := uint32(Fence/Result/Traveldist_Ferry);
+				attribute<uint32> TransferWalkTime := uint32(Fence/Result/TransferWalkTime);
+				attribute<uint32> PTWaitTime       := uint32(Fence/Result/PTWaitTime);
 				attribute<uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel := Fence/Result/uq_c_FromTime_Stop_rel;
 				attribute<uq_c_ToTime_Stop> uq_c_ToTime_Stop_rel := Fence/Result/uq_c_ToTime_Stop_rel;
 			}
@@ -795,6 +801,8 @@ container PublicTransport_Prep
 			attribute<dam>    Traveldist_Tram  := ='union_data(.,'+AsItemList('ChainGeneration_PerBlock/'+BlockDomain/name+'/Fence/Result/Traveldist_Tram')+')';
 			attribute<dam>    Traveldist_Rail  := ='union_data(.,'+AsItemList('ChainGeneration_PerBlock/'+BlockDomain/name+'/Fence/Result/Traveldist_Rail')+')';
 			attribute<dam>    Traveldist_Ferry := ='union_data(.,'+AsItemList('ChainGeneration_PerBlock/'+BlockDomain/name+'/Fence/Result/Traveldist_Ferry')+')';
+			attribute<s>      TransferWalkTime := ='union_data(.,'+AsItemList('ChainGeneration_PerBlock/'+BlockDomain/name+'/Fence/Result/TransferWalkTime')+')';
+			attribute<s>      PTWaitTime       := ='union_data(.,'+AsItemList('ChainGeneration_PerBlock/'+BlockDomain/name+'/Fence/Result/PTWaitTime')+')';
 		
 			attribute<uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel := ='union_data(.,'+AsItemList('ChainGeneration_PerBlock/'+BlockDomain/name+'/Fence/Result/uq_c_FromTime_Stop_rel')+')';
 			attribute<uq_c_ToTime_Stop> uq_c_ToTime_Stop_rel := ='union_data(.,'+AsItemList('ChainGeneration_PerBlock/'+BlockDomain/name+'/Fence/Result/uq_c_ToTime_Stop_rel')+')';
@@ -816,6 +824,8 @@ container PublicTransport_Prep
 			attribute<dam>    Traveldist_Tram  := Calc/Traveldist_Tram;
 			attribute<dam>    Traveldist_Rail  := Calc/Traveldist_Rail;
 			attribute<dam>    Traveldist_Ferry := Calc/Traveldist_Ferry;
+			attribute<s>      TransferWalkTime := Calc/TransferWalkTime;
+			attribute<s>      PTWaitTime       := Calc/PTWaitTime;
 			attribute<uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel := Calc/uq_c_FromTime_Stop_rel;
 			attribute<uq_c_ToTime_Stop> uq_c_ToTime_Stop_rel := Calc/uq_c_ToTime_Stop_rel;
 		}
@@ -851,6 +861,8 @@ container PublicTransport_Prep
 				attribute<dam>    Traveldist_Tram;
 				attribute<dam>    Traveldist_Rail;
 				attribute<dam>    Traveldist_Ferry;
+				attribute<s>      TransferWalkTime;
+				attribute<s>      PTWaitTime;
 				attribute</NetworkSetup/PublicTransport_Prep/uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel;
 				attribute</NetworkSetup/PublicTransport_Prep/uq_c_ToTime_Stop> uq_c_ToTime_Stop_rel;
 			}
@@ -870,6 +882,8 @@ container PublicTransport_Prep
 				attribute<dam>    Traveldist_Tram  := collect_by_cond(., ../IsVBoarding, ../Read/Traveldist_Tram);
 				attribute<dam>    Traveldist_Rail  := collect_by_cond(., ../IsVBoarding, ../Read/Traveldist_Rail);
 				attribute<dam>    Traveldist_Ferry := collect_by_cond(., ../IsVBoarding, ../Read/Traveldist_Ferry);
+				attribute<s>      TransferWalkTime := collect_by_cond(., ../IsVBoarding, ../Read/TransferWalkTime);
+				attribute<s>      PTWaitTime       := collect_by_cond(., ../IsVBoarding, ../Read/PTWaitTime);
 				attribute</NetworkSetup/PublicTransport_Prep/uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel := collect_by_cond(., ../IsVBoarding, ../Read/uq_c_FromTime_Stop_rel);
 				attribute</NetworkSetup/PublicTransport_Prep/uq_c_ToTime_Stop> uq_c_ToTime_Stop_rel := collect_by_cond(., ../IsVBoarding, ../Read/uq_c_ToTime_Stop_rel);
 				attribute<uint64> ChainRow         := collect_by_cond(., ../IsVBoarding, uint64(id(../Read))), Descr = "The row number of the chain in the cache of the block, like OD_Chains/Read_ChainLegs/Keten (#129; only requested in the OD pair mode).";
@@ -909,6 +923,8 @@ container PublicTransport_Prep
 		attribute<dam>           Traveldist_Tram      := =ModelParameters/Advanced/PT_Chains_PerBlock ? 'union_data(., ' + AsItemList('PT_Chains_Blocks/PerBlock/' + impl/BlockDomain/name + '/Read/Traveldist_Tram') + ')' : 'ChainGeneration_Single/Read/Traveldist_Tram';
 		attribute<dam>           Traveldist_Rail      := =ModelParameters/Advanced/PT_Chains_PerBlock ? 'union_data(., ' + AsItemList('PT_Chains_Blocks/PerBlock/' + impl/BlockDomain/name + '/Read/Traveldist_Rail') + ')' : 'ChainGeneration_Single/Read/Traveldist_Rail';
 		attribute<dam>           Traveldist_Ferry     := =ModelParameters/Advanced/PT_Chains_PerBlock ? 'union_data(., ' + AsItemList('PT_Chains_Blocks/PerBlock/' + impl/BlockDomain/name + '/Read/Traveldist_Ferry') + ')' : 'ChainGeneration_Single/Read/Traveldist_Ferry';
+		attribute<s>             TransferWalkTime     := =ModelParameters/Advanced/PT_Chains_PerBlock ? 'union_data(., ' + AsItemList('PT_Chains_Blocks/PerBlock/' + impl/BlockDomain/name + '/Read/TransferWalkTime') + ')' : 'ChainGeneration_Single/Read/TransferWalkTime';
+		attribute<s>             PTWaitTime           := =ModelParameters/Advanced/PT_Chains_PerBlock ? 'union_data(., ' + AsItemList('PT_Chains_Blocks/PerBlock/' + impl/BlockDomain/name + '/Read/PTWaitTime') + ')' : 'ChainGeneration_Single/Read/PTWaitTime';
 		attribute<uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel := =ModelParameters/Advanced/PT_Chains_PerBlock ? 'union_data(., ' + AsItemList('PT_Chains_Blocks/PerBlock/' + impl/BlockDomain/name + '/Read/uq_c_FromTime_Stop_rel') + ')' : 'ChainGeneration_Single/Read/uq_c_FromTime_Stop_rel';
 		attribute<uq_c_ToTime_Stop> uq_c_ToTime_Stop_rel := =ModelParameters/Advanced/PT_Chains_PerBlock ? 'union_data(., ' + AsItemList('PT_Chains_Blocks/PerBlock/' + impl/BlockDomain/name + '/Read/uq_c_ToTime_Stop_rel') + ')' : 'ChainGeneration_Single/Read/uq_c_ToTime_Stop_rel';
 
@@ -948,6 +964,8 @@ container PublicTransport_Prep
 		attribute<dam>    Traveldist_Tram  := =ModelParameters/Advanced/PT_Chains_PerBlock ? 'union_data(., ' + AsItemList('PT_Chains_Blocks/PerBlock/' + impl/BlockDomain/name + '/VBoarding/Traveldist_Tram') + ')' : 'collect_by_cond(., IsVBoarding_PT, PT/Traveldist_Tram)';
 		attribute<dam>    Traveldist_Rail  := =ModelParameters/Advanced/PT_Chains_PerBlock ? 'union_data(., ' + AsItemList('PT_Chains_Blocks/PerBlock/' + impl/BlockDomain/name + '/VBoarding/Traveldist_Rail') + ')' : 'collect_by_cond(., IsVBoarding_PT, PT/Traveldist_Rail)';
 		attribute<dam>    Traveldist_Ferry := =ModelParameters/Advanced/PT_Chains_PerBlock ? 'union_data(., ' + AsItemList('PT_Chains_Blocks/PerBlock/' + impl/BlockDomain/name + '/VBoarding/Traveldist_Ferry') + ')' : 'collect_by_cond(., IsVBoarding_PT, PT/Traveldist_Ferry)';
+		attribute<s>      TransferWalkTime := =ModelParameters/Advanced/PT_Chains_PerBlock ? 'union_data(., ' + AsItemList('PT_Chains_Blocks/PerBlock/' + impl/BlockDomain/name + '/VBoarding/TransferWalkTime') + ')' : 'collect_by_cond(., IsVBoarding_PT, PT/TransferWalkTime)';
+		attribute<s>      PTWaitTime       := =ModelParameters/Advanced/PT_Chains_PerBlock ? 'union_data(., ' + AsItemList('PT_Chains_Blocks/PerBlock/' + impl/BlockDomain/name + '/VBoarding/PTWaitTime') + ')' : 'collect_by_cond(., IsVBoarding_PT, PT/PTWaitTime)';
 		attribute<uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel := =ModelParameters/Advanced/PT_Chains_PerBlock ? 'union_data(., ' + AsItemList('PT_Chains_Blocks/PerBlock/' + impl/BlockDomain/name + '/VBoarding/uq_c_FromTime_Stop_rel') + ')' : 'collect_by_cond(., IsVBoarding_PT, PT/uq_c_FromTime_Stop_rel)';
 		attribute<uq_c_ToTime_Stop> uq_c_ToTime_Stop_rel := =ModelParameters/Advanced/PT_Chains_PerBlock ? 'union_data(., ' + AsItemList('PT_Chains_Blocks/PerBlock/' + impl/BlockDomain/name + '/VBoarding/uq_c_ToTime_Stop_rel') + ')' : 'collect_by_cond(., IsVBoarding_PT, PT/uq_c_ToTime_Stop_rel)';
 		attribute<uint64> ChainRow         := =ModelParameters/Advanced/PT_Chains_PerBlock ? 'union_data(., ' + AsItemList('PT_Chains_Blocks/PerBlock/' + impl/BlockDomain/name + '/VBoarding/ChainRow') + ')' : 'collect_by_cond(., IsVBoarding_PT, id(PT))', Descr = "The row number of the chain in the cache of its block (#129; only requested in the OD pair mode, with one block: OD_Chains/Read_ChainLegs/Keten).";
