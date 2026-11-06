@@ -27,9 +27,9 @@ container ComponentMerge_Def
 		  'tt_' + /ModelParameters/Impl/Analysis_date + '_ORG-' + /ModelParameters/Impl/OrgSet_string
 		+ '_samen-' + asList(Comps/name, ',')
 		+ '_MinCrit-' + asList(/Classifications/OutputParetoAttr/FileNameElement, '_') + /ModelParameters/Impl/ChainPareto_FileTag
-		+ '_' + /ModelParameters/OutputFormat + '-m5'
+		+ '_' + /ModelParameters/OutputFormat + '-m6'
 		+ '_' + CompHashes
-	,	Descr = "The signature of the merged output: date, set of origins, Components, criteria (MergeCriteria) and epsilons, format (-m5: read from the parquet of the Components, with the times in whole seconds, the split per part and per mode of #144 and that of the public transport time of #146) and the hashes of the signatures of the Components, so that it changes when a component is calculated with other settings.";
+	,	Descr = "The signature of the merged output: date, set of origins, Components, criteria (MergeCriteria) and epsilons, format (-m6: read from the parquet of the Components, with the times in whole seconds, the split per part and per mode of #144 and that of the public transport time of #146; written with the times in minutes as float32, #149) and the hashes of the signatures of the Components, so that it changes when a component is calculated with other settings.";
 	container         Hash               := /Templates/StringHash_T(Signature);
 	parameter<string> Dir                := BaseDir + '_Merged' + string(/ModelParameters/MergeRunNr) + (any(Comps/UsesCycling) ? /ModelParameters/Impl/CyclingNetwork_DirTag : '') + '_' + Hash/Hex
 	,	Descr = "The output folder of the merge (#145): _Merged<MergeRunNr>, with _fb when a component cycles on the Fietsersbond network, and the hash of Signature.";
@@ -376,25 +376,26 @@ container ComponentMerge
 			                                                                   , sum_uint64(Pairs/without_car)
 			                                                                   , sum_uint64(Pairs/without_car_and_bike));
 
-			// The output according to ModelParameters/OutputFormat: parquet, typed (times in whole seconds) and without the departure moment in the
-			// column names (it is in the file name), or csv, with the departure moment after the column names and the times in minutes like the csv of
-			// a component, and an unknown value empty. The split per part and per mode comes after Component, so that a reader that reads the csv by
-			// position keeps the earlier columns.
+			// The output according to ModelParameters/OutputFormat: parquet, typed, with the times in minutes as float32 and without the departure
+			// moment in the column names (it is in the file name), or csv, with the departure moment after the column names, the times in minutes and an
+			// unknown value empty. Both have the same columns in the same order, whatever the components of the variant; a column that does not apply
+			// to a row is 0. The split per part and per mode comes after Component, so that a reader that reads the csv by position keeps the earlier
+			// columns.
 			container Parquet : StorageName = "=/ModelParameters/Impl/OutputDir + '/PerBlock/tt' + FileTail + '.parquet'", StorageType = "gdalwrite.vect"
 			{
 				unit<uint32> tt := Kept, ExplicitSuppliers = "/NetworkSetup/GenerateOutput/Output_Sig/ForWriting"
 				{
 					attribute<string> OrgName          := Kept/OrgName;
 					attribute<string> DestName         := Kept/DestName;
-					attribute<s>      Traveltime       := Kept/Traveltime;
+					attribute<min_f>  Traveltime       := convert(Kept/Traveltime, min_f);
 					attribute<Euro>   Price            := Kept/Price;
 					attribute<Euro>   Price_Augm       := Kept/Price_Augm;
 					attribute<string> ModeUsed         := Kept/ModeUsed;
 					attribute<uint8>  NeedsCar         := Kept/NeedsCar;
 					attribute<uint8>  NeedsBike        := Kept/NeedsBike;
-					attribute<s>      WaitingTime      := Kept/WaitingTime;
-					attribute<s>      PretransTime     := Kept/PretransTime;
-					attribute<s>      PosttransTime    := Kept/PosttransTime;
+					attribute<min_f>  WaitingTime      := convert(Kept/WaitingTime, min_f);
+					attribute<min_f>  PretransTime     := convert(Kept/PretransTime, min_f);
+					attribute<min_f>  PosttransTime    := convert(Kept/PosttransTime, min_f);
 					attribute<uint32> TravelDist_Bus   := Kept/TravelDist_Bus;
 					attribute<uint32> TravelDist_Metro := Kept/TravelDist_Metro;
 					attribute<uint32> TravelDist_Tram  := Kept/TravelDist_Tram;
@@ -404,22 +405,22 @@ container ComponentMerge
 					attribute<string> Component        := Kept/Component;
 					attribute<uint32> TravelDist_V     := Kept/TravelDist_V;
 					attribute<uint32> TravelDist_N     := Kept/TravelDist_N;
-					attribute<s>      PTTime           := Kept/PTTime;
+					attribute<min_f>  PTTime           := convert(Kept/PTTime, min_f);
 					attribute<Euro>   PretransPrice    := Kept/PretransPrice;
 					attribute<Euro>   PTPrice          := Kept/PTPrice;
 					attribute<Euro>   PosttransPrice   := Kept/PosttransPrice;
 					attribute<uint32> TravelDist_PT    := Kept/TravelDist_PT;
 					attribute<uint32> TravelDist_Walking := Kept/TravelDist_Walking;
 					attribute<uint32> TravelDist_Cycling := Kept/TravelDist_Cycling;
-					attribute<s>      WalkingTime      := Kept/WalkingTime;
-					attribute<s>      CyclingTime      := Kept/CyclingTime;
-					attribute<s>      CarTime          := Kept/CarTime;
+					attribute<min_f>  WalkingTime      := convert(Kept/WalkingTime, min_f);
+					attribute<min_f>  CyclingTime      := convert(Kept/CyclingTime, min_f);
+					attribute<min_f>  CarTime          := convert(Kept/CarTime, min_f);
 					attribute<Euro>   WalkingPrice     := Kept/WalkingPrice;
 					attribute<Euro>   CyclingPrice     := Kept/CyclingPrice;
 					attribute<Euro>   CarPrice         := Kept/CarPrice;
-					attribute<s>      InVehicleTime    := Kept/InVehicleTime;
-					attribute<s>      TransferWalkTime := Kept/TransferWalkTime;
-					attribute<s>      PTWaitTime       := Kept/PTWaitTime;
+					attribute<min_f>  InVehicleTime    := convert(Kept/InVehicleTime, min_f);
+					attribute<min_f>  TransferWalkTime := convert(Kept/TransferWalkTime, min_f);
+					attribute<min_f>  PTWaitTime       := convert(Kept/PTWaitTime, min_f);
 				}
 			}
 			// The csv: per column of Parquet/tt after OrgName and DestName its text, an item named after the column, with the times in minutes.
