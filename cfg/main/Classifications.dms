@@ -81,7 +81,9 @@ container Classifications: Using = "Units"
 		attribute<string> Name           := AsItemName(label);
 		attribute<string> Name_short     := ConnectionType + '_' + Mode_abbrev;
 		attribute<GTFS_Modes/Selection> Mode_rel := rlookup(Mode_Abbrev, GTFS_Modes/Selection/name_abbr);
-		attribute<bool>   IsOVfiets      := lowercase(StopClass) == lowercase('OVf');
+		attribute<string> Code           := VN_Transport == 'V' ? Mode_abbrev + StopClass : StopClass + Mode_abbrev
+		,	Descr = "The code of the type in ModeUsed and in the names of the components: the mode and then the stop class for a pre-transport type (Crm), the stop class and then the mode for a post-transport type (ovfC). Without an underscore, so that ModeUsed <pre>_<legs>_<post> splits into its three parts at its two underscores.";
+		attribute<bool>   IsOVfiets      := StopClass == 'ovf';
 		attribute<bool>   NeedsOwnBike   := Mode_abbrev == 'C' && NOT(IsOVfiets), Descr = "Does this leg need an own bike (NetworkModel_PBL#117): yes for cycling, also in the PostTransport with an own bike at the last stop, except with a rented OV-fiets.";
 		attribute<min_f>  MaxTime        := ='union_data(.,'+asList('ModelParameters/' + (Mode == 'Walking' && ConnectionType != 'Org2Stops' && ConnectionType != 'Stops2Dest' ? 'Advanced/' : '') + 'Max'+Mode+'Time_'+ConnectionType, ',')+')';
 
@@ -101,23 +103,23 @@ container Classifications: Using = "Units"
 	}
 	
 	unit<uint32> TimeInvariant_ConnectionTypes : NrOfRows = 10
-	, Descr = "RMT=Rail+Metro+Tram, RM=Rail+Metro, R=train station, N=train station served by NS, OVF=OV-fiets, Ric=InterCity station"
+	, Descr = "The stop sets of the pre- and post-transport, with their stop class in lower case, so that a code (TimeInvariantTypes/Code) cannot be read as the mode letters of a chain: rmt rail, metro and tram, rm rail and metro, r train station, n train station served by NS, ovf OV-fiets, ric InterCity station (#147)."
 	{
 		unit<uint32> Matrix := Range(uint32, 0, nrAttr*#.)
 		{
 			attribute<string> Values :
 			[
-			//from      , to            , V/N, TypeClassname
+			//from      , to            , V/N, StopClass
 			'Org'       , 'Stops'       ,'V', '',
 			'Stops'     , 'Dest'        ,'N', '',
-			'Org'       , 'RMT_Stops'   ,'V', 'RMT', //RMT_Stops=Rail+Metro+Tram
-			'Org'       , 'RM_Stops'    ,'V', 'RM',  //RM_Stops=Rail+Metro
-			'OVF_Stops' , 'Dest'        ,'N', 'OVf', //OVF_Stops=OV-fiets stops
-			'RMT_Stops' , 'Dest'        ,'N', 'RMT', //RMT_Stops=Rail+Metro+Tram
-			'Org'       , 'Ric_Stops'   ,'V', 'Ric', //IC_Stops=IC_station_stops
-			'RM_Stops'  , 'Dest'        ,'N', 'RM',  //RM_Stops=Rail+Metro, PostTransport RM_C
-			'Org'       , 'R_Stops'     ,'V', 'R',   //R_Stops=every train station (#147)
-			'Org'       , 'N_Stops'     ,'V', 'N'    //N_Stops=train stations served by NS (#147); new rows go last, so that the existing types keep their number
+			'Org'       , 'RMT_Stops'   ,'V', 'rmt', //RMT_Stops=Rail+Metro+Tram
+			'Org'       , 'RM_Stops'    ,'V', 'rm',  //RM_Stops=Rail+Metro
+			'OVF_Stops' , 'Dest'        ,'N', 'ovf', //OVF_Stops=OV-fiets stops
+			'RMT_Stops' , 'Dest'        ,'N', 'rmt', //RMT_Stops=Rail+Metro+Tram
+			'Org'       , 'Ric_Stops'   ,'V', 'ric', //Ric_Stops=IC station stops
+			'RM_Stops'  , 'Dest'        ,'N', 'rm',  //RM_Stops=Rail+Metro, post-transport rmC
+			'Org'       , 'R_Stops'     ,'V', 'r',   //R_Stops=every train station (#147)
+			'Org'       , 'N_Stops'     ,'V', 'n'    //N_Stops=train stations served by NS (#147); new rows go last, so that the existing types keep their number
 			];
 		}
 		
@@ -164,20 +166,20 @@ container Classifications: Using = "Units"
 	// GeoDmsRun step calculates one of them (Impl/ComponentName). Merging is not a component but a step that merges the selected
 	// components, with car and bike ownership as criteria.
 	unit<uint8> PreTransportTypes : nrofrows = 7
-	, Descr = "The pre-transport types of the public transport components: walking to every stop (W), cycling to every stop (C), to a rail or metro stop (C_RM), to a rail, metro or tram stop (C_RMT), to an intercity station (C_Ric), to every train station (C_R) or to a train station served by NS (C_N, #147)."
+	, Descr = "The pre-transport types of the public transport components: walking to every stop (W), cycling to every stop (C), to a rail or metro stop (Crm), to a rail, metro or tram stop (Crmt), to an intercity station (Cric), to every train station (Cr) or to a train station served by NS (Cn, #147)."
 	{
 		attribute<string> name             : ['Org2Stops_Walking', 'Org2Stops_Cycling', 'Org2RM_Stops_Cycling', 'Org2RMT_Stops_Cycling', 'Org2Ric_Stops_Cycling', 'Org2R_Stops_Cycling', 'Org2N_Stops_Cycling'], IntegrityCheck = "IsDefined(rlookup(this, /Classifications/TimeInvariantTypes/name))";
 		attribute<uint32> BlocksPerPortion : [50, 50, 50, 50, 50, 50, 50], Descr = "Origin blocks per GeoDmsRun in the output step (batch/WriteOutputBlocks.ps1) of the public transport components with this pre-transport: every portion reads the chain cache again, and memory is freed only between portions; 0 puts all blocks in one portion.";
 		attribute</Classifications/TimeInvariantTypes> TimeInvariantTypes_rel := rlookup(name, /Classifications/TimeInvariantTypes/name);
-		attribute<string> code             := /Classifications/TimeInvariantTypes/Mode_abbrev[TimeInvariantTypes_rel] + (/Classifications/TimeInvariantTypes/StopClass[TimeInvariantTypes_rel] != '' ? '_' + /Classifications/TimeInvariantTypes/StopClass[TimeInvariantTypes_rel] : ''), Descr = "W, C, C_RM, C_RMT, C_Ric, C_R or C_N, as in ModeUsed.";
+		attribute<string> code             := /Classifications/TimeInvariantTypes/Code[TimeInvariantTypes_rel], Descr = "W, C, Crm, Crmt, Cric, Cr or Cn, as in ModeUsed.";
 		attribute<bool>   Selected         := ='union_data(., ' + asList('/ModelParameters/PreTransport/' + name, ', ') + ')', Descr = "Is the type on in the variant (ModelParameters/PreTransport, a switch per name)?";
 	}
 	unit<uint8> PostTransportTypes : nrofrows = 5
-	, Descr = "The post-transport types of the public transport components: walking (W), cycling from every stop (C), from a rail or metro stop (RM_C), from a rail, metro or tram stop (RMT_C), or the OV-fiets (OVf_C) from a stop at an OV-fiets location."
+	, Descr = "The post-transport types of the public transport components: walking (W), cycling from every stop (C), from a rail or metro stop (rmC), from a rail, metro or tram stop (rmtC), or the OV-fiets (ovfC) from a stop at an OV-fiets location."
 	{
 		attribute<string> name : ['Stops2Dest_Walking', 'Stops2Dest_Cycling', 'RM_Stops2Dest_Cycling', 'RMT_Stops2Dest_Cycling', 'OVF_Stops2Dest_Cycling'], IntegrityCheck = "IsDefined(rlookup(this, /Classifications/TimeInvariantTypes/name))";
 		attribute</Classifications/TimeInvariantTypes> TimeInvariantTypes_rel := rlookup(name, /Classifications/TimeInvariantTypes/name);
-		attribute<string> code := (/Classifications/TimeInvariantTypes/StopClass[TimeInvariantTypes_rel] != '' ? /Classifications/TimeInvariantTypes/StopClass[TimeInvariantTypes_rel] + '_' : '') + /Classifications/TimeInvariantTypes/Mode_abbrev[TimeInvariantTypes_rel], Descr = "W, C, RM_C, RMT_C or OVf_C, as in ModeUsed.";
+		attribute<string> code := /Classifications/TimeInvariantTypes/Code[TimeInvariantTypes_rel], Descr = "W, C, rmC, rmtC or ovfC, as in ModeUsed.";
 		attribute<bool>   Selected := ='union_data(., ' + asList('/ModelParameters/PostTransport/' + name, ', ') + ')', Descr = "Is the type on in the variant (ModelParameters/PostTransport, a switch per name)?";
 	}
 	unit<uint8> PT_Components := combine_uint8(PreTransportTypes, PostTransportTypes)
@@ -222,8 +224,8 @@ container Classifications: Using = "Units"
 		attribute<bool>   NeedsCar                  := DirectCar, Descr = "Does the component need a car? Only Car.";
 		attribute<bool>   NeedsBike                 := union_data(., DirectComponents/DirectCycling, PT_Components/NeedsBike), Descr = "Does the component need an own bike: CC, and a public transport component with cycling in pre- or post-transport other than the OV-fiets?";
 		attribute<bool>   Selected                  := union_data(., DirectComponents/Selected, PT_Components/Selected), Descr = "Is the component in the variant, so that batch/UpdateAll.cmd calculates it and the merge takes it along?";
-		attribute<string> PostCode                  := union_data(., const('', DirectComponents), PostTransportTypes/code[PT_Components/second_rel]), Descr = "The code of the post-transport type (W, C, RM_C, RMT_C, OVf_C); empty for a direct trip.";
-		attribute<string> PreCode                   := union_data(., const('', DirectComponents), PreTransportTypes/code[PT_Components/first_rel]), Descr = "The code of the pre-transport type (W, C, C_RM, C_RMT, C_Ric, C_R, C_N); empty for a direct trip.";
+		attribute<string> PostCode                  := union_data(., const('', DirectComponents), PostTransportTypes/code[PT_Components/second_rel]), Descr = "The code of the post-transport type (W, C, rmC, rmtC, ovfC); empty for a direct trip.";
+		attribute<string> PreCode                   := union_data(., const('', DirectComponents), PreTransportTypes/code[PT_Components/first_rel]), Descr = "The code of the pre-transport type (W, C, Crm, Crmt, Cric, Cr, Cn); empty for a direct trip.";
 		attribute<string> DirectCode                := union_data(., DirectComponents/ModeUsed, const('', PT_Components)), Descr = "The direct trip as WW, CC or AA; empty for a public transport component.";
 		// The mode of the pre-transport and the post-transport, by which the merge splits time, price and distance per mode (#144), as the csv
 		// of a component does with V_mode_rel and N_mode_rel: a direct trip is its own pre-transport and has no post-transport, and the OV-fiets

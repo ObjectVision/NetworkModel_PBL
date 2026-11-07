@@ -64,7 +64,7 @@ REM   UpdateAll.cmd legs            the caches of the pre- and post-transport co
 REM                                 components: the base sets without a cache (PublicTransport_Prep/Write_PrePostTransport);
 REM                                 writes only with ModelParameters/Advanced/PrePostTransportDecoupled (on by default)
 REM   ... -component <name>         with all, cars, chains or legs: only that component of the variant, for example
-REM                                 -component C_PT_OVf_C; not Merged, because the merge is the last step of all
+REM                                 -component C_PT_ovfC; not Merged, because the merge is the last step of all
 REM The section comes first; cars takes moments, any other word or option stops the script before it starts.
 REM
 REM The output step of a component, with all after its cache steps: a file per origin block and departure moment in

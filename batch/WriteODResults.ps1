@@ -9,7 +9,7 @@
 #
 # Call, for example for the trip Laapersweg 1 Hilversum -> De Boelelaan 1085 at 07:30 (the wiki, Routes of an OD pair):
 #   powershell -ExecutionPolicy Bypass -File batch\WriteODResults.ps1 -Org BU04020501 -Dest BU0363KP03 -Moment 07:30
-# The variant is that of cfg\main\ModelParameters.dms of the working copy; -Components 'WW,W_PT_W,C_PT_OVf_C' sets it instead, from
+# The variant is that of cfg\main\ModelParameters.dms of the working copy; -Components 'WW,W_PT_W,C_PT_ovfC' sets it instead, from
 # the direct trips and the pre- and post-transport types in the names (every pre-transport type with every post-transport type).
 # The engine must know pareto with LinkSet (ObjectVision/GeoDMS#1325) for the car routes: GeoDMS 20.26.0 or later.
 # Every step skips a cache that exists, so after a change to the output only the output is calculated again. Run long runs as a one-off scheduled task (see the wiki, How to run the model). -WaitForMemoryGB waits until that much
@@ -51,8 +51,8 @@ function WaitForMemory {
 	}
 }
 # The switches of the variant (ModelParameters, group 2): the pre- and post-transport types by their code in a component name.
-$voor = [ordered]@{ 'W' = 'Org2Stops_Walking'; 'C' = 'Org2Stops_Cycling'; 'C_RM' = 'Org2RM_Stops_Cycling'; 'C_RMT' = 'Org2RMT_Stops_Cycling'; 'C_Ric' = 'Org2Ric_Stops_Cycling'; 'C_R' = 'Org2R_Stops_Cycling'; 'C_N' = 'Org2N_Stops_Cycling' }
-$na   = [ordered]@{ 'W' = 'Stops2Dest_Walking'; 'C' = 'Stops2Dest_Cycling'; 'RM_C' = 'RM_Stops2Dest_Cycling'; 'RMT_C' = 'RMT_Stops2Dest_Cycling'; 'OVf_C' = 'OVF_Stops2Dest_Cycling' }
+$voor = [ordered]@{ 'W' = 'Org2Stops_Walking'; 'C' = 'Org2Stops_Cycling'; 'Crm' = 'Org2RM_Stops_Cycling'; 'Crmt' = 'Org2RMT_Stops_Cycling'; 'Cric' = 'Org2Ric_Stops_Cycling'; 'Cr' = 'Org2R_Stops_Cycling'; 'Cn' = 'Org2N_Stops_Cycling' }
+$na   = [ordered]@{ 'W' = 'Stops2Dest_Walking'; 'C' = 'Stops2Dest_Cycling'; 'rmC' = 'RM_Stops2Dest_Cycling'; 'rmtC' = 'RMT_Stops2Dest_Cycling'; 'ovfC' = 'OVF_Stops2Dest_Cycling' }
 $switches = @($voor.Values) + @($na.Values) + @('DirectWalking', 'DirectCycling', 'DirectCar', 'Merge')
 function GetSwitch($file, $name) {
 	$m = [regex]::Match([IO.File]::ReadAllText($file), "parameter<bool>\s+$name\s+:=\s+(TRUE|FALSE)")
