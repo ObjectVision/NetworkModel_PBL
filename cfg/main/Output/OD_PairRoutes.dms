@@ -201,8 +201,203 @@ container OD_PairRoutes : using = "units;Geography;ModelParameters", Descr = "Th
 			attribute<int16>  PenWidth      (OptionLinks) := Links/PenWidth[OptionLinks/org_rel], DialogType = "PenWidth";
 		}
 		container        Chart     := for_each_ne(Moments/name, 'Series_T(Options, Group, ' + string(id(Moments)) + '[Moments])');
+
+		// The comparison with the run of the whole model (#135): the rows of the pair in this output against those of the same pair in the
+		// output of the component in the run with OutputLabel OD_CompareLabel. That folder has the signature of the pair without the parts of
+		// the pair (FullSignature), and the pair is in the file of the block of its origin (FullRun/BlockFile). Both files are read with the
+		// readers of ComponentMerge, and a row is the same when every column of their common schema (CompareColumns) is equal.
+		container Compare : Descr = "The rows of the pair per departure moment against those in the output of the whole model (#135); Report sums it up."
+		{
+			parameter<string> FullSignature := replace(Out/Signature, /NetworkSetup/PublicTransport_Prep/PT_Chains_ODTag, '', ModelParameters/Impl/OrgSet_SelectionTag, '', ModelParameters/Impl/DestSet_SelectionTag, '')
+			,	Descr = "The signature of the output of the component in the run of the whole model: that of the pair without its chains and without its origin and destination in the sets.";
+			container         FullHash      := /Templates/StringHash_T(FullSignature);
+			parameter<string> FullDir       := '%LocalDataProjDir%/Output/' + ModelParameters/Impl/Analysis_date + '_' + ModelParameters/OD_CompareLabel + /Classifications/Components/OutputSuffix[Out/Comp_rel] + '_' + FullHash/Hex;
+			container         FullSig       := /Templates/Signature_T(FullDir, FullDir + '/signature.txt', FullSignature, /NetworkSetup/GenerateOutput/MaxSubPathLength)
+			,	Descr = "The signature in the folder of the whole model; an error says that the folder is missing or that its run had other settings.";
+			parameter<string> ExportClass   := /Classifications/Components/ExportClass[Out/Comp_rel];
+			parameter<bool>   CompBike      := NeedsBike, Descr = "NeedsBike of the component, under a name that the readers do not use themselves.";
+			// A component with SingleDepartureMoment (WW, CC, and Car without CarTimeDependent) has one file per block, that of the congestion moment.
+			unit<uint32> FileMoments := select_with_org_rel(!/Classifications/Components/SingleDepartureMoment_Eff[Out/Comp_rel] || Moments/Short == ModelParameters/Impl/SingleDepartureMoment_Shrt)
+			{
+				attribute<string> name  := Moments/name[org_rel];
+				attribute<string> Short := Moments/Short[org_rel];
+			}
+			container PerMoment := for_each_ne(FileMoments/name, 'CompareMoment_T(' + quote(FileMoments/Short) + ')');
+			Template CompareMoment_T
+			{
+				parameter<string> MomentShort;
+				///
+				parameter<string> PairFile := Out/Sig/ForReading + '/PerBlock/tt_' + MomentShort + '_1of1.parquet';
+				parameter<string> FullFile := FullSig/ForReading + '/PerBlock/tt_' + MomentShort + '_' + FullRun/BlockFile + '.parquet';
+				container         Read     := for_each_ne(Sides/name, '/NetworkSetup/ComponentMerge/Read' + ExportClass + '_T(' + Sides/FileItem + ', ' + quote(CompName) + ', CompBike)');
+				attribute<string> PairKey (Read/Pair/domain) := =asList('string(Read/Pair/' + CompareColumns/name + ')', ' + ''|'' + ');
+				attribute<string> FullKey (Read/Full/domain) := =asList('string(Read/Full/' + CompareColumns/name + ')', ' + ''|'' + ');
+				container         Rows     := CompareRows_T(Read/Pair/domain, Read/Pair/OrgName, Read/Pair/DestName, PairKey, Read/Full/domain, Read/Full/OrgName, Read/Full/DestName, FullKey);
+			}
+			attribute<uint32> NrPairRows (FileMoments) := ='union_data(FileMoments, ' + asList('PerMoment/' + FileMoments/name + '/Rows/NrPairRows', ', ') + ')';
+			attribute<uint32> NrFullRows (FileMoments) := ='union_data(FileMoments, ' + asList('PerMoment/' + FileMoments/name + '/Rows/NrFullRows', ', ') + ')';
+			attribute<bool>   IsEqual    (FileMoments) := ='union_data(FileMoments, ' + asList('PerMoment/' + FileMoments/name + '/Rows/IsEqual', ', ') + ')';
+			// Only with both folders the files are read; otherwise Report says which output is missing.
+			parameter<bool>   HasPair                  := Out/Sig/IsChecked, Descr = "Is there output of the pair with the current settings?";
+			parameter<bool>   HasFull                  := FullSig/IsChecked, Descr = "Is there output of the whole model with the same settings (FullDir)?";
+			parameter<bool>   AllEqual                 := = HasPair && HasFull ? 'all(IsEqual)' : 'FALSE';
+			parameter<string> CountsText               := CompName + ': ' + (all(IsEqual) ? 'gelijk' : 'VERSCHIL') + ' (' + asList(FileMoments/Short + ' ' + string(NrPairRows) + ' rijen van het paar, ' + string(NrFullRows) + ' van het model', '; ') + ')';
+			parameter<string> Report                   := = HasPair && HasFull ? 'CountsText' : quote(CompName + ': geen uitvoer van ' + (HasPair ? 'het hele model met dezelfde instellingen in ' + FullDir : 'het paar met de huidige instellingen in ' + Out/Dir))
+			,	Descr = "Per departure moment the number of rows of the pair in its own output and in that of the whole model, and whether they are the same; or which output is missing.";
+		}
 	}
 	container         PerComponent      := for_each_ne(Comps/name, 'Component_T(' + quote(Comps/name) + ')'), Descr = "The output of every component in MergeComponents, read back per departure moment.";
+
+	// The block of the origin in the run of the whole model, as NetworkSetup/impl/OrgBlockSelections chooses it there: with the same random
+	// permutation of all origins of Orgset and the same block size (#135).
+	container FullRun : Descr = "The block file of the origin of the pair in the output of the run of the whole model (#135)."
+	{
+		unit<uint32>      Orgs      := =/NetworkSetup/PublicTransport_Prep/impl/Org_domain
+		{
+			attribute<.>  rnd_rel := rnd_permutation(0, .);
+		}
+		parameter<Orgs>   Org_rel   := rlookup(ModelParameters/OD_Origin, Orgs/name);
+		parameter<uint32> Block_nr  := uint32(Orgs/rnd_rel[Org_rel]) / ModelParameters/Advanced/MaxOrgBlockSize;
+		parameter<string> BlockFile := string(Block_nr + 1) + 'of' + string(ModelParameters/Advanced/NumberOfOrgBlocks_All);
+	}
+	unit<uint8> Sides : nrofrows = 2, Descr = "The two files of a comparison: the output of the pair and the block file of the whole model."
+	{
+		attribute<string> name     : ['Pair', 'Full'];
+		attribute<string> FileItem : ['PairFile', 'FullFile'];
+	}
+	unit<uint8> CompareColumns : nrofrows = 21, Descr = "The columns of the common schema of the readers of ComponentMerge, apart from OrgName and DestName."
+	{
+		attribute<string> name : ['Traveltime', 'Price', 'Price_Augm', 'ModeUsed', 'NeedsCar', 'NeedsBike', 'WaitingTime', 'PretransTime', 'PosttransTime', 'TravelDist_Bus', 'TravelDist_Metro', 'TravelDist_Tram', 'TravelDist_Rail', 'TravelDist_Ferry', 'TravelDist_Car', 'TravelDist_V', 'TravelDist_N', 'PretransPrice', 'PosttransPrice', 'TransferWalkTime', 'PTWaitTime'];
+	}
+	unit<uint8> MergedColumns : nrofrows = 34, Descr = "The columns of the merged output after OrgName and DestName, as ComponentMerge writes them (Parquet/tt)."
+	{
+		attribute<string> name : ['Traveltime', 'Price', 'Price_Augm', 'ModeUsed', 'NeedsCar', 'NeedsBike', 'WaitingTime', 'PretransTime', 'PosttransTime', 'TravelDist_Bus', 'TravelDist_Metro', 'TravelDist_Tram', 'TravelDist_Rail', 'TravelDist_Ferry', 'TravelDist_Car', 'Component'
+		                         , 'TravelDist_V', 'TravelDist_N', 'PTTime', 'PretransPrice', 'PTPrice', 'PosttransPrice', 'TravelDist_PT', 'TravelDist_Walking', 'TravelDist_Cycling', 'WalkingTime', 'CyclingTime', 'CarTime', 'WalkingPrice', 'CyclingPrice', 'CarPrice'
+		                         , 'InVehicleTime', 'TransferWalkTime', 'PTWaitTime'];
+	}
+
+	// The core of a comparison (#135): the rows of the pair in a file of its own output and in the block file of the whole model, each with a
+	// key of all compared columns. The two are equal when every different row occurs equally often in both.
+	Template CompareRows_T
+	{
+		unit<uint32>      PairDomain;
+		attribute<string> PairOrgName  (PairDomain);
+		attribute<string> PairDestName (PairDomain);
+		attribute<string> PairRowKey   (PairDomain);
+		unit<uint32>      FullDomain;
+		attribute<string> FullOrgName  (FullDomain);
+		attribute<string> FullDestName (FullDomain);
+		attribute<string> FullRowKey   (FullDomain);
+		///
+		unit<uint32> PairRows := select_with_org_rel(PairOrgName == ModelParameters/OD_Origin && PairDestName == ModelParameters/OD_Destination)
+		{
+			attribute<string> Key := PairRowKey[org_rel];
+		}
+		unit<uint32> FullRows := select_with_org_rel(FullOrgName == ModelParameters/OD_Origin && FullDestName == ModelParameters/OD_Destination)
+		{
+			attribute<string> Key := FullRowKey[org_rel];
+		}
+		unit<uint32> AllRows := union_unit(PairRows, FullRows)
+		{
+			attribute<string> Key := union_data(., PairRows/Key, FullRows/Key);
+		}
+		unit<uint32> Keys := unique(AllRows/Key), Descr = "The different rows of both files, with how often each occurs in the output of the pair and in that of the whole model."
+		{
+			attribute<uint32> NrPair := pcount_uint32(rlookup(PairRows/Key, values));
+			attribute<uint32> NrFull := pcount_uint32(rlookup(FullRows/Key, values));
+		}
+		parameter<uint32> NrPairRows  := #PairRows;
+		parameter<uint32> NrFullRows  := #FullRows;
+		parameter<uint32> NrDifferent := sum_uint32(Keys/NrPair != Keys/NrFull), Descr = "The number of different rows that do not occur equally often in both files.";
+		parameter<bool>   IsEqual     := all(Keys/NrPair == Keys/NrFull);
+	}
+	// A file of the merged output, with all its columns.
+	Template ReadMerged_T
+	{
+		parameter<string> FileName;
+		///
+		unit<uint32> domain : StorageName = "=FileName", StorageType = "gdal.vect", StorageReadOnly = "true"
+		{
+			attribute<string>  OrgName;
+			attribute<string>  DestName;
+			attribute<float32> Traveltime;
+			attribute<float32> Price;
+			attribute<float32> Price_Augm;
+			attribute<string>  ModeUsed;
+			attribute<uint8>   NeedsCar;
+			attribute<uint8>   NeedsBike;
+			attribute<float32> WaitingTime;
+			attribute<float32> PretransTime;
+			attribute<float32> PosttransTime;
+			attribute<uint32>  TravelDist_Bus;
+			attribute<uint32>  TravelDist_Metro;
+			attribute<uint32>  TravelDist_Tram;
+			attribute<uint32>  TravelDist_Rail;
+			attribute<uint32>  TravelDist_Ferry;
+			attribute<uint32>  TravelDist_Car;
+			attribute<string>  Component;
+			attribute<uint32>  TravelDist_V;
+			attribute<uint32>  TravelDist_N;
+			attribute<float32> PTTime;
+			attribute<float32> PretransPrice;
+			attribute<float32> PTPrice;
+			attribute<float32> PosttransPrice;
+			attribute<uint32>  TravelDist_PT;
+			attribute<uint32>  TravelDist_Walking;
+			attribute<uint32>  TravelDist_Cycling;
+			attribute<float32> WalkingTime;
+			attribute<float32> CyclingTime;
+			attribute<float32> CarTime;
+			attribute<float32> WalkingPrice;
+			attribute<float32> CyclingPrice;
+			attribute<float32> CarPrice;
+			attribute<float32> InVehicleTime;
+			attribute<float32> TransferWalkTime;
+			attribute<float32> PTWaitTime;
+		}
+	}
+
+	container Compare : Descr = "The comparison of every component of the variant and of their merge with the run of the whole model (#135); per departure moment in PerComponent/<component>/Compare and Merged."
+	{
+		attribute<bool>   IsEqual (Comps) := ='union_data(Comps, ' + asList('PerComponent/' + Comps/name + '/Compare/AllEqual', ', ') + ')';
+		attribute<string> Report  (Comps) := ='union_data(Comps, ' + asList('PerComponent/' + Comps/name + '/Compare/Report', ', ') + ')';
+
+		// The merge: its signature holds the hashes of the components ([name:hash]), so that of the whole model follows from theirs
+		// (PerComponent/<component>/Compare/FullHash); its folder is named as NetworkSetup/ComponentMerge_Def/Dir names it.
+		container Merged : Descr = "The merged output of the pair per departure moment against that of the whole model."
+		{
+			parameter<string> FullCompHashes := =asList('''[' + Comps/name + ':'' + PerComponent/' + Comps/name + '/Compare/FullHash/Hex + '']''', ' + ');
+			parameter<string> FullSignature  := replace(/NetworkSetup/ComponentMerge_Def/Signature, /NetworkSetup/ComponentMerge_Def/CompHashes, FullCompHashes, ModelParameters/Impl/OrgSet_SelectionTag, '')
+			,	Descr = "The signature of the merged output of the whole model: that of the pair with the hashes of the components of the whole model and without the origin of the pair in the set.";
+			container         FullHash       := /Templates/StringHash_T(FullSignature);
+			parameter<string> FullDir        := '%LocalDataProjDir%/Output/' + ModelParameters/Impl/Analysis_date + '_' + ModelParameters/OD_CompareLabel + '_Merged' + string(ModelParameters/MergeRunNr) + (any(Comps/UsesCycling) ? ModelParameters/Impl/CyclingNetwork_DirTag : '') + '_' + FullHash/Hex;
+			container         FullSig        := /Templates/Signature_T(FullDir, FullDir + '/signature.txt', FullSignature, /NetworkSetup/GenerateOutput/MaxSubPathLength);
+			container         PairSig        := /Templates/Signature_T(/NetworkSetup/ComponentMerge_Def/Dir, /NetworkSetup/ComponentMerge_Def/Dir + '/signature.txt', /NetworkSetup/ComponentMerge_Def/Signature, /NetworkSetup/GenerateOutput/MaxSubPathLength);
+			container         PerMoment      := for_each_ne(Moments/name, 'CompareMoment_T(' + quote(Moments/Short) + ')');
+			Template CompareMoment_T
+			{
+				parameter<string> MomentShort;
+				///
+				parameter<string> PairFile := PairSig/ForReading + '/PerBlock/tt_' + MomentShort + '_1of1.parquet';
+				parameter<string> FullFile := FullSig/ForReading + '/PerBlock/tt_' + MomentShort + '_' + FullRun/BlockFile + '.parquet';
+				container         Read     := for_each_ne(Sides/name, 'ReadMerged_T(' + Sides/FileItem + ')');
+				attribute<string> PairKey (Read/Pair/domain) := =asList('string(Read/Pair/domain/' + MergedColumns/name + ')', ' + ''|'' + ');
+				attribute<string> FullKey (Read/Full/domain) := =asList('string(Read/Full/domain/' + MergedColumns/name + ')', ' + ''|'' + ');
+				container         Rows     := CompareRows_T(Read/Pair/domain, Read/Pair/domain/OrgName, Read/Pair/domain/DestName, PairKey, Read/Full/domain, Read/Full/domain/OrgName, Read/Full/domain/DestName, FullKey);
+			}
+			attribute<uint32> NrPairRows (Moments) := ='union_data(Moments, ' + asList('PerMoment/' + Moments/name + '/Rows/NrPairRows', ', ') + ')';
+			attribute<uint32> NrFullRows (Moments) := ='union_data(Moments, ' + asList('PerMoment/' + Moments/name + '/Rows/NrFullRows', ', ') + ')';
+			attribute<bool>   IsEqual    (Moments) := ='union_data(Moments, ' + asList('PerMoment/' + Moments/name + '/Rows/IsEqual', ', ') + ')';
+			parameter<bool>   HasPair              := PairSig/IsChecked, Descr = "Is there merged output of the pair with the current settings?";
+			parameter<bool>   HasFull              := FullSig/IsChecked, Descr = "Is there merged output of the whole model with the same settings (FullDir)?";
+			parameter<bool>   AllEqual             := = HasPair && HasFull ? 'all(IsEqual)' : 'FALSE';
+			parameter<string> CountsText           := 'Merged: ' + (all(IsEqual) ? 'gelijk' : 'VERSCHIL') + ' (' + asList(Moments/Short + ' ' + string(NrPairRows) + ' rijen van het paar, ' + string(NrFullRows) + ' van het model', '; ') + ')';
+			parameter<string> Report               := = HasPair && HasFull ? 'CountsText' : quote('Merged: geen uitvoer van ' + (HasPair ? 'het hele model met dezelfde instellingen in ' + FullDir : 'het paar met de huidige instellingen in ' + /NetworkSetup/ComponentMerge_Def/Dir))
+			,	Descr = "Per departure moment the number of rows of the pair in its merged output and in that of the whole model, and whether they are the same; or which output is missing.";
+		}
+		parameter<bool>   AllEqual        := all(IsEqual) && Merged/AllEqual;
+		parameter<string> ReportText      := asList(Report, '\n') + '\n' + Merged/Report, Descr = "The reports of the components and of the merge, one per line.";
+	}
 	unit<uint8>       Comps_Er          := Comps;
 
 	container Combined : Descr = "The options of all components merged per departure moment into one front, as ComponentMerge does, with their links and chart."

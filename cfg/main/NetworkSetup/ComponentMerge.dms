@@ -61,6 +61,142 @@ container ComponentMerge
 	,	Descr = "Merges all blocks and departure moments, one block per phase, so that its intermediate results are freed afterwards.";
 	parameter<string> GDAL_LayerCreationOptions := 'COMPRESSION=ZSTD';
 
+	// Per kind of component (Classifications/Components/ExportClass) a reader of one file that reads the columns of its writer (PerDepartureMoment_T,
+	// CreateExports/LongFormat/Parquet_<ExportClass>) and completes the others to the common schema.
+	// WW and CC: OrgName, DestName, Traveltime, TravelDist_V.
+	Template ReadDirect_T
+	{
+		parameter<string> FileName;
+		parameter<string> CompName;
+		parameter<bool>   CompNeedsBike;
+		///
+		unit<uint32> domain : StorageName = "=FileName", StorageType = "gdal.vect", StorageReadOnly = "true"
+		{
+			attribute<string>  OrgName;
+			attribute<string>  DestName;
+			attribute<s>       Traveltime;
+			attribute<uint32>  TravelDist_V;
+		}
+		parameter<bool>   IsWalking                 := CompName == 'WW';
+		attribute<string> OrgName          (domain) := domain/OrgName;
+		attribute<string> DestName         (domain) := domain/DestName;
+		attribute<s>      Traveltime       (domain) := domain/Traveltime;
+		// As in PublicTransport_Prep/Direct: the costs per minute (Direct_*_Time_Costs), which count in Price only with Include*CostsInPrice.
+		attribute<Euro>   Price_Augm       (domain) := convert(rounded_convert(convert(Traveltime, min_f) * (IsWalking ? /ModelParameters/Direct_Walking_Time_Costs : /ModelParameters/Direct_Cycling_Time_Costs), Ct), Euro);
+		attribute<Euro>   Price            (domain) := (IsWalking ? /ModelParameters/Advanced/IncludeWalkingCostsInPrice : /ModelParameters/Advanced/IncludeCyclingCostsInPrice) ? Price_Augm : const(0[Euro], domain);
+		attribute<string> ModeUsed         (domain) := const(CompName, domain);
+		attribute<uint8>  NeedsCar         (domain) := const(0b, domain);
+		attribute<uint8>  NeedsBike        (domain) := const(CompNeedsBike ? 1b : 0b, domain);
+		attribute<s>      WaitingTime      (domain) := const(0[s], domain);
+		attribute<s>      PretransTime     (domain) := Traveltime;
+		attribute<s>      PosttransTime    (domain) := const(0[s], domain);
+		attribute<uint32> TravelDist_Bus   (domain) := const(0, domain, uint32);
+		attribute<uint32> TravelDist_Metro (domain) := const(0, domain, uint32);
+		attribute<uint32> TravelDist_Tram  (domain) := const(0, domain, uint32);
+		attribute<uint32> TravelDist_Rail  (domain) := const(0, domain, uint32);
+		attribute<uint32> TravelDist_Ferry (domain) := const(0, domain, uint32);
+		attribute<uint32> TravelDist_Car   (domain) := const(0, domain, uint32);
+		attribute<uint32> TravelDist_V     (domain) := domain/TravelDist_V;
+		attribute<uint32> TravelDist_N     (domain) := const(0, domain, uint32);
+		attribute<Euro>   PretransPrice    (domain) := Price;
+		attribute<Euro>   PosttransPrice   (domain) := const(0[Euro], domain);
+		attribute<s>      TransferWalkTime (domain) := const(0[s], domain);
+		attribute<s>      PTWaitTime       (domain) := const(0[s], domain);
+	}
+	// Car: OrgName, DestName, Traveltime, TravelDist_Car.
+	Template ReadCar_T
+	{
+		parameter<string> FileName;
+		parameter<string> CompName;
+		parameter<bool>   CompNeedsBike;
+		///
+		unit<uint32> domain : StorageName = "=FileName", StorageType = "gdal.vect", StorageReadOnly = "true"
+		{
+			attribute<string>  OrgName;
+			attribute<string>  DestName;
+			attribute<s>       Traveltime;
+			attribute<uint32>  TravelDist_Car;
+		}
+		attribute<string> OrgName          (domain) := domain/OrgName;
+		attribute<string> DestName         (domain) := domain/DestName;
+		attribute<s>      Traveltime       (domain) := domain/Traveltime;
+		// As in PublicTransport_Prep/Direct/Car: Car_FixedCosts_PerTrip + distance x Car_CostPerKm; the distance is in whole metres in the file.
+		attribute<Euro>   Price            (domain) := /ModelParameters/Advanced/IncludeCarCostsInPrice ? convert(rounded_convert(/ModelParameters/Car_FixedCosts_PerTrip + value(float32(domain/TravelDist_Car) / 1000f, km) * /ModelParameters/Car_CostPerKm, Ct), Euro) : const(0[Euro], domain);
+		attribute<Euro>   Price_Augm       (domain) := Price;
+		attribute<string> ModeUsed         (domain) := const('AA', domain);
+		attribute<uint8>  NeedsCar         (domain) := const(1b, domain);
+		attribute<uint8>  NeedsBike        (domain) := const(0b, domain);
+		attribute<s>      WaitingTime      (domain) := const(0[s], domain);
+		attribute<s>      PretransTime     (domain) := Traveltime;
+		attribute<s>      PosttransTime    (domain) := const(0[s], domain);
+		attribute<uint32> TravelDist_Bus   (domain) := const(0, domain, uint32);
+		attribute<uint32> TravelDist_Metro (domain) := const(0, domain, uint32);
+		attribute<uint32> TravelDist_Tram  (domain) := const(0, domain, uint32);
+		attribute<uint32> TravelDist_Rail  (domain) := const(0, domain, uint32);
+		attribute<uint32> TravelDist_Ferry (domain) := const(0, domain, uint32);
+		attribute<uint32> TravelDist_Car   (domain) := domain/TravelDist_Car;
+		attribute<uint32> TravelDist_V     (domain) := domain/TravelDist_Car;
+		attribute<uint32> TravelDist_N     (domain) := const(0, domain, uint32);
+		attribute<Euro>   PretransPrice    (domain) := Price;
+		attribute<Euro>   PosttransPrice   (domain) := const(0[Euro], domain);
+		attribute<s>      TransferWalkTime (domain) := const(0[s], domain);
+		attribute<s>      PTWaitTime       (domain) := const(0[s], domain);
+	}
+	// A public transport component: the columns of Parquet_PT; NeedsBike follows from pre-transport and post-transport (Classifications/Components/NeedsBike).
+	Template ReadPT_T
+	{
+		parameter<string> FileName;
+		parameter<string> CompName;
+		parameter<bool>   CompNeedsBike;
+		///
+		unit<uint32> domain : StorageName = "=FileName", StorageType = "gdal.vect", StorageReadOnly = "true"
+		{
+			attribute<string>  OrgName;
+			attribute<string>  DestName;
+			attribute<s>       Traveltime;
+			attribute<float32> Price;
+			attribute<float32> Price_Augm;
+			attribute<string>  ModeUsed;
+			attribute<s>       WaitingTime;
+			attribute<s>       PretransTime;
+			attribute<s>       PosttransTime;
+			attribute<uint32>  TravelDist_Bus;
+			attribute<uint32>  TravelDist_Metro;
+			attribute<uint32>  TravelDist_Tram;
+			attribute<uint32>  TravelDist_Rail;
+			attribute<uint32>  TravelDist_Ferry;
+			attribute<uint32>  TravelDist_V;
+			attribute<uint32>  TravelDist_N;
+			attribute<float32> PretransPrice;
+			attribute<float32> PosttransPrice;
+			attribute<s>       TransferWalkTime;
+			attribute<s>       PTWaitTime;
+		}
+		attribute<string> OrgName          (domain) := domain/OrgName;
+		attribute<string> DestName         (domain) := domain/DestName;
+		attribute<s>      Traveltime       (domain) := domain/Traveltime;
+		attribute<Euro>   Price            (domain) := value(domain/Price, Euro);
+		attribute<Euro>   Price_Augm       (domain) := value(domain/Price_Augm, Euro);
+		attribute<string> ModeUsed         (domain) := domain/ModeUsed;
+		attribute<uint8>  NeedsCar         (domain) := const(0b, domain);
+		attribute<uint8>  NeedsBike        (domain) := const(CompNeedsBike ? 1b : 0b, domain);
+		attribute<s>      WaitingTime      (domain) := domain/WaitingTime;
+		attribute<s>      PretransTime     (domain) := domain/PretransTime;
+		attribute<s>      PosttransTime    (domain) := domain/PosttransTime;
+		attribute<uint32> TravelDist_Bus   (domain) := domain/TravelDist_Bus;
+		attribute<uint32> TravelDist_Metro (domain) := domain/TravelDist_Metro;
+		attribute<uint32> TravelDist_Tram  (domain) := domain/TravelDist_Tram;
+		attribute<uint32> TravelDist_Rail  (domain) := domain/TravelDist_Rail;
+		attribute<uint32> TravelDist_Ferry (domain) := domain/TravelDist_Ferry;
+		attribute<uint32> TravelDist_Car   (domain) := const(0, domain, uint32);
+		attribute<uint32> TravelDist_V     (domain) := domain/TravelDist_V;
+		attribute<uint32> TravelDist_N     (domain) := domain/TravelDist_N;
+		attribute<Euro>   PretransPrice    (domain) := value(domain/PretransPrice, Euro);
+		attribute<Euro>   PosttransPrice   (domain) := value(domain/PosttransPrice, Euro);
+		attribute<s>      TransferWalkTime (domain) := domain/TransferWalkTime;
+		attribute<s>      PTWaitTime       (domain) := domain/PTWaitTime;
+	}
+
 	Template MergeBlock_T : Descr = "The merge of one origin block over all departure moments, with the counts of the block."
 	{
 		parameter</NetworkSetup/impl/OrgBlockDomain> BlockDomain_id;
@@ -119,143 +255,7 @@ container ComponentMerge
 			attribute<string> CompFile (ComponentMerge_Def/Comps) := ComponentMerge_Def/CompDir + '/PerBlock/tt_'
 			                                                         + (ComponentMerge_Def/Comps/SingleDepartureMoment_Eff ? /ModelParameters/Impl/SingleDepartureMoment_Shrt : MomentShort) + '_' + BlockFile + '.parquet';
 			container         PerComp                             := for_each_ne(ComponentMerge_Def/Comps/name
-			                                                         , 'Read' + ComponentMerge_Def/Comps/ExportClass + '_T(' + quote(ComponentMerge_Def/Comps/name) + ', ' + string(id(ComponentMerge_Def/Comps)) + 'b)'); // b: Comps is uint8
-
-			// Per kind of component (Classifications/Components/ExportClass) a reader that reads the columns of its writer (PerDepartureMoment_T,
-			// CreateExports/LongFormat/Parquet_<ExportClass>) and completes the others to the common schema.
-			// WW and CC: OrgName, DestName, Traveltime, TravelDist_V.
-			Template ReadDirect_T
-			{
-				parameter<string> CompName;
-				parameter<ComponentMerge_Def/Comps> Comp_id;
-				///
-				parameter<string> FileName                  := CompFile[Comp_id];
-				unit<uint32> domain : StorageName = "=FileName", StorageType = "gdal.vect", StorageReadOnly = "true"
-				{
-					attribute<string>  OrgName;
-					attribute<string>  DestName;
-					attribute<s>       Traveltime;
-					attribute<uint32>  TravelDist_V;
-				}
-				parameter<bool>   IsWalking                 := CompName == 'WW';
-				attribute<string> OrgName          (domain) := domain/OrgName;
-				attribute<string> DestName         (domain) := domain/DestName;
-				attribute<s>      Traveltime       (domain) := domain/Traveltime;
-				// As in PublicTransport_Prep/Direct: the costs per minute (Direct_*_Time_Costs), which count in Price only with Include*CostsInPrice.
-				attribute<Euro>   Price_Augm       (domain) := convert(rounded_convert(convert(Traveltime, min_f) * (IsWalking ? /ModelParameters/Direct_Walking_Time_Costs : /ModelParameters/Direct_Cycling_Time_Costs), Ct), Euro);
-				attribute<Euro>   Price            (domain) := (IsWalking ? /ModelParameters/Advanced/IncludeWalkingCostsInPrice : /ModelParameters/Advanced/IncludeCyclingCostsInPrice) ? Price_Augm : const(0[Euro], domain);
-				attribute<string> ModeUsed         (domain) := const(CompName, domain);
-				attribute<uint8>  NeedsCar         (domain) := const(0b, domain);
-				attribute<uint8>  NeedsBike        (domain) := const(ComponentMerge_Def/Comps/NeedsBike[Comp_id] ? 1b : 0b, domain);
-				attribute<s>      WaitingTime      (domain) := const(0[s], domain);
-				attribute<s>      PretransTime     (domain) := Traveltime;
-				attribute<s>      PosttransTime    (domain) := const(0[s], domain);
-				attribute<uint32> TravelDist_Bus   (domain) := const(0, domain, uint32);
-				attribute<uint32> TravelDist_Metro (domain) := const(0, domain, uint32);
-				attribute<uint32> TravelDist_Tram  (domain) := const(0, domain, uint32);
-				attribute<uint32> TravelDist_Rail  (domain) := const(0, domain, uint32);
-				attribute<uint32> TravelDist_Ferry (domain) := const(0, domain, uint32);
-				attribute<uint32> TravelDist_Car   (domain) := const(0, domain, uint32);
-				attribute<uint32> TravelDist_V     (domain) := domain/TravelDist_V;
-				attribute<uint32> TravelDist_N     (domain) := const(0, domain, uint32);
-				attribute<Euro>   PretransPrice    (domain) := Price;
-				attribute<Euro>   PosttransPrice   (domain) := const(0[Euro], domain);
-				attribute<s>      TransferWalkTime (domain) := const(0[s], domain);
-				attribute<s>      PTWaitTime       (domain) := const(0[s], domain);
-			}
-			// Car: OrgName, DestName, Traveltime, TravelDist_Car.
-			Template ReadCar_T
-			{
-				parameter<string> CompName;
-				parameter<ComponentMerge_Def/Comps> Comp_id;
-				///
-				parameter<string> FileName                  := CompFile[Comp_id];
-				unit<uint32> domain : StorageName = "=FileName", StorageType = "gdal.vect", StorageReadOnly = "true"
-				{
-					attribute<string>  OrgName;
-					attribute<string>  DestName;
-					attribute<s>       Traveltime;
-					attribute<uint32>  TravelDist_Car;
-				}
-				attribute<string> OrgName          (domain) := domain/OrgName;
-				attribute<string> DestName         (domain) := domain/DestName;
-				attribute<s>      Traveltime       (domain) := domain/Traveltime;
-				// As in PublicTransport_Prep/Direct/Car: Car_FixedCosts_PerTrip + distance x Car_CostPerKm; the distance is in whole metres in the file.
-				attribute<Euro>   Price            (domain) := /ModelParameters/Advanced/IncludeCarCostsInPrice ? convert(rounded_convert(/ModelParameters/Car_FixedCosts_PerTrip + value(float32(domain/TravelDist_Car) / 1000f, km) * /ModelParameters/Car_CostPerKm, Ct), Euro) : const(0[Euro], domain);
-				attribute<Euro>   Price_Augm       (domain) := Price;
-				attribute<string> ModeUsed         (domain) := const('AA', domain);
-				attribute<uint8>  NeedsCar         (domain) := const(1b, domain);
-				attribute<uint8>  NeedsBike        (domain) := const(0b, domain);
-				attribute<s>      WaitingTime      (domain) := const(0[s], domain);
-				attribute<s>      PretransTime     (domain) := Traveltime;
-				attribute<s>      PosttransTime    (domain) := const(0[s], domain);
-				attribute<uint32> TravelDist_Bus   (domain) := const(0, domain, uint32);
-				attribute<uint32> TravelDist_Metro (domain) := const(0, domain, uint32);
-				attribute<uint32> TravelDist_Tram  (domain) := const(0, domain, uint32);
-				attribute<uint32> TravelDist_Rail  (domain) := const(0, domain, uint32);
-				attribute<uint32> TravelDist_Ferry (domain) := const(0, domain, uint32);
-				attribute<uint32> TravelDist_Car   (domain) := domain/TravelDist_Car;
-				attribute<uint32> TravelDist_V     (domain) := domain/TravelDist_Car;
-				attribute<uint32> TravelDist_N     (domain) := const(0, domain, uint32);
-				attribute<Euro>   PretransPrice    (domain) := Price;
-				attribute<Euro>   PosttransPrice   (domain) := const(0[Euro], domain);
-				attribute<s>      TransferWalkTime (domain) := const(0[s], domain);
-				attribute<s>      PTWaitTime       (domain) := const(0[s], domain);
-			}
-			// A public transport component: the columns of Parquet_PT; NeedsBike follows from pre-transport and post-transport (Classifications/Components/NeedsBike).
-			Template ReadPT_T
-			{
-				parameter<string> CompName;
-				parameter<ComponentMerge_Def/Comps> Comp_id;
-				///
-				parameter<string> FileName                  := CompFile[Comp_id];
-				unit<uint32> domain : StorageName = "=FileName", StorageType = "gdal.vect", StorageReadOnly = "true"
-				{
-					attribute<string>  OrgName;
-					attribute<string>  DestName;
-					attribute<s>       Traveltime;
-					attribute<float32> Price;
-					attribute<float32> Price_Augm;
-					attribute<string>  ModeUsed;
-					attribute<s>       WaitingTime;
-					attribute<s>       PretransTime;
-					attribute<s>       PosttransTime;
-					attribute<uint32>  TravelDist_Bus;
-					attribute<uint32>  TravelDist_Metro;
-					attribute<uint32>  TravelDist_Tram;
-					attribute<uint32>  TravelDist_Rail;
-					attribute<uint32>  TravelDist_Ferry;
-					attribute<uint32>  TravelDist_V;
-					attribute<uint32>  TravelDist_N;
-					attribute<float32> PretransPrice;
-					attribute<float32> PosttransPrice;
-					attribute<s>       TransferWalkTime;
-					attribute<s>       PTWaitTime;
-				}
-				attribute<string> OrgName          (domain) := domain/OrgName;
-				attribute<string> DestName         (domain) := domain/DestName;
-				attribute<s>      Traveltime       (domain) := domain/Traveltime;
-				attribute<Euro>   Price            (domain) := value(domain/Price, Euro);
-				attribute<Euro>   Price_Augm       (domain) := value(domain/Price_Augm, Euro);
-				attribute<string> ModeUsed         (domain) := domain/ModeUsed;
-				attribute<uint8>  NeedsCar         (domain) := const(0b, domain);
-				attribute<uint8>  NeedsBike        (domain) := const(ComponentMerge_Def/Comps/NeedsBike[Comp_id] ? 1b : 0b, domain);
-				attribute<s>      WaitingTime      (domain) := domain/WaitingTime;
-				attribute<s>      PretransTime     (domain) := domain/PretransTime;
-				attribute<s>      PosttransTime    (domain) := domain/PosttransTime;
-				attribute<uint32> TravelDist_Bus   (domain) := domain/TravelDist_Bus;
-				attribute<uint32> TravelDist_Metro (domain) := domain/TravelDist_Metro;
-				attribute<uint32> TravelDist_Tram  (domain) := domain/TravelDist_Tram;
-				attribute<uint32> TravelDist_Rail  (domain) := domain/TravelDist_Rail;
-				attribute<uint32> TravelDist_Ferry (domain) := domain/TravelDist_Ferry;
-				attribute<uint32> TravelDist_Car   (domain) := const(0, domain, uint32);
-				attribute<uint32> TravelDist_V     (domain) := domain/TravelDist_V;
-				attribute<uint32> TravelDist_N     (domain) := domain/TravelDist_N;
-				attribute<Euro>   PretransPrice    (domain) := value(domain/PretransPrice, Euro);
-				attribute<Euro>   PosttransPrice   (domain) := value(domain/PosttransPrice, Euro);
-				attribute<s>      TransferWalkTime (domain) := domain/TransferWalkTime;
-				attribute<s>      PTWaitTime       (domain) := domain/PTWaitTime;
-			}
+			                                                         , 'Read' + ComponentMerge_Def/Comps/ExportClass + '_T(CompFile[' + string(id(ComponentMerge_Def/Comps)) + 'b], ' + quote(ComponentMerge_Def/Comps/name) + ', ComponentMerge_Def/Comps/NeedsBike[' + string(id(ComponentMerge_Def/Comps)) + 'b])'); // b: Comps is uint8
 
 			unit<uint32> Rows := ='union_unit(' + asList('PerComp/' + ComponentMerge_Def/Comps/name + '/domain', ',') + ')'
 			,	Descr = "The rows of all Components, in the order of Comps; with a tie on all criteria the first wins (pareto_optimal_eps)."
