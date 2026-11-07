@@ -6,12 +6,14 @@ container ModelParameters : using = "units;classifications"
 	// %LocalDataProjDir%/IntermediateResults, which the model then makes again.
 
 	// 1. WHAT: analysis moment and day, part of the day, origins and destinations, and the output. batch/UpdateAll.cmd checks these
-	// choices first (ChecksBeforeRunning in main.dms) and stops with a message that says what to change.
-	parameter<string>   AnalysisMoment                        := 'Y2025'                 , Descr = "The analysis moment, a year in AnalysisMomentPresets in group 7 with an analysis day and a GTFS feed (Y2015 and Y2023 to Y2026), which sets the analysis day, the GTFS feed, OSM, TomTom, the CBS area division and the BAG (#125).";
+	// choices first (ChecksBeforeRunning in main.dms) and stops with a message that says what to change. AnalysisMoment, PartOfDay, Orgset,
+	// Destset and OutputLabel can also be given per call, as batch/UpdateAll.cmd all -set PartOfDay Middag (Impl/Given); the value at the
+	// end of their line applies when the call gives none, and is the one to change here.
+	parameter<string>   AnalysisMoment                        := Impl/Given/AnalysisMoment != '' ? Impl/Given/AnalysisMoment : 'Y2025', Descr = "The analysis moment, a year in AnalysisMomentPresets in group 7 with an analysis day and a GTFS feed (Y2015 and Y2023 to Y2026), which sets the analysis day, the GTFS feed, OSM, TomTom, the CBS area division and the BAG (#125).";
 	parameter<string>   AnalysisDay                           := ''                      , Descr = "The day of the public transport analysis as yyyymmdd, or empty for the analysis day of AnalysisMoment, the second Tuesday of October; the GTFS feed of AnalysisMoment must cover it (ChecksBeforeRunning/Check_GTFS).";
-	parameter<string>   PartOfDay                             := 'Ochtendspits'          , Descr = "The part of the day of the departure moments, from PartsOfDay in group 8: 'Ochtendspits', 'Middag' or 'Avond', each with four moments a quarter of an hour apart (#125).";
-	parameter<string>   Orgset                                := 'Buurt2025'             , Descr = "The origin set, one of Advanced/org_domain_list.";
-	parameter<string>   Destset                               := 'Buurt2025'             , Descr = "The destination set, one of Advanced/dest_domain_list.";
+	parameter<string>   PartOfDay                             := Impl/Given/PartOfDay != '' ? Impl/Given/PartOfDay : 'Ochtendspits', Descr = "The part of the day of the departure moments, from PartsOfDay in group 8: 'Ochtendspits', 'Middag' or 'Avond', each with four moments a quarter of an hour apart (#125).";
+	parameter<string>   Orgset                                := Impl/Given/Orgset != '' ? Impl/Given/Orgset : 'Buurt2025', Descr = "The origin set, one of Advanced/org_domain_list.";
+	parameter<string>   Destset                               := Impl/Given/Destset != '' ? Impl/Given/Destset : 'Buurt2025', Descr = "The destination set, one of Advanced/dest_domain_list.";
 	parameter<string>   Orgset_SingleNeighbourhood_Selection  := 'BU0363AD05'            , Descr = "The neighbourhood code (BU_CODE) when Orgset is a single neighbourhood.";
 	parameter<string>   Orgset_SingleMunicipality_Selection   := 'Dronten'               , Descr = "The municipality name when Orgset is a single municipality.";
 	parameter<string>   Orgset_SingleProvince_Selection       := 'Zuid_Holland'          , Descr = "The province name when Orgset is a single province.";
@@ -19,7 +21,7 @@ container ModelParameters : using = "units;classifications"
 	parameter<string>   Destset_SingleNeighbourhood_Selection := 'BU0363ET02'            , Descr = "The neighbourhood code (BU_CODE) when Destset is a single neighbourhood.";
 	parameter<string>   Destset_SingleCorop_Selection         := 'Twente'                , Descr = "The COROP name when Destset is a single COROP area.";
 	parameter<string>   Destset_SingleProvince_Selection      := 'Zuid_Holland'          , Descr = "The province name when Destset is a single province.";
-	parameter<string>   OutputLabel                           := 'b2025'                 , Descr = "Name of the variant in the output folder Output/<analysis date>_<OutputLabel>_<component>_<hash>, at most 20 characters. The analysis date gives the year; the label gives the zone set and a part of the day other than the morning rush: b2025, b2025_middag, b2025_avond (#118). WW and CC, which do not depend on the part of the day, carry the origin set instead (#145).", IntegrityCheck = "strlen(this) >= 1 && strlen(this) <= 20 && strcount(this, ' ') == 0 && strcount(this, '/') == 0 && strcount(this, ':') == 0 && strcount(this, '.') == 0";
+	parameter<string>   OutputLabel                           := Impl/Given/OutputLabel != '' ? Impl/Given/OutputLabel : 'b2025', Descr = "Name of the variant in the output folder Output/<analysis date>_<OutputLabel>_<component>_<hash>, at most 20 characters. The analysis date gives the year; the label gives the zone set and a part of the day other than the morning rush: b2025, b2025_middag, b2025_avond (#118). WW and CC, which do not depend on the part of the day, carry the origin set instead (#145).", IntegrityCheck = "strlen(this) >= 1 && strlen(this) <= 20 && strcount(this, ' ') == 0 && strcount(this, '/') == 0 && strcount(this, ':') == 0 && strcount(this, '.') == 0";
 	parameter<string>   OutputFormat                          := 'parquet'               , Descr = "Format of the output per origin block and departure moment: 'parquet', typed and with only the columns that vary within the component, or 'csv' with all columns.", IntegrityCheck = "OutputFormat == 'csv' || OutputFormat == 'parquet'";
 	parameter<bool>     Export_TravelledDistance              := TRUE                    , Descr = "Does the output include the travelled distance?";
 	parameter<bool>     Export_PriceInformation               := TRUE                    , Descr = "Does the output include the price, split into pre-transport, public transport and post-transport and per mode?";
@@ -29,7 +31,7 @@ container ModelParameters : using = "units;classifications"
 	// combined with every post-transport type that is on, is a public transport component <pre>_PT_<post>, such as W_PT_W or C_PT_ovfC;
 	// with the direct trips that are on they are the components of the variant (Classifications/Components/Selected). batch/UpdateAll.cmd
 	// calculates the components one after the other, each in its own GeoDmsRun steps and output folder, skips a component whose output is
-	// complete, and then merges them.
+	// complete, and then merges them. A merge variant of group 3 (-variant) names its components itself and leaves these switches aside.
 	container PreTransport
 	: Descr = "The pre-transport types of the variant, one switch per row of Classifications/PreTransportTypes."
 	{
@@ -55,10 +57,41 @@ container ModelParameters : using = "units;classifications"
 	parameter<bool>     DirectCar                             := TRUE                    , Descr = "Is the direct car trip (Car) a component of the variant?";
 	parameter<string>   GuiComponent                          := 'W_PT_W'                , Descr = "Only for GeoDmsGui: the component that the GUI shows, a name from Classifications/Components or 'Merged' for the merge of the variant; batch/UpdateAll.cmd chooses the component of each step itself (ConfigSettings/Overridable/RunComponent).";
 
-	// 3. MERGING the components of the variant into one front (NetworkSetup/ComponentMerge), after the components
-	parameter<bool>     Merge                                 := TRUE                    , Descr = "Does batch/UpdateAll.cmd merge the components of the variant into one Pareto front on MergeCriteria after calculating them (#117)?";
-	parameter<string>   MergeCriteria                         := 'Price,Time,Car,Bike'   , Descr = "Criteria of the merged front, a subset of Price or Price_Augm, Time, Car (needs a car) and Bike (needs a bike), separated by commas; without Car and Bike an option with a car or bike can push out one without.";
-	parameter<uint32>   MergeRunNr                            := 1                       , Descr = "Number of the merge in the name of its output folder (_Merged<MergeRunNr>_<hash>); the hash of its signature already gives a merge with other criteria or components a folder of its own, so the number only labels it.";
+	// 3. MERGING the components of the variant into one front (NetworkSetup/ComponentMerge), after the components. A merge variant, a row of
+	// MergeVariants, sets the components, the criteria and the number of a merge in one name: batch/UpdateAll.cmd all -variant <name> uses
+	// them in place of the switches of group 2 and of MergeCriteria and MergeRunNr below, and -variant all makes the merges of all rows one
+	// after the other. A component with the same settings has one output folder in every variant (#145), so only the first variant that
+	// needs it calculates it, and the next ones read it.
+	parameter<bool>     Merge                                 := TRUE                    , Descr = "Does batch/UpdateAll.cmd merge the components of the variant into one Pareto front on MergeCriteria after calculating them (#117)? A merge variant always merges.";
+	parameter<string>   MergeCriteria                         := Impl/HasVariant ? Impl/Variant_MergeCriteria : 'Price,Time,Car,Bike', Descr = "Criteria of the merged front, a subset of Price or Price_Augm, Time, Car (needs a car) and Bike (needs a bike), separated by commas; without Car and Bike an option with a car or bike can push out one without. With a merge variant those of its row in MergeVariants.";
+	parameter<uint32>   MergeRunNr                            := Impl/HasVariant ? Impl/Variant_MergeRunNr : 1, Descr = "Number of the merge in the name of its output folder (_Merged<MergeRunNr>_<hash>), with a merge variant that of its row in MergeVariants; the hash of its signature already gives a merge with other criteria or components a folder of its own, so the number only labels it.";
+	unit<uint8> MergeVariants : nrofrows = 8
+	, Descr = "The merge variants that batch/UpdateAll.cmd -variant <name> chooses: per row the name, the components (names from Classifications/Components such as WW, CC, Car, W_PT_W, Crm_PT_W or Cr_PT_W, separated by commas), the criteria as in MergeCriteria, and the number in the name of the output folder, one of its own per row. Rows 6 and 7 are row 2 with cycling to every train station (Cr) or to one where NS trains stop (Cn) in place of Crm (#147); row 8 merges all options of the switches of group 2 as they are: walking or cycling to every stop, walking, cycling or the OV-fiets from the last stop, and WW, CC and Car. A new merge gets a row here."
+	, Source = "PBL, the five merges of the request of 6 November 2026 (rows 1 to 5), and the merge with all options agreed with PBL on the same day (row 8)"
+	{
+		unit<uint32> Elements  := Range(uint32, 0, nrAttr*#.)
+		{
+			attribute<String> Text:
+			// name,               Components,                   MergeCriteria,         MergeRunNr
+			[
+			'OV_lopen',            'WW,W_PT_W',                  'Price,Time',          '1',
+			'OV_lopen_fiets',      'WW,CC,W_PT_W,Crm_PT_W',      'Price,Time,Bike',     '2',
+			'Auto',                'Car',                        'Price,Time',          '3',
+			'OV_lopen_auto',       'WW,W_PT_W,Car',              'Price,Time,Car',      '4',
+			'OV_lopen_fiets_auto', 'WW,CC,W_PT_W,Crm_PT_W,Car',  'Price,Time,Car,Bike', '5',
+			'OV_lopen_fiets_Cr',   'WW,CC,W_PT_W,Cr_PT_W',       'Price,Time,Bike',     '6',
+			'OV_lopen_fiets_Cn',   'WW,CC,W_PT_W,Cn_PT_W',       'Price,Time,Bike',     '7',
+			'Alle_opties',         'WW,CC,Car,W_PT_W,W_PT_C,W_PT_ovfC,C_PT_W,C_PT_C,C_PT_ovfC', 'Price,Time,Car,Bike', '8'
+			];
+		}
+
+		attribute<string> name          := Elements/Text[value(UInt32(ID(.))* nrAttr + 0, Elements)], Descr = "The name that batch/UpdateAll.cmd -variant takes.";
+		attribute<string> Components    := Elements/Text[value(UInt32(ID(.))* nrAttr + 1, Elements)], Descr = "The components of the merge, names from Classifications/Components separated by commas.";
+		attribute<string> MergeCriteria := Elements/Text[value(UInt32(ID(.))* nrAttr + 2, Elements)], Descr = "The criteria of the merged front, as ModelParameters/MergeCriteria.";
+		attribute<uint32> MergeRunNr    := value(Elements/Text[value(UInt32(ID(.))* nrAttr + 3, Elements)], uint32), Descr = "The number in the name of the output folder, _Merged<MergeRunNr>_<hash>.";
+
+		parameter<uint32> nrAttr        := 4;
+	}
 
 	// 4. ASSUMPTIONS THAT ONLY CHANGE THE OUTPUT; the caches stay valid, and the output of the components that use them gets another signature
 	// and so a folder of its own (#145)
@@ -329,7 +362,7 @@ container ModelParameters : using = "units;classifications"
 	
 		// 4. FARES
 		parameter<string>   PriceMethod                             := 'Detailed'          , Descr = "Public transport fares: 'Detailed', the fare tables per mode, agency, concession and line (OVprijzen/FareTable_2023), or 'DOVA', the kilometre fares per concession from the DOVA overview, back to 2013.";
-		parameter<string>   NS_TariffChoice                         := 'Price_40pct_Discount', Descr = "NS fare class in a part of the day off-peak: 'Price_FullFare', 'Price_20pct_Discount' or 'Price_40pct_Discount'; in the NS peak hours the model uses the full fare (Impl/NS_FareClass, #119).";
+		parameter<string>   NS_TariffChoice                         := /ModelParameters/Impl/Given/NS_TariffChoice != '' ? /ModelParameters/Impl/Given/NS_TariffChoice : 'Price_40pct_Discount', Descr = "NS fare class in a part of the day off-peak: 'Price_FullFare', 'Price_20pct_Discount' or 'Price_40pct_Discount'; in the NS peak hours the model uses the full fare (Impl/NS_FareClass, #119). Also per call, batch/UpdateAll.cmd -set NS_TariffChoice <value> (Impl/Given).";
 		parameter<min_f>    MaxTransferTimeForBoardingSurcharge     := 35[min_f]           , Descr = "Maximum transfer time within which no new boarding fare is charged, as in the Dutch fare system.";
 		parameter<bool>     IncludeWalkingCostsInPrice              := FALSE               , Descr = "Do the costs of walking count in Price? They are a valuation of the time, an amount per minute (PreTransport_, PostTransport_ and Direct_Walking_Time_Costs), and always count in Price_Augm.";
 		parameter<bool>     IncludeCyclingCostsInPrice              := TRUE                , Descr = "Do the costs of cycling on an own bike count in Price? They are the costs per km as an amount per minute at CyclingSpeed_kmhr (PreTransport_, PostTransport_ and Direct_Cycling_Time_Costs), and always count in Price_Augm. The rent of the OV-fiets always counts in Price (#108).";

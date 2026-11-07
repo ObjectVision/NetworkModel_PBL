@@ -5,7 +5,8 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 20.2800" // 20.28.
 	//    post-transport types and the direct trips) and the criteria of the merge.
 	// 2. Run batch\UpdateAll.cmd (or batch\ScheduleUpdateAll.cmd all, which keeps running after logging off). It checks the settings
 	//    (ChecksBeforeRunning/Report), makes the caches, calculates the components of the variant one after the other, each in its own GeoDmsRun
-	//    steps and output folder, skips a component whose output is complete, and merges them.
+	//    steps and output folder, skips a component whose output is complete, and merges them. With -variant <name> a call makes a merge
+	//    variant of ModelParameters/MergeVariants, and with -set <name> <value> it gives a setting of group 1, without an edit of ModelParameters.
 	// 3. In GeoDmsGui, ModelParameters/GuiComponent chooses the component to look at; the steps under MakeUnlinkedData make the same caches as
 	//    UpdateAll, and NetworkSetup/GenerateOutput/Generate_Output the output in one process, which only suits a small set or one OD pair.
 
@@ -14,6 +15,10 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 20.2800" // 20.28.
 		// The settings, in Report. They read ModelParameters and its small tables, and reach an item with an IntegrityCheck (such as
 		// Impl/Analysis_date) only through an indirect expression, after the check it depends on has passed: a wrong setting then gives this
 		// message and not the IntegrityCheck of a later item.
+		// The settings given for this call (batch/UpdateAll.cmd -variant, -set), first, because they replace values of ModelParameters.
+		parameter<string> Check_Given           := ModelParameters/Impl/Given/List != '' ? 'PASS: given for this call, in place of ModelParameters:' + ModelParameters/Impl/Given/List + '.'
+		                                           : 'PASS: no settings given for this call (-variant, -set); ModelParameters applies as it is.'
+		, Descr = "Which settings this call gives in place of those of ModelParameters (Impl/Given): the merge variant and the settings of -set.";
 		unit<uint8>       RunnableMoments       := select_with_attr_by_cond(ModelParameters/AnalysisMomentPresets, ModelParameters/AnalysisMomentPresets/Analysis_date != '' && ModelParameters/AnalysisMomentPresets/GTFS_file_date != '')
 		, Descr = "The analysis moments with an analysis day and a GTFS feed.";
 		parameter<string> Moment                := ModelParameters/AnalysisMoment;
@@ -31,6 +36,8 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 20.2800" // 20.28.
 		, Descr = "Is PartOfDay a row of PartsOfDay?";
 		// The NS fare class of the run (Impl/NS_FareClass): NS_TariffChoice in a part of the day off-peak, the full fare in the NS peak hours.
 		parameter<string> Check_NS_FareClass    := substr(Check_PartOfDay, 0, 4) != 'PASS' ? 'FAIL: the NS fare class is not checked, because PartOfDay is wrong (see above).'
+		                                           : ModelParameters/Advanced/NS_TariffChoice != 'Price_FullFare' && ModelParameters/Advanced/NS_TariffChoice != 'Price_20pct_Discount' && ModelParameters/Advanced/NS_TariffChoice != 'Price_40pct_Discount'
+		                                           ? 'FAIL: NS_TariffChoice ' + ModelParameters/Advanced/NS_TariffChoice + ' is not a fare class; choose Price_FullFare, Price_20pct_Discount or Price_40pct_Discount.'
 		                                           : ModelParameters/Impl/NS_FareClass != ModelParameters/Advanced/NS_TariffChoice
 		                                           ? 'PASS: NS fare class ' + ModelParameters/Impl/NS_FareClass + ' in PartOfDay ' + ModelParameters/PartOfDay + ', which falls in the NS peak hours (PartsOfDay/NS_OffPeak); NS_TariffChoice ' + ModelParameters/Advanced/NS_TariffChoice + ' applies only off-peak.'
 		                                           : 'PASS: NS fare class ' + ModelParameters/Impl/NS_FareClass + ' in PartOfDay ' + ModelParameters/PartOfDay + '.'
@@ -43,16 +50,26 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 20.2800" // 20.28.
 		, Descr = "Are Orgset and Destset in the lists of origin and destination sets?";
 		unit<uint8>       PreOn                 := select_with_attr_by_cond(Classifications/PreTransportTypes, Classifications/PreTransportTypes/Selected), Descr = "The pre-transport types that are on.";
 		unit<uint8>       PostOn                := select_with_attr_by_cond(Classifications/PostTransportTypes, Classifications/PostTransportTypes/Selected), Descr = "The post-transport types that are on.";
-		parameter<string> Check_Variant         := #PreOn > 0 && #PostOn == 0 ? 'FAIL: pre-transport types are on (' + asList(PreOn/code, ', ') + ') but no post-transport type; switch one on in ModelParameters/PostTransport, or switch the pre-transport types off.'
+		// A merge variant names its components: every name must be a component, once. The number of names is the number of commas in
+		// Impl/Variant_Components, which has one before and after every name, less one.
+		parameter<string> Variant_Name          := ModelParameters/Impl/Given/Variant;
+		parameter<uint32> Variant_NameCount     := strcount(ModelParameters/Impl/Variant_Components, ',') - 1;
+		parameter<string> Check_MergeVariant    := !ModelParameters/Impl/Variant_Known ? 'FAIL: the merge variant ' + Variant_Name + ' (-variant) is not in ModelParameters/MergeVariants; choose one of ' + asList(ModelParameters/MergeVariants/name, ', ') + ', or all.'
+		                                           : #ModelParameters/Impl/VariantComponents != Variant_NameCount ? 'FAIL: the merge variant ' + Variant_Name + ' names an unknown or repeated component in ''' + ModelParameters/MergeVariants/Components[ModelParameters/Impl/Variant_rel] + ''' (ModelParameters/MergeVariants); use each name once, from WW, CC, Car and <pre>_PT_<post> with pre-transport ' + asList(Classifications/PreTransportTypes/code, ', ') + ' and post-transport ' + asList(Classifications/PostTransportTypes/code, ', ') + '.'
+		                                           : 'PASS: merge variant ' + Variant_Name + ' (Merged' + string(ModelParameters/MergeRunNr) + ') with ' + string(#ModelParameters/Impl/VariantComponents) + (#ModelParameters/Impl/VariantComponents == 1 ? ' component: ' : ' components: ') + asList(ModelParameters/Impl/VariantComponents/name, ', ') + '.'
+		, Descr = "Is the given merge variant a row of ModelParameters/MergeVariants, and is every component it names a component, once?";
+		parameter<string> Check_Variant         := ModelParameters/Impl/HasVariant ? Check_MergeVariant
+		                                           : #PreOn > 0 && #PostOn == 0 ? 'FAIL: pre-transport types are on (' + asList(PreOn/code, ', ') + ') but no post-transport type; switch one on in ModelParameters/PostTransport, or switch the pre-transport types off.'
 		                                           : #PreOn == 0 && #PostOn > 0 ? 'FAIL: post-transport types are on (' + asList(PostOn/code, ', ') + ') but no pre-transport type; switch one on in ModelParameters/PreTransport, or switch the post-transport types off.'
 		                                           : #ModelParameters/Impl/VariantComponents == 0 ? 'FAIL: the variant has no components; switch on a pre- and a post-transport type, or a direct trip (ModelParameters, group 2).'
-		                                           : 'PASS: the variant has ' + string(#ModelParameters/Impl/VariantComponents) + ' components: ' + asList(ModelParameters/Impl/VariantComponents/name, ', ') + '.'
-		, Descr = "Does the variant have components, and is no pre-transport type on without a post-transport type, or the other way round?";
+		                                           : 'PASS: the variant has ' + string(#ModelParameters/Impl/VariantComponents) + (#ModelParameters/Impl/VariantComponents == 1 ? ' component: ' : ' components: ') + asList(ModelParameters/Impl/VariantComponents/name, ', ') + '.'
+		, Descr = "Does the variant have components: those of the merge variant, or without one, is no pre-transport type on without a post-transport type, or the other way round?";
 		// The criteria of the merge: every name must be Price, Price_Augm, Time, Car or Bike. Removing the known names one by one, each with the
 		// comma before and after it, leaves only commas when there are no others; a comma stays between two neighbours.
 		parameter<string> MergeCriteria_List    := ',' + lowercase(replace(ModelParameters/MergeCriteria, ' ', '')) + ',';
 		parameter<string> MergeCriteria_Rest    := replace(replace(replace(replace(replace(MergeCriteria_List, ',price_augm,', ','), ',price,', ','), ',time,', ','), ',car,', ','), ',bike,', ',');
-		parameter<string> Check_MergeCriteria   := !ModelParameters/Merge ? 'PASS: no merge (Merge is FALSE).'
+		parameter<string> Check_MergeCriteria   := ModelParameters/Impl/HasVariant && !ModelParameters/Impl/Variant_Known ? 'FAIL: the criteria of the merge are not checked, because the merge variant is unknown (see above).'
+		                                           : !ModelParameters/Merge && !ModelParameters/Impl/HasVariant ? 'PASS: no merge (Merge is FALSE).'
 		                                           : replace(MergeCriteria_Rest, ',', '') != '' ? 'FAIL: MergeCriteria ''' + ModelParameters/MergeCriteria + ''' names an unknown or repeated criterion; use a subset of Price or Price_Augm, Time, Car and Bike, separated by commas.'
 		                                           : !IsDefined(strpos(MergeCriteria_List, ',price')) && !IsDefined(strpos(MergeCriteria_List, ',time,')) ? 'FAIL: MergeCriteria ''' + ModelParameters/MergeCriteria + ''' needs Price, Price_Augm or Time.'
 		                                           : 'PASS: merge on ' + ModelParameters/MergeCriteria + '.'
@@ -85,16 +102,19 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 20.2800" // 20.28.
 		                                           : substr(Check_AnalysisMoment, 0, 4) != 'PASS' ? quote('FAIL: the day of the car is not checked, because the analysis moment or day is wrong (see above).')
 		                                           : '/SourceData/Infrastructure/GTFS/LoadFeeds/ServiceDays/WeekdayMatchesCongestionDay ? ' + quote('PASS: the analysis day falls on the TomTom day ' + ModelParameters/CongestionSpeed_DaySelection + ' of the car.') + ' : ' + quote('FAIL: the analysis day does not fall on the TomTom day ' + ModelParameters/CongestionSpeed_DaySelection + ' of the car (CongestionSpeed_DaySelection); choose another AnalysisDay or day selection.')
 		, Descr = "With a direct car trip in the variant: does the analysis day fall on the day of the TomTom speeds?";
-		parameter<string> Report_Settings       := Check_AnalysisMoment + '\n' + Check_PartOfDay + '\n' + Check_NS_FareClass + '\n' + Check_Sets + '\n' + Check_Variant + '\n' + Check_MergeCriteria + '\n'
+		parameter<string> Report_Settings       := Check_Given + '\n' + Check_AnalysisMoment + '\n' + Check_PartOfDay + '\n' + Check_NS_FareClass + '\n' + Check_Sets + '\n' + Check_Variant + '\n' + Check_MergeCriteria + '\n'
 		, StorageName = "%ConfigDir%/../../batch/log/checks_settings.txt", StorageType = "str"
 		, Descr = "The checks of the settings alone, one per line, which batch/UpdateAll.cmd writes and shows before the sources step; it stops at a line with FAIL.";
 		parameter<string> Report                := Report_Settings + Check_OSM + '\n' + Check_GTFS + '\n' + Check_CarDay + '\n'
 		, StorageName = "%ConfigDir%/../../batch/log/checks.txt", StorageType = "str"
 		, Descr = "The checks of the settings and of the caches of the sources (OSM and GTFS), one per line, which batch/UpdateAll.cmd writes and shows after the sources step; it stops at a line with FAIL.";
 		parameter<string> Components            := asList(ModelParameters/Impl/VariantComponents/name + ';' + (ModelParameters/Impl/VariantComponents/WithPT ? '1' : '0') + ';' + (ModelParameters/Impl/VariantComponents/DirectCar ? '1' : '0'), '\n') + '\n'
-		                                           + (ModelParameters/Merge ? 'Merged;0;0\n' : '')
+		                                           + (ModelParameters/Merge || ModelParameters/Impl/HasVariant ? 'Merged;0;0\n' : '')
 		, StorageName = "%ConfigDir%/../../batch/log/components.txt", StorageType = "str"
-		, Descr = "The components of the variant for batch/UpdateAll.cmd, one per line: the name, whether it needs the chains and legs (WithPT), and whether it needs the car caches (DirectCar); then Merged when Merge is on, also with one component, so that every variant has its final table in a Merged folder (#148).";
+		, Descr = "The components of the variant for batch/UpdateAll.cmd, one per line: the name, whether it needs the chains and legs (WithPT), and whether it needs the car caches (DirectCar); then Merged when Merge is on or a merge variant is given, also with one component, so that every variant has its final table in a Merged folder (#148).";
+		parameter<string> Variants              := asList(ModelParameters/MergeVariants/name, '\n') + '\n'
+		, StorageName = "%ConfigDir%/../../batch/log/variants.txt", StorageType = "str"
+		, Descr = "The names of the merge variants (ModelParameters/MergeVariants), one per line, which batch/UpdateAll.cmd -variant all makes one after the other.";
 		// Report and Components write no metadata file beside them: the global ExportSettings/MetaInfo reads settings that a wrong setting makes
 		// fail with an IntegrityCheck, before Report can say what is wrong. A local MetaInfo without Contents writes none (GeoDMS,
 		// AbstrStorageManager.cpp, ExportMetaInfoToFileImpl).

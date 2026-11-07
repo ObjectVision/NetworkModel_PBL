@@ -19,6 +19,30 @@ container Impl : using = "classifications"
 
 	// 2. THE COMPONENT AND THE SELECTIONS OF THIS RUN. A GeoDmsRun step of batch/UpdateAll.cmd calculates one component of the variant, or
 	// merges them; the step sets the component in the environment variable GEODMS_Overridable_RunComponent (ConfigSettings/Overridable).
+	// The settings that batch/UpdateAll.cmd gives per call (-variant <name>, -set <name> <value>) come the same way, each in the environment
+	// variable GEODMS_Overridable_<name> of every step of the call.
+	container Given
+	: Descr = "The merge variant and the settings that batch/UpdateAll.cmd gives per call (-variant, -set), from ConfigSettings/Overridable; each is empty when the call gives none, and ModelParameters then uses its own value."
+	{
+		parameter<string> NotGiven        := 'ModelParameters', Descr = "The default of these settings in ConfigSettings/Overridable, which means that the call gives none.";
+		parameter<string> Variant         := expand(., '%Variant%')         == NotGiven ? '' : expand(., '%Variant%');
+		parameter<string> AnalysisMoment  := expand(., '%AnalysisMoment%')  == NotGiven ? '' : expand(., '%AnalysisMoment%');
+		parameter<string> PartOfDay       := expand(., '%PartOfDay%')       == NotGiven ? '' : expand(., '%PartOfDay%');
+		parameter<string> Orgset          := expand(., '%Orgset%')          == NotGiven ? '' : expand(., '%Orgset%');
+		parameter<string> Destset         := expand(., '%Destset%')         == NotGiven ? '' : expand(., '%Destset%');
+		parameter<string> OutputLabel     := expand(., '%OutputLabel%')     == NotGiven ? '' : expand(., '%OutputLabel%');
+		parameter<string> NS_TariffChoice := expand(., '%NS_TariffChoice%') == NotGiven ? '' : expand(., '%NS_TariffChoice%');
+		parameter<string> List            := (Variant != '' ? ' -variant ' + Variant : '') + (AnalysisMoment != '' ? ' -set AnalysisMoment ' + AnalysisMoment : '') + (PartOfDay != '' ? ' -set PartOfDay ' + PartOfDay : '')
+		                                     + (Orgset != '' ? ' -set Orgset ' + Orgset : '') + (Destset != '' ? ' -set Destset ' + Destset : '') + (OutputLabel != '' ? ' -set OutputLabel ' + OutputLabel : '')
+		                                     + (NS_TariffChoice != '' ? ' -set NS_TariffChoice ' + NS_TariffChoice : '')
+		, Descr = "The given settings as the options of batch/UpdateAll.cmd, for ChecksBeforeRunning/Check_Given; empty when none is given.";
+	}
+	parameter<bool>          HasVariant                      := Given/Variant != '', Descr = "Does this call make a merge variant of ModelParameters/MergeVariants (batch/UpdateAll.cmd -variant)? Then its row sets the components, MergeCriteria and MergeRunNr.";
+	parameter<MergeVariants> Variant_rel                     := rlookup(lowercase(Given/Variant), lowercase(MergeVariants/name)), Descr = "The row of the merge variant in MergeVariants; undefined without a variant or for an unknown name.";
+	parameter<bool>          Variant_Known                   := IsDefined(Variant_rel), Descr = "Is the given merge variant a row of MergeVariants?";
+	parameter<string>        Variant_Components              := ',' + lowercase(replace(MakeDefined(MergeVariants/Components[Variant_rel], ''), ' ', '')) + ',', Descr = "The components of the merge variant in lower case, with a comma before and after each, so that a component is in it when ,<name>, is.";
+	parameter<string>        Variant_MergeCriteria           := MakeDefined(MergeVariants/MergeCriteria[Variant_rel], ''), Descr = "The criteria of the merge variant (MergeVariants/MergeCriteria).";
+	parameter<uint32>        Variant_MergeRunNr              := MakeDefined(MergeVariants/MergeRunNr[Variant_rel], 0), Descr = "The number of the merge variant in the name of its output folder (MergeVariants/MergeRunNr).";
 	unit<uint8>         VariantComponents                    := select_with_attr_by_cond(Classifications/Components, Classifications/Components/Selected)
 	, Descr = "The components of the variant (Classifications/Components/Selected), in the order of Classifications/Components, in which batch/UpdateAll.cmd calculates them (ChecksBeforeRunning/Components).";
 	parameter<string>   RunComponent                         := expand(., '%RunComponent%'), Descr = "The component of this GeoDmsRun step as batch/UpdateAll.cmd sets it (ConfigSettings/Overridable/RunComponent): a name from Classifications/Components, 'Merged', or 'gui' outside UpdateAll.";

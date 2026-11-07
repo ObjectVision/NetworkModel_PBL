@@ -65,7 +65,20 @@ REM                                 components: the base sets without a cache (P
 REM                                 writes only with ModelParameters/Advanced/PrePostTransportDecoupled (on by default)
 REM   ... -component <name>         with all, cars, chains or legs: only that component of the variant, for example
 REM                                 -component C_PT_ovfC; not Merged, because the merge is the last step of all
-REM The section comes first; cars takes moments, any other word or option stops the script before it starts.
+REM   ... -variant <name>           the merge variant <name>, a row of ModelParameters/MergeVariants: its components, merge
+REM                                 criteria and number (Merged<n>) in place of the switches of ModelParameters, group 2, and
+REM                                 of MergeCriteria and MergeRunNr. Repeated, or -variant all for every row, the script runs
+REM                                 itself once per variant, one after the other, with the same section and options; a component
+REM                                 that an earlier variant calculated is complete and skipped, so the next variants only merge
+REM   ... -set <name> <value>       for this call, the setting <name> of ModelParameters gets <value>: AnalysisMoment, PartOfDay,
+REM                                 Orgset, Destset, OutputLabel or Advanced/NS_TariffChoice, for example -set PartOfDay Middag
+REM                                 -set OutputLabel b2025_middag; repeated for more settings
+REM   Example: UpdateAll.cmd all -variant all -set PartOfDay Avond -set OutputLabel b2025_avond -set NS_TariffChoice Price_FullFare
+REM The section comes first; cars takes moments, any other word or option stops the script before it starts. The variant and the
+REM settings go to every GeoDmsRun step in the environment variables GEODMS_Overridable_Variant and GEODMS_Overridable_<name>
+REM (ConfigSettings/Overridable, ModelParameters/Impl/Given), and the checks show them in their first line. A setting that the call
+REM does not give gets the value ModelParameters, which means: the value in ModelParameters.dms. So only the options of the call
+REM count, not those of an earlier call in the same window, nor a value of the same name in the registry.
 REM
 REM The output step of a component, with all after its cache steps: a file per origin block and departure moment in
 REM %LocalDataProjDir%\Output\<Analysis_date>_<OutputLabel>_<component>[_fb]_<hash>\PerBlock (_fb: a component on the cycling
@@ -87,6 +100,8 @@ set "BATCHDIR=%~dp0"
 set LOGDIR=%~dp0log
 set "STATUS=%LOGDIR%\UpdateAll_status.txt"
 set PREP=/NetworkSetup/PublicTransport_Prep
+REM The settings of ModelParameters that -set takes (ConfigSettings/Overridable).
+set "SETNAMES=AnalysisMoment PartOfDay Orgset Destset OutputLabel NS_TariffChoice"
 
 REM The arguments: the section, with cars the moments, and -component <name>. Anything else stops the script before it writes to
 REM the status file, so that a typing error cannot start another run than the one meant.
@@ -108,10 +123,55 @@ if "%KNOWN%"=="0" (
 )
 set MOMENTS=
 set ONLY=
+REM The variants of -variant. Only the options of this call count: every setting starts as not given (ModelParameters, see
+REM ModelParameters/Impl/Given/NotGiven), whatever an earlier call in the same window, the call that runs this one per variant, or
+REM the registry holds; -variant and -set then give their own.
+for %%N in (Variant %SETNAMES%) do set GEODMS_Overridable_%%N=ModelParameters
+set VARIANTS=
+set NVARIANTS=0
+set SETARGS=
 :args
 shift
 set "ARG=%~1"
 if not defined ARG goto argsdone
+if /I "!ARG!"=="-variant" (
+  set "VNAME=%~2"
+  if not defined VNAME (
+    echo -variant needs the name of a merge variant, or all.
+    goto usage
+  )
+  if "!VNAME:~0,1!"=="-" (
+    echo -variant needs the name of a merge variant, or all, not "!VNAME!".
+    goto usage
+  )
+  set "VARIANTS=!VARIANTS! !VNAME!"
+  set /a NVARIANTS+=1
+  shift
+  goto args
+)
+if /I "!ARG!"=="-set" (
+  set "SNAME=%~2"
+  set "SVALUE=%~3"
+  set SKNOWN=
+  if defined SNAME for %%N in (%SETNAMES%) do if /I "!SNAME!"=="%%N" set "SKNOWN=%%N"
+  if not defined SKNOWN (
+    echo -set takes one of %SETNAMES%, not "!SNAME!".
+    goto usage
+  )
+  if not defined SVALUE (
+    echo -set !SKNOWN! needs a value.
+    goto usage
+  )
+  if "!SVALUE:~0,1!"=="-" (
+    echo -set !SKNOWN! needs a value, not "!SVALUE!".
+    goto usage
+  )
+  set "GEODMS_Overridable_!SKNOWN!=!SVALUE!"
+  set "SETARGS=!SETARGS! -set !SKNOWN! !SVALUE!"
+  shift
+  shift
+  goto args
+)
 if /I "!ARG!"=="-component" (
   set "ONLY=%~2"
   if not defined ONLY (
@@ -144,6 +204,11 @@ if defined ONLY for %%S in (sources checks) do if /I "%SECTION%"=="%%S" (
   echo The section %SECTION% takes no -component.
   goto usage
 )
+REM One merge variant goes to every step; more than one, or all, makes the script run itself once per variant (variants_loop).
+set VARIANTLOOP=
+if %NVARIANTS% GTR 1 set VARIANTLOOP=1
+for %%V in (!VARIANTS!) do if /I "%%V"=="all" set VARIANTLOOP=1
+if not defined VARIANTLOOP if defined VARIANTS set "GEODMS_Overridable_Variant=!VARIANTS:~1!"
 
 REM Engine. The model asks for the pareto epsilon and the bool criteria of pareto_optimal_eps, which older versions of
 REM GeoDMS do not know; GEODMS_VERSION is the version it was tested with. GeoDmsRun.exe comes from the environment
@@ -164,14 +229,18 @@ if not defined EXE (
 )
 
 if not exist "%LOGDIR%" mkdir "%LOGDIR%"
-set "WHAT=UpdateAll %SECTION%%MOMENTS%"
-if defined ONLY set "WHAT=%WHAT% -component %ONLY%"
+set "PASSARGS=%MOMENTS%"
+if defined ONLY set "PASSARGS=%PASSARGS% -component %ONLY%"
+set "WHAT=UpdateAll %SECTION%%PASSARGS%"
+for %%V in (!VARIANTS!) do set "WHAT=!WHAT! -variant %%V"
+set "WHAT=!WHAT!!SETARGS!"
 call :say "%WHAT% started"
 call :say "engine: %EXE%"
 set COMP=
 set CTAG=
 set OUTSTATE_OF=
 set GEODMS_Overridable_RunComponent=
+if defined VARIANTLOOP goto variants_loop
 
 REM First the checks of the settings alone (ChecksBeforeRunning/Report_Settings), so that a wrong setting stops the run with a
 REM message before the sources step; then the source caches that are missing, which every component reads; then the checks of
@@ -239,6 +308,39 @@ for /f "usebackq tokens=1-3 delims=;" %%A in ("%LOGDIR%\components.txt") do (
 goto done
 
 REM ---------------------------------------------------------------------------------------------
+:variants_loop
+REM More than one merge variant, or all: the script runs itself once per variant, with the same section, moments, -component and
+REM -set, and stops at the first variant that fails. With all, the names come from ModelParameters/MergeVariants (variants.txt).
+set "VLIST=!VARIANTS!"
+for %%V in (!VARIANTS!) do if /I "%%V"=="all" set VLIST=
+if not defined VLIST (
+  if exist "%LOGDIR%\variants.txt" del "%LOGDIR%\variants.txt"
+  call :run variants /ChecksBeforeRunning/Variants
+  if not "!RC!"=="0" goto failed
+  for /f "usebackq delims=" %%V in ("%LOGDIR%\variants.txt") do set "VLIST=!VLIST! %%V"
+)
+if not defined VLIST (
+  call :say "ABORT: no merge variants in %LOGDIR%\variants.txt"
+  set STEP=variants
+  set RC=1
+  goto failed
+)
+set NV=0
+for %%V in (!VLIST!) do set /a NV+=1
+set IV=0
+for %%V in (!VLIST!) do (
+  set /a IV+=1
+  call :say "=== variant !IV! of !NV!: %%V ==="
+  call "%BATCHDIR%UpdateAll.cmd" %SECTION%%PASSARGS% -variant %%V!SETARGS!
+  set RC=!ERRORLEVEL!
+  if not "!RC!"=="0" (
+    set "STEP=variant %%V"
+    goto failed
+  )
+)
+goto done
+
+REM ---------------------------------------------------------------------------------------------
 :usage
 call :usage_text
 exit /b 1
@@ -246,7 +348,7 @@ exit /b 1
 call :usage_text
 exit /b 0
 :usage_text
-echo Usage: UpdateAll.cmd [^<section^> [-component ^<name^>]]
+echo Usage: UpdateAll.cmd [^<section^> [-component ^<name^>] [-variant ^<name^> ...] [-set ^<name^> ^<value^> ...]]
 echo   all                everything that is missing, then the merge; also without arguments
 echo   sources            the OSM network cache and the GTFS cache, when they are missing
 echo   checks             the checks of the settings and the caches, and the list of components
@@ -254,6 +356,9 @@ echo   cars [moment ...]  the car caches of the moments the model reads, or of t
 echo   chains             the public transport chain cache
 echo   legs               the pre- and post-transport caches
 echo   -component ^<name^>  with all, cars, chains or legs: only that component of the variant
+echo   -variant ^<name^>    a merge variant of ModelParameters/MergeVariants; repeated, or all, one after the other
+echo   -set ^<name^> ^<value^> for this call a setting of ModelParameters: %SETNAMES%
+echo Example: UpdateAll.cmd all -variant all -set PartOfDay Middag -set OutputLabel b2025_middag
 echo See the header of batch\UpdateAll.cmd and the wiki page How to run the model.
 exit /b 0
 
