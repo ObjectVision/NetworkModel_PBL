@@ -1,6 +1,6 @@
 # WriteODResults.ps1 (#129): the routes of one OD pair, for every component of the variant and merged.
 #
-# Makes one run copy of HEAD (with git archive) with OD_Origin, OD_Destination and OD_DepartureTime and the variant (ModelParameters,
+# Makes one run copy of HEAD, or of -Ref, (with git archive) with OD_Origin, OD_Destination and OD_DepartureTime and the variant (ModelParameters,
 # group 2, #117), and calculates it with batch\UpdateAll.cmd all of the copy: per component the legs of pre- and
 # post-transport with their links and the chains of the pair with their legs (once, at the first public transport component), the car
 # cache of the departure moment (Car) and the output, PerBlock/tt_<moment>_1of1.parquet and PerBlock/od_<moment>.gpkg with options,
@@ -14,7 +14,8 @@
 # The engine must know pareto with LinkSet (ObjectVision/GeoDMS#1325) for the car routes: GeoDMS 20.26.0 or later.
 # Every step skips a cache that exists, so after a change to the output only the output is calculated again. Run long runs as a one-off scheduled task (see the wiki, How to run the model). -WaitForMemoryGB waits until that much
 # memory is available before the run starts, so that the pair does not make other runs page; the chain step calculates all
-# public transport legs of the network (20 to 30 GB).
+# public transport legs of the network (20 to 30 GB). -Ref takes another commit than HEAD, for a comparison before and after a change;
+# give each version its own -Root, so that one run copy does not replace the other (skill od-paar-beelden).
 param(
 	[Parameter(Mandatory=$true)][string]$Org,
 	[Parameter(Mandatory=$true)][string]$Dest,
@@ -27,7 +28,8 @@ param(
 	[string]$Components = '',
 	[string]$Exe = 'C:\Program Files\ObjectVision\GeoDms20.28.0.m\GeoDmsRun.exe',
 	[string]$Root = 'C:\LocalData\NM_PBL_runs',
-	[int]$WaitForMemoryGB = 0
+	[int]$WaitForMemoryGB = 0,
+	[string]$Ref = 'HEAD'
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
@@ -76,9 +78,9 @@ if ($Components) {
 	foreach ($n in $switches) { $values[$n] = GetSwitch (Join-Path $repo 'cfg\main\ModelParameters.dms') $n }
 }
 $archive = Join-Path $runs 'head.tar'
-& git -C $repo archive --format=tar -o $archive HEAD cfg data batch
+& git -C $repo archive --format=tar -o $archive $Ref cfg data batch
 if ($LASTEXITCODE -ne 0) { throw "git archive: exit $LASTEXITCODE" }
-$commit = & git -C $repo rev-parse HEAD
+$commit = & git -C $repo rev-parse $Ref
 Say "OD pair $Org -> $Dest, moment '$Moment', $AnalysisMoment $PartOfDay, $Orgset/$Destset, variant $((@($switches | Where-Object { $values[$_] -eq 'TRUE' })) -join ','), commit $commit, engine $Exe"
 
 $dst = Join-Path $runs 'variant\NetworkModel_PBL'
