@@ -4,8 +4,8 @@
 // of a direct component. Parts describes each option in the
 // order of the journey; Links gives each part its links, with one line per link:
 // - pre-transport and post-transport: the links of the leg from its base set (PublicTransport_Prep/PrePostTransport/<base set>/Links);
-// - a public transport leg: the stop-to-stop links within the trip, from a search in Set_L or Set_R between the begin and end node of the leg
-//   (OD_Chains/Read_ChainLegs), which on the time-expanded network gives the same path as the leg (every path between two nodes takes equally
+// - a public transport ride: the stop-to-stop links within the trip, from a search in Set_L or Set_R between the begin and end node of the ride
+//   (OD_Chains/Read_ChainParts), which on the time-expanded network gives the same path as the ride (every path between two nodes takes equally
 //   long, and with ParetoLegs the choice at equal time is the shortest, Length);
 // - a transfer: the straight walking line between the stops;
 // - the direct walking and cycling trip: the links of the search (PrivateTransport/<mode>/Calc_Traveltimes_maxspeed_<mode>/Links);
@@ -37,7 +37,7 @@ container OD_Output : Descr = "The options of the OD pair per departure moment w
 		attribute<uint64>  V_row        := = WithPT ? 'uint64(Add_V_to_PT/V_rel[value(VPT, Add_V_to_PT)])' : 'const(0u64, .)';
 		attribute<uint64>  W_row        := = WithPT ? 'uint64(Add_V_to_PT/PT_rel[value(VPT, Add_V_to_PT)])' : 'const(0u64, .)';
 		attribute<uint64>  ChainRow     := = WithPT ? '/NetworkSetup/PublicTransport_Prep/PT_V/ChainRow[PT_InBlock/PT_V_rel[Within_VW_Window/PT_InBlock_rel[value(W_row, Within_VW_Window)]]]' : 'const(0u64, .)'
-		,	Descr = "The row number of the chain in the chain cache of the pair, as OD_Chains/Read_ChainLegs/Keten.";
+		,	Descr = "The row number of the chain in the chain cache of the pair, as OD_Chains/Read_ChainParts/Keten.";
 		attribute<Places>  V_Stop_Place := = WithPT ? 'V/To_Place_rel[value(V_row, V)]' : 'const(value(null_u, Places), .)';
 		attribute<Places>  N_Stop_Place := = WithPT ? 'N/From_Place_rel[value(N_row, N)]' : 'const(value(null_u, Places), .)';
 		attribute<Modes>   V_Mode       := = WithPT ? 'V/Mode_rel[value(V_row, V)]' : 'const(value(null_b, Modes), .)';
@@ -51,12 +51,12 @@ container OD_Output : Descr = "The options of the OD pair per departure moment w
 		attribute<ct>      V_price      := Result_AfterSecondCondensation/Price_V[Option_rel];
 		attribute<ct>      N_price      := Result_AfterSecondCondensation/Price_N[Option_rel];
 	}
-	// The parts of the chain of every public transport option, from the legs of the chain cache of the pair.
-	unit<uint64>      ChainLegs                 := = WithPT ? '/NetworkSetup/PublicTransport_Prep/OD_Chains/Read_ChainLegs' : '/NetworkSetup/PublicTransport_Prep/OD_Chains/ChainLegs_Empty', Descr = "The legs of the chain cache of the pair, or without public transport the empty legs, because then there is no chain cache.";
-	unit<uint64> PT_Parts := join_equal_values_uint64(PT/ChainRow, ChainLegs/Keten)
+	// The parts of the chain of every public transport option, from the parts in the chain cache of the pair.
+	unit<uint64>      ChainParts                 := = WithPT ? '/NetworkSetup/PublicTransport_Prep/OD_Chains/Read_ChainParts' : '/NetworkSetup/PublicTransport_Prep/OD_Chains/ChainParts_Empty', Descr = "The parts (rides and transfers) in the chain cache of the pair, or without public transport an empty set, because then there is no chain cache.";
+	unit<uint64> PT_Parts := join_equal_values_uint64(PT/ChainRow, ChainParts/Keten)
 	{
 		attribute<PT>        PT_rel       := first_rel;
-		attribute<ChainLegs> ChainLeg_rel := second_rel;
+		attribute<ChainParts> ChainPart_rel := second_rel;
 	}
 	attribute<uint32> NrParts              (PT) := pcount_uint32(PT_Parts/PT_rel);
 	attribute<bool>   PT_IsWalkingV        (PT) := PT/V_Mode == Modes/V/Walking;
@@ -67,29 +67,29 @@ container OD_Output : Descr = "The options of the OD pair per departure moment w
 	}
 
 	// PARTS: per option in the order of the journey; a direct trip is one part, a public transport journey the pre-transport, the
-	// legs and transfers of the chain and the post-transport.
+	// rides and transfers of the chain and the post-transport.
 	unit<uint64> Parts := union_unit_uint64(Direct, PT, PT_Parts, PT)
 	{
 		attribute<Options> Option_rel    := union_data(., Direct/org_rel, PT/Option_rel, PT/Option_rel[PT_Parts/PT_rel], PT/Option_rel);
 		attribute<uint32>  Option        := Options/Option[Option_rel];
-		attribute<uint32>  Volgnr        := union_data(., const(0, Direct, uint32), const(0, PT, uint32), ChainLegs/Volgnr[PT_Parts/ChainLeg_rel] + 1, NrParts + 1);
-		attribute<string>  PartKind      := union_data(., const('direct', Direct), const('voortransport', PT), ChainLegs/IsOverstap[PT_Parts/ChainLeg_rel] ? 'overstap' : 'OV', const('natransport', PT));
-		attribute<Modes>   Mode_rel      := union_data(., Direct/Mode_rel, PT/V_Mode, ChainLegs/Mode_rel[PT_Parts/ChainLeg_rel], PT/N_Mode);
+		attribute<uint32>  Volgnr        := union_data(., const(0, Direct, uint32), const(0, PT, uint32), ChainParts/Volgnr[PT_Parts/ChainPart_rel] + 1, NrParts + 1);
+		attribute<string>  PartKind      := union_data(., const('direct', Direct), const('voortransport', PT), ChainParts/IsOverstap[PT_Parts/ChainPart_rel] ? 'overstap' : 'OV', const('natransport', PT));
+		attribute<Modes>   Mode_rel      := union_data(., Direct/Mode_rel, PT/V_Mode, ChainParts/Mode_rel[PT_Parts/ChainPart_rel], PT/N_Mode);
 		attribute<string>  ModeName      := Modes/name[Mode_rel];
-		attribute<string>  FromName      := union_data(., Places/label[Result_AfterSecondCondensation/From_Place_rel[Direct/org_rel]], Places/label[Result_AfterSecondCondensation/From_Place_rel[PT/Option_rel]], Stops/name[ChainLegs/From_Stop_rel[PT_Parts/ChainLeg_rel]], Places/label[PT/N_Stop_Place]);
-		attribute<string>  ToName        := union_data(., Places/label[Result_AfterSecondCondensation/To_Place_rel[Direct/org_rel]], Places/label[PT/V_Stop_Place], Stops/name[ChainLegs/To_Stop_rel[PT_Parts/ChainLeg_rel]], Places/label[Result_AfterSecondCondensation/To_Place_rel[PT/Option_rel]]);
-		// A public transport leg runs from its departure to its arrival in the timetable (Trip_Departure, Trip_Arrival), not from its begin to its end
+		attribute<string>  FromName      := union_data(., Places/label[Result_AfterSecondCondensation/From_Place_rel[Direct/org_rel]], Places/label[Result_AfterSecondCondensation/From_Place_rel[PT/Option_rel]], Stops/name[ChainParts/From_Stop_rel[PT_Parts/ChainPart_rel]], Places/label[PT/N_Stop_Place]);
+		attribute<string>  ToName        := union_data(., Places/label[Result_AfterSecondCondensation/To_Place_rel[Direct/org_rel]], Places/label[PT/V_Stop_Place], Stops/name[ChainParts/To_Stop_rel[PT_Parts/ChainPart_rel]], Places/label[Result_AfterSecondCondensation/To_Place_rel[PT/Option_rel]]);
+		// A public transport ride runs from its departure to its arrival in the timetable (Trip_Departure, Trip_Arrival), not from its begin to its end
 		// node: those can include a minute of standstill at boarding or alighting (boarding at 07:52, departure at 07:53).
-		attribute<Time>    Departure_rel := union_data(., const(inTime[Time], Direct), PT/V_Departure, MakeDefined(Trip_Departure, ChainLegs/From_Time_rel[PT_Parts/ChainLeg_rel]), PT/N_Departure);
-		attribute<s>       Duration      := union_data(., Result_AfterSecondCondensation/V_time[Direct/org_rel], PT/V_Duration, MakeDefined((Trip_Arrival - Trip_Departure)[s], ChainLegs/Duur[PT_Parts/ChainLeg_rel]), PT/N_Duration);
+		attribute<Time>    Departure_rel := union_data(., const(inTime[Time], Direct), PT/V_Departure, MakeDefined(Trip_Departure, ChainParts/From_Time_rel[PT_Parts/ChainPart_rel]), PT/N_Departure);
+		attribute<s>       Duration      := union_data(., Result_AfterSecondCondensation/V_time[Direct/org_rel], PT/V_Duration, MakeDefined((Trip_Arrival - Trip_Departure)[s], ChainParts/Duur[PT_Parts/ChainPart_rel]), PT/N_Duration);
 		attribute<Time>    Arrival_rel   := Departure_rel + Duration[Time];
 		attribute<string>  Departure     := Time/Label[Departure_rel];
 		attribute<string>  Arrival       := Time/Label[Arrival_rel];
 		attribute<min_f>   Minutes       := convert(Duration, min_f);
-		attribute<dam>     Distance      := union_data(., Result_AfterSecondCondensation/TravelDist_V[Direct/org_rel], PT/V_Distance, ChainLegs/Afstand[PT_Parts/ChainLeg_rel], PT/N_Distance);
-		attribute<Euro>    Price_euro    := convert(union_data(., Result_AfterSecondCondensation/Price[Direct/org_rel], PT/V_price, ChainLegs/Prijs[PT_Parts/ChainLeg_rel], PT/N_price), Euro);
-		attribute<string>  LineName      := union_data(., const('', Direct), const('', PT), MakeDefined(Routes/route_short_name[ChainLegs/Route_rel[PT_Parts/ChainLeg_rel]], ''), const('', PT));
-		attribute<string>  AgencyName    := union_data(., const('', Direct), const('', PT), MakeDefined(Agencies/name[ChainLegs/Agency_rel[PT_Parts/ChainLeg_rel]], ''), const('', PT));
+		attribute<dam>     Distance      := union_data(., Result_AfterSecondCondensation/TravelDist_V[Direct/org_rel], PT/V_Distance, ChainParts/Afstand[PT_Parts/ChainPart_rel], PT/N_Distance);
+		attribute<Euro>    Price_euro    := convert(union_data(., Result_AfterSecondCondensation/Price[Direct/org_rel], PT/V_price, ChainParts/Prijs[PT_Parts/ChainPart_rel], PT/N_price), Euro);
+		attribute<string>  LineName      := union_data(., const('', Direct), const('', PT), MakeDefined(Routes/route_short_name[ChainParts/Route_rel[PT_Parts/ChainPart_rel]], ''), const('', PT));
+		attribute<string>  AgencyName    := union_data(., const('', Direct), const('', PT), MakeDefined(Agencies/name[ChainParts/Agency_rel[PT_Parts/ChainPart_rel]], ''), const('', PT));
 		attribute<string>  label         := string(Option) + '.' + string(Volgnr) + ' ' + PartKind + ' ' + ModeName + ' ' + LineName + ': ' + FromName + ' ' + Departure + ' -> ' + ToName + ' ' + Arrival;
 	}
 
@@ -125,59 +125,59 @@ container OD_Output : Descr = "The options of the OD pair per departure moment w
 	container         N_Walking                 := LegLinks_T('Stops2Dest_Walking', FALSE, TRUE);
 	container         N_Cycling                 := LegLinks_T('Stops2Dest_Cycling', FALSE, FALSE);
 
-	// A public transport leg: the links within the trip, from a search in its network between the begin and end node of the leg.
+	// A public transport ride: the links within the trip, from a search in its network between the begin and end node of the ride.
 	Template PTLinks_T
 	{
 		parameter<string> Letter;
 		///
 		unit<uint32>      Set                    := ='/NetworkSetup/PublicTransport_Prep/impl/Set_' + Letter + '/Set';
 		parameter<bool>   IsPareto               := ='/ModelParameters/Advanced/ParetoLegs_' + Letter;
-		attribute<bool>   IsUsed      (PT_Parts) := !ChainLegs/IsOverstap[PT_Parts/ChainLeg_rel] && ChainLegs/IsL[PT_Parts/ChainLeg_rel] == (Letter == 'L');
-		unit<uint32> LegParts := select_uint32(IsUsed), Descr = "A uint32 domain, because the start and end points of impedance_matrix need one."
+		attribute<bool>   IsUsed      (PT_Parts) := !ChainParts/IsOverstap[PT_Parts/ChainPart_rel] && ChainParts/IsL[PT_Parts/ChainPart_rel] == (Letter == 'L');
+		unit<uint32> RideParts := select_uint32(IsUsed), Descr = "A uint32 domain, because the start and end points of impedance_matrix need one."
 		{
 			attribute<PT_Parts>    org_rel  := collect_by_cond(., IsUsed, id(PT_Parts));
-			attribute<Set/NodeSet> FromNode := value(ChainLegs/BeginKnoop[PT_Parts/ChainLeg_rel[org_rel]], Set/NodeSet);
-			attribute<Set/NodeSet> ToNode   := value(ChainLegs/EindKnoop[PT_Parts/ChainLeg_rel[org_rel]], Set/NodeSet);
+			attribute<Set/NodeSet> FromNode := value(ChainParts/BeginKnoop[PT_Parts/ChainPart_rel[org_rel]], Set/NodeSet);
+			attribute<Set/NodeSet> ToNode   := value(ChainParts/EindKnoop[PT_Parts/ChainPart_rel[org_rel]], Set/NodeSet);
 		}
-		unit<uint64>      od                     := ='impedance_matrix_od64(''directed;startPoint(Node_rel);endPoint(Node_rel);od:impedance,OrgZone_rel,DstZone_rel,LinkSet'', Set/' + (IsPareto ? 'Length' : 'Duration') + ', Set/F1, Set/F2, LegParts/FromNode, LegParts/ToNode)';
-		unit<uint64>      OwnRows                := select_with_org_rel(od/OrgZone_rel == od/DstZone_rel), Descr = "The rows of the search from the begin node of each leg to its own end node.";
+		unit<uint64>      od                     := ='impedance_matrix_od64(''directed;startPoint(Node_rel);endPoint(Node_rel);od:impedance,OrgZone_rel,DstZone_rel,LinkSet'', Set/' + (IsPareto ? 'Length' : 'Duration') + ', Set/F1, Set/F2, RideParts/FromNode, RideParts/ToNode)';
+		unit<uint64>      OwnRows                := select_with_org_rel(od/OrgZone_rel == od/DstZone_rel), Descr = "The rows of the search from the begin node of each ride to its own end node.";
 		attribute<uint32> LinkSet (arc, OwnRows) := od/LinkSet[OwnRows/org_rel];
-		container         R                      := /Templates/RouteLinks_T(OwnRows, LinkSet, Set, Set/NodeSet, Set/F1, Set/F2, Set/NodeSet/geometry, LegParts/ToNode[od/DstZone_rel[OwnRows/org_rel]]);
+		container         R                      := /Templates/RouteLinks_T(OwnRows, LinkSet, Set, Set/NodeSet, Set/F1, Set/F2, Set/NodeSet/geometry, RideParts/ToNode[od/DstZone_rel[OwnRows/org_rel]]);
 		unit<uint32> Rows := R/Rows
 		{
-			attribute<LegParts> LegParts_rel   := od/DstZone_rel[OwnRows/org_rel[R/Rows/Route_rel]];
-			attribute<PT_Parts> PT_Part_rel    := LegParts/org_rel[LegParts_rel];
+			attribute<RideParts> RideParts_rel   := od/DstZone_rel[OwnRows/org_rel[R/Rows/Route_rel]];
+			attribute<PT_Parts> PT_Part_rel    := RideParts/org_rel[RideParts_rel];
 			attribute<Options>  Option_rel     := PT/Option_rel[PT_Parts/PT_rel[PT_Part_rel]];
-			attribute<uint32>   Part           := ChainLegs/Volgnr[PT_Parts/ChainLeg_rel[PT_Part_rel]] + 1;
+			attribute<uint32>   Part           := ChainParts/Volgnr[PT_Parts/ChainPart_rel[PT_Part_rel]] + 1;
 			attribute<uint32>   Volgnr         := R/Rows/Volgnr;
-			attribute<Modes>    Mode_rel       := ChainLegs/Mode_rel[PT_Parts/ChainLeg_rel[PT_Part_rel]];
+			attribute<Modes>    Mode_rel       := ChainParts/Mode_rel[PT_Parts/ChainPart_rel[PT_Part_rel]];
 			attribute<rdc>      geometry (arc) := Set/geometry[R/Rows/Link_rel];
 		}
-		// The timetable times of the leg: the departure of its first and the arrival of its last scheduled link. The begin and end node can be the
+		// The timetable times of the ride: the departure of its first and the arrival of its last scheduled link. The begin and end node can be the
 		// arrival and departure node of a stop where the trip stands still (boarding at arrival, alighting at departure), so that their times can
 		// include a minute of standstill. Within a trip the times increase (Time covers 48 hours, without wrap-around), so the first departure is
 		// the smallest and the last arrival the largest.
 		unit<uint32> ScheduledRows := select_with_org_rel(Set/LinkType_rel[R/Rows/Link_rel] == /Classifications/LinkTypes/V/Scheduled)
 		{
-			attribute<LegParts> LegParts_rel := Rows/LegParts_rel[org_rel];
+			attribute<RideParts> RideParts_rel := Rows/RideParts_rel[org_rel];
 		}
-		attribute<Time>   Departure   (LegParts) := min(Set/From_Time_rel[R/Rows/Link_rel[ScheduledRows/org_rel]], ScheduledRows/LegParts_rel);
-		attribute<Time>   Arrival     (LegParts) := max(Set/To_Time_rel[R/Rows/Link_rel[ScheduledRows/org_rel]], ScheduledRows/LegParts_rel);
+		attribute<Time>   Departure   (RideParts) := min(Set/From_Time_rel[R/Rows/Link_rel[ScheduledRows/org_rel]], ScheduledRows/RideParts_rel);
+		attribute<Time>   Arrival     (RideParts) := max(Set/To_Time_rel[R/Rows/Link_rel[ScheduledRows/org_rel]], ScheduledRows/RideParts_rel);
 	}
 	container         PT_L                      := PTLinks_T('L');
 	container         PT_R                      := PTLinks_T('R');
-	// The timetable times of every public transport leg (a transfer has none), for Parts; without public transport nothing, so that a run
+	// The timetable times of every public transport ride (a transfer has none), for Parts; without public transport nothing, so that a run
 	// without public transport does not request Set_L and Set_R.
-	attribute<Time>   Trip_Departure (PT_Parts) := = WithPT ? 'MakeDefined(PT_L/Departure[invert(PT_L/LegParts/org_rel)], PT_R/Departure[invert(PT_R/LegParts/org_rel)])' : 'const(value(null_u, Time), PT_Parts)';
-	attribute<Time>   Trip_Arrival   (PT_Parts) := = WithPT ? 'MakeDefined(PT_L/Arrival[invert(PT_L/LegParts/org_rel)], PT_R/Arrival[invert(PT_R/LegParts/org_rel)])' : 'const(value(null_u, Time), PT_Parts)';
+	attribute<Time>   Trip_Departure (PT_Parts) := = WithPT ? 'MakeDefined(PT_L/Departure[invert(PT_L/RideParts/org_rel)], PT_R/Departure[invert(PT_R/RideParts/org_rel)])' : 'const(value(null_u, Time), PT_Parts)';
+	attribute<Time>   Trip_Arrival   (PT_Parts) := = WithPT ? 'MakeDefined(PT_L/Arrival[invert(PT_L/RideParts/org_rel)], PT_R/Arrival[invert(PT_R/RideParts/org_rel)])' : 'const(value(null_u, Time), PT_Parts)';
 
 	// A transfer: the straight walking line.
-	unit<uint64> TransferLinks := select_with_org_rel(ChainLegs/IsOverstap[PT_Parts/ChainLeg_rel])
+	unit<uint64> TransferLinks := select_with_org_rel(ChainParts/IsOverstap[PT_Parts/ChainPart_rel])
 	{
 		attribute<Options> Option_rel     := PT/Option_rel[PT_Parts/PT_rel[org_rel]];
-		attribute<uint32>  Part           := ChainLegs/Volgnr[PT_Parts/ChainLeg_rel[org_rel]] + 1;
-		attribute<rdc>     FromPoint      := Stops/geometry[ChainLegs/From_Stop_rel[PT_Parts/ChainLeg_rel[org_rel]]];
-		attribute<rdc>     ToPoint        := Stops/geometry[ChainLegs/To_Stop_rel[PT_Parts/ChainLeg_rel[org_rel]]];
+		attribute<uint32>  Part           := ChainParts/Volgnr[PT_Parts/ChainPart_rel[org_rel]] + 1;
+		attribute<rdc>     FromPoint      := Stops/geometry[ChainParts/From_Stop_rel[PT_Parts/ChainPart_rel[org_rel]]];
+		attribute<rdc>     ToPoint        := Stops/geometry[ChainParts/To_Stop_rel[PT_Parts/ChainPart_rel[org_rel]]];
 		attribute<rdc>     geometry (arc) := points2sequence(LinePoints/Point, LinePoints/Row_rel, LinePoints/Ordinal);
 		unit<uint64> LinePoints := union_unit_uint64(., .)
 		{

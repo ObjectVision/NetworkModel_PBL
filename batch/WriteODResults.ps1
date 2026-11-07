@@ -2,7 +2,7 @@
 #
 # Makes one run copy of HEAD, or of -Ref, (with git archive) with OD_Origin, OD_Destination and OD_DepartureTime and the variant (ModelParameters,
 # group 2, #117), and calculates it with batch\UpdateAll.cmd all of the copy: per component the legs of pre- and
-# post-transport with their links and the chains of the pair with their legs (once, at the first public transport component), the car
+# post-transport with their links and the chains of the pair with their parts (once, at the first public transport component), the car
 # cache of the departure moment (Car) and the output, PerBlock/tt_<moment>_1of1.parquet and PerBlock/od_<moment>.gpkg with options,
 # parts and links; then the merge. Intermediate results go to %LocalDataProjDir%\IntermediateResults_<O>_<D>, output to
 # Output_<O>_<D>; /Output/OD_PairRoutes in the GUI reads them, with the same settings in ModelParameters (groups 1, 2 and 6).
@@ -14,7 +14,7 @@
 # The engine must know pareto with LinkSet (ObjectVision/GeoDMS#1325) for the car routes: GeoDMS 20.26.0 or later.
 # Every step skips a cache that exists, so after a change to the output only the output is calculated again. Run long runs as a one-off scheduled task (see the wiki, How to run the model). -WaitForMemoryGB waits until that much
 # memory is available before the run starts, so that the pair does not make other runs page; the chain step calculates all
-# public transport legs of the network (20 to 30 GB). -Ref takes another commit than HEAD, for a comparison before and after a change;
+# public transport rides of the network (20 to 30 GB). -Ref takes another commit than HEAD, for a comparison before and after a change;
 # give each version its own -Root, so that one run copy does not replace the other (skill od-paar-beelden).
 param(
 	[Parameter(Mandatory=$true)][string]$Org,

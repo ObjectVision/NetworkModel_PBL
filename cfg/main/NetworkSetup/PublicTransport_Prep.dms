@@ -105,7 +105,7 @@ container PublicTransport_Prep
 		unit<uint8>       FareTable             := SourceData/Infrastructure/OVprijzen/FareTable;
 		unit<uint8>       FareTable_DOVA        := SourceData/Infrastructure/OVprijzen/FareTable_DOVA;
 		// #55: the fare of an agency outside the concessions of its rules (OD_extra_attributen): its first general rule (without a line) when all
-		// its general rules have the same price, such as De Lijn or TESO. An agency whose price differs per concession has none, and a leg of it
+		// its general rules have the same price, such as De Lijn or TESO. An agency whose price differs per concession has none, and a ride of it
 		// in another concession gets the fare of that concession (DOVA).
 		unit<uint8>       FareTable_General     := select_with_org_rel(FareTable/Mode_Agency_CG_Line_identifier == FareTable/Mode_Agency_CG_identifier)
 		{
@@ -140,7 +140,7 @@ container PublicTransport_Prep
 		// #113: without flex (ModelParameters/Advanced/IncludeFlex = FALSE) all links of flex lines leave both networks (Set_L admits waiting
 		// links of flex trips at stations, hence there as well). Empty when flex takes part, so that the select expression of Set_R and Set_L
 		// stays literally the same as before #113. This is exact, because in Set_R/Set the connected Components are per route (NodeSet =
-		// (time, stop, route)): leaving out flex links removes exactly the flex Components and touches no other leg.
+		// (time, stop, route)): leaving out flex links removes exactly the flex Components and touches no other ride.
 		parameter<string> FlexSelection_str     := ModelParameters/Advanced/IncludeFlex ? '' : ' && not(PTnet_prep/IsFlexLink)';
 
 		container         Set_R                 := Get_Windowed_Agency_Set_T(' &&  '+impl/PT_path_str+'/Agency_rel->IsRO &&  '+impl/PT_path_str+'/Duration > 0f' + impl/FlexSelection_str), Descr = "subset of public transport net for the relevant time windows and agency-set.", using = "impl";
@@ -148,7 +148,7 @@ container PublicTransport_Prep
 		// ticket never applies (Routes/IsWithoutNSTicket: Eurostar, Nightjet), plus the waiting links at NS stations.
 		container         Set_L                 := Get_Windowed_Agency_Set_T(' && (('+impl/PT_path_str+'/Agency_rel->IsLnet && not('+impl/PT_path_str+'/Route_rel->IsWithoutNSTicket)) || ('+impl/PT_path_str+'/Mode_rel == impl/Modes/V/Waiting && IsDefined('+impl/PT_path_str+'/c_NS_start_end_rel))) && '+impl/PT_path_str+'/Duration > 0f' + impl/FlexSelection_str);
 		
-		unit<uint32> All_Time_Stops := union_unit_uint32(OD_L/Result, OD_R/Result), Descr = "All legs of OD_L and OD_R together, with their boarding and alighting events (time, stop), of which uq_c_FromTime_Stop and uq_c_ToTime_Stop take the unique ones."
+		unit<uint32> All_Time_Stops := union_unit_uint32(OD_L/Result, OD_R/Result), Descr = "All rides of OD_L and OD_R together, with their boarding and alighting events (time, stop), of which uq_c_FromTime_Stop and uq_c_ToTime_Stop take the unique ones."
 		{
 			attribute<impl/c_Time_Stops> c_FromTime_Stop_rel := union_data(., OD_L/Result/c_FromTime_Stop_rel, OD_R/Result/c_FromTime_Stop_rel);
 			attribute<impl/c_Time_Stops> c_ToTime_Stop_rel   := union_data(., OD_L/Result/c_ToTime_Stop_rel  , OD_R/Result/c_ToTime_Stop_rel  );
@@ -645,7 +645,7 @@ container PublicTransport_Prep
 			, 'ChainGeneration_PerBlock_T('+string(id(impl/BlockDomain))+')'
 		), using = "impl", Descr = "The chain step: one ChainGeneration_PerBlock_T per stop block of BlockDomain.";
 		
-	Template ChainGeneration_PerBlock_T : Descr = "Template for the chains of one stop block: it joins legs and transfers into the allowed chains (Chain_Generation), keeps per (boarding event, destination stop) the Pareto-optimal ones and writes them to the cache of the block (Write)."
+	Template ChainGeneration_PerBlock_T : Descr = "Template for the chains of one stop block: it joins rides and transfers into the allowed chains (Chain_Generation), keeps per (boarding event, destination stop) the Pareto-optimal ones and writes them to the cache of the block (Write)."
 	{
 		parameter<BlockDomain> BlockDomain_id;
 		///
@@ -657,7 +657,7 @@ container PublicTransport_Prep
 			,  'ChainJoiner_T(
 					'+impl/ToBeCalculated_Chains/left+'/Result' //left unit
 					',OD_'+impl/ToBeCalculated_Chains/right+'/Result' //right unit
-					+ (ModelParameters/Impl/IsOD && strlen(impl/ToBeCalculated_Chains/name) == uint32(/Classifications/Chains/max_Chains) ? '_ToD' : '') + // for an OD pair the last leg of the longest chains goes only to the stops of the destination (#129)
+					+ (ModelParameters/Impl/IsOD && strlen(impl/ToBeCalculated_Chains/name) == uint32(/Classifications/Chains/max_Chains) ? '_ToD' : '') + // for an OD pair the last ride of the longest chains goes only to the stops of the destination (#129)
 					',Transfers/'+impl/ToBeCalculated_Chains/transfer_name+'/Result' //transfer unit
 					','+Quote(impl/ToBeCalculated_Chains/Left)+ //left name str
 					','+Quote(impl/ToBeCalculated_Chains/Right)+ //right name str
@@ -685,14 +685,14 @@ container PublicTransport_Prep
 			attribute<Allowed_ChainsK> Allowed_ChainsK_rel := ='union_data(., '+asList('const('+string(id(Allowed_ChainsK))+'[Allowed_ChainsK], Chain_Generation/'+Allowed_ChainsK/name+'/Result)', ',')+')';
 			attribute<ct>      Price            := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/Price')+')';
 			attribute<ct>      Price_augm       := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/Price_augm')+')';
-			attribute<ct>      Price_S          := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/Price_S')+')', Descr = "The part of Price that applies per leg: the trip surcharge of special trains (#3, ICD/ICE), which 9292 leaves out of the price (#53), and the fixed fares per ride (#55).";
+			attribute<ct>      Price_S          := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/Price_S')+')', Descr = "The part of Price that applies per ride: the trip surcharge of special trains (#3, ICD/ICE), which 9292 leaves out of the price (#53), and the fixed fares per ride (#55).";
 			attribute<s>       Traveltime       := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/Traveltime')+')';
 			attribute<uint32>  ModeCode         := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/ModeCode')+')';
 			attribute<uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/uq_c_FromTime_Stop_rel')+')';
 			attribute<uq_c_ToTime_Stop> uq_c_ToTime_Stop_rel := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/uq_c_ToTime_Stop_rel')+')';
 			attribute<Stops>   From_Stop_rel    := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/uq_c_FromTime_Stop_rel->From_Stop_rel')+')';
 			attribute<Stops>   To_Stop_rel      := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/uq_c_ToTime_Stop_rel->To_Stop_rel')+')';
-			// To trace a chain back to its legs (#129; only requested in the OD pair mode, OD_Chains).
+			// To trace a chain back to its rides and transfers (#129; only requested in the OD pair mode, OD_Chains).
 			attribute<uint32>  Chain_rel        := ='union_data(., '+AsItemList('id(Chain_Generation/'+Allowed_ChainsK/name+'/Result)')+')', Descr = "The row number of the chain in Chain_Generation/<Allowed_ChainsK_rel>/Result.";
 			attribute<bool>    EndsAtD          := /NetworkSetup/PublicTransport_Prep/OD_Stops/IsNStop[Stops/Place_rel[To_Stop_rel]], Descr = "Only in the OD pair mode: does the chain alight at a stop from which the destination can be reached (OD_Stops/IsNStop)?";
 
@@ -702,7 +702,7 @@ container PublicTransport_Prep
 			attribute<dam>     Traveldist_Rail  := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/Traveldist_Rail')+')';
 			attribute<dam>     Traveldist_Ferry := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/Traveldist_Ferry')+')';
 			attribute<s>       TransferWalkTime := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/TransferWalkTime')+')', Descr = "Walking at the transfers of the chain (ChainJoiner_T, #146).";
-			attribute<s>       PTWaitTime       := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/PTWaitTime')+')', Descr = "Waiting at the transfers of the chain and the extra time per boarding of its flex legs and trains with a trip surcharge (ChainJoiner_T, #146).";
+			attribute<s>       PTWaitTime       := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/PTWaitTime')+')', Descr = "Waiting at the transfers of the chain and the extra time per boarding of its flex rides and trains with a trip surcharge (ChainJoiner_T, #146).";
 
 			unit<uint64>       StarEvent2Stop   := combine_unit_uint64(uq_c_FromTime_Stop, Stops), Descr = "The key of a pair (boarding event, destination stop): uq_c_FromTime_Stop x Stops.";
 			attribute<StarEvent2Stop> OD_pair_key := combine_data(StarEvent2Stop, uq_c_FromTime_Stop_rel, To_Stop_rel); //fka OD_key
@@ -719,7 +719,7 @@ container PublicTransport_Prep
 		{
 			unit<uint64> Result := ='select(Allowed_Chains/pareto_condition' + (ModelParameters/Impl/IsOD ? ' && Allowed_Chains/EndsAtD' : '') + ')' //fka uq_OD_key; for an OD pair only the chains to the stops of the destination (#129)
 			{
-				attribute<Allowed_Chains> Allowed_Chains_rel := collect_by_cond(., id(Allowed_Chains)), Descr = "The chain in Allowed_Chains, to trace it back to its legs (only requested in the OD pair mode, OD_Chains).";
+				attribute<Allowed_Chains> Allowed_Chains_rel := collect_by_cond(., id(Allowed_Chains)), Descr = "The chain in Allowed_Chains, to trace it back to its rides and transfers (only requested in the OD pair mode, OD_Chains).";
 				attribute<ct>     Price            := =ModelParameters/Impl/PriceExportsAndIntegrityChecksNeeded ? 'collect_by_cond(., Allowed_Chains/Price)' : 'const(null_f, ., ct)';
 				attribute<ct>     Price_augm       := =ModelParameters/Impl/PriceExportsAndIntegrityChecksNeeded ? 'collect_by_cond(., Allowed_Chains/Price_augm)' : 'const(null_f, ., ct)';
 				attribute<ct>     Price_S          := =ModelParameters/Impl/PriceExportsAndIntegrityChecksNeeded ? 'collect_by_cond(., Allowed_Chains/Price_S)' : 'const(null_f, ., ct)';
@@ -884,7 +884,7 @@ container PublicTransport_Prep
 				attribute<s>      PTWaitTime       := collect_by_cond(., ../IsVBoarding, ../Read/PTWaitTime);
 				attribute</NetworkSetup/PublicTransport_Prep/uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel := collect_by_cond(., ../IsVBoarding, ../Read/uq_c_FromTime_Stop_rel);
 				attribute</NetworkSetup/PublicTransport_Prep/uq_c_ToTime_Stop> uq_c_ToTime_Stop_rel := collect_by_cond(., ../IsVBoarding, ../Read/uq_c_ToTime_Stop_rel);
-				attribute<uint64> ChainRow         := collect_by_cond(., ../IsVBoarding, uint64(id(../Read))), Descr = "The row number of the chain in the cache of the block, like OD_Chains/Read_ChainLegs/Keten (#129; only requested in the OD pair mode).";
+				attribute<uint64> ChainRow         := collect_by_cond(., ../IsVBoarding, uint64(id(../Read))), Descr = "The row number of the chain in the cache of the block, like OD_Chains/Read_ChainParts/Keten (#129; only requested in the OD pair mode).";
 			}
 		}
 		container         PerBlock                     := for_each_ne(impl/BlockDomain/name, 'ReadBlock_T(' + quote(impl/BlockDomain/name) + ', ' + quote(impl/BlockDomain/CacheName) + ')');
@@ -894,7 +894,7 @@ container PublicTransport_Prep
 		parameter<uint32> NrWritten                    := sum(uint32(IsWritten));
 		unit<uint32> ToDo := select_with_attr_by_cond(impl/BlockDomain, NOT(IsWritten))
 		{
-			attribute<string> Item := ModelParameters/Impl/IsOD ? '/NetworkSetup/PublicTransport_Prep/OD_Chains/Write' : '/NetworkSetup/PublicTransport_Prep/ChainGeneration_PerBlock/' + name + '/Write', Descr = "The writer of the block; for an OD pair (#129) OD_Chains/Write, which also writes the legs and links of the chains in the same request.";
+			attribute<string> Item := ModelParameters/Impl/IsOD ? '/NetworkSetup/PublicTransport_Prep/OD_Chains/Write' : '/NetworkSetup/PublicTransport_Prep/ChainGeneration_PerBlock/' + name + '/Write', Descr = "The writer of the block; for an OD pair (#129) OD_Chains/Write, which also writes the parts and links of the chains in the same request.";
 		}
 		parameter<bool>   Single_IsWritten             := /NetworkSetup/PublicTransport_Prep/PT_Chains_Sig/IsChecked && ExistingFile('', expand(., /NetworkSetup/PublicTransport_Prep/StorageName_Str + '/0Dictionary.dms')) != ''
 		, Descr = "Is the one chain cache (PT_Chains_PerBlock FALSE) there with the current signature? GeoDMS writes the dictionary of the mmd last, so an interrupted cache counts as missing.";
@@ -966,7 +966,7 @@ container PublicTransport_Prep
 		attribute<s>      PTWaitTime       := =ModelParameters/Advanced/PT_Chains_PerBlock ? 'union_data(., ' + AsItemList('PT_Chains_Blocks/PerBlock/' + impl/BlockDomain/name + '/VBoarding/PTWaitTime') + ')' : 'collect_by_cond(., IsVBoarding_PT, PT/PTWaitTime)';
 		attribute<uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel := =ModelParameters/Advanced/PT_Chains_PerBlock ? 'union_data(., ' + AsItemList('PT_Chains_Blocks/PerBlock/' + impl/BlockDomain/name + '/VBoarding/uq_c_FromTime_Stop_rel') + ')' : 'collect_by_cond(., IsVBoarding_PT, PT/uq_c_FromTime_Stop_rel)';
 		attribute<uq_c_ToTime_Stop> uq_c_ToTime_Stop_rel := =ModelParameters/Advanced/PT_Chains_PerBlock ? 'union_data(., ' + AsItemList('PT_Chains_Blocks/PerBlock/' + impl/BlockDomain/name + '/VBoarding/uq_c_ToTime_Stop_rel') + ')' : 'collect_by_cond(., IsVBoarding_PT, PT/uq_c_ToTime_Stop_rel)';
-		attribute<uint64> ChainRow         := =ModelParameters/Advanced/PT_Chains_PerBlock ? 'union_data(., ' + AsItemList('PT_Chains_Blocks/PerBlock/' + impl/BlockDomain/name + '/VBoarding/ChainRow') + ')' : 'collect_by_cond(., IsVBoarding_PT, id(PT))', Descr = "The row number of the chain in the cache of its block (#129; only requested in the OD pair mode, with one block: OD_Chains/Read_ChainLegs/Keten).";
+		attribute<uint64> ChainRow         := =ModelParameters/Advanced/PT_Chains_PerBlock ? 'union_data(., ' + AsItemList('PT_Chains_Blocks/PerBlock/' + impl/BlockDomain/name + '/VBoarding/ChainRow') + ')' : 'collect_by_cond(., IsVBoarding_PT, id(PT))', Descr = "The row number of the chain in the cache of its block (#129; only requested in the OD pair mode, with one block: OD_Chains/Read_ChainParts/Keten).";
 	}
 
 	// The signature of the chain cache: all parameters the chains depend on. It stands as a hash in the name (StorageBase_Str,
@@ -984,7 +984,7 @@ container PublicTransport_Prep
 		'_min-'+asList(Classifications/ComponentParetoAttr/FileNameElement, '_')+
 		'_maxtransf-'+string(ModelParameters/Max_transfers)+
 		'_MaxOV-' + string(ModelParameters/MaxPTTime) + 'min'+
-		// The Pareto legs (ObjectVision/NetworkModel_PBL#115) change the content of this file, so they must be in the signature: otherwise a
+		// The pareto option of the rides (ObjectVision/NetworkModel_PBL#115) changes the content of this file, so it must be in the signature: otherwise a
 		// Pareto run silently overwrites the scalar result it must be compared with.
 		(ModelParameters/Advanced/ParetoLegs_R ? '_paretoR' : '')+
 		ModelParameters/Impl/ChainPareto_FileTag+ // '_chainrel1pct': the relative epsilon on the travel time in the chain joining (ObjectVision/GeoDMS#1282), empty when it is off

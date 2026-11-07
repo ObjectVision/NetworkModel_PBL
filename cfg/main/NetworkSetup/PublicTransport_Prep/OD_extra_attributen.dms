@@ -31,18 +31,18 @@ attribute<s>                   Traveltime                 := ='Impedance[s]'
                                                               + (ModelParameters/Impl/FlexHasTimePenalty      ? ' + (IsFlexRide ? convert(ModelParameters/Advanced/FlexExtraWaitingTime, s) : 0[s])' : '')
                                                               + (ModelParameters/Impl/TripSurchargeHasTimePenalty ? ' + TripSurcharge_ExtraTime' : '');
 // #146: the chain joiner adds up the walking and the waiting at the transfers of a chain beside its travel time, so that the output splits the
-// public transport time into the time in the vehicle, walking at transfers and waiting. A leg is one boarding: it walks no transfer, and its
+// public transport time into the time in the vehicle, walking at transfers and waiting. A ride is one boarding: it walks no transfer, and its
 // waiting is the extra time per boarding of a flex line or a train with a trip surcharge, which Traveltime holds as well.
-attribute<s>                   TransferWalkTime           := const(0[s], .), Descr = "Walking at transfers within the leg: none, a leg is one boarding (#146).";
+attribute<s>                   TransferWalkTime           := const(0[s], .), Descr = "Walking at transfers within the ride: none, a ride is one boarding (#146).";
 attribute<s>                   PTWaitTime                 := ='const(0[s], .)'
                                                               + (ModelParameters/Impl/FlexHasTimePenalty      ? ' + (IsFlexRide ? convert(ModelParameters/Advanced/FlexExtraWaitingTime, s) : 0[s])' : '')
                                                               + (ModelParameters/Impl/TripSurchargeHasTimePenalty ? ' + TripSurcharge_ExtraTime' : '')
-, Descr = "Waiting within the leg: the extra time per boarding of a flex line (Advanced/FlexExtraWaitingTime) or a train with a trip surcharge (TripSurchargeTrains/ExtraTime), which Traveltime holds as well; 0 for other legs (#146).";
-// #3: may one board at the start of this leg and alight at its end (GTFS pickup_type and drop_off_type, see Set/NodeSet/CanBoard and
-// CanAlight)? OD_L/Result and OD_R/Result keep only these legs.
+, Descr = "Waiting within the ride: the extra time per boarding of a flex line (Advanced/FlexExtraWaitingTime) or a train with a trip surcharge (TripSurchargeTrains/ExtraTime), which Traveltime holds as well; 0 for other rides (#146).";
+// #3: may one board at the start of this ride and alight at its end (GTFS pickup_type and drop_off_type, see Set/NodeSet/CanBoard and
+// CanAlight)? OD_L/Result and OD_R/Result keep only these rides.
 attribute<bool>                IsBoardAlightAllowed       := ThisSet/NodeSet/CanBoard[OrgZone_rel] && ThisSet/NodeSet/CanAlight[DstZone_rel];
 attribute<Modes>               Mode_rel                   := Routes/mode_rel[Route_rel];
-attribute<uint32>              ModeCode                   := uint32(Mode_rel) + 1u, Descr = "The mode of the leg as a digit of ModeCode (Classifications/GTFS_Modes/CodeDigits): the mode id plus 1.";
+attribute<uint32>              ModeCode                   := uint32(Mode_rel) + 1u, Descr = "The mode of the ride as a digit of ModeCode (Classifications/GTFS_Modes/CodeDigits): the mode id plus 1.";
 
 unit<uint32> impl := .
 {
@@ -67,10 +67,10 @@ unit<uint32> impl := .
 	attribute<c_NS_start_end> c_NS_start_end_rel := combine_data(c_NS_start_end, From_NS_Stations_rel, To_NS_Stations_rel);
 	attribute<uint32>      TariffUnits                     := rjoin(c_NS_start_end_rel, TariffUnitsMatrix/c_NS_start_end_rel, TariffUnitsMatrix/impedance);
 	
-	// The rule of the detailed fare table for this leg (#55), from specific to general: a rule for its line in its concession (FareLine, a line
+	// The rule of the detailed fare table for this ride (#55), from specific to general: a rule for its line in its concession (FareLine, a line
 	// recognised by its name, then route_short_name), a rule for its line without a concession (route_short_name only), the general rule of
 	// its agency in its concession, the general rule of its agency without a concession, and the fare of its agency where that is the same in
-	// all its concessions (FareTable_AgencyWide). A rule of one line never prices another line; a leg without any of these gets the DOVA fare
+	// all its concessions (FareTable_AgencyWide). A rule of one line never prices another line; a ride without any of these gets the DOVA fare
 	// of its concession. In the keys of the fare table a rule without a concession has an empty concession: '<mode>_<agency>__<line>' and
 	// '<mode>_<agency>_'. A key with a null part is null and matches nothing.
 	attribute<FareTable>   FareTable_rel_FareLine          := rlookup(Mode_Agency_CG_identifier + '_' + FareLine, FareTable/Mode_Agency_CG_Line_identifier);
@@ -83,42 +83,42 @@ unit<uint32> impl := .
 	                                                              MakeDefined(MakeDefined(FareTable_rel_FareLine, FareTable_rel_Line), FareTable_rel_Line_AnyCG)
 	                                                            , MakeDefined(MakeDefined(FareTable_rel_General, FareTable_rel_General_AnyCG), FareTable_rel_AgencyWide));
 	// DOVA mode: the key is the mode class (BTM/Rail/Ferry) + '_' + the concession area. NS trains are in the L network and do not come
-	// here. Legs outside all concession polygons (foreign sections of De Lijn, DB, Eurobahn) get 'Buitenland' and match the fallback rows
-	// in FareTable_DOVA, so that every leg has a DOVA fare.
+	// here. Rides outside all concession polygons (foreign sections of De Lijn, DB, Eurobahn) get 'Buitenland' and match the fallback rows
+	// in FareTable_DOVA, so that every ride has a DOVA fare.
 	attribute<string>      Mode_class_DOVA                 := Modes/name[Mode_rel] == 'Rail' ? 'Rail' : (Modes/name[Mode_rel] == 'Ferry' ? 'Ferry' : 'BTM');
 	attribute<string>      MC_CG_key_DOVA                  := Mode_class_DOVA + '_' + MakeDefined(Concessiegebied/name[Concessiegebied_rel], 'Buitenland');
 	attribute<FareTable>   FareTable_rel                   := =ModelParameters/Impl/PriceMethod_effective == 'DOVA'
 	                                                          ? 'rlookup(MC_CG_key_DOVA, FareTable/MC_CG_key)'
 	                                                          : 'FareTable_rel_Detailed';
 	attribute<FareTable_DOVA> FareTable_DOVA_rel           := rlookup(MC_CG_key_DOVA, FareTable_DOVA/MC_CG_key);
-	// The prices of the leg: those of its rule, and in the detailed method for a leg without a rule the DOVA fare of its concession and mode class.
+	// The prices of the ride: those of its rule, and in the detailed method for a ride without a rule the DOVA fare of its concession and mode class.
 	attribute<Euro>        FixedPrice                      := IsDefined(FareTable_rel) ? FareTable/FixedPrice[FareTable_rel]    : FareTable_DOVA/FixedPrice[FareTable_DOVA_rel];
 	attribute<Euro_km>     VariablePrice                   := IsDefined(FareTable_rel) ? FareTable/VariablePrice[FareTable_rel] : FareTable_DOVA/VariablePrice[FareTable_DOVA_rel];
 
-	// Check that the leg has prices: a matched rule with an empty price would otherwise silently give null prices.
+	// Check that the ride has prices: a matched rule with an empty price would otherwise silently give null prices.
 	attribute<bool>        Price_IntegrityCheck            := =ModelParameters/Impl/PriceExportsAndIntegrityChecksNeeded
 	                                                          ? 'IsDefined(impl/FixedPrice) && IsDefined(impl/VariablePrice)'
 	                                                          : 'const(TRUE,.)';
 
-	// The legs of the detailed method without a rule, which get the DOVA fare, per combination of mode, agency, concession and line, with
-	// the number of legs (view on demand, for checking the fare tables).
+	// The rides of the detailed method without a rule, which get the DOVA fare, per combination of mode, agency, concession and line, with
+	// the number of rides (view on demand, for checking the fare tables).
 	unit<uint32> DOVAFallback := select_with_org_rel(IsNull(FareTable_rel))
 	{
 		attribute<string> combo := MakeDefined(Mode_Agency_CG_Line_identifier[org_rel], Mode_Agency_identifier[org_rel] + '__' + RouteName_short[org_rel]);
 		unit<uint32> UniqueCombos := unique(combo)
 		{
-			attribute<uint32> NrLegs := pcount(rlookup(../combo, values));
+			attribute<uint32> NrRides := pcount(rlookup(../combo, values));
 		}
 	}
 
 	// Diagnosis when Price_IntegrityCheck fails (expensive, view only on demand): the unique combinations without a FareTable match or
-	// with a row without price, with the number of affected legs per combination.
+	// with a row without price, with the number of affected rides per combination.
 	unit<uint32> Unpriced := select_with_org_rel(not(Price_IntegrityCheck))
 	{
 		attribute<string> combo := =ModelParameters/Impl/PriceMethod_effective == 'DOVA' ? 'MC_CG_key_DOVA[org_rel]' : 'Mode_Agency_CG_Line_identifier[org_rel]';
 		unit<uint32> UniqueCombos := unique(combo)
 		{
-			attribute<uint32> NrLegs := pcount(rlookup(../combo, values));
+			attribute<uint32> NrRides := pcount(rlookup(../combo, values));
 		}
 	}
 }

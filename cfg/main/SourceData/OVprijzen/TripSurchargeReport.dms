@@ -116,7 +116,7 @@ container TripSurchargeReport
 		, StorageName = "=FileStem+'_keten_report.txt'", StorageType = "str";
 	}
 
-	// The more expensive part: the legs of the L-net and the R-net (it pulls the public transport network, Set_L/Set_R and OD_L/OD_R).
+	// The more expensive part: the rides of OD_L and OD_R (it pulls the public transport network, Set_L/Set_R and OD_L/OD_R).
 	container Net
 	{
 		unit<uint32>      OD_L                                 := /NetworkSetup/PublicTransport_Prep/impl/OD_L;
@@ -125,21 +125,21 @@ container TripSurchargeReport
 		unit<uint32>      R_Result                             := OD_R/Result;
 		unit<uint32>      NS_Stations                          := /SourceData/Infrastructure/OVprijzen/NS/NS_stations;
 
-		parameter<uint32> L_Legs                               := #OD_L;
-		parameter<uint32> L_Result_Legs                        := #L_Result;
-		// Legs that drop out only through the boarding and alighting rule (pickup_type/drop_off_type 1): the other filters of Result let them through.
-		parameter<uint32> L_NoBoardAlight                      := sum(uint32(not(OD_L/IsBoardAlightAllowed) && not(OD_L/impl/IsStartEndWithinSameStopCluster) && OD_L/IsDomesticLeg));
-		attribute<uint32> L_NoBoardAlight_PerAgency (Agencies) := sum_uint32(not(OD_L/IsBoardAlightAllowed) && not(OD_L/impl/IsStartEndWithinSameStopCluster) && OD_L/IsDomesticLeg, OD_L/Agency_rel);
-		parameter<uint32> L_Foreign                            := sum(uint32(not(OD_L/IsDomesticLeg) && not(OD_L/impl/IsStartEndWithinSameStopCluster)));
+		parameter<uint32> L_Rides                               := #OD_L;
+		parameter<uint32> L_Result_Rides                        := #L_Result;
+		// Rides that drop out only through the boarding and alighting rule (pickup_type/drop_off_type 1): the other filters of Result let them through.
+		parameter<uint32> L_NoBoardAlight                      := sum(uint32(not(OD_L/IsBoardAlightAllowed) && not(OD_L/impl/IsStartEndWithinSameStopCluster) && OD_L/IsDomesticRide));
+		attribute<uint32> L_NoBoardAlight_PerAgency (Agencies) := sum_uint32(not(OD_L/IsBoardAlightAllowed) && not(OD_L/impl/IsStartEndWithinSameStopCluster) && OD_L/IsDomesticRide, OD_L/Agency_rel);
+		parameter<uint32> L_Foreign                            := sum(uint32(not(OD_L/IsDomesticRide) && not(OD_L/impl/IsStartEndWithinSameStopCluster)));
 		parameter<uint32> L_NSInt_Result                       := sum(uint32(Agencies/IsNSInternational[L_Result/Agency_rel]));
 		attribute<uint32> L_Surcharge_PerProduct      (Trains) := sum_uint32(L_Result/Price_S > 0[Ct], L_Result/TripSurcharge_rel);
 		attribute<uint32> L_Product_PerProduct        (Trains) := pcount(L_Result/TripSurcharge_rel);
-		parameter<uint32> R_Legs                               := #OD_R;
-		parameter<uint32> R_Result_Legs                        := #R_Result;
+		parameter<uint32> R_Rides                               := #OD_R;
+		parameter<uint32> R_Result_Rides                        := #R_Result;
 		parameter<uint32> R_NoBoardAlight                      := sum(uint32(not(OD_R/IsBoardAlightAllowed) && not(OD_R/impl/IsOD_completely_foreign) && not(OD_R/impl/IsStartEndWithinSameStopCluster)));
 		attribute<uint32> R_NoBoardAlight_PerAgency (Agencies) := sum_uint32(not(OD_R/IsBoardAlightAllowed) && not(OD_R/impl/IsOD_completely_foreign) && not(OD_R/impl/IsStartEndWithinSameStopCluster), OD_R/Agency_rel);
 
-		// Legs that drop out only through the boarding and alighting rule, for a check by hand.
+		// Rides that drop out only through the boarding and alighting rule, for a check by hand.
 		Template NoBoardAlight_T
 		{
 			unit<uint32>      OD;
@@ -159,10 +159,10 @@ container TripSurchargeReport
 				attribute<bool>   uitstappen := OD/ThisSet/NodeSet/CanAlight[OD/DstZone_rel[org_rel]];
 			}
 		}
-		container         L_NoBoardAlight_List                 := NoBoardAlight_T(OD_L, OD_L/IsDomesticLeg, FileStem+'_L_geeninuitstap.csv');
+		container         L_NoBoardAlight_List                 := NoBoardAlight_T(OD_L, OD_L/IsDomesticRide, FileStem+'_L_geeninuitstap.csv');
 		container         R_NoBoardAlight_List                 := NoBoardAlight_T(OD_R, not(OD_R/impl/IsOD_completely_foreign), FileStem+'_R_geeninuitstap.csv');
 
-		// Example legs of the L-net between a few stations around the HSL, for a check by hand.
+		// Example rides of OD_L between a few stations around the HSL, for a check by hand.
 		unit<uint32> ExampleStations : nrofrows = 8
 		{
 			attribute<string>      code        : ['shl', 'rtd', 'asd', 'asdz', 'hvs', 'bd', 'ut', 'ah'];
@@ -185,10 +185,10 @@ container TripSurchargeReport
 		}
 
 		parameter<string> Report                               :=
-			'L-net: ' + string(L_Legs) + ' benen, ' + string(L_NoBoardAlight) + ' alleen zonder in- of uitstap weg, ' + string(L_Foreign) + ' niet binnenlands, ' + string(L_Result_Legs) + ' in Result, waarvan ' + string(L_NSInt_Result) + ' NS International'
+			'NS (OD_L): ' + string(L_Rides) + ' ritten, ' + string(L_NoBoardAlight) + ' alleen zonder in- of uitstap weg, ' + string(L_Foreign) + ' niet binnenlands, ' + string(L_Result_Rides) + ' in Result, waarvan ' + string(L_NSInt_Result) + ' NS International'
 			+ ' | L zonder in- of uitstap per vervoerder: ' + asList(L_NoBoardAlight_PerAgency > 0 ? Agencies/label + ' ' + string(L_NoBoardAlight_PerAgency) : '', ' ')
-			+ ' | rit-opslag per product (benen met opslag / benen op het product): ' + asList(Trains/name + ' ' + string(L_Surcharge_PerProduct) + '/' + string(L_Product_PerProduct), ', ')
-			+ ' | R-net: ' + string(R_Legs) + ' benen, ' + string(R_NoBoardAlight) + ' alleen zonder in- of uitstap weg, ' + string(R_Result_Legs) + ' in Result'
+			+ ' | rit-opslag per product (ritten met opslag / ritten op het product): ' + asList(Trains/name + ' ' + string(L_Surcharge_PerProduct) + '/' + string(L_Product_PerProduct), ', ')
+			+ ' | regionaal (OD_R): ' + string(R_Rides) + ' ritten, ' + string(R_NoBoardAlight) + ' alleen zonder in- of uitstap weg, ' + string(R_Result_Rides) + ' in Result'
 			+ ' | R zonder in- of uitstap per vervoerder: ' + asList(R_NoBoardAlight_PerAgency > 0 ? Agencies/label + ' ' + string(R_NoBoardAlight_PerAgency) : '', ' ')
 		, StorageName = "=FileStem+'_net_report.txt'", StorageType = "str"
 		, ExplicitSuppliers = "Examples";

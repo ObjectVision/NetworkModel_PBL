@@ -29,15 +29,15 @@ def journey(legs):
 before_dir, after_dir = sys.argv[1], sys.argv[2]
 moments = sorted(os.path.basename(p)[3:-5] for p in glob.glob(os.path.join(after_dir, 'PerBlock', 'od_*.gpkg')))
 for m in moments:
-    b_opts, b_legs = read(before_dir, m)
-    a_opts, a_legs = read(after_dir, m)
+    b_opts, b_rides = read(before_dir, m)
+    a_opts, a_rides = read(after_dir, m)
     print(f'=== {m}: {len(b_opts)} options before, {len(a_opts)} after')
-    b_key = {journey(v): k for k, v in b_legs.items()}
-    a_key = {journey(v): k for k, v in a_legs.items()}
+    b_key = {journey(v): k for k, v in b_rides.items()}
+    a_key = {journey(v): k for k, v in a_rides.items()}
     for key in sorted(set(b_key) | set(a_key), key=lambda j: a_opts.get(a_key.get(j), b_opts.get(b_key.get(j)))[0]):
         bi, ai = b_key.get(key), a_key.get(key)
         bt = f'{b_opts[bi][0]:.1f} min {b_opts[bi][1]:.2f}' if bi else '-'
         at = f'{a_opts[ai][0]:.1f} min {a_opts[ai][1]:.2f}' if ai else '-'
         print(f'  before {bt:>18} | after {at:>18} | {(a_opts[ai] if ai else b_opts[bi])[2]}')
-        for text, prijs in (a_legs.get(ai) or b_legs.get(bi)):
+        for text, prijs in (a_rides.get(ai) or b_rides.get(bi)):
             print(f'        {text} {prijs:.2f}')

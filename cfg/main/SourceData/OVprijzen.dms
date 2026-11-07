@@ -62,9 +62,9 @@ container OVprijzen
 		attribute<Euro_km> VariablePrice          := MakeDefined(MakeDefined(VariablePrice_specific, VariablePrice_BTM), ModeClass/VariablePrice_national[second_rel]);
 	}
 
-	// Safety net for legs outside all concession polygons (foreign sections of De Lijn/DB/Eurobahn/NIAG and possible edge artefacts): one
+	// Safety net for rides outside all concession polygons (foreign sections of De Lijn/DB/Eurobahn/NIAG and possible edge artefacts): one
 	// row per mode class, key '<class>_Buitenland' (see MC_CG_key_DOVA in OD_extra_attributen). Kilometre fare = national DOVA average of the
-	// class of the chosen year, boarding fare = national base fare. Without this safety net Price_IntegrityCheck fails in DOVA mode on those legs.
+	// class of the chosen year, boarding fare = national base fare. Without this safety net Price_IntegrityCheck fails in DOVA mode on those rides.
 	unit<uint8> FareTable_DOVA := union_unit_uint8(FareTable_DOVA_NL, ModeClass)
 	{
 		attribute<string>  MC_CG_key                      := union_data(., FareTable_DOVA_NL/MC_CG_key, ModeClass/name + '_Buitenland');
@@ -78,14 +78,14 @@ container OVprijzen
 	}
 
 	// ---- Pre-flight price coverage (see /ChecksBeforeRunning/PT_CheckPriceCoverage) ----
-	// Cheap to evaluate BEFORE building the network: it reads only agency and routes of the loaded feed plus the active fare table. A leg
+	// Cheap to evaluate BEFORE building the network: it reads only agency and routes of the loaded feed plus the active fare table. A ride
 	// without a rule in the detailed fare table gets the DOVA fare of its concession (OD_extra_attributen, #55), so a (mode, agency) combination
 	// without any row is reported here, not refused. Routes without trips on the chosen Analysis_date also count.
 	// DOVA mode: coverage holds by construction (combine over all concessions + Buitenland safety net + national fallback); there the check
 	// is that all prices of the chosen year are filled and plausible.
 	container PriceCoverage
 	{
-		// R-net routes of the feed; NS/L-net is priced through the NS fare structure, and walking/cycling pseudo-routes have no agency. The source
+		// regional routes (OD_R) of the feed; NS (OD_L) is priced through the NS fare structure, and walking/cycling pseudo-routes have no agency. The source
 		// is RelevantSelection/Routes (the unit with the attribute subitems; select_with_attr_by_cond on an alias unit copies no attributes).
 		unit<uint32> RnetRoutes := select_with_attr_by_cond(/SourceData/Infrastructure/GTFS/RelevantSelection/Routes
 									,  IsDefined(/SourceData/Infrastructure/GTFS/RelevantSelection/Routes/agency_rel)
@@ -886,9 +886,9 @@ container OVprijzen
 		// TRIP SURCHARGE FOR SPECIAL TRAINS AND NS INTERNATIONAL (#3). The NS fare of a journey follows from the tariff units of the station
 		// pair over the classic route; the high-speed line does not count for it (TariffNetwork_ExcludedEdges above). Travelling over
 		// the HSL between Schiphol and Rotterdam, or on the ICE within the Netherlands, costs a supplement per trip. It depends on the trip,
-		// not on the station pair, so it is added per NS leg (Price_S in PublicTransport_Prep/OD_L), apart from the through NS fare.
+		// not on the station pair, so it is added per ride with NS (Price_S in PublicTransport_Prep/OD_L), apart from the through NS fare.
 		unit<uint8> TripSurchargeTrains : nrofrows = 2
-		, Descr = "Train products with a surcharge: Station_A and Station_B mark the section on which it applies (empty: every leg of the product), ExtraTime is the extra time per boarding, and the amount per year is in TripSurcharge below."
+		, Descr = "Train products with a surcharge: Station_A and Station_B mark the section on which it applies (empty: every ride of the product), ExtraTime is the extra time per boarding, and the amount per year is in TripSurcharge below."
 		{
 			attribute<string> name        : ['HSL_Schiphol_Rotterdam', 'ICE_binnenland'];
 			attribute<string> Station_A   : ['shl', ''];
