@@ -13,7 +13,7 @@ description: Kennis over de OV-prijzen in NetworkModel_PBL - NS-tariefeenheden e
 - **Regionaal vervoer (`OD_R`):** `Price_I` (instaptarief) + `Price_O` (km-deel, plus belkosten flex; `FlexCallCosts` staat sinds 2026-10-05 standaard op 0, #116) + `Price_S` (vast tarief per rit). Binnen een reis met overstap binnen 35 minuten (`MaxTransferTimeForBoardingSurcharge`) neemt de ketenrijger het **maximum** van de `Price_I`'s, anders de som. Bron van de tarieven:
   - `PriceMethod` **DOVA** (standaard, 2013-2026): km-tarief per concessie en modusklasse (BTM, Rail, Ferry) uit `data/DOVA_Overzicht km-tarieven 2013-2026_edit.xlsx` (alleen rijen met `use_for_price` = 1), plus het DOVA-basistarief.
   - `PriceMethod` **Detailed** (alleen 2023-2026): `OVprijzen/FareTable_<jaar>`, per mode/vervoerder/concessie/lijn.
-- Daltarief: `NS_TariffChoice` geldt voor alle vertrekmomenten van een run. De 40%-korting (Dal Voordeel) mag alleen in een dagdeel buiten de NS-spits (`PartsOfDay/NS_OffPeak`, nu Middag en Avond); de controles van UpdateAll en de IntegrityCheck van `Impl/NS_FareClass` weigeren hem in de Ochtendspits (#119).
+- Daltarief: `NS_TariffChoice` geldt voor alle vertrekmomenten van een run in een dagdeel buiten de NS-spits (`PartsOfDay/NS_OffPeak`, nu Middag en Avond). In een dagdeel in de spits, nu de Ochtendspits, rekent het model altijd met vol tarief (`Impl/NS_FareClass`), ook in de signatuur van de ketencache, dus ook bij een keuze van 20 of 40% korting (#119).
 - Niet gemodelleerd: kortingskaarten die binnen een run per tijdstip wisselen, daluurkorting op de toeslag, 1e klas.
 
 ## Vaste rittarieven: wanneer gelden ze, ook bij DOVA? (onderzocht 2026-10-02, #55)
