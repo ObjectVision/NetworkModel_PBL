@@ -61,7 +61,7 @@ Write a thing in one place. If an issue already holds the reasoning, refer to it
 
 ## Terms
 
-Use the terms of the wiki page Glossary, in Dutch and English text alike. A ride (Dutch: rit) is the part of a public transport journey in one vehicle; a leg (Dutch: been) is only the walking or cycling connection to the first stop or from the last one. Text that calls a ride a leg is unreadable for the model's users, even where item names such as `IsFlexLeg` do so. Regional transport is `OD_R`; R-net is a brand of trains and buses, not the name of that network.
+Use the terms of the wiki page Glossary, in Dutch and English text alike. A ride (Dutch: rit) is the part of a public transport journey in one vehicle; a leg (Dutch: been) is only the walking or cycling connection to the first stop or from the last one. Text that calls a ride a leg is unreadable for the model's users, even where item names such as `ChainLegs` still do so. Regional transport is `OD_R`; R-net is a brand of trains and buses, not the name of that network.
 
 ## Descr and Source
 

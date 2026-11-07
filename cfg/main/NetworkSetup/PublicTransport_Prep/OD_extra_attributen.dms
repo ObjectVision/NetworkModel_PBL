@@ -19,23 +19,23 @@ attribute<Time>                From_Time_rel              := ThisSet/NodeSet/Tim
 attribute<Time>                To_Time_rel                := ThisSet/NodeSet/Time_rel[DstZone_rel];
 attribute<Routes>              Route_rel                  := ThisSet/NodeSet/Route_rel[OrgZone_rel];
 attribute<Agencies>            Agency_rel                 := ThisSet/NodeSet/Agency_rel[OrgZone_rel];
-// #113: a leg lies on one route (NodeSet is per route), so a leg is exactly one boarding, and the flex surcharge belongs to the leg
+// #113: a ride lies on one route (NodeSet is per route), so a ride is exactly one boarding, and the flex surcharge belongs to the ride
 // and not to the links. Adding it afterwards is exact: Dijkstra does not choose between routes within an OD pair; the competition
 // between routes happens in the chain joiner, which has this Traveltime as a criterion as soon as there is a time penalty
 // (Classifications/ChainJoinerParetoAttr_Candidates). Without extra waiting time for flex (ModelParameters/Impl/FlexHasTimePenalty)
 // the expression stays literally 'Impedance[s]' (CalcCache).
-attribute<bool>                IsFlexLeg                  := MakeDefined(Routes/IsFlex[Route_rel], false), Descr = "#113: is this leg on a flex line, and so exactly one boarding on a flex line?";
+attribute<bool>                IsFlexRide                 := MakeDefined(Routes/IsFlex[Route_rel], false), Descr = "#113: is this ride on a flex line, and so exactly one boarding on a flex line?";
 // #3: the extra time of the trip surcharge (SourceData/Infrastructure/OVprijzen/NS/TripSurchargeTrains/ExtraTime) is in TripSurcharge_ExtraTime of
 // OD_L (0 in OD_R) and is added only when it is greater than 0 somewhere, so that the expression otherwise stays the same.
 attribute<s>                   Traveltime                 := ='Impedance[s]'
-                                                              + (ModelParameters/Impl/FlexHasTimePenalty      ? ' + (IsFlexLeg ? convert(ModelParameters/Advanced/FlexExtraWaitingTime, s) : 0[s])' : '')
+                                                              + (ModelParameters/Impl/FlexHasTimePenalty      ? ' + (IsFlexRide ? convert(ModelParameters/Advanced/FlexExtraWaitingTime, s) : 0[s])' : '')
                                                               + (ModelParameters/Impl/TripSurchargeHasTimePenalty ? ' + TripSurcharge_ExtraTime' : '');
 // #146: the chain joiner adds up the walking and the waiting at the transfers of a chain beside its travel time, so that the output splits the
 // public transport time into the time in the vehicle, walking at transfers and waiting. A leg is one boarding: it walks no transfer, and its
 // waiting is the extra time per boarding of a flex line or a train with a trip surcharge, which Traveltime holds as well.
 attribute<s>                   TransferWalkTime           := const(0[s], .), Descr = "Walking at transfers within the leg: none, a leg is one boarding (#146).";
 attribute<s>                   PTWaitTime                 := ='const(0[s], .)'
-                                                              + (ModelParameters/Impl/FlexHasTimePenalty      ? ' + (IsFlexLeg ? convert(ModelParameters/Advanced/FlexExtraWaitingTime, s) : 0[s])' : '')
+                                                              + (ModelParameters/Impl/FlexHasTimePenalty      ? ' + (IsFlexRide ? convert(ModelParameters/Advanced/FlexExtraWaitingTime, s) : 0[s])' : '')
                                                               + (ModelParameters/Impl/TripSurchargeHasTimePenalty ? ' + TripSurcharge_ExtraTime' : '')
 , Descr = "Waiting within the leg: the extra time per boarding of a flex line (Advanced/FlexExtraWaitingTime) or a train with a trip surcharge (TripSurchargeTrains/ExtraTime), which Traveltime holds as well; 0 for other legs (#146).";
 // #3: may one board at the start of this leg and alight at its end (GTFS pickup_type and drop_off_type, see Set/NodeSet/CanBoard and
