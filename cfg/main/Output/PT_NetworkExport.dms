@@ -1,10 +1,11 @@
 // The public transport network in a time window, for GIS (ObjectVision/NetworkModel_PBL#57). All trips of ExportDay that overlap the
-// window WindowBegin to WindowEnd, with their route and attributes, deduplicated in two ways: per route variant (route and shape) and per
-// segment between two nodes of stops (per mode), with the attributes of the trips aggregated. The tables in Tables are for the GUI
-// (colour by Mode_rel, FlexClass_rel or a number); Generate writes them as gpkg, parquet or csv.
+// window WindowBegin to WindowEnd, with their route and attributes, deduplicated in three ways: per route variant (route and shape), per
+// segment between two nodes of stops (per mode), and per stretch of the network, where a segment that skips stops counts on the stretches
+// it runs over (#138); the attributes of the trips are aggregated. The tables in Tables are for the GUI (colour by Mode_rel,
+// FlexClass_rel or a number); Generate writes them as gpkg, parquet or csv.
 container PT_NetworkExport
 :	using = "units;Classifications;SourceData/Infrastructure/GTFS/LoadFeeds"
-,	Descr = "The public transport network in a time window (#57): the trips of ExportDay that overlap the window WindowBegin to WindowEnd (Tables/TripsInWindow), per route variant (Tables/RouteVariants), per segment between nodes of stops (Tables/Segments) and the nodes themselves (Tables/StopNodes), to view in the GUI or to write with Generate to %LocalDataProjDir%/Output/ptwindow_<feed>_<day>_<window>_<layer>.<ExportFormat>, with the report beside them."
+,	Descr = "The public transport network in a time window (#57): the trips of ExportDay that overlap the window WindowBegin to WindowEnd (Tables/TripsInWindow), per route variant (Tables/RouteVariants), per segment between nodes of stops (Tables/Segments), per stretch with also the lines that run over it without stopping (Tables/Stretches, #138) and the nodes themselves (Tables/StopNodes), to view in the GUI or to write with Generate to %LocalDataProjDir%/Output/ptwindow_<feed>_<day>_<window>_<layer>.<ExportFormat>, with the report beside them."
 {
 	// SETTINGS
 	parameter<string>  ExportDay            := ModelParameters/Impl/Analysis_date
@@ -19,6 +20,14 @@ container PT_NetworkExport
 	,	Descr = "A stop farther than this from the shape of its trip is not projected onto the shape, and the segment becomes a straight line.";
 	parameter<bool>    SegmentsUndirected   := true
 	,	Descr = "TRUE makes the trips in both directions between the same nodes one segment (with nr_heen and nr_terug, heen starting at the node with the lowest number); FALSE gives a segment per direction.";
+	parameter<uint32>  MaxSkippedStops      := 50
+	,	Descr = "A segment that skips more stops than this is not laid over the stretches in between (Tables/Stretches); it limits the number of chains of consecutive links that are compared per trip.";
+	parameter<float32> ChainLengthTolerance := 0.02f
+	,	Descr = "Share of the length of a segment by which the length of a chain of other segments between its two nodes may differ, for the segment to count as running over that chain without stopping (Tables/Stretches); ChainLengthMargin is added to it. A wider tolerance lets in loops and detours of a line that pass the same stops.";
+	parameter<m>       ChainLengthMargin    := 50[m]
+	,	Descr = "Distance added to ChainLengthTolerance times the length of the segment, for shapes of the same road that differ slightly between trips.";
+	parameter<m>       SkippedStopDistance  := 30[m]
+	,	Descr = "A segment counts as running past the stops of a chain only when each of them lies within this distance of its line; a stop on a parallel street lies farther away.";
 	parameter<string>  ExportFormat         := 'gpkg'
 	,	Descr = "The format of Generate: gpkg, parquet (zstd) or csv (with the geometry as WKT).",	IntegrityCheck = "this == 'gpkg' || this == 'parquet' || this == 'csv'";
 
@@ -124,6 +133,8 @@ container PT_NetworkExport
 		{
 			attribute<Days>       Day_rel        := ='union_data(., ' + asList('const(value(' + string(id(Days)) + ', Days), ' + Days/NetPath + ', Days)', ', ') + ')';
 			attribute<RawTrips>   RawTrip_rel    := ='union_data(., ' + asList(Days/NetPath + '/RawTrip_rel', ', ') + ')';
+			attribute<RawStopTimes> StopTime_rel := ='union_data(., ' + asList(Days/NetPath + '/org_rel', ', ') + ')';
+			attribute<uint32>     Ordinal        := RawStopTimes/ordered_ord[StopTime_rel], Descr = "Position of the stop time of departure within its trip, from 0.";
 			attribute<RawStops>   FromStop_rel   := ='union_data(., ' + asList(Days/NetPath + '/From_RawStop_rel', ', ') + ')';
 			attribute<RawStops>   ToStop_rel     := ='union_data(., ' + asList(Days/NetPath + '/To_RawStop_rel', ', ') + ')';
 			attribute<Time>       depTime        := ='union_data(., ' + asList(Days/NetPath + '/depTime', ', ') + ')';
@@ -236,6 +247,8 @@ container PT_NetworkExport
 			attribute<Shapes/Uq> Shape_rel      := Links/Shape_rel[org_rel];
 			attribute<bool>      IsFlex         := Links/IsFlex[org_rel];
 			attribute<bool>      InPTnet        := Links/InPTnet[org_rel];
+			attribute<TripInst>  TripInst_rel   := Links/TripInst_rel[org_rel];
+			attribute<uint32>    Ordinal        := Links/Ordinal[org_rel];
 		}
 		unit<uint64>         c_Seg_Route                 := combine_unit_uint64(Tables/Segments, Routes);
 		unit<uint32> SegRoutes := unique(combine_data(c_Seg_Route, SegLinks/Seg_rel, SegLinks/Route_rel))
@@ -283,6 +296,7 @@ container PT_NetworkExport
 				attribute<rdc>       dB           := CutB - BeginSegA;
 				attribute<bool>      IsCuttable   := IsDefined(CutA) && IsDefined(CutB) && IsDefined(SegA) && IsDefined(SegB)
 				                                     && (SegA < SegB || (SegA == SegB && PointCol(dA) * PointCol(dA) + PointRow(dA) * PointRow(dA) <= PointCol(dB) * PointCol(dB) + PointRow(dB) * PointRow(dB))), Descr = "Can the shape be cut between A and B: are both projections found and does B not lie before A on the shape?";
+				attribute<m>         ConnectorLength := value(dist(CutA, A_point) + dist(CutB, B_point), m), Descr = "Length of the two connections from the stops to their projection on the shape.";
 			}
 			unit<uint32> Arcs := unique(WithShape/Shape_rel), Descr = "The shapes of the representative links."
 			{
@@ -315,9 +329,162 @@ container PT_NetworkExport
 				                                         : Vertices/point[value(Vertex, Vertices)];
 			}
 		}
+
+		// SEGMENTS THAT SKIP STOPS: a segment skips stops when its two nodes are also the ends of a chain of two or more consecutive links of
+		// another trip of the same mode, of about the same length along the shapes, with each stop in between on the line of the segment. Its
+		// passages then run over the segments of that chain, and the segments that skip no stops are the stretches of the network
+		// (Tables/Stretches). An Intercity from Utrecht Centraal to Amsterdam Amstel so counts on each stretch of the Sprinter in between.
+		container SkippedStops
+		{
+			attribute<km>        AlongLength (Tables/Segments) := Tables/Segments/lengte_km - (SegGeom/IsCuttable ? convert(SegGeom/WithShape/ConnectorLength[SegGeom/WithShape_rel], km) : 0[km])
+			,	Descr = "Length of the segment along the shape, without the connections from the stops to the shape; of a straight segment its length.";
+			attribute<km>        Tolerance   (Tables/Segments) := AlongLength * ChainLengthTolerance + convert(ChainLengthMargin, km);
+
+			// The links of each trip instance in their order along the trip.
+			unit<uint32>         Ordinals                      := range(uint32, 0, max(Links/Ordinal) + 1), Descr = "The positions of the stop times within a trip.";
+			unit<uint64>         c_TripInst_Ordinal            := combine_unit_uint64(TripInst, Ordinals);
+			attribute<c_TripInst_Ordinal> TripOrd_key (SegLinks) := combine_data(c_TripInst_Ordinal, SegLinks/TripInst_rel, value(SegLinks/Ordinal, Ordinals));
+			unit<uint32> TripSeq := unique(TripOrd_key)
+			,	Descr = "The links of the segments in the order of their trip instance and their position in it."
+			{
+				attribute<TripInst>        TripInst_rel := first_rel(values);
+				attribute<SegLinks>        SegLink_rel  := invert(TripSeq_rel);
+				attribute<Tables/Segments> Seg_rel      := SegLinks/Seg_rel[SegLink_rel];
+				attribute<uint32>          Rank         := cumulate(const(1, ., uint32), TripInst_rel) - 1, Descr = "Position among the links of the segments of the trip instance, from 0.";
+				attribute<uint32>          NrInTrip     := pcount(TripInst_rel)[TripInst_rel];
+				attribute<km>              Length       := AlongLength[Seg_rel];
+				attribute<km>              CumLength    := cumulate(Length, TripInst_rel);
+			}
+			attribute<TripSeq>   TripSeq_rel (SegLinks)        := rlookup(TripOrd_key, TripSeq/values);
+
+			// Every chain of 2 up to MaxSkippedStops + 1 consecutive links of a trip, as its first link and its number of links, with the segment
+			// between its two ends if there is one.
+			unit<uint32> ChainStarts := select_with_org_rel(TripSeq/Rank + 2 <= TripSeq/NrInTrip)
+			{
+				attribute<uint32> NrChains := min_elem(MaxSkippedStops + 1, TripSeq/NrInTrip[org_rel] - TripSeq/Rank[org_rel]) - 1;
+				attribute<uint32> Offset   := cumulate(NrChains) - NrChains;
+			}
+			unit<uint32> Chains := range(uint32, 0, sum(ChainStarts/NrChains))
+			{
+				attribute<ChainStarts>         Start_rel := classify(id(.), ChainStarts/Offset);
+				attribute<uint32>              NrLinks   := cumulate(const(1, ., uint32), Start_rel) + 1, Descr = "2 for the first chain of its start, then one link more per chain.";
+				attribute<TripSeq>             First     := ChainStarts/org_rel[Start_rel];
+				attribute<TripSeq>             Last      := value(uint32(First) + NrLinks - 1, TripSeq);
+				attribute<Tables/StopNodes>    FromNode  := SegLinks/FromNode[TripSeq/SegLink_rel[First]];
+				attribute<Tables/StopNodes>    ToNode    := SegLinks/ToNode[TripSeq/SegLink_rel[Last]];
+				attribute<Tables/StopNodes>    NodeA     := SegmentsUndirected ? min_elem(FromNode, ToNode) : FromNode;
+				attribute<Tables/StopNodes>    NodeB     := SegmentsUndirected ? max_elem(FromNode, ToNode) : ToNode;
+				attribute<Classes/ModeClasses> Mode_rel  := SegLinks/Mode_rel[TripSeq/SegLink_rel[First]];
+				attribute<Tables/Segments>     Seg_rel   := rlookup(combine_data(c_Node_Node_Mode, NodeA, NodeB, Mode_rel), Tables/Segments/values);
+			}
+
+			// A chain fits a segment when its length is within the tolerance and each of its stops in between lies on the line of the segment.
+			unit<uint32> KeyChains := select_with_org_rel(IsDefined(Chains/Seg_rel)), Descr = "The chains between the two nodes of a segment of the same mode."
+			{
+				attribute<Tables/Segments> Seg_rel     := Chains/Seg_rel[org_rel];
+				attribute<uint32>          NrLinks     := Chains/NrLinks[org_rel];
+				attribute<TripSeq>         First       := Chains/First[org_rel];
+				attribute<km>              Length      := TripSeq/CumLength[Chains/Last[org_rel]] - TripSeq/CumLength[First] + TripSeq/Length[First];
+				attribute<bool>            FitsLength  := abs(Length - AlongLength[Seg_rel]) <= Tolerance[Seg_rel];
+				attribute<uint32>          NrInner     := NrLinks - 1;
+				attribute<uint32>          InnerOffset := cumulate(NrInner) - NrInner;
+				attribute<bool>            OnLine      := all(InnerStops/IsNear, InnerStops/KeyChain_rel), Descr = "Do all stops of the chain between its two ends lie within SkippedStopDistance of the line of the segment?";
+				attribute<bool>            Fits        := FitsLength && OnLine;
+			}
+			unit<uint32> InnerStops := range(uint32, 0, sum(KeyChains/NrInner)), Descr = "The stops of each chain between its two ends: the stops that the segment would skip."
+			{
+				attribute<KeyChains>       KeyChain_rel := classify(id(.), KeyChains/InnerOffset);
+				attribute<TripSeq>         TripSeq_rel  := value(uint32(KeyChains/First[KeyChain_rel]) + id(.) - KeyChains/InnerOffset[KeyChain_rel] + 1, TripSeq);
+				attribute<rdc>             point        := RawStops/geometry[SegLinks/FromStop_rel[TripSeq/SegLink_rel[TripSeq_rel]]];
+				attribute<Tables/Segments> Seg_rel      := KeyChains/Seg_rel[KeyChain_rel];
+				attribute<bool>            IsNear       := IsDefined(InnerProj/CutPoint);
+			}
+			parameter<float64>   SkippedStopDistance2          := float64(SkippedStopDistance) * float64(SkippedStopDistance), Descr = "SkippedStopDistance squared, because connect_info_eq takes the maximum distance squared.";
+			container            InnerProj                     := connect_info_eq(Tables/Segments/geometry, id(Tables/Segments), InnerStops/point, InnerStops/Seg_rel, SkippedStopDistance2);
+			unit<uint32> FitChains := select_with_org_rel(KeyChains/Fits)
+			{
+				attribute<Tables/Segments> Seg_rel := KeyChains/Seg_rel[org_rel];
+				attribute<uint32>          NrLinks := KeyChains/NrLinks[org_rel];
+				attribute<TripSeq>         First   := KeyChains/First[org_rel];
+			}
+			attribute<FitChains> Best (Tables/Segments) := max_index(FitChains/NrLinks, FitChains/Seg_rel), Descr = "Of the chains that fit the segment, the one with the most links, which follows the stops most closely.";
+
+			// The segments of the best chain of each segment that skips stops.
+			unit<uint32> Candidates := select_with_org_rel(IsDefined(Best))
+			{
+				attribute<uint32> NrParts := FitChains/NrLinks[Best[org_rel]];
+				attribute<uint32> Offset  := cumulate(NrParts) - NrParts;
+				attribute<bool>   IsValid := all(Parts/IsShorter, Parts/Candidate_rel), Descr = "Is every segment of the chain shorter than the segment itself? That keeps out a chain through the segment itself, and two segments that would each run over the other.";
+			}
+			unit<uint32> Parts := range(uint32, 0, sum(Candidates/NrParts)), Descr = "The segments of the chain of each candidate, in the order of the chain."
+			{
+				attribute<Candidates>      Candidate_rel := classify(id(.), Candidates/Offset);
+				attribute<Tables/Segments> SkipSeg_rel   := Candidates/org_rel[Candidate_rel];
+				attribute<TripSeq>         TripSeq_rel   := value(uint32(FitChains/First[Best[SkipSeg_rel]]) + id(.) - Candidates/Offset[Candidate_rel], TripSeq);
+				attribute<Tables/Segments> Seg_rel       := TripSeq/Seg_rel[TripSeq_rel];
+				attribute<bool>            IsShorter     := AlongLength[Seg_rel] < AlongLength[SkipSeg_rel];
+			}
+			attribute<Candidates> Candidate_rel (Tables/Segments) := invert(Candidates/org_rel);
+			attribute<bool>       SkipsStops    (Tables/Segments) := MakeDefined(Candidates/IsValid[Candidate_rel], false), Descr = "Does the segment skip the stops of a chain of other segments, over which its passages then run?";
+			attribute<uint32>     NrParts       (Tables/Segments) := Candidates/NrParts[Candidate_rel];
+			attribute<uint32>     PartStart     (Tables/Segments) := Candidates/Offset[Candidate_rel];
+			attribute<uint32>     NrSkipping    (Classes/ModeClasses) := sum_uint32(SkipsStops, Tables/Segments/Mode_rel), Descr = "Number of segments that skip stops, per mode, for the report.";
+			unit<uint8>           SkippingModes := select_with_org_rel(NrSkipping > 0);
+
+			// A round replaces each link on a segment that skips stops by the same link on each segment of its chain; a segment of the chain that
+			// skips stops itself is replaced in the next round. CheckStretches tells whether three rounds were enough.
+			Template Expand_T
+			{
+				unit<uint32>               In;
+				attribute<SegLinks>        SegLink_rel (In);
+				attribute<Tables/Segments> Seg_rel     (In);
+				attribute<bool>            IsPassing   (In);
+				///
+				attribute<uint32> NrOut  (In) := SkipsStops[Seg_rel] ? NrParts[Seg_rel] : 1;
+				attribute<uint32> Offset (In) := cumulate(NrOut) - NrOut;
+				unit<uint32> Out := range(uint32, 0, sum(NrOut))
+				{
+					attribute<In>              In_rel      := classify(id(.), Offset);
+					attribute<bool>            Expand      := SkipsStops[../Seg_rel[In_rel]];
+					attribute<SegLinks>        SegLink_rel := ../SegLink_rel[In_rel];
+					attribute<Tables/Segments> Seg_rel     := Expand ? Parts/Seg_rel[value(PartStart[../Seg_rel[In_rel]] + id(.) - Offset[In_rel], Parts)] : ../Seg_rel[In_rel];
+					attribute<bool>            IsPassing   := ../IsPassing[In_rel] || Expand;
+				}
+			}
+			container Round1 := Expand_T(SegLinks, id(SegLinks), SegLinks/Seg_rel, const(false, SegLinks, bool));
+			container Round2 := Expand_T(Round1/Out, Round1/Out/SegLink_rel, Round1/Out/Seg_rel, Round1/Out/IsPassing);
+			container Round3 := Expand_T(Round2/Out, Round2/Out/SegLink_rel, Round2/Out/Seg_rel, Round2/Out/IsPassing);
+
+			// The passages, lines and agencies per stretch.
+			attribute<Tables/Stretches> Stretch_rel (Tables/Segments) := invert(Tables/Stretches/org_rel);
+			unit<uint64>         c_Stretch_Route               := combine_unit_uint64(Tables/Stretches, Routes);
+			unit<uint64>         c_Stretch_Agency              := combine_unit_uint64(Tables/Stretches, Agencies);
+			unit<uint32> StretchLinks := Round3/Out
+			,	Descr = "Every link on every stretch it runs over: on its own segment, or on the segments of the chain when its segment skips stops."
+			{
+				attribute<Tables/Stretches> Stretch_rel      := ../Stretch_rel[Round3/Out/Seg_rel];
+				attribute<bool>             IsPassing        := Round3/Out/IsPassing, Descr = "Does the link run over the stretch without stopping at one of its nodes?";
+				attribute<Routes>           Route_rel        := SegLinks/Route_rel[Round3/Out/SegLink_rel];
+				attribute<Agencies>         Agency_rel       := SegLinks/Agency_rel[Round3/Out/SegLink_rel];
+				attribute<bool>             IsFlex           := SegLinks/IsFlex[Round3/Out/SegLink_rel];
+				attribute<bool>             InPTnet          := SegLinks/InPTnet[Round3/Out/SegLink_rel];
+				attribute<StretchRoutes>    StretchRoute_rel := rlookup(combine_data(c_Stretch_Route, Stretch_rel, Route_rel), StretchRoutes/values);
+			}
+			unit<uint32> StretchRoutes := unique(combine_data(c_Stretch_Route, StretchLinks/Stretch_rel, StretchLinks/Route_rel))
+			{
+				attribute<Tables/Stretches> Stretch_rel := first_rel(values);
+				attribute<Routes>           Route_rel   := second_rel(values);
+				attribute<bool>             HasStop     := any(!StretchLinks/IsPassing, StretchLinks/StretchRoute_rel), Descr = "Does the line stop at both nodes of the stretch at least once?";
+			}
+			unit<uint32> StretchAgencies := unique(combine_data(c_Stretch_Agency, StretchLinks/Stretch_rel, StretchLinks/Agency_rel))
+			{
+				attribute<Tables/Stretches> Stretch_rel := first_rel(values);
+				attribute<Agencies>         Agency_rel  := second_rel(values);
+			}
+		}
 	}
 
-	container Tables : using = "Impl;Classes", Descr = "The tables of the export, also for viewing in the GUI: the trips, route variants, nodes and segments in the window."
+	container Tables : using = "Impl;Classes", Descr = "The tables of the export, also for viewing in the GUI: the trips, route variants, nodes, segments and stretches in the window."
 	{
 		unit<uint32> TripsInWindow := select_with_org_rel(TripInst/InWindow)
 		,	Descr = "The trip instances (a trip on a day of Days) that overlap the window, with the shape of the trip or a line along its stops; a trip with only one stop has no link and is left out."
@@ -434,6 +601,39 @@ container PT_NetworkExport
 			attribute<float32>     lengte_km        := arc_length(geometry, m_f64)[km];
 			attribute<string>      bron_geometrie   := SegGeom/IsCuttable ? 'shape' : 'recht';
 		}
+
+		unit<uint32> Stretches := select_with_org_rel(!SkippedStops/SkipsStops)
+		,	Descr = "The stretches of the network: the segments that skip no stops, with every line and passage that runs over them, also those of the segments that skip their nodes and run over a chain of stretches (Impl/SkippedStops); the line is that of the segment."
+		{
+			attribute<StopNodes>   FromNode_rel            := Segments/FromNode_rel[org_rel];
+			attribute<StopNodes>   ToNode_rel              := Segments/ToNode_rel[org_rel];
+			attribute<ModeClasses> Mode_rel                := Segments/Mode_rel[org_rel];
+			attribute<Agencies>    Agency_rel              := modus(SkippedStops/StretchLinks/Agency_rel, SkippedStops/StretchLinks/Stretch_rel), Descr = "The agency of most passages.";
+			attribute<FlexClasses> FlexClass_rel           := nr_flex == 0 ? FlexClasses/V/vast : nr_flex < nr_passages ? FlexClasses/V/deels_flex : FlexClasses/V/flex;
+
+			attribute<rdc>         geometry          (arc) := Segments/geometry[org_rel];
+			attribute<uint32>      van_knoop               := Segments/van_knoop[org_rel];
+			attribute<uint32>      naar_knoop              := Segments/naar_knoop[org_rel];
+			attribute<string>      van_naam                := Segments/van_naam[org_rel];
+			attribute<string>      naar_naam               := Segments/naar_naam[org_rel];
+			attribute<string>      modaliteit              := Segments/modaliteit[org_rel];
+			attribute<uint32>      nr_lijnen               := pcount(SkippedStops/StretchRoutes/Stretch_rel), Descr = "Number of lines (routes) that run over the stretch, stopping at its nodes or not.";
+			attribute<uint32>      nr_lijnen_stoppend      := sum_uint32(SkippedStops/StretchRoutes/HasStop, SkippedStops/StretchRoutes/Stretch_rel), Descr = "Number of lines that stop at both nodes of the stretch at least once: nr_lijnen of the segment.";
+			attribute<uint32>      nr_lijnen_doorrijdend   := nr_lijnen - nr_lijnen_stoppend, Descr = "Number of lines that run over the stretch without ever stopping at both of its nodes.";
+			attribute<string>      lijnen                  := asList(MakeDefined(Routes/route_short_name[SkippedStops/StretchRoutes/Route_rel], '?'), ',', SkippedStops/StretchRoutes/Stretch_rel);
+			attribute<uint32>      nr_passages             := pcount(SkippedStops/StretchLinks/Stretch_rel);
+			attribute<float32>     per_uur                 := float32(nr_passages) / WindowHours;
+			attribute<uint32>      nr_passages_stoppend    := sum_uint32(!SkippedStops/StretchLinks/IsPassing, SkippedStops/StretchLinks/Stretch_rel), Descr = "Number of passages that stop at both nodes: nr_passages of the segment.";
+			attribute<uint32>      nr_passages_doorrijdend := nr_passages - nr_passages_stoppend;
+			attribute<string>      aanbieders              := asList(Agencies/label[SkippedStops/StretchAgencies/Agency_rel], ',', SkippedStops/StretchAgencies/Stretch_rel);
+			attribute<string>      aanbieder               := Agencies/label[Agency_rel];
+			attribute<uint32>      nr_flex                 := sum_uint32(SkippedStops/StretchLinks/IsFlex, SkippedStops/StretchLinks/Stretch_rel);
+			attribute<float32>     aandeel_flex            := float32(nr_flex) / float32(nr_passages);
+			attribute<string>      flexklasse              := FlexClasses/label[FlexClass_rel];
+			attribute<uint32>      nr_in_ovnet             := sum_uint32(SkippedStops/StretchLinks/InPTnet, SkippedStops/StretchLinks/Stretch_rel);
+			attribute<float32>     lengte_km               := Segments/lengte_km[org_rel];
+			attribute<string>      bron_geometrie          := Segments/bron_geometrie[org_rel];
+		}
 	}
 
 	// THE EXPORT: per layer a file FileStem_<layer>.<ExportFormat>, with the attributes as text and number. A unit writes only the
@@ -525,11 +725,40 @@ container PT_NetworkExport
 			attribute<float32> lengte_km        := Tables/Segments/lengte_km;
 			attribute<string>  bron_geometrie   := Tables/Segments/bron_geometrie;
 		}
+		unit<uint32> Verbindingen := Tables/Stretches, StorageName = "=FileStem + '_verbindingen.' + ExportFormat", StorageType = "gdalwrite.vect"
+		{
+			attribute<rdc>     geometry          (arc) := Tables/Stretches/geometry;
+			attribute<uint32>  van_knoop               := Tables/Stretches/van_knoop;
+			attribute<uint32>  naar_knoop              := Tables/Stretches/naar_knoop;
+			attribute<string>  van_naam                := Tables/Stretches/van_naam;
+			attribute<string>  naar_naam               := Tables/Stretches/naar_naam;
+			attribute<string>  modaliteit              := Tables/Stretches/modaliteit;
+			attribute<uint32>  nr_lijnen               := Tables/Stretches/nr_lijnen;
+			attribute<uint32>  nr_lijnen_stoppend      := Tables/Stretches/nr_lijnen_stoppend;
+			attribute<uint32>  nr_lijnen_doorrijdend   := Tables/Stretches/nr_lijnen_doorrijdend;
+			attribute<string>  lijnen                  := Tables/Stretches/lijnen;
+			attribute<uint32>  nr_passages             := Tables/Stretches/nr_passages;
+			attribute<float32> per_uur                 := Tables/Stretches/per_uur;
+			attribute<uint32>  nr_passages_stoppend    := Tables/Stretches/nr_passages_stoppend;
+			attribute<uint32>  nr_passages_doorrijdend := Tables/Stretches/nr_passages_doorrijdend;
+			attribute<string>  aanbieders              := Tables/Stretches/aanbieders;
+			attribute<string>  aanbieder               := Tables/Stretches/aanbieder;
+			attribute<uint32>  nr_flex                 := Tables/Stretches/nr_flex;
+			attribute<float32> aandeel_flex            := Tables/Stretches/aandeel_flex;
+			attribute<string>  flexklasse              := Tables/Stretches/flexklasse;
+			attribute<uint32>  nr_in_ovnet             := Tables/Stretches/nr_in_ovnet;
+			attribute<float32> lengte_km               := Tables/Stretches/lengte_km;
+			attribute<string>  bron_geometrie          := Tables/Stretches/bron_geometrie;
+		}
 	}
 
 	// THE REPORT, in the same request as the export (Generate).
 	parameter<bool>    CheckTrips           := sum(Tables/RouteVariants/nr_ritten) == #Tables/TripsInWindow, Descr = "Is the number of trips equal to the sum of nr_ritten over the route variants?";
 	parameter<bool>    CheckSegments        := sum(Tables/Segments/nr_passages) + Impl/NrWithinNode + Impl/NrWithoutMode == #Impl/VLinks, Descr = "Is the number of links in the window equal to the sum of nr_passages over the segments plus the links within a node and the links without a mode?";
+	parameter<bool>    CheckStretches       := all(IsDefined(Impl/SkippedStops/StretchLinks/Stretch_rel))
+	                                           && all(Tables/Stretches/nr_passages_stoppend == Tables/Segments/nr_passages[Tables/Stretches/org_rel])
+	                                           && all(Tables/Stretches/nr_lijnen_stoppend == Tables/Segments/nr_lijnen[Tables/Stretches/org_rel])
+	,	Descr = "Does every passage of a segment that skips stops end up on stretches after the rounds of Impl/SkippedStops, and does each stretch keep the passages and lines of its own segment as stopping ones?";
 	parameter<string>  Report               :=
 		'OV-net in het venster ' + WindowBegin + '-' + WindowEnd + ' op ' + ExportDay + ' (' + Impl/FeedReport + ')'
 		+ '\ndagen: ' + Impl/DaysReport
@@ -540,12 +769,18 @@ container PT_NetworkExport
 		+ '\nsegmenten: ' + string(#Tables/Segments) + (SegmentsUndirected ? ' ongericht' : ' gericht') + ', ' + string(sum_uint32(Impl/SegGeom/IsCuttable)) + ' langs de shape, '
 			+ string(sum_uint32(Impl/SegGeom/HasShape && !Impl/SegGeom/IsCuttable)) + ' recht met shape (halte verder dan ' + string(MaxDistanceStopShape) + ' m van de shape, of B niet na A), '
 			+ string(sum_uint32(!Impl/SegGeom/HasShape)) + ' recht zonder shape'
+		+ '\nverbindingen: ' + string(#Tables/Stretches) + ', waarvan ' + string(sum_uint32(Tables/Stretches/nr_lijnen_doorrijdend > 0)) + ' met lijnen die er zonder te stoppen overheen rijden; '
+			+ string(sum_uint32(Impl/SkippedStops/SkipsStops)) + ' segmenten slaan haltes over ('
+			+ asList(Classes/ModeClasses/name[Impl/SkippedStops/SkippingModes/org_rel] + ' ' + string(Impl/SkippedStops/NrSkipping[Impl/SkippedStops/SkippingModes/org_rel]), ', ')
+			+ ') en tellen mee op de verbindingen van een rit die die haltes wel aandoet (lengte binnen ' + string(ChainLengthTolerance * 100f) + '% + ' + string(ChainLengthMargin) + ' m, '
+			+ 'haltes binnen ' + string(SkippedStopDistance) + ' m van de lijn van het segment)'
 		+ '\nlinks in het venster: ' + string(#Impl/VLinks) + ', waarvan ' + string(Impl/NrWithinNode) + ' binnen een knoop en ' + string(Impl/NrWithoutMode) + ' zonder modaliteit'
 		+ '\ncontroles: ' + (CheckTrips ? 'PASS' : 'FAIL') + ' ritten = som van nr_ritten van de lijnvoeringen; '
-			+ (CheckSegments ? 'PASS' : 'FAIL') + ' links in het venster = som van nr_passages + binnen een knoop + zonder modaliteit'
+			+ (CheckSegments ? 'PASS' : 'FAIL') + ' links in het venster = som van nr_passages + binnen een knoop + zonder modaliteit; '
+			+ (CheckStretches ? 'PASS' : 'FAIL') + ' elke passage van een segment dat haltes overslaat ligt op verbindingen, en elke verbinding houdt de passages en lijnen van zijn eigen segment'
 		+ '\n'
-	,	StorageName = "=FileStem + '_report.txt'", StorageType = "str", Descr = "The report of the export, with the window, the days, the counts of trips, route variants, nodes, segments and links, and the two checks, written to FileStem_report.txt.";
+	,	StorageName = "=FileStem + '_report.txt'", StorageType = "str", Descr = "The report of the export, with the window, the days, the counts of trips, route variants, nodes, segments, stretches and links, and the three checks, written to FileStem_report.txt.";
 
-	parameter<string>  Generate             := 'Ready', ExplicitSuppliers = "Export/Ritten;Export/Lijnvoeringen;Export/Knopen;Export/Segmenten;Report"
-	,	Descr = "Writes the four layers in ExportFormat and the report, in one request.";
+	parameter<string>  Generate             := 'Ready', ExplicitSuppliers = "Export/Ritten;Export/Lijnvoeringen;Export/Knopen;Export/Segmenten;Export/Verbindingen;Report"
+	,	Descr = "Writes the five layers in ExportFormat and the report, in one request.";
 }
