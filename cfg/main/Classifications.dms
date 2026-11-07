@@ -89,14 +89,15 @@ container Classifications: Using = "Units"
 
 		// The settings of a pre- or post-transport type in the signature of the output of the public transport components that use it (#145):
 		// the network (Impl/WalkingNetwork_Tag, CyclingNetwork_Tag), the maximum time of its base set and its own, the start, parking and
-		// penalty times of a cycling leg, and its price per minute, or for the OV-fiets the rent and the search distance to the stops. The legs
-		// are calculated once per base set, and these settings are applied when they are read (PublicTransport_Prep/Legs).
+		// penalty times of a cycling leg, and its price per minute, or for the OV-fiets the rent and the search distance to the stops. The rent
+		// always counts in Price; with Advanced/IncludeCyclingCostsInPrice off, when the other costs of cycling do not, '-inprice' says so (#108).
+		// The legs are calculated once per base set, and these settings are applied when they are read (PublicTransport_Prep/Legs).
 		attribute<min_f>    BaseMaxTime        := NetworkType == 'Walking' ? (VN_Transport == 'V' ? /ModelParameters/MaxWalkingTime_Org2Stops : /ModelParameters/MaxWalkingTime_Stops2Dest) : (VN_Transport == 'V' ? /ModelParameters/MaxCyclingTime_Org2Stops : /ModelParameters/MaxCyclingTime_Stops2Dest), Descr = "The maximum time of the base set from which the legs of this type are selected.";
 		attribute<euro_min> TimeCosts          := NetworkType == 'Walking' ? (VN_Transport == 'V' ? /ModelParameters/PreTransport_Walking_Time_Costs : /ModelParameters/PostTransport_Walking_Time_Costs) : (VN_Transport == 'V' ? /ModelParameters/PreTransport_Cycling_Time_Costs : /ModelParameters/PostTransport_Cycling_Time_Costs), Descr = "The price per minute of a leg of this type; not for the OV-fiets, which costs OVFiets_RentalPrice.";
 		attribute<string>   OutputSignatureTag := Name_short + '-' + (NetworkType == 'Walking' ? /ModelParameters/Impl/WalkingNetwork_Tag : /ModelParameters/Impl/CyclingNetwork_Tag)
 		                                          + '-base' + string(BaseMaxTime) + 'min-max' + string(MaxTime) + 'min'
 		                                          + (NetworkType == 'Cycling' ? '-start' + string(/ModelParameters/Cycling_StartTime) + 'min' + (VN_Transport == 'V' ? '-pen' + string(/ModelParameters/Advanced/Cycling_PreTransport_Penalty) + 'min-ic' + string(/ModelParameters/Cycling_ParkingTime_IC_Station) + 'min' : '') : '')
-		                                          + (IsOVfiets ? '-rent' + string(/ModelParameters/OVFiets_RentalPrice) + 'eur-dist' + string(/ModelParameters/Advanced/DistanceOVFietsStops) + 'm' : '-cost' + string(TimeCosts) + 'eurmin')
+		                                          + (IsOVfiets ? '-rent' + string(/ModelParameters/OVFiets_RentalPrice) + 'eur' + (/ModelParameters/Advanced/IncludeCyclingCostsInPrice ? '' : '-inprice') + '-dist' + string(/ModelParameters/Advanced/DistanceOVFietsStops) + 'm' : '-cost' + string(TimeCosts) + 'eurmin')
 		,	Descr = "The settings of this type in the signature of the output (NetworkSetup/GenerateOutput/CompOutput_T).";
 
 		container         V              := for_each_nedv(Name, String(ID(.))+'[..]', void, .);
@@ -149,6 +150,7 @@ container Classifications: Using = "Units"
 		attribute<string> name         := union_data(., ModelParameters/Impl/PT_PreTransport_Types/ExportName, ModelParameters/Impl/PT_PostTransport_Types/ExportName);
 		attribute<TimeInvariantTypes> TimeInvariantTypes_rel := union_data(., ModelParameters/Impl/PT_PreTransport_Types/TimeInvariantTypes_rel, ModelParameters/Impl/PT_PostTransport_Types/TimeInvariantTypes_rel);
 		attribute<bool>   NeedsBike    := TimeInvariantTypes/NeedsOwnBike[TimeInvariantTypes_rel];
+		attribute<bool>   IsOVfiets    := TimeInvariantTypes/IsOVfiets[TimeInvariantTypes_rel];
 		attribute<uq>     uq_rel       := rlookup(name, uq/values);
 
 		unit<uint8> uq := unique_uint8(name)
@@ -156,6 +158,7 @@ container Classifications: Using = "Units"
 			attribute<string> name      := values;
 			attribute<string> label     := values;
 			attribute<bool>   NeedsBike := any(VN_ModeClasses/NeedsBike, VN_ModeClasses/uq_rel), Descr = "Does a pre- or post-transport leg of this class need an own bike (NetworkModel_PBL#117)?";
+			attribute<bool>   IsOVfiets := any(VN_ModeClasses/IsOVfiets, VN_ModeClasses/uq_rel), Descr = "Is a post-transport leg of this class the rented OV-fiets, whose rent always counts in Price (#108)?";
 		}
 		parameter<bool>   AnyNeedsBike := any(uq/NeedsBike), Descr = "Does any of the pre- or post-transport types need an own bike; if not, no public transport chain needs a bike.";
 	}
