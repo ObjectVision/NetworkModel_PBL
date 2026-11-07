@@ -127,9 +127,7 @@ def parse(step):
     r["count_first"] = cnt[0] if cnt else None; r["count_last"] = cnt[-1] if cnt else None; r["fill_last"] = fil[-1] if fil else None
     m = re.findall(r"Highest CommitCharge: (\d+)\[MB\]", s); r["commit_mb"] = max(map(int, m)) if m else None
     m = re.findall(r"PeakLiveLarge: (\d+)\[MB\]", s); r["live_mb"] = max(map(int, m)) if m else None
-    # The missing population grid (SourceData/Locaties/Inwoners, cbs_vk100_<year>.gpkg) reports an error in every run but
-    # does not affect the caches; those lines do not count as errors.
-    errs = [l for l in s.splitlines() if "[E]" in l and not any(x in l for x in ("Inwoners", "aantal_inwoners", "cbs_vk100"))]
+    errs = [l for l in s.splitlines() if "[E]" in l]
     r["errors"] = len(errs); r["first_error"] = errs[0][:200] if errs else None
     m = re.search(r"GeoDmsRun failed with code (\d+)", s); r["failed"] = m.group(1) if m else None
     # The caches are PT_Chains_<date>_<window>_<hash> (a folder with a cache per block, #118) and

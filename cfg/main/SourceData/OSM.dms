@@ -131,8 +131,8 @@ container OSM : using = "classifications/OSM", Descr = "The OpenStreetMap road n
 
 	// The calculation side of the network lies outside the cache: the mmd writer refuses every item with DisableStorage under its holder, because
 	// everything under the holder belongs to the cache (ObjectVision/GeoDMS#1245). Storing these items is no alternative: values is a second copy
-	// of the geometry, and AddBikeCongestionSpeeds/Impl is the connect_info with all Fietstelweek dynapoints. Make_Final_Network keeps the name
-	// and the cache, so that /MakeUnlinkedData/Step1_Sources/OSM_Network and Final_Network keep working unchanged.
+	// of the geometry. Make_Final_Network keeps the name and the cache, so that /MakeUnlinkedData/Step1_Sources/OSM_Network and Final_Network
+	// keep working unchanged.
 	unit<uint32> Final_Network_src := unique(NetworkPreperation/Network_with_extraconnections/ConnectedNetwork/geometry)
 	,	Descr = "The calculation side of the final OSM network (not stored); Make_Final_Network writes the attributes to keep from it to the mmd."
 	{
@@ -142,38 +142,24 @@ container OSM : using = "classifications/OSM", Descr = "The OpenStreetMap road n
 		attribute<km_hr>    maxspeed              := NetworkPreperation/Network_with_extraconnections/ConnectedNetwork/maxspeed[ConnectedNetwork_rel];
 		attribute<string>   OSM_id                := NetworkPreperation/Network_with_extraconnections/ConnectedNetwork/OSM_id[ConnectedNetwork_rel];
 		attribute<bool>     IsOneDirection        := NetworkPreperation/Network_with_extraconnections/ConnectedNetwork/IsOneDirection[ConnectedNetwork_rel];
-		
-		attribute<km_hr>    congestion_speed_bike := recollect_by_cond(roadType/isPartOfBikeNetwork[roadType_rel], AddBikeCongestionSpeeds/Impl/bike_speed_OSM);
-		
-		unit<uint32> AddBikeCongestionSpeeds := select_with_org_rel(roadType/isPartOfBikeNetwork[roadType_rel])
-		{
-			attribute<rdc>     geometry    (arc) := ../geometry[org_rel];
-			attribute<string>  OSM_id            := ../OSM_id[org_rel];
-			
-			parameter<float64> ConnectSearchDist := 8d*8d;
-			
-			container Impl := connect_info(geometry, Fietstelweek/DynaPoint/Point, ConnectSearchDist)
-			{
-				attribute<km_hr> bike_speed_dynapoint (Fietstelweek/DynaPoint) := dist[float32] <= ModelParameters/Advanced/Fietstel_OSM_link_dist ? Fietstelweek/DynaPoint/bike_speed : (0/0)[km_hr];
-				attribute<km_hr> bike_speed_OSM (AddBikeCongestionSpeeds) := mean(bike_speed_dynapoint, ArcID);
-			}
-		}
 	}
 
 	parameter<string> CacheRevision      := '_r3'
 	,   Descr = "Revision of the network building in the name of the OSM network cache; raise it with every change that alters the content of the cache, or else the old cache is read.";
+	// '_fietstel8' is fixed text: the network has no Fietstelweek speeds any more, and the text keeps the signature and so the name of the
+	// existing caches (#143).
 	parameter<string> Signature          := 'OSM-' + file_date + (OSM_NL_prov ? '-prov' : '')
 	                                        + '_q' + string(ModelParameters/Advanced/OSM_MaxSpeedQuantile)
 	                                        + '_car' + string(ModelParameters/Advanced/CarDefaultSpeed) + '-' + string(ModelParameters/Advanced/CarDefaultSpeed_low)
 	                                        + '_ferry' + string(ModelParameters/Advanced/Ferry_Speed)
 	                                        + '_snap' + string(ModelParameters/Advanced/ExtraLink_MaxSnapDistance)
-	                                        + '_fietstel' + string(ModelParameters/Advanced/Fietstel_OSM_link_dist)
+	                                        + '_fietstel8'
 	                                        + CacheRevision
-	,   Descr = "Signature of the OSM network cache: the extract and whether it is read per province, the settings that set the stored car speeds, the extra connections and the cycling speeds of the Fietstelweek, and CacheRevision.";
+	,   Descr = "Signature of the OSM network cache: the extract and whether it is read per province, the settings that set the stored car speeds, the extra connections, and CacheRevision.";
 	container         Hash               := /Templates/StringHash_T(Signature);
 	parameter<string> CachePath          := '%LocalDataProjDir%/OSM/Final_Network_' + file_date + CacheRevision + '_' + Hash/Hex + '.mmd'
 	,   Descr = "The OSM network cache: the date of the extract, CacheRevision and a hash of Signature, so that other settings give another cache (#118).";
-	container         Sig                := /Templates/Signature_T(CachePath, CachePath + '/signature.txt', Signature, strlen('/congestion_speed_bike'))
+	container         Sig                := /Templates/Signature_T(CachePath, CachePath + '/signature.txt', Signature, strlen('/0Dictionary.dms'))
 	,   Descr = "The signature in the folder of the cache (signature.txt, next to 0Dictionary.dms), which Make_Final_Network writes.";
 	parameter<bool>   IsWritten          := Sig/IsChecked && ExistingFile('', expand(., CachePath + '/0Dictionary.dms')) != ''
 	,   Descr = "Is there an OSM network cache with the current signature? GeoDMS writes the dictionary of the mmd last, so a cache whose writing was interrupted counts as missing.";
@@ -193,17 +179,16 @@ container OSM : using = "classifications/OSM", Descr = "The OpenStreetMap road n
 		attribute<km_hr>    maxspeed              := Final_Network_src/maxspeed;
 		attribute<string>   OSM_id                := Final_Network_src/OSM_id;
 		attribute<bool>     IsOneDirection        := Final_Network_src/IsOneDirection;
-		attribute<km_hr>    congestion_speed_bike := Final_Network_src/congestion_speed_bike;
 	}
 
 	// A read-only mmd reader may not declare sub-items (ObjectVision/GeoDMS#1245): the dictionary of the cache defines them (and checks their
-	// value types on reading, see 0Dictionary.dms in the mmd). So Read_Final_Network is the bare reader; Final_Network passes on the six stored
+	// value types on reading, see 0Dictionary.dms in the mmd). So Read_Final_Network is the bare reader; Final_Network passes on the five stored
 	// attributes and adds the derived ones, under the same name and paths, so that Network_Car, Network_Cycling, Network_Walking and the
 	// templates stay unchanged.
 	unit<uint32>      Read_Final_Network
 	:   StorageName = "=PropValue(Make_Final_Network, 'StorageName')"
 	,   StorageReadOnly = "true"
-	,   Descr = "Bare reader of the OSM network cache; it declares nothing, the dictionary of the mmd supplies geometry, roadType_rel, maxspeed, OSM_id, IsOneDirection and congestion_speed_bike.";
+	,   Descr = "Bare reader of the OSM network cache; it declares nothing, the dictionary of the mmd supplies geometry, roadType_rel, maxspeed, OSM_id and IsOneDirection.";
 
 	unit<uint32> Final_Network := Read_Final_Network, Descr = "The final OSM network as read from the cache, with the derived speeds and the flags for the car, cycling and walking networks."
 	{
@@ -212,7 +197,6 @@ container OSM : using = "classifications/OSM", Descr = "The OpenStreetMap road n
 		attribute<km_hr>    maxspeed                         := Read_Final_Network/maxspeed;
 		attribute<string>   OSM_id                           := Read_Final_Network/OSM_id;
 		attribute<bool>     IsOneDirection                   := Read_Final_Network/IsOneDirection;
-		attribute<km_hr>    congestion_speed_bike            := Read_Final_Network/congestion_speed_bike;
 		attribute<string>   roadType_label                   := roadType/label[roadType_rel];
 		attribute<km_hr>    freeflow_speed_cycling           := const(ModelParameters/CyclingSpeed_kmhr,.);
 		attribute<km_hr>    freeflow_speed_walking           := const(ModelParameters/WalkingSpeed_kmhr,.);
@@ -274,10 +258,7 @@ container OSM : using = "classifications/OSM", Descr = "The OpenStreetMap road n
 		attribute<km_hr>    speed_max_car               := Final_Network/maxspeed[org_rel];
 		attribute<km_hr>    speed_max_limit_car         := speed_max_car > ModelParameters/Advanced/CarSpeed_limit_kmhr ? ModelParameters/Advanced/CarSpeed_limit_kmhr : speed_max_car;
 		attribute<km_hr>    speed_max_cycling           := const((0/0)[km_hr],.);
-		attribute<km_hr>    speed_max_e_bike            := const(ModelParameters/Advanced/E_BikingSpeed_kmhr,.);
 		attribute<km_hr>    speed_max_walking           := const((0/0)[km_hr],.);
-		attribute<km_hr>    speed_congested_cycling     := const((0/0)[km_hr],.);
-		attribute<km_hr>    speed_congested_e_bike      := const((0/0)[km_hr],.);
 		// OSM has no congestion: the rush hour speed is the speed limit of the road, capped at the maximum speed of the moment
 		// (ModelParameters/Impl/CongestionTimes/MaxSpeed).
 		parameter<km_hr>    MaxSpeed_MorningRush        := MakeDefined(rjoin('MorningRush', ModelParameters/Impl/CongestionTimes/name, ModelParameters/Impl/CongestionTimes/MaxSpeed), 0[km_hr]);
@@ -326,7 +307,7 @@ container OSM : using = "classifications/OSM", Descr = "The OpenStreetMap road n
 			attribute<bool>          IsInMainNetwork (src) := all(pointset/IsInMainNetwork, pointset/ArcNr);
 		}
 	}
-	unit<uint32> Network_Cycling := select_with_org_rel(Final_Network/isPartOfCyclingNetwork), Descr = "The OSM links that cyclists may use, with the Fietstelweek speed as the congested cycling speed."
+	unit<uint32> Network_Cycling := select_with_org_rel(Final_Network/isPartOfCyclingNetwork), Descr = "The OSM links that cyclists may use, at CyclingSpeed_kmhr."
 	{
 		attribute<rdc>    geometry              (arc) := Final_Network/geometry[org_rel];
 		attribute<classifications/OSM/roadType> roadType_rel := Final_Network/roadType_rel[org_rel];
@@ -338,10 +319,7 @@ container OSM : using = "classifications/OSM", Descr = "The OpenStreetMap road n
 		attribute<km_hr>  speed_max_car               := const((0/0)[km_hr],.);
 		attribute<km_hr>  speed_max_limit_car         := const((0/0)[km_hr],.);
 		attribute<km_hr>  speed_max_cycling           := Final_Network/freeflow_speed_cycling[org_rel];
-		attribute<km_hr>  speed_max_e_bike            := const(ModelParameters/Advanced/E_BikingSpeed_kmhr,.);
 		attribute<km_hr>  speed_max_walking           := const((0/0)[km_hr],.);
-		attribute<km_hr>  speed_congested_cycling     := Final_Network/congestion_speed_bike[org_rel];
-		attribute<km_hr>  speed_congested_e_bike      := speed_congested_cycling + ModelParameters/Advanced/E_BikingSpeed_actualspeed_addition_kmhr;
 		attribute<km_hr>  speed_congested_morning_car := const((0/0)[km_hr],.);
 		attribute<km_hr>  speed_congested_noon_car    := const((0/0)[km_hr],.);
 		attribute<km_hr>  speed_congested_late_car    := const((0/0)[km_hr],.);
@@ -397,10 +375,7 @@ container OSM : using = "classifications/OSM", Descr = "The OpenStreetMap road n
 		attribute<km_hr>  speed_max_car               := const((0/0)[km_hr],.);
 		attribute<km_hr>  speed_max_limit_car         := const((0/0)[km_hr],.);
 		attribute<km_hr>  speed_max_cycling           := const((0/0)[km_hr],.);
-		attribute<km_hr>  Speed_max_e_bike            := const((0/0)[km_hr],.);
 		attribute<km_hr>  speed_max_walking           := Final_Network/freeflow_speed_walking[org_rel];
-		attribute<km_hr>  speed_congested_cycling     := const((0/0)[km_hr],.);
-		attribute<km_hr>  Speed_congested_e_bike      := const((0/0)[km_hr],.);
 		attribute<km_hr>  speed_congested_morning_car := const((0/0)[km_hr],.);
 		attribute<km_hr>  speed_congested_noon_car    := const((0/0)[km_hr],.);
 		attribute<km_hr>  speed_congested_late_car    := const((0/0)[km_hr],.);
@@ -479,7 +454,6 @@ container OSM : using = "classifications/OSM", Descr = "The OpenStreetMap road n
 				attribute<km_hr>         car_freeflow     := domain/speed_max_car;
 				attribute<km_hr>         cycling_freeflow := domain/speed_max_cycling;
 				attribute<km_hr>         walking_freeflow := domain/speed_max_walking;
-				attribute<km_hr>         cs_bike          := domain/speed_congested_cycling;
 				attribute<km_hr>         cs_morning       := domain/speed_congested_morning_car;
 				attribute<km_hr>         cs_noon          := domain/speed_congested_noon_car;
 				attribute<km_hr>         cs_evening       := domain/speed_congested_late_car;

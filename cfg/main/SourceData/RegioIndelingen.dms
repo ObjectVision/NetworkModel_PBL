@@ -39,12 +39,11 @@ container RegioIndelingen : using = "Geography", Descr = "The CBS region divisio
 		container         BAG          := BAG_T(BAG_date);
 
 		unit<uint32> Buurt := ='gpkg/' + replace(Path_str, '@R@', 'buurt')
-		, Descr = "The CBS neighbourhoods of the year, with their centroids weighted by the residential addresses of the BAG of the same year or by the population (ModelParameters/Advanced/CentroidWeightType)."
+		, Descr = "The CBS neighbourhoods of the year, with their centroids weighted by the residential addresses of the BAG of the same year."
 		{
 			attribute<string>    name                         := AsItemName(statnaam);
 			attribute<string>    label                        := statcode;
 			attribute<.>         per_rdc_100m      (rdc_100m) := poly2grid(Geometry, rdc_100m);
-			attribute<uint32>    nr_inhabitants               := sum(/SourceData/Locaties/Inwoners/nr_inhabitants,point_in_polygon(/SourceData/Locaties/Inwoners/centroid, geometry));
 			
 			attribute<rdc>       address_weighted_centroid    := =ModelParameters/Advanced/ExcludeOrgNeighbourhoodCentroidsWithoutAddressPop
 			                                                     ? 'CalcAddressCentroids/HasAddresses
@@ -52,12 +51,7 @@ container RegioIndelingen : using = "Geography", Descr = "The CBS region divisio
 			                                                         : null_fp'
 			                                                     : 'CalcAddressCentroids/centroid';
 																		
-			attribute<rdc>       population_weighted_centroid := =ModelParameters/Advanced/ExcludeOrgNeighbourhoodCentroidsWithoutAddressPop
-			                                                     ? 'CalcPopCentroids/W > 0f
-			                                                         ? CalcPopCentroids/geometry
-			                                                         : null_fp'
-			                                                     : 'CalcPopCentroids/geometry';
-			attribute<rdc>       centroid                     := =ModelParameters/Advanced/CentroidWeightType == 'Population' ? 'population_weighted_centroid' : 'address_weighted_centroid';
+			attribute<rdc>       centroid                     := address_weighted_centroid;
 			attribute<Centroids> Centroids_rel                := rlookup(centroid, Centroids/geometry);
 
 			unit<uint32> CalcAddressCentroids := .
@@ -82,45 +76,11 @@ container RegioIndelingen : using = "Geography", Descr = "The CBS region divisio
 				}
 			}
 
-			unit<uint32> CalcPopCentroids := .
-			{
-				attribute<float64> W                  := sum(Population/pop, Population/region_rel);
-				
-				attribute<float64> Weighted_X         := sum(Population/x * Population/pop, Population/region_rel);
-				attribute<float64> Weighted_Y         := sum(Population/y * Population/pop, Population/region_rel);
-				
-				attribute<float64> mean_X             := Weighted_X / W;
-				attribute<float64> mean_Y             := Weighted_y / W;
-				
-				attribute<rdc>     weighted_centroid0 := point_xy(mean_X, mean_Y, rdc);
-				
-				// checks
-				attribute<.>       poly_rel           := point_in_polygon(weighted_centroid0, ../geometry);
-				attribute<string>  statcode_poly      := ./statcode;
-				attribute<string>  statcode_centr     := statcode_poly[Poly_rel];
-				attribute<bool>    IsStatcode_equal   := statcode_poly == statcode_centr;
-				attribute<rdc>     centroid_or_mid    := centroid_or_mid(../geometry);
-				attribute<rdc>     weighted_centroid  := IsStatcode_equal ? weighted_centroid0 : centroid_or_mid;
-				
-				
-				attribute<rdc>     geometry           := weighted_centroid;
-				
-				unit<uint32> Population := SourceData/Locaties/Inwoners
-				{
-					attribute<...>     region_rel := point_in_polygon(centroid, .../geometry);
-					attribute<float64> x          := pointcol(centroid);
-					attribute<float64> y          := pointrow(centroid);
-					attribute<float64> pop        := nr_inhabitants[float64];
-					
-				}
-			}
-			
 			unit<uint32> Centroids := unique(centroid)
 			{
 				attribute<Geography/rdc> geometry       := values;
 				attribute<string>        name           := ../statcode[invert(Centroids_rel)];
 				attribute<string>        label          := ../statnaam[invert(Centroids_rel)];
-				attribute<uint32>        nr_inhabitants := ../nr_inhabitants[invert(Centroids_rel)];
 				attribute<Gemeente>      gemeente_rel   := point_in_polygon(geometry, Gemeente/geometry);
 				attribute<Provincie>     prov_rel       := point_in_polygon(geometry, Provincie/geometry);
 				attribute<Corop>         corop_rel      := point_in_polygon(geometry, Corop/geometry);
@@ -171,45 +131,17 @@ container RegioIndelingen : using = "Geography", Descr = "The CBS region divisio
 		attribute<string>    name                         := AsItemName(statnaam);
 		attribute<string>    label                        := statnaam;
 		attribute<.>         per_rdc_100m      (rdc_100m) := poly2grid(Geometry, rdc_100m);
-		attribute<uint32>    nr_inhabitants               := sum(/SourceData/Locaties/Inwoners/nr_inhabitants,point_in_polygon(/SourceData/Locaties/Inwoners/centroid, geometry));
 		
 		
 		attribute<rdc>       address_weighted_centroid    := ='Divisions/y'+Regions_year+'/BAG/Adressen/Residential_Stock/wijk/centroid';
-		attribute<rdc>       population_weighted_centroid := CalcPopCentroids/geometry;
-		attribute<rdc>       centroid                     := =ModelParameters/Advanced/CentroidWeightType == 'Population' ? 'population_weighted_centroid' : 'address_weighted_centroid';
+		attribute<rdc>       centroid                     := address_weighted_centroid;
 		attribute<Centroids> Centroids_rel                := rlookup(centroid, Centroids/geometry);
-		
-		unit<uint32> CalcPopCentroids := .
-		{
-			attribute<float64> W                             := sum(Population/pop, Population/region_rel);
-			
-			attribute<float64> Weighted_X                    := sum(Population/x * Population/pop, Population/region_rel);
-			attribute<float64> Weighted_Y                    := sum(Population/y * Population/pop, Population/region_rel);
-			
-			attribute<float64> mean_X                        := Weighted_X / W;
-			attribute<float64> mean_Y                        := Weighted_y / W;
-			 
-			attribute<rdc>     weighted_centroid0            := point_xy(mean_X, mean_Y, rdc);
-			attribute<bool>    IsWeighted_centroid_in_region := IsDefined(point_in_polygon(weighted_centroid0, ../geometry));
-			attribute<rdc>     weighted_centroid             := IsWeighted_centroid_in_region ? weighted_centroid0 : centroid_or_mid(../geometry);
-			attribute<rdc>     geometry                      := weighted_centroid;
-			
-			unit<uint32> Population := SourceData/Locaties/Inwoners
-			{
-				attribute<...>     region_rel := point_in_polygon(centroid, .../geometry);
-				attribute<float64> x          := pointcol(centroid);
-				attribute<float64> y          := pointrow(centroid);
-				attribute<float64> pop        := nr_inhabitants[float64];
-				
-			}
-		}
 		
 		unit<uint32> Centroids := unique(centroid)
 		{
 			attribute<Geography/rdc> geometry       := values;
 			attribute<string>        name           := ../statcode[invert(Centroids_rel)];
 			attribute<string>        label          := ../statnaam[invert(Centroids_rel)];
-			attribute<uint32>        nr_inhabitants := ../nr_inhabitants[invert(Centroids_rel)];
 			attribute<Provincie>     prov_rel       := point_in_polygon(geometry, Provincie/geometry);
 			attribute<Corop>         corop_rel      := point_in_polygon(geometry, Corop/geometry);
 			container                V              := for_each_nedv(AsItemName(label), 'value('+string(id(.))+', ..)', void, .);
@@ -235,46 +167,18 @@ container RegioIndelingen : using = "Geography", Descr = "The CBS region divisio
 		attribute<string>    name                         := AsItemName(statnaam);
 		attribute<string>    label                        := statnaam;
 		attribute<.>         per_rdc_100m      (rdc_100m) := poly2grid(Geometry, rdc_100m);
-		attribute<uint32>    nr_inhabitants               := sum(/SourceData/Locaties/Inwoners/nr_inhabitants,point_in_polygon(/SourceData/Locaties/Inwoners/centroid, geometry));
 
 		container            V                            := for_each_nedv(name, 'value('+string(id(.))+', ..)', void, .);
 		
 		attribute<rdc>       address_weighted_centroid    := ='Divisions/y'+Regions_year+'/BAG/Adressen/Residential_Stock/gemeente/centroid';
-		attribute<rdc>       population_weighted_centroid := CalcPopCentroids/geometry;
-		attribute<rdc>       centroid                     := =ModelParameters/Advanced/CentroidWeightType == 'Population' ? 'population_weighted_centroid' : 'address_weighted_centroid';
+		attribute<rdc>       centroid                     := address_weighted_centroid;
 		attribute<Centroids> Centroids_rel                := rlookup(centroid, Centroids/geometry);
-		
-		unit<uint32> CalcPopCentroids := .
-		{
-			attribute<float64> W                             := sum(Population/pop, Population/region_rel);
-			
-			attribute<float64> Weighted_X                    := sum(Population/x * Population/pop, Population/region_rel);
-			attribute<float64> Weighted_Y                    := sum(Population/y * Population/pop, Population/region_rel);
-			
-			attribute<float64> mean_X                        := Weighted_X / W;
-			attribute<float64> mean_Y                        := Weighted_y / W;
-			 
-			attribute<rdc>     weighted_centroid0            := point_xy(mean_X, mean_Y, rdc);
-			attribute<bool>    IsWeighted_centroid_in_region := IsDefined(point_in_polygon(weighted_centroid0, ../geometry));
-			attribute<rdc>     weighted_centroid             := IsWeighted_centroid_in_region ? weighted_centroid0 : centroid_or_mid(../geometry);
-			attribute<rdc>     geometry                      := weighted_centroid;
-			
-			unit<uint32> Population := SourceData/Locaties/Inwoners
-			{
-				attribute<...>     region_rel := point_in_polygon(centroid, .../geometry);
-				attribute<float64> x          := pointcol(centroid);
-				attribute<float64> y          := pointrow(centroid);
-				attribute<float64> pop        := nr_inhabitants[float64];
-				
-			}
-		}
 		
 		unit<uint32> Centroids := unique(centroid)
 		{
 			attribute<Geography/rdc> geometry       := values;
 			attribute<string>        name           := ../statcode[invert(Centroids_rel)];
 			attribute<string>        label          := ../statnaam[invert(Centroids_rel)];
-			attribute<uint32>        nr_inhabitants := ../nr_inhabitants[invert(Centroids_rel)];
 			attribute<Provincie>     prov_rel       := point_in_polygon(geometry, Provincie/geometry);
 			attribute<Corop>         corop_rel      := point_in_polygon(geometry, Corop/geometry);
 			container                V              := for_each_nedv(AsItemName(label), 'value('+string(id(.))+', ..)', void, .);
@@ -303,7 +207,6 @@ container RegioIndelingen : using = "Geography", Descr = "The CBS region divisio
 		attribute<string> name                    := AsItemName(statnaam);
 		attribute<string> label                   := statnaam;
 		attribute<.>      per_rdc_100m (rdc_100m) := poly2grid(Geometry, rdc_100m);
-		attribute<uint32> nr_inhabitants          := sum(/SourceData/Locaties/Inwoners/nr_inhabitants,point_in_polygon(/SourceData/Locaties/Inwoners/centroid, geometry));
 
 		container         V                       := for_each_nedv(name, 'value('+string(id(.))+', ..)', void, .);
 	}
@@ -317,7 +220,6 @@ container RegioIndelingen : using = "Geography", Descr = "The CBS region divisio
 		attribute<string> name                    := AsItemName(statnaam);
 		attribute<string> label                   := statnaam;
 		attribute<.>      per_rdc_100m (rdc_100m) := poly2grid(Geometry, rdc_100m);
-		attribute<uint32> nr_inhabitants          := sum(/SourceData/Locaties/Inwoners/nr_inhabitants,point_in_polygon(/SourceData/Locaties/Inwoners/centroid, geometry));
 
 		container         V                       := for_each_nedv(name, 'value('+string(id(.))+', ..)', void, .);
 	}
@@ -330,7 +232,6 @@ container RegioIndelingen : using = "Geography", Descr = "The CBS region divisio
 		attribute<string> name                    := replace(AsItemName(statnaam), 'Fryslân', 'Friesland');
 		attribute<string> label                   := statnaam;
 		attribute<.>      per_rdc_100m (rdc_100m) := poly2grid(Geometry, rdc_100m);
-		attribute<uint32> nr_inhabitants          := sum(/SourceData/Locaties/Inwoners/nr_inhabitants,point_in_polygon(/SourceData/Locaties/Inwoners/centroid, geometry));
 
 		container         V                       := for_each_nedv(name, 'value('+string(id(.))+', ..)', void, .);
 	}
@@ -503,7 +404,6 @@ container RegioIndelingen : using = "Geography", Descr = "The CBS region divisio
 			attribute<string>        name           := BU_CODE;
 			attribute<string>        label          := BU_NAAM;
 
-			attribute<uint32>        nr_inhabitants := rjoin(BU_CODE, Buurt/statcode, Buurt/nr_inhabitants);
 			 
 			attribute<Provincie>     prov_rel       := point_in_polygon(point, Provincie/geometry);
 			attribute<Corop>         corop_rel      := point_in_polygon(point, Corop/geometry);
@@ -537,7 +437,6 @@ container RegioIndelingen : using = "Geography", Descr = "The CBS region divisio
 			attribute<string>        name           := BU_CODE;
 			attribute<string>        label          := BU_NAAM;
 
-			attribute<uint32>        nr_inhabitants := rjoin(BU_CODE, Buurt/statcode, Buurt/nr_inhabitants);
 			 
 			attribute<Provincie>     prov_rel       := point_in_polygon(point, Provincie/geometry);
 			attribute<Corop>         corop_rel      := point_in_polygon(point, Corop/geometry);
@@ -569,7 +468,6 @@ container RegioIndelingen : using = "Geography", Descr = "The CBS region divisio
 			attribute<string>        name           := BU_CODE;
 			attribute<string>        label          := BU_NAAM;
 			
-			attribute<uint32>        nr_inhabitants := rjoin(BU_CODE, buurt/statcode, buurt/nr_inhabitants);
 			
 			attribute<provincie>     prov_rel       := point_in_polygon(point, provincie/geometry);
 			attribute<Corop>         corop_rel      := point_in_polygon(point, Corop/geometry);
@@ -600,7 +498,6 @@ container RegioIndelingen : using = "Geography", Descr = "The CBS region divisio
 			attribute<string>        name           := BU_CODE;
 			attribute<string>        label          := BU_NAAM;
 			
-			attribute<uint32>        nr_inhabitants := rjoin(BU_CODE, buurt/statcode, buurt/nr_inhabitants);
 			
 			attribute<provincie>     prov_rel       := point_in_polygon(point, provincie/geometry);
 			attribute<Corop>         corop_rel      := point_in_polygon(point, Corop/geometry);
@@ -631,7 +528,6 @@ container RegioIndelingen : using = "Geography", Descr = "The CBS region divisio
 			attribute<string>        name           := BU_CODE;
 			attribute<string>        label          := BU_NAAM;
 			
-			attribute<uint32>        nr_inhabitants := rjoin(BU_CODE, buurt/statcode, buurt/nr_inhabitants);
 			
 			attribute<provincie>     prov_rel       := point_in_polygon(point, provincie/geometry);
 			attribute<Corop>         corop_rel      := point_in_polygon(point, Corop/geometry);
@@ -699,7 +595,6 @@ container RegioIndelingen : using = "Geography", Descr = "The CBS region divisio
 			attribute<rdc>    geometry       := domain/geometry[org_rel];
 			attribute<string> name           := domain/name[org_rel];
 			attribute<string> label          := domain/label[org_rel];
-			attribute<uint32> nr_inhabitants := domain/nr_inhabitants[org_rel];
 		}
 	}
 	Template Per_COROP_T
@@ -712,7 +607,6 @@ container RegioIndelingen : using = "Geography", Descr = "The CBS region divisio
 			attribute<rdc>    geometry       := domain/geometry[org_rel];
 			attribute<string> name           := domain/name[org_rel];
 			attribute<string> label          := domain/label[org_rel];
-			attribute<uint32> nr_inhabitants := domain/nr_inhabitants[org_rel];
 		}
 	}
 	Template Per_CoropP_T
@@ -725,7 +619,6 @@ container RegioIndelingen : using = "Geography", Descr = "The CBS region divisio
 			attribute<rdc>    geometry       := domain/geometry[org_rel];
 			attribute<string> name           := domain/name[org_rel];
 			attribute<string> label          := domain/label[org_rel];
-			attribute<uint32> nr_inhabitants := domain/nr_inhabitants[org_rel];
 		}
 	}
 }
