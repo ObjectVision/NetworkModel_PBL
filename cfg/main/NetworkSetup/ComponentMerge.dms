@@ -23,6 +23,11 @@ container ComponentMerge_Def
 
 	parameter<string> CompHashes         := =asList('''[' + Comps/name + ':'' + PerComp/' + Comps/name + '/Hash/Hex + '']''', ' + ')
 	,	Descr = "The components with the hash of the signature of their output, each as [name:hash]; the full signatures are in the folders of the components, and in full they would make the signature too long for the hash.";
+	// The prices of the direct walking and cycling trip: the merge computes them from the travel time (ReadDirect_T), so with parquet they are in
+	// its signature and not in that of WW and CC, which then do not hold a price; with csv, which writes the price, they are in theirs (#145).
+	parameter<string> WalkingPriceTag    := '-cost' + string(/ModelParameters/Direct_Walking_Time_Costs) + 'eurmin' + (/ModelParameters/Advanced/IncludeWalkingCostsInPrice ? '-inprice' : '-notinprice'), Descr = "The cost per minute of the direct walking trip and whether it counts in Price.";
+	parameter<string> CyclingPriceTag    := '-cost' + string(/ModelParameters/Direct_Cycling_Time_Costs) + 'eurmin' + (/ModelParameters/Advanced/IncludeCyclingCostsInPrice ? '-inprice' : '-notinprice'), Descr = "The cost per minute of the direct cycling trip and whether it counts in Price.";
+	parameter<string> DirectPriceTag     := (any(Comps/DirectWalking) ? '_WW' + WalkingPriceTag : '') + (any(Comps/DirectCycling) ? '_CC' + CyclingPriceTag : ''), Descr = "The prices of WW and CC that the merge computes, for the merged components among them.";
 	// The format tag -m6: the merge reads the parquet of the components, with the times in whole seconds and the split per part and per mode
 	// (#144, #146), and writes the times in minutes as float32 (#149).
 	parameter<string> Signature          :=
@@ -30,8 +35,9 @@ container ComponentMerge_Def
 		+ '_samen-' + asList(Comps/name, ',')
 		+ '_MinCrit-' + asList(/Classifications/OutputParetoAttr/FileNameElement, '_') + /ModelParameters/Impl/ChainPareto_FileTag
 		+ '_' + /ModelParameters/OutputFormat + '-m6'
+		+ DirectPriceTag
 		+ '_' + CompHashes
-	,	Descr = "The signature of the merged output: date, set of origins, Components, criteria (MergeCriteria) and epsilons, format and the hashes of the signatures of the Components, so that it changes when a component is calculated with other settings.";
+	,	Descr = "The signature of the merged output: date, set of origins, Components, criteria (MergeCriteria) and epsilons, format, the prices of WW and CC that it computes, and the hashes of the signatures of the Components, so that it changes when a component is calculated with other settings.";
 	container         Hash               := /Templates/StringHash_T(Signature);
 	parameter<string> Dir                := BaseDir + '_Merged' + string(/ModelParameters/MergeRunNr) + (any(Comps/UsesCycling) ? /ModelParameters/Impl/CyclingNetwork_DirTag : '') + '_' + Hash/Hex
 	,	Descr = "The output folder of the merge (#145): _Merged<MergeRunNr>, with _fb when a component cycles on the Fietsersbond network, and the hash of Signature.";
@@ -250,10 +256,10 @@ container ComponentMerge
 			parameter<string> FileTail                            := '_' + MomentShort + '_' + BlockFile
 			,	Descr = "The name of the file after tt, without extension: tt_<moment>_<n>of<N>; the date and the component or merge are in the name of the folder.";
 
-			// The file of every component in this block and departure moment; a component with SingleDepartureMoment (WW, CC, and Car without
-			// CarTimeDependent) has one per block, that of the congestion moment, which applies to every departure moment.
+			// The file of every component in this block and departure moment; a component with one file per block (Classifications/Components/
+			// FileMoment: WW and CC with alle, Car without CarTimeDependent with the congestion moment) applies to every departure moment.
 			attribute<string> CompFile (ComponentMerge_Def/Comps) := ComponentMerge_Def/CompDir + '/PerBlock/tt_'
-			                                                         + (ComponentMerge_Def/Comps/SingleDepartureMoment_Eff ? /ModelParameters/Impl/SingleDepartureMoment_Shrt : MomentShort) + '_' + BlockFile + '.parquet';
+			                                                         + (ComponentMerge_Def/Comps/FileMoment != '' ? ComponentMerge_Def/Comps/FileMoment : MomentShort) + '_' + BlockFile + '.parquet';
 			container         PerComp                             := for_each_ne(ComponentMerge_Def/Comps/name
 			                                                         , 'Read' + ComponentMerge_Def/Comps/ExportClass + '_T(CompFile[' + string(id(ComponentMerge_Def/Comps)) + 'b], ' + quote(ComponentMerge_Def/Comps/name) + ', ComponentMerge_Def/Comps/NeedsBike[' + string(id(ComponentMerge_Def/Comps)) + 'b])'); // b: Comps is uint8
 

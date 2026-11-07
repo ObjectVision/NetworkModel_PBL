@@ -88,7 +88,9 @@ container Impl : using = "classifications"
 	parameter<uint32>   CongestionMinute                     := rjoin(/ModelParameters/PartOfDay, PartsOfDay/name, PartsOfDay/CongestionMinute), Descr = "The minute of the congestion moment of the part of the day (PartsOfDay), the departure moment of a component with SingleDepartureMoment; it must fall on a 5-minute slot of the TomTom speed profiles, because between two slots no profile is found and every road would get its time without profile.", IntegrityCheck = "this < 60 && this % 5 == 0";
 	parameter<uint32>   SingleDepartureMoment_Minute         := IsODMoment ? OD_Minute : CongestionMinute, Descr = "The minute of the one departure moment of a component with SingleDepartureMoment: CongestionMinute, or for an OD pair with OD_DepartureTime that minute.";
 	parameter<string>   SingleDepartureMoment_Shrt           := (rjoin(/ModelParameters/PartOfDay, PartsOfDay/name, PartsOfDay/DepartureHour) < 10 ? '0' : '') + string(rjoin(/ModelParameters/PartOfDay, PartsOfDay/name, PartsOfDay/DepartureHour)) + 'h' + (SingleDepartureMoment_Minute < 10 ? '0' : '') + string(SingleDepartureMoment_Minute) + 'm', Descr = "The short name of that departure moment, such as 07h30m, which names the file per block of a component with SingleDepartureMoment.";
-	
+	parameter<bool>     TimeInvariant                        := !IsMerged && rjoin(ComponentName, Classifications/Components/name, Classifications/Components/TimeInvariant), Descr = "Does the component of this run not depend on the departure moment (Classifications/Components/TimeInvariant), so that its files carry TimeInvariant_FileMoment instead of a moment?";
+	parameter<string>   TimeInvariant_FileMoment             := 'alle', Descr = "The moment in the file names and counts of a component that does not depend on it, as in tt_alle_<n>of<N>.parquet: the file applies to every departure moment of every part of the day (#145).";
+
 	unit<uint8> PT_DepartureHours : nrofrows = 1
 	, Descr = "The hour of the departure moments of this run: the DepartureHour of PartOfDay in ModelParameters/PartsOfDay."
 	{
@@ -127,8 +129,9 @@ container Impl : using = "classifications"
 	unit<uint32> MeasureMoments := select_with_attr_by_cond(SampleDay, SampleDay/ChosenMoments)
 	, Descr = "The departure moments of this run."
 	{
-		attribute<Time>   Moment := Time_rel;
-		attribute<string> Name   := Time/TemplatableText[Moment];
+		attribute<Time>   Moment  := Time_rel;
+		attribute<string> Name    := Time/TemplatableText[Moment];
+		attribute<string> FileTag := TimeInvariant ? const(TimeInvariant_FileMoment, .) : Time/TemplatableTextShrt[Moment], Descr = "The moment in the file names and counts of the output: hhhmmm, or TimeInvariant_FileMoment for a component that does not depend on it.";
 	}
 	parameter<Time>     PT_FirstDepartureMoment              := first(MeasureMoments/Moment), Descr = "Start of the public transport analysis window: the first departure moment, in seconds since 00:00 of Analysis_date.";
 	parameter<Time>     PT_LastArrivalMoment                 := last(MeasureMoments/Moment) + convert(ModelParameters/MaxPTTime, s_f)[Time] + uint32(NOT(Advanced/IncludeWaitingAtHomeInTravelTime)) * Advanced/MaxWaitingTimeAtOrigin, Descr = "End of the public transport analysis window: the last departure moment plus MaxPTTime and the waiting time at home; past 24:00 the window runs on into the next service day.";

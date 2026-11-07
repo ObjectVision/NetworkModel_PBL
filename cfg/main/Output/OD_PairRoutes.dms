@@ -126,7 +126,8 @@ container OD_PairRoutes : using = "units;Geography;ModelParameters", Descr = "Th
 		parameter<string> CompName;
 		///
 		container        Out       := /NetworkSetup/GenerateOutput/CompOutput_T(CompName), Descr = "The folder of the output of the component with the current settings (#145): Output_<O>_<D>/<date>_<label>_<component>_<hash>.";
-		container        PerMoment := for_each_ne(Moments/name, 'Read_T(' + quote(Out/Sig/ForReading + '/PerBlock/od_') + ' + ' + quote(Moments/Short) + ' + ''.gpkg'')');
+		parameter<string> FileMoment := /Classifications/Components/FileMoment[Out/Comp_rel], Descr = "The moment of the one file of a component with one file per block (WW and CC: alle), which every departure moment reads; empty for a file per moment.";
+		container        PerMoment := for_each_ne(Moments/name, 'Read_T(' + quote(Out/Sig/ForReading + '/PerBlock/od_') + ' + ' + quote(FileMoment != '' ? const(FileMoment, Moments) : Moments/Short) + ' + ''.gpkg'')');
 		unit<uint32> Options := ='union_unit(' + AsItemList('PerMoment/' + Moments/name + '/gpkg/od_opties') + ')'
 		{
 			attribute<Moments> Moment_rel := ='union_data(., ' + AsItemList('const(' + string(id(Moments)) + '[Moments], PerMoment/' + Moments/name + '/gpkg/od_opties)') + ')';
@@ -211,16 +212,17 @@ container OD_PairRoutes : using = "units;Geography;ModelParameters", Descr = "Th
 			parameter<string> FullSignature := replace(Out/Signature, /NetworkSetup/PublicTransport_Prep/PT_Chains_ODTag, '', ModelParameters/Impl/OrgSet_SelectionTag, '', ModelParameters/Impl/DestSet_SelectionTag, '')
 			,	Descr = "The signature of the output of the component in the run of the whole model: that of the pair without its chains and without its origin and destination in the sets.";
 			container         FullHash      := /Templates/StringHash_T(FullSignature);
-			parameter<string> FullDir       := '%LocalDataProjDir%/Output/' + ModelParameters/Impl/Analysis_date + '_' + ModelParameters/OD_CompareLabel + /Classifications/Components/OutputSuffix[Out/Comp_rel] + '_' + FullHash/Hex;
+			parameter<string> FullDir       := '%LocalDataProjDir%/Output/' + ModelParameters/Impl/Analysis_date + '_' + (Out/TimeInvariant ? replace(ModelParameters/Impl/OrgSet_PathTag, ModelParameters/Impl/OrgSet_SelectionTag, '') : ModelParameters/OD_CompareLabel) + /Classifications/Components/OutputSuffix[Out/Comp_rel] + '_' + FullHash/Hex
+			,	Descr = "The folder of the whole model, named as CompOutput_T/Dir names it: with OD_CompareLabel, or for WW and CC with the origin set without the origin of the pair.";
 			container         FullSig       := /Templates/Signature_T(FullDir, FullDir + '/signature.txt', FullSignature, /NetworkSetup/GenerateOutput/MaxSubPathLength)
 			,	Descr = "The signature in the folder of the whole model; an error says that the folder is missing or that its run had other settings.";
 			parameter<string> ExportClass   := /Classifications/Components/ExportClass[Out/Comp_rel];
 			parameter<bool>   CompBike      := NeedsBike, Descr = "NeedsBike of the component, under a name that the readers do not use themselves.";
-			// A component with SingleDepartureMoment (WW, CC, and Car without CarTimeDependent) has one file per block, that of the congestion moment.
-			unit<uint32> FileMoments := select_with_org_rel(!/Classifications/Components/SingleDepartureMoment_Eff[Out/Comp_rel] || Moments/Short == ModelParameters/Impl/SingleDepartureMoment_Shrt)
+			// A component with one file per block (FileMoment) is compared once, any other per departure moment.
+			unit<uint32> FileMoments := range(uint32, 0, FileMoment != '' ? 1u : #Moments)
 			{
-				attribute<string> name  := Moments/name[org_rel];
-				attribute<string> Short := Moments/Short[org_rel];
+				attribute<string> Short := FileMoment != '' ? const(FileMoment, .) : Moments/Short[value(id(.), Moments)];
+				attribute<string> name  := 'tt_' + Short;
 			}
 			container PerMoment := for_each_ne(FileMoments/name, 'CompareMoment_T(' + quote(FileMoments/Short) + ')');
 			Template CompareMoment_T

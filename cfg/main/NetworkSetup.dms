@@ -97,7 +97,9 @@ container NetworkSetup : using = "units;Geography;SourceData;Classifications;Mod
 		// Output/OD_PairRoutes for the components they read. What it uses besides the component therefore does not depend on the component of the
 		// run: the signatures of the chain cache and of the car cache follow from the part of the day and the variant
 		// (PublicTransport_Prep/PT_Chains_Signature, Impl/CarSignatureMoment). A setting that changes the output is in the signature of the
-		// components that use it, with its value, also the default.
+		// components that use it, with its value, also the default, and a setting that does not change it is not, so that runs that differ only
+		// in such a setting share the output: WW and CC carry neither the departure moment nor OutputLabel (Classifications/Components/
+		// TimeInvariant), and with parquet the prices that the merge computes are in its signature (ComponentMerge_Def/DirectPriceTag).
 		Template CompOutput_T : Descr = "The signature, hash and folder of the output of one component (#145), the same in every run."
 		{
 			parameter<string> CompName;
@@ -118,48 +120,50 @@ container NetworkSetup : using = "units;Geography;SourceData;Classifications;Mod
 			parameter<bool>   BikeCriterion := /Classifications/Components/NeedsBike[Comp_rel] && IsDefined(strpos(lowercase(/ModelParameters/MinimiseCriteria), 'bike'));
 			parameter<string> MinCrit       := asList(/Classifications/ComponentParetoAttr/FileNameElement, '_') + (CarCriterion ? '_A' : '') + (BikeCriterion ? '_C' : '')
 			,	Descr = "The criteria of the front of the component: MinimiseCriteria, with A and C for the ownership criteria that apply to it, as Classifications/OutputParetoAttr in a run of the component.";
+			parameter<bool>   TimeInvariant := /Classifications/Components/TimeInvariant[Comp_rel], Descr = "Does the output not depend on the departure moment (WW, CC)? Then the moment, the criteria of a front and OutputLabel are not in its signature and folder, so that every part of the day and every variant label reads the same output.";
+			parameter<bool>   IsCsv         := /ModelParameters/OutputFormat == 'csv', Descr = "Is the output csv, which writes all columns, the prices and the distances included, so that their settings are in the signature?";
 			parameter<string> CarPriceTag   := IsCar ? '_car' + (/ModelParameters/Advanced/IncludeCarCostsInPrice ? string(round(/ModelParameters/Car_CostPerKm * 100f)) + 'ctkm' + (/ModelParameters/Car_FixedCosts_PerTrip > 0[Euro] ? '-p' + string(round(/ModelParameters/Car_FixedCosts_PerTrip * 100f)) + 'ct' : '') : '0') : ''
 			,	Descr = "The price of the direct car trip in ct per km and, when not 0, per trip (#88); _car0 when Advanced/IncludeCarCostsInPrice is off.";
 			parameter<string> SettingsTag   :=
-				  (IsWW   ? '_WW-max' + string(/ModelParameters/MaxWalkingTime_Org2Dest) + 'min-cost' + string(/ModelParameters/Direct_Walking_Time_Costs) + 'eurmin' + (/ModelParameters/Advanced/IncludeWalkingCostsInPrice ? '-inprice' : '-notinprice') + '-' + /ModelParameters/Impl/WalkingNetwork_Tag : '')
-				+ (IsCC   ? '_CC-max' + string(/ModelParameters/MaxCyclingTime_Org2Dest) + 'min-start' + string(/ModelParameters/Cycling_StartTime) + 'min-cost' + string(/ModelParameters/Direct_Cycling_Time_Costs) + 'eurmin' + (/ModelParameters/Advanced/IncludeCyclingCostsInPrice ? '-inprice' : '-notinprice') + '-' + /ModelParameters/Impl/CyclingNetwork_Tag : '')
+				  (IsWW   ? '_WW-max' + string(/ModelParameters/MaxWalkingTime_Org2Dest) + 'min' + (IsCsv ? /NetworkSetup/ComponentMerge_Def/WalkingPriceTag : '') + '-' + /ModelParameters/Impl/WalkingNetwork_Tag : '')
+				+ (IsCC   ? '_CC-max' + string(/ModelParameters/MaxCyclingTime_Org2Dest) + 'min-start' + string(/ModelParameters/Cycling_StartTime) + 'min' + (IsCsv ? /NetworkSetup/ComponentMerge_Def/CyclingPriceTag : '') + '-' + /ModelParameters/Impl/CyclingNetwork_Tag : '')
 				+ (WithPT ? '_PT-maxtt' + string(/ModelParameters/MaxTravelTime) + 'min-waitmax' + string(/ModelParameters/Advanced/MaxWaitingTimeAtOrigin) + 's-waitintt' + string(uint8(/ModelParameters/Advanced/IncludeWaitingAtHomeInTravelTime)) + '-inprice' + string(uint8(/ModelParameters/Advanced/IncludeWalkingCostsInPrice)) + string(uint8(/ModelParameters/Advanced/IncludeCyclingCostsInPrice))
 				          + '_V-' + /Classifications/TimeInvariantTypes/OutputSignatureTag[Pre_rel] + '_N-' + /Classifications/TimeInvariantTypes/OutputSignatureTag[Post_rel] : '')
 				+ (IsCar  ? '_Car-start' + string(/ModelParameters/Car_StartTime) + 'min-park' + string(/ModelParameters/Car_ParkingTime) + 'min' : '')
-				+ (/Classifications/Components/SingleDepartureMoment_Eff[Comp_rel] ? '_dep' + /ModelParameters/Impl/SingleDepartureMoment_Shrt : '')
+				+ (/Classifications/Components/SingleDepartureMoment_Eff[Comp_rel] && !TimeInvariant ? '_dep' + /ModelParameters/Impl/SingleDepartureMoment_Shrt : '')
 				+ '_median' + string(uint8(/ModelParameters/Advanced/MakeMedian))
 				+ /ModelParameters/Impl/OrgDest_Tag
-			,	Descr = "The settings that change the output of this kind of component and are in no cache it reads (#145), such as the maximum times, the costs and the networks of its trips and legs, a single departure moment and the placing of the origins and destinations.";
+			,	Descr = "The settings that change the output of this kind of component and are in no cache it reads (#145): the maximum times and networks of its trips and legs, the costs where the output holds the price, a single departure moment where the trip depends on it, and the placing of the origins and destinations.";
 			parameter<string> ParamTag      :=
 				'_DEST-' + /ModelParameters/Impl/DestSet_string_nodate + '_' + CombinationType
 				+ (WithPT ? '_Trsf-' + string(/ModelParameters/Max_transfers) : '')
-				+ '_MinCrit-' + MinCrit
+				+ (TimeInvariant ? '' : '_MinCrit-' + MinCrit)
 				+ (WithPT ? '_MaxPT-' + string(/ModelParameters/MaxPTTime) + 'min' + /ModelParameters/Impl/Flex_FileTag + /ModelParameters/Impl/TripSurcharge_FileTag : '')
 				+ (IsCar ? /ModelParameters/Impl/ParetoLegs_Car_FileTag : '')
-				+ CarPriceTag + /ModelParameters/Impl/ChainPareto_FileTag
+				+ CarPriceTag + (TimeInvariant ? '' : /ModelParameters/Impl/ChainPareto_FileTag)
 				+ (IsOVF ? /ModelParameters/Impl/OVFiets_FileTag : '')
 				+ (UsesCycling ? /ModelParameters/Impl/CyclingNetwork_FileTag : '')
 				+ SettingsTag
-			,	Descr = "The parameters of the output after date and origin set: destination set, modes, criteria, the tags and SettingsTag.";
+			,	Descr = "The parameters of the output after date and origin set: destination set, modes, the criteria and epsilon of the front (not for WW and CC, which have one route per pair), the tags and SettingsTag.";
 			parameter<string> CarSignature  := = IsCar ? '''_'' + /NetworkSetup/PublicTransport_Prep/Direct/CarPerMoment/' + /ModelParameters/Impl/CarSignatureMoment + '/Signature' : ''''''
 			,	Descr = "The signature of the car cache that the direct car trip reads, with a _ in front; empty for another component.";
 			// With parquet the format tag _parquet-s3- stands for the columns in whole seconds, with the distances and prices of the pre- and
 			// post-transport (#144) and the walking and waiting at transfers (#146); the kind of component after it sets the columns.
 			parameter<string> Signature     :=
 				'tt_' + /ModelParameters/Impl/Analysis_date + '_ORG-' + /ModelParameters/Impl/OrgSet_string + ParamTag
-				+ '_export' + (/ModelParameters/Export_TravelledDistance ? '-dist' : '') + (/ModelParameters/Export_PriceInformation ? '-price' : '')
+				+ (IsCsv ? '_export' + (/ModelParameters/Export_TravelledDistance ? '-dist' : '') + (/ModelParameters/Export_PriceInformation ? '-price' : '') : '')
 				+ (WithPT ? '_' + /NetworkSetup/PublicTransport_Prep/PT_Chains_Signature : '')
 				+ CarSignature
 				+ (/ModelParameters/OutputFormat == 'parquet' ? '_parquet-s3-' + /Classifications/Components/ExportClass[Comp_rel] : '')
-			,	Descr = "The signature of the output of the component: date, origin set, ParamTag, the exported columns, the signatures of the chain cache (with WithPT) and the car cache, and with parquet the format and the kind of component.";
+			,	Descr = "The signature of the output of the component: date, origin set, ParamTag, with csv the exported columns (parquet always has all columns of its kind), the signatures of the chain cache (with WithPT) and the car cache, and with parquet the format and the kind of component.";
 			container         Hash          := /Templates/StringHash_T(Signature);
-			parameter<string> Dir           := '%LocalDataProjDir%/Output' + /ModelParameters/Impl/OD_Tag + '/' + /ModelParameters/Impl/Analysis_date + '_' + /ModelParameters/OutputLabel + /Classifications/Components/OutputSuffix[Comp_rel] + '_' + Hash/Hex
-			,	Descr = "The output folder of the component: date, OutputLabel, the component (with _fb on the Fietsersbond network) and the hash of Signature.";
+			parameter<string> Dir           := '%LocalDataProjDir%/Output' + /ModelParameters/Impl/OD_Tag + '/' + /ModelParameters/Impl/Analysis_date + '_' + (TimeInvariant ? /ModelParameters/Impl/OrgSet_PathTag : /ModelParameters/OutputLabel) + /Classifications/Components/OutputSuffix[Comp_rel] + '_' + Hash/Hex
+			,	Descr = "The output folder of the component: date, OutputLabel (for WW and CC the origin set, OrgSet_PathTag, because they do not depend on the part of the day), the component (with _fb on the Fietsersbond network) and the hash of Signature.";
 			container         Sig           := /Templates/Signature_T(Dir, Dir + '/signature.txt', Signature, /NetworkSetup/GenerateOutput/MaxSubPathLength)
 			,	Descr = "The signature in the folder, which a reader of the output of the component checks (Sig/ForReading).";
 		}
 		container         ThisComp             := CompOutput_T(/ModelParameters/Impl/ComponentName), Descr = "The output of the component of this run; not used when merging.";
-		parameter<uint32> MaxSubPathLength     := strlen('/PerBlock/tt_') + max_elem(max(strlen(/ModelParameters/Impl/MeasureMoments/TemplatableTextShrt)), strlen('mediaan')) + 1 + max(strlen(impl/OrgBlockDomain/FileName)) + strlen(/ModelParameters/Impl/OutputExt)
+		parameter<uint32> MaxSubPathLength     := strlen('/PerBlock/tt_') + max_elem(max(strlen(/ModelParameters/Impl/MeasureMoments/FileTag)), strlen('mediaan')) + 1 + max(strlen(impl/OrgBlockDomain/FileName)) + strlen(/ModelParameters/Impl/OutputExt)
 		, Descr = "The length of the longest path in an output folder after its name: PerBlock/tt_<moment>_<n>of<N>.csv or .parquet.";
 
 		parameter<string> Output_Signature_Run := ThisComp/Signature, Descr = "The signature of the output of the component of this run (CompOutput_T).";
@@ -218,7 +222,7 @@ container NetworkSetup : using = "units;Geography;SourceData;Classifications;Mod
 			{
 				attribute<string> name     := 'F' + string(id(.) + 2);
 			}
-			parameter<string> MomentHeader := asList(Moments/TemplatableTextShrt, ';');
+			parameter<string> MomentHeader := asList(Moments/FileTag, ';');
 			parameter<string> Header       := 'tabel;naam;' + MomentHeader + ';totaal', Descr = "The header of a counts file of this run.";
 
 			container PerBlock := for_each_ne(Blocks/name, 'Block_T(' + quote(Blocks/FileName) + ')');
@@ -318,7 +322,7 @@ container NetworkSetup : using = "units;Geography;SourceData;Classifications;Mod
 				attribute<uint64> RowCounts_Total        (Kinds) := =asList('PerMoment/' + Moments/Name + '/RowCounts', ' + ');
 				attribute<uint64> PairCounts_AllMoments (Groups) := =asList(/NetworkSetup/impl/OrgBlockDomain/name + '/PublicTransport/Generate_Output/Traveltime_ForEachDepTime_Fence/Counts/PairCounts_AllMoments', ' + ');
 
-				parameter<string> MomentHeader                   := asList(Moments/TemplatableTextShrt, ';');
+				parameter<string> MomentHeader                   := asList(Moments/FileTag, ';');
 				attribute<string> RowCountsLine          (Kinds) := ='Kinds/label + ' + asList(''';'' + string(PerMoment/' + Moments/Name + '/RowCounts)', ' + ') + ' + '';'' + string(RowCounts_Total)';
 				attribute<string> PairCountsLine        (Groups) := ='Groups/label + ' + asList(''';'' + string(PerMoment/' + Moments/Name + '/PairCounts)', ' + ') + ' + '';'' + string(PairCounts_AllMoments)';
 				parameter<string> File_RowCounts                 := 'soort;' + MomentHeader + ';totaal\n' + asList(RowCountsLine, '\n') + '\n'
