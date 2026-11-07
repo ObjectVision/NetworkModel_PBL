@@ -59,6 +59,10 @@ Do not stop the process for it; that is the user's call. Background: on 2026-10-
 
 Write a thing in one place. If an issue already holds the reasoning, refer to it with its number. Work documents of Claude (plans, audits, findings notes, session notes) do not go into this repo: it is a PBL project. Keep them outside the repo, for example in `C:\LocalData\NetworkModel_PBL\Plannen`. Details and reasons: skill `werkafspraken`.
 
+## Terms
+
+Use the terms of the wiki page Glossary, in Dutch and English text alike. A ride (Dutch: rit) is the part of a public transport journey in one vehicle; a leg (Dutch: been) is only the walking or cycling connection to the first stop or from the last one. Text that calls a ride a leg is unreadable for the model's users, even where item names such as `IsFlexLeg` do so. Regional transport is `OD_R`; R-net is a brand of trains and buses, not the name of that network.
+
 ## Descr and Source
 
 A Descr says what the item does or means, in one sentence; where needed why it exists, and for a setting what the value implies. A reference to the issue with the trade-off stays (`#129`). The source of a constant or dataset goes in the property `Source`, with vintage or delivery date. Keep out: measurement results and their dates, the history of earlier values, how a bug was found, lessons about GeoDMS itself, instructions to the next reader, version numbers. One paragraph without blank lines; aim for under 300 characters for parameters and attributes, under 800 for containers and templates.

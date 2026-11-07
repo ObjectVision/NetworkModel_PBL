@@ -7,7 +7,7 @@ description: Model-uitkomsten van NetworkModel_PBL valideren - OV-reistijden en 
 
 Drie lagen, van goedkoop naar duur.
 
-1. **Interne steekproeven in de config.** `/SourceData/Infrastructure/OVprijzen/TripSurchargeReport/Report` (TE-steekproef tegen NS, treinroutes), `/SourceData/Infrastructure/OVprijzen/TripSurchargeReport/Net/Report` en `/Keten/Report` (benen en ketenprijs), `/Output/FlexLines/Report`. Draaien met GeoDmsRun vanuit PowerShell; zie de skill `ov-prijzen` voor engine en scratchkopie.
+1. **Interne steekproeven in de config.** `/SourceData/Infrastructure/OVprijzen/TripSurchargeReport/Report` (TE-steekproef tegen NS, treinroutes), `/SourceData/Infrastructure/OVprijzen/TripSurchargeReport/Net/Report` en `/Keten/Report` (ritten en ketenprijs), `/Output/FlexLines/Report`. Draaien met GeoDmsRun vanuit PowerShell; zie de skill `ov-prijzen` voor engine en scratchkopie.
 2. Consistentie van het front (#53), met `/Output/FrontCheck` (`cfg/main/Output/FrontCheck.dms`). Die legt de parquet-uitvoer van een OV-component (`Dir`, standaard de map van `Component` in deze run) naast een referentie van dezelfde component (`RefDir`, standaard gelijk aan `Dir`), voor de herkomstblokken 1 tot en met `NrBlocks` (10) en de vertrekmomenten van de run. `File` schrijft per blok en vertrekmoment een regel naar `%LocalDataProjDir%/Validatie/frontcheck_<Tag>.csv`, `Result` geeft PASS of FAIL op de harde eis. Tien blokken en vier vertrekmomenten kosten enkele seconden. Zet `Component` en `RefDir`, en voor een referentie in minuten van voor ac9c7cf `RefMinPerUnit` op 1, in de GUI, of in een kopie van de configuratie met een eigen `config.ini` en LocalData. De kolommen:
    - `dominated` en `dominated_ref`: rijen die een andere rij van hetzelfde paar exact domineert op prijs en reistijd. Moet in beide uitvoeren 0 zijn; anders is de condensatie of de voorselectie (#140) fout. Dit is de harde eis.
    - `pairs_only_new` en `pairs_only_ref`: paren die maar een van beide bereikt.
@@ -25,7 +25,7 @@ Drie lagen, van goedkoop naar duur.
 1. Open `https://9292.nl/`. **Eerst het welkomstpaneel:** klik de blauwe knop **Akkoord** rechtsonder in het intro-paneel. De gebruiker wil dat, dus niet "Weigeren", ook al is dat elders de privacyvriendelijke keuze. De knoppen zitten in een shadow-DOM, dus `find` ziet ze niet: klik op coordinaten uit een screenshot. Het profiel van de ingebouwde browser onthoudt de keuze. Verschijnt het paneel niet, dan is er al akkoord gegeven.
 2. **Van** en **Naar**: klik het combobox ("adres, station, halte"), typ een naam, wacht ~2 s en klik de juiste suggestie. Lees de suggesties met JavaScript: `document.querySelectorAll('[role=option]')`, tekst als "Merwekade | Veerhaven•Dordrecht"; de klikbare elementen vind je daarna met `find` op de naam. Kies het juiste type (Bushalte, Veerhaven, Treinstation), niet een adres of restaurant.
 3. **Datum en tijd**: velden Datum/Tijd onder Vertrek/Aankomst. Sneller via de resultaat-URL: `.../reisplanner/<vanId>/<naarId>/Departure/<jjjj-mm-dd>T<uumm>`; die tijd is **UTC** (zomertijd: lokale tijd min 2 uur, wintertijd min 1). Voorbeeld: dinsdag 13-10-2026 07:15 lokaal = `2026-10-13T0515`.
-4. **Plan je reis**, dan per reis in de lijst de prijs ("€ 18,70"; "€ --,--" = onbekend). Klik een reis open ("Geplande vertrektijd: hh:mm") voor de benen, de lijnen en "De prijs van je reis".
+4. **Plan je reis**, dan per reis in de lijst de prijs ("€ 18,70"; "€ --,--" = onbekend). Klik een reis open ("Geplande vertrektijd: hh:mm") voor de onderdelen van de reis, de lijnen en "De prijs van je reis".
 5. Lees de pagina met JavaScript: `document.body.innerText`, vanaf "Eerder" (de lijst) en vanaf "Geplande reis" tot "Prijsinformatie" (het detail).
 
 Zonder formulier: `https://9292.nl/reisadvies/<van>/<naar>` met `station-<naam>` of `<plaats>_<type>-<naam>` (bijv. `west-terschelling_halte-veer-terschelling`, `nes-ameland_bushalte-veerhaven`); niet elke oude naam werkt nog.
@@ -35,7 +35,7 @@ Als het browservenster verborgen is, mislukken klikken en typen ("tab is not on 
 ## Wat 9292 wel en niet zegt
 
 - De prijs is **2e klas vol tarief, zonder korting**.
-- **Toeslagen** (ICD Schiphol-Rotterdam, ICE) staan als melding bij het been ("Toeslag Schiphol - Rotterdam") en zitten **niet** in het totaal. Vergelijk dus 9292-totaal met `Price_L` en tel de toeslag apart.
+- **Toeslagen** (ICD Schiphol-Rotterdam, ICE) staan als melding bij de rit ("Toeslag Schiphol - Rotterdam") en zitten **niet** in het totaal. Vergelijk dus 9292-totaal met `Price_L` en tel de toeslag apart.
 - "Voor dit deel van de reis is betalen met de OV-chipkaart of OVpay niet mogelijk" plus "We kunnen de prijs van je reis op dit moment niet bepalen" = los kaartje van de vervoerder (veerboten); zonder de eerste zin (De Lijn) = 9292 kent de prijs niet.
 - Kies een datum waarop de feed van het model geldt en zonder werkzaamheden (9292 meldde 3-6 oktober 2026: geen treinen van, naar en via Amsterdam Centraal).
 

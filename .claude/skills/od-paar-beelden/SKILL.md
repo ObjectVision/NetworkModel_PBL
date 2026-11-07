@@ -9,7 +9,7 @@ Een controlerun op één HB-paar laat een wijziging zien op een schaal die je ku
 
 ## 1. Het paar rekenen
 
-`batch\WriteODResults.ps1` maakt een runkopie van een commit en rekent het paar met `UpdateAll.cmd all`: benen, ketens, de autocache van het vertrekmoment, de uitvoer per component en de samenvoeging.
+`batch\WriteODResults.ps1` maakt een runkopie van een commit en rekent het paar met `UpdateAll.cmd all`: ritten, ketens, de autocache van het vertrekmoment, de uitvoer per component en de samenvoeging.
 
 ```
 powershell -ExecutionPolicy Bypass -File batch\WriteODResults.ps1 -Org BU05460200 -Dest BU06290101 -Moment 07:00 -AnalysisMoment Y2025 `
@@ -17,11 +17,11 @@ powershell -ExecutionPolicy Bypass -File batch\WriteODResults.ps1 -Org BU0546020
 ```
 
 - Drie fronten (zonder auto of fiets, met fiets, met auto) vragen componenten uit alle drie groepen, zoals hierboven. Met alleen `W_PT_W` is er één front.
-- Eén vertrekmoment (`-Moment hh:mm`) houdt het kort. Gemeten op 7-11-2026 met GeoDMS 20.28.0 voor Y2025 en de zeven componenten hierboven: ongeveer 6 minuten voor een nieuw paar. Een tweede run van hetzelfde paar duurt 2 tot 3 minuten, omdat de benen en de autocache dan al bestaan. De ketenstap rekent alle OV-benen van het land (20 tot 30 GB); geef bij andere runs `-WaitForMemoryGB` mee.
+- Eén vertrekmoment (`-Moment hh:mm`) houdt het kort. Gemeten op 7-11-2026 met GeoDMS 20.28.0 voor Y2025 en de zeven componenten hierboven: ongeveer 6 minuten voor een nieuw paar. Een tweede run van hetzelfde paar duurt 2 tot 3 minuten, omdat de ritten en de autocache dan al bestaan. De ketenstap rekent alle OV-ritten van het land (20 tot 30 GB); geef bij andere runs `-WaitForMemoryGB` mee.
 - Voor en na een wijziging: twee runs, één met `-Ref <commit van ervoor>` en één met de nieuwe commit, elk met een eigen `-Root`. De uitvoermappen `Output_<O>_<D>\<datum>_od_<component>_<hash>` verschillen door de hash van de signatuur, en `OD_PairRoutes` in elke runkopie leest zijn eigen uitvoer.
 - Het pad van de GUI-configuratie is `<Root>\od_<O>_<D>\variant\NetworkModel_PBL\cfg\main.dms`.
 
-Kies een paar dat opties heeft. `od_tellingen.csv` in de uitvoermap telt ze per vertrekmoment. Een paar zonder opties komt meestal door de maximale OV-reistijd (`MaxPTTime`, 90 minuten), door de extra wachttijd van een flexlijn (30 minuten per instap) of door een veerdienst met weinig afvaarten in het venster. De Westerschelde Ferry en Wagenborg Lauwersoog - Schiermonnikoog ontbreken in 2025 helemaal: hun steigers liggen buiten elk concessievlak, zodat `OD_R/Result` hun benen als buitenland weglaat (`IsOD_completely_foreign`).
+Kies een paar dat opties heeft. `od_tellingen.csv` in de uitvoermap telt ze per vertrekmoment. Een paar zonder opties komt meestal door de maximale OV-reistijd (`MaxPTTime`, 90 minuten), door de extra wachttijd van een flexlijn (30 minuten per instap) of door een veerdienst met weinig afvaarten in het venster. De Westerschelde Ferry en Wagenborg tussen Lauwersoog en Schiermonnikoog ontbreken in 2025 helemaal: hun steigers liggen buiten elk concessiegebied, zodat `OD_R/Result` hun ritten als buitenland weglaat (`IsOD_completely_foreign`, #150).
 
 Buurtcodes zoek je op in `%NetworkModel_Dir%\RegioIndelingen\cbsgebiedsindelingen<jaar>.gpkg`, tabel `buurt_labelpoint` (`statcode`, `statnaam`). Open die alleen-lezen, met sqlite3 en `?mode=ro&immutable=1`, zodat er niets op de share wordt geschreven.
 
@@ -38,7 +38,7 @@ Draai de scripts zonder sandbox: de GUI moet kunnen tekenen, vensterberichten kr
 
 Een vertrekmoment heet `At_07h00m00s`; de groepen zijn `ZonderAutoFiets`, `MetFiets`, `MetAuto` en `MetAutoFiets`. Elk script krijgt `-Config` (de `main.dms` van de runkopie) en `-Png`. Op deze machine ook `-NetworkModelDir` en `-PrivDir`, omdat de registerweergave van een shell oud kan zijn. Bij een schermschaal van 150% levert een venster van 2000 bij 1450 een beeld van ongeveer 1350 bij 1040 pixels.
 
-De opties zelf staan in de gpkg's van de uitvoer (`od_opties`, `od_onderdelen`). `od_compare.py <map voor> <map na>` zet ze per vertrekmoment naast elkaar, met de OV-benen en hun prijs; dat is de tabel bij de beelden.
+De opties zelf staan in de gpkg's van de uitvoer (`od_opties`, `od_onderdelen`). `od_compare.py <map voor> <map na>` zet ze per vertrekmoment naast elkaar, met de OV-ritten en hun prijs; dat is de tabel bij de beelden.
 
 ## 3. Hoe de scripts werken
 
