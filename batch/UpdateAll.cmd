@@ -74,7 +74,7 @@ REM the chain cache of the departure moments of PartOfDay. The step
 REM first empties the output folder of the component (#118), removing only the files of the model: tt_*.csv, tt_*.parquet
 REM and tt_*.xml, signature.txt/.xml, the counts od_tellingen.csv and unieke_od_tellingen.csv (with .xml) and
 REM Tellingen\tellingen_*.*. It runs in portions of blocks (WriteOutputBlocks.ps1, a GeoDmsRun per portion, then the
-REM counts with OdTellingen.py); blocks per portion per component in Classifications/Components/BlocksPerPortion, or set
+REM counts of all blocks in one more GeoDmsRun); blocks per portion per component in Classifications/Components/BlocksPerPortion, or set
 REM with OUTPUT_BATCHSIZE; OUTPUT_MAXBLOCKS calculates at most that many blocks, for a test.
 REM Run one UpdateAll at a time, not two at the same time: the output step of a component can need more than 100 GB of
 REM memory, and two at once make the machine page.
@@ -544,8 +544,8 @@ if exist "!OUTDIR!\" (
     exit /b 1
   )
 )
-REM The output runs in portions of origin blocks, each in its own GeoDmsRun, followed by the counts with OdTellingen.py
-REM (WriteOutputBlocks.ps1). Blocks per portion: Classifications/Components/BlocksPerPortion of the component,
+REM The output runs in portions of origin blocks, each in its own GeoDmsRun, followed by the counts of all blocks in one more
+REM GeoDmsRun (WriteOutputBlocks.ps1). Blocks per portion: Classifications/Components/BlocksPerPortion of the component,
 REM or the environment variable OUTPUT_BATCHSIZE; OUTPUT_MAXBLOCKS calculates at most that many blocks (for testing).
 REM The merge (Merged) also runs per block in portions (ComponentMerge/PerBlock).
 call :say "--- output of %COMP%: a file per origin block and departure moment, in portions (WriteOutputBlocks.ps1) ---"

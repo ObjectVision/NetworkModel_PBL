@@ -4,9 +4,9 @@
 # batch\log\output_blocks.txt; this also writes or checks the signature of the output folder and the longest path) and then
 # calculates them in portions of BatchSize blocks per GeoDmsRun. Each portion is a separate process, so that memory is freed
 # between the portions, which a single request for all blocks (NetworkSetup/GenerateOutput/Generate_Output) does not do.
-# Then batch\OdTellingen.py makes the counts (od_tellingen.csv, unieke_od_tellingen.csv) from the output of the blocks; in
-# the single request the model does this itself (OD_Counts), with the same rules, but that needs the results of all
-# blocks in the same process.
+# Then one more GeoDmsRun adds up the counts files that the blocks wrote (Tellingen) to od_tellingen.csv and
+# unieke_od_tellingen.csv (NetworkSetup/GenerateOutput/OD_Counts_FromFiles); in the single request the model makes them
+# itself (OD_Counts), with the same rules, from the results of all blocks in the same process.
 # For the merge (component Merged) the list names the merging per block (ComponentMerge/PerBlock). If the list is empty, the
 # script runs one request of NetworkSetup/GenerateOutput/Generate_Output.
 #
@@ -34,6 +34,7 @@ $listFile = Join-Path $LogDir 'output_blocks.txt'
 $sizeFile = Join-Path $LogDir 'output_blocks_per_portion.txt'
 $listItem = '/NetworkSetup/ConfigurationPerBlock/Generate_Output/OutputBlocks_List'
 $sizeItem = '/NetworkSetup/ConfigurationPerBlock/Generate_Output/OutputBlocks_PerPortion'
+$countsItem = '/NetworkSetup/GenerateOutput/OD_Counts_FromFiles/Generate'
 $showErrors = Join-Path $PSScriptRoot 'ShowGeoDmsErrors.ps1'
 function Say($m) { $l = "{0} {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $m; if ($Status -ne '') { Add-Content -Path $Status -Value $l }; $l }
 
@@ -67,9 +68,8 @@ for ($b = 0; $b -lt $nb; $b++) {
 	if ($p.ExitCode -ne 0) { Say "FAILED, see $out and $LogDir\UpdateAll_output$Tag.log"; & $showErrors -Path $out; exit 1 }
 }
 
-$py = Get-Command python -ErrorAction SilentlyContinue
-if (-not $py) { Say 'FAILED: no python for the counts (batch\OdTellingen.py)'; exit 1 }
-$o = & $py.Source (Join-Path $PSScriptRoot 'OdTellingen.py') $OutDir --force 2>&1
-$rc = $LASTEXITCODE
-Say ("counts (OdTellingen.py): exit {0}; {1}" -f $rc, (($o | ForEach-Object { "$_" }) -join ' | '))
-if ($rc -eq 0) { exit 0 } else { exit 1 }
+$out = Join-Path $LogDir "UpdateAll_output_counts$Tag.txt"
+$p = Start-Process -FilePath $Exe -ArgumentList @("/L$LogDir\UpdateAll_output_counts$Tag.log", $Cfg, '@statistics', $countsItem) -PassThru -Wait -WindowStyle Hidden -RedirectStandardOutput $out
+if ($p.ExitCode -ne 0) { Say "FAILED: the counts of all blocks (exit $($p.ExitCode)), see $LogDir\UpdateAll_output_counts$Tag.log"; & $showErrors -Path $out; exit 1 }
+Say ("counts of all blocks: exit 0; {0}" -f ((@(Get-Content (Join-Path $OutDir 'od_tellingen.csv')) + @(Get-Content (Join-Path $OutDir 'unieke_od_tellingen.csv'))) -join ' | '))
+exit 0

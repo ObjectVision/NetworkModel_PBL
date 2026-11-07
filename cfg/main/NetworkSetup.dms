@@ -176,7 +176,7 @@ container NetworkSetup : using = "units;Geography;SourceData;Classifications;Mod
 
 		// Is the output of this run complete? Then batch/UpdateAll.cmd skips it. The folder must hold the signature of the current settings, the
 		// counts file of every origin block with origins (Tellingen, written with the last file of the block), and the counts of all blocks
-		// (od_tellingen.csv, which batch/OdTellingen.py writes after the last portion).
+		// (od_tellingen.csv, which OD_Counts_FromFiles writes after the last portion).
 		parameter<string> OutputDir_Expanded   := expand(., /ModelParameters/Impl/OutputDir);
 		attribute<bool>   BlockDone (impl/OrgBlockDomain) := impl/OrgBlockDomain/BlockSize == 0 || ExistingFile('', OutputDir_Expanded + '/Tellingen/tellingen_' + impl/OrgBlockDomain/FileName + '.csv') != ''
 		, Descr = "Does the origin block have its counts file, or no origins?";
@@ -188,8 +188,85 @@ container NetworkSetup : using = "units;Geography;SourceData;Classifications;Mod
 			parameter<string> IsComplete := ../IsComplete ? 'complete' : 'incomplete', StorageName = "%ConfigDir%/../../batch/log/output_complete.txt", StorageType = "str"
 			, Descr = "complete or incomplete; batch/UpdateAll.cmd skips the output step of a complete component.";
 		}
+
+		// The counts of all origin blocks in the output folder, od_tellingen.csv and unieke_od_tellingen.csv, added up from the counts file that
+		// the output or the merge of every block writes (Tellingen/tellingen_<n>of<N>.csv), so that the output step in portions needs nothing
+		// beside GeoDMS: batch/WriteOutputBlocks.ps1 requests Generate after the last portion. A single request of the output makes the same two
+		// files itself (ConfigurationPerBlock/Generate_Output/OD_Counts). The origin blocks each have their own origins, so the counts of the
+		// blocks add up, the unique pairs too. The two files get no metadata beside them, as in ForBatch: that would run git in this GeoDmsRun.
+		container OD_Counts_FromFiles
+		:	Descr = "The counts of all origin blocks, added up from the counts files of the blocks in Tellingen and written as od_tellingen.csv and unieke_od_tellingen.csv."
+		{
+			container         ExportSettings { container MetaInfo; }
+			unit<uint32>      Blocks       := select_with_org_rel(impl/OrgBlockDomain/BlockSize > 0)
+			,	Descr = "The origin blocks with origins; each writes a counts file."
+			{
+				attribute<string> name     := impl/OrgBlockDomain/name[org_rel];
+				attribute<string> FileName := impl/OrgBlockDomain/FileName[org_rel];
+			}
+			unit<uint32>      Moments      := /ModelParameters/Impl/MeasureMoments;
+			unit<uint8>       Kinds        := Classifications/OD_Counts_Kind;
+			unit<uint8>       Groups       := Classifications/OD_Counts_Group;
+			// the fields of a line of a counts file: the table (rijen or paren), the kind or group, a count per departure moment and the total
+			unit<uint32>      Fields       := range(uint32, 0, #Moments + 3)
+			{
+				attribute<string> name     := 'F' + string(id(.));
+			}
+			unit<uint32>      Counts       := range(uint32, 0, #Moments + 1)
+			{
+				attribute<string> name     := 'F' + string(id(.) + 2);
+			}
+			parameter<string> MomentHeader := asList(Moments/TemplatableTextShrt, ';');
+			parameter<string> Header       := 'tabel;naam;' + MomentHeader + ';totaal', Descr = "The header of a counts file of this run.";
+
+			container PerBlock := for_each_ne(Blocks/name, 'Block_T(' + quote(Blocks/FileName) + ')');
+			Template Block_T : Descr = "The counts file of one origin block: its header, the lines of the kinds of rows and the lines of the groups of pairs."
+			{
+				parameter<string> FileName;
+				///
+				parameter<string> Path               := /ModelParameters/Impl/OutputDir + '/Tellingen/tellingen_' + FileName + '.csv';
+				parameter<string> Text               : StorageName = "=Path", StorageType = "str", StorageReadOnly = "true";
+				parameter<string> HeaderLine         := readLines(Text, void, 0u64);
+				attribute<string> KindLine  (Kinds)  := readLines(Text, Kinds, HeaderLine/ReadPos);
+				attribute<string> GroupLine (Groups) := readLines(Text, Groups, KindLine/ReadPos);
+			}
+
+			Template Sum_T : Descr = "The lines of one table (Kinds or Groups) of all blocks, their fields, and per kind or group the sum over the blocks of every count."
+			{
+				unit<uint8>       Classes;
+				parameter<string> LineName;
+				parameter<string> Table;
+				///
+				unit<uint32> Lines := combine_unit_uint32(Blocks, Classes)
+				{
+					attribute<string>  Line      := ='union_data(., ' + asList('PerBlock/' + Blocks/name + '/' + LineName, ',') + ')';
+					attribute<Classes> Class_rel := second_rel(id(.));
+					container          Field     := for_each_nedv(Fields/name, 'ReadElems(Line, string, ' + MakeDefined(Fields/name[sub_or_null(id(Fields), 1)] + '/ReadPos', 'const(0, Lines)') + ', 16)', Lines, string);
+				}
+				container         Sum                 := for_each_nedv(Counts/name, 'sum(uint64(Lines/Field/' + Counts/name + '), Lines/Class_rel)', Classes, uint64);
+				parameter<bool>   IsConsistent        := all(Lines/Field/F0 == Table && Lines/Field/F1 == Classes/label[Lines/Class_rel]);
+				attribute<string> OutLine   (Classes) := ='Classes/label + ' + asList(''';'' + string(Sum/' + Counts/name + ')', ' + ');
+			}
+			container         Kind         := Sum_T(Kinds,  'KindLine',  'rijen');
+			container         Group        := Sum_T(Groups, 'GroupLine', 'paren');
+
+			attribute<string> HeaderLine (Blocks) := ='union_data(Blocks, ' + asList('PerBlock/' + Blocks/name + '/HeaderLine', ',') + ')';
+			parameter<bool>   IsConsistent := all(HeaderLine == Header) && Kind/IsConsistent && Group/IsConsistent
+			,	Descr = "Does every counts file have the header of this run, and its lines in the order of Kinds and Groups?";
+			parameter<string> File_RowCounts  := 'soort;' + MomentHeader + ';totaal\n' + asList(Kind/OutLine, '\n') + '\n'
+			,	StorageName = "=/ModelParameters/Impl/OutputDir + '/od_tellingen.csv'", StorageType = "str", IntegrityCheck = "IsConsistent"
+			,	ExplicitSuppliers = "/NetworkSetup/GenerateOutput/Output_Sig/ForWriting"
+			,	Descr = "Rows of the output per kind of option (Kinds), per departure moment and in total, over all blocks.";
+			parameter<string> File_PairCounts := 'groep;' + MomentHeader + ';samen\n' + asList(Group/OutLine, '\n') + '\n'
+			,	StorageName = "=/ModelParameters/Impl/OutputDir + '/unieke_od_tellingen.csv'", StorageType = "str", IntegrityCheck = "IsConsistent"
+			,	ExplicitSuppliers = "/NetworkSetup/GenerateOutput/Output_Sig/ForWriting"
+			,	Descr = "Unique OD pairs per group (Groups), per departure moment and over all moments together, over all blocks.";
+			parameter<string> Generate        := 'Ready', ExplicitSuppliers = "File_RowCounts;File_PairCounts"
+			,	Descr = "Writes od_tellingen.csv and unieke_od_tellingen.csv; batch/WriteOutputBlocks.ps1 requests it after the last portion.";
+		}
+
 		parameter<string> Generate_Output      := =/ModelParameters/Impl/IsMerged ? 'ComponentMerge/Generate' : 'ConfigurationPerBlock/Generate_Output/OUTPUT_Generate_PublicTransport_fullOD_long_CSVFiles'
-		, Descr = "The output step of batch/UpdateAll.cmd: the output per block and departure moment with the counts, or for the component Merged the merge of the components of the variant (ComponentMerge, #117), for which batch/OdTellingen.py makes the counts.";
+		, Descr = "The output step of batch/UpdateAll.cmd: the output per block and departure moment with the counts, or for the component Merged the merge of the components of the variant (ComponentMerge, #117), whose counts over all blocks OD_Counts_FromFiles makes.";
 	}
 	
 
@@ -206,8 +283,8 @@ container NetworkSetup : using = "units;Geography;SourceData;Classifications;Mod
 			parameter<string> OUTPUT_Generate_PublicTransport_fullOD_long_CSVFiles := =asList(NetworkSetup/Impl/OrgBlockDomain/name+'/PublicTransport/Generate_Output/Traveltime_ForEachDepTime_Fence/Generate',' + ') + ' + OD_Counts/Generate';
 
 			// batch/WriteOutputBlocks.ps1 calculates the output in portions of blocks, one GeoDmsRun per portion, as WriteChainBlocks.ps1 does for the
-			// chain step, because in one request for all blocks (above) the memory grows with every block. The counts are then made by
-			// batch/OdTellingen.py.
+			// chain step, because in one request for all blocks (above) the memory grows with every block. The counts over all blocks are then
+			// made by GenerateOutput/OD_Counts_FromFiles.
 			parameter<string> OutputBlocks_List                        := AsList(/ModelParameters/Impl/IsMerged
 			                                                              ? '/NetworkSetup/ComponentMerge/PerBlock/' + /NetworkSetup/Impl/OrgBlockDomain/name + '/Fence/Generate'
 			                                                              : '/NetworkSetup/ConfigurationPerBlock/' + /NetworkSetup/Impl/OrgBlockDomain/name + '/PublicTransport/Generate_Output/Traveltime_ForEachDepTime_Fence/Generate', '\n')
