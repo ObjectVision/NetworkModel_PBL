@@ -43,9 +43,42 @@ Template ChainJoiner_T : Descr = "Joins the chains of type LeftStr through a tra
 	{
 		attribute<Left>      Left_rel      := org_rel -> Left_rel;
 		attribute<Transfers> Transfers_rel := org_rel -> Transfers_rel;
+
+		// #151: a preselection before the join with Right. The rows of a group board the same right rides at the same moment, from the same
+		// boarding event; they differ only in what the chain has paid, in its travel time (a flex ride or a trip surcharge adds time) and in
+		// how its fare journeys can still continue. A row that another row of its group beats or equals on all of that gives no better chain
+		// with any right ride. Price_S, Price_O and Price_F are only ever added, so their sum suffices, with the time costs Price_T when the
+		// front chooses on Price_augm; when it chooses on Price, Price_T only breaks ties and stays out. The boarding fare Price_I is not added
+		// (RO_continuation_allowed takes the highest). A chain with an open NS journey is compared only with chains with the same NS fare and
+		// the same last NS alighting time (NS_key and its mirror), because whether a next NS ride continues the journey or starts a new one
+		// depends on both, and the two outcomes land in different Pareto groups. With GradeSeparatedTransferPenalty the level of the last ride
+		// is part of the group as well. At most six criteria: pareto_optimal_eps takes eight.
+		attribute<uint64>    Group_key     := ='uint64(combine_data(c_FromTS_ReboardTS, Left_rel -> uq_c_FromTime_Stop_rel, Transfers_rel -> uq_c_Reboard_rel)) * uint64(#NS_Stations + 1) + uint64(MakeDefined(uint32(Left_rel -> First_NS_Station), #NS_Stations))'
+		                                       + (ModelParameters/Advanced/GradeSeparatedTransferPenalty > 0[min_f] ? ' * 2u64 + uint64(Modes/IsStreetLevel[Left_rel -> Mode_rel] == 1b)' : '')
+		, IntegrityCheck = "float64(#uq_c_FromTime_Stop) * float64(#uq_c_FromTime_Stop) * float64(#NS_Stations + 1) * 2.0 < 1.8e19";
+		attribute<s>         TravelTime    := Left_rel -> traveltime + Transfers_rel -> Transfer_Time;
+		attribute<Ct>        Price_Added   := ='Left_rel -> Price_S + Left_rel -> Price_F' + (HasLeft_RO ? ' + Left_rel -> Price_O' : '') + (/Classifications/ChainJoinerParetoAttr_Candidates/IsPriceFinal ? '' : ' + Left_rel -> Price_T + Transfers_rel -> Time_cost')
+		, Descr = "The parts of the price that later rides only add to: Price_S, Price_F, with a regional ride Price_O, and when the front chooses on Price_augm the time costs of the chain and its transfer.";
+		attribute<Ct>        Price_I       := =HasLeft_RO ? 'Left_rel -> Price_I' : 'const(0[Ct], .)';
+		attribute<Time>      RO_state      := MakeDefined(sub_or_null(impl/LastArrivalMoment, Left_rel -> Last_RO_AlightTime), impl/LastArrivalMoment), Descr = "The time from the last alighting from a regional ride with the OV-chip to the end of the time window, or the whole window without such a ride; less is better, because a next regional ride can then continue the fare journey.";
+		attribute<uint32>    NS_key        := =HasLeft_NS ? 'value(Left_rel -> Price_L, uint32) * 65536u + value(sub_or_null(impl/LastArrivalMoment, Left_rel -> Last_NS_AlightTime), uint32)' : 'const(0u, .)'
+		, Descr = "The NS fare of the open NS journey and the time from its last NS alighting to the end of the time window, in one number; NS_key and NS_key_rev together keep only rows with the same value."
+		, IntegrityCheck = "not(HasLeft_NS) || all(value(sub_or_null(impl/LastArrivalMoment, Left_rel -> Last_NS_AlightTime), uint32) < 65536u)";
+		attribute<uint32>    NS_key_rev    := Max_NS_key - NS_key;
+		attribute<bool>      IsParetoOptimal := ='pareto_optimal_eps(Group_key, TravelTime, Price_Added, 0.0'
+		                                       + (HasLeft_RO ? ', Price_I, 0.0, RO_state, 0.0' : '')
+		                                       + (HasLeft_NS ? ', NS_key, 0.0, NS_key_rev, 0.0' : '')
+		                                       + ')';
+	}
+	parameter<uint32> Max_NS_key                       := #Join_Left_Transf > 0u64 ? max(Join_Left_Transf/NS_key) : 0u;
+	unit<uint64>      c_FromTS_ReboardTS               := combine_unit_uint64(uq_c_FromTime_Stop, uq_c_FromTime_Stop), Descr = "The key of a pair (boarding event of a left chain, reboard event of its transfer), #151.";
+	unit<uint64> Join_Left_Transf_Pareto := select_with_org_rel(Join_Left_Transf/IsParetoOptimal), Descr = "The left chains with a transfer that no other row of their group beats (Join_Left_Transf/IsParetoOptimal, #151)."
+	{
+		attribute<Left>      Left_rel      := org_rel -> Left_rel;
+		attribute<Transfers> Transfers_rel := org_rel -> Transfers_rel;
 	}
 
-	unit<uint64> Join_LeftT_Right := join_equal_values_uint64(Join_Left_Transf/transfers_rel->uq_c_Reboard_rel, Right/uq_c_FromTime_Stop_rel), Descr = "Joins every left chain plus transfer to the right rides that board where the transfer ends; this set holds all possible paths, from which Valid1 keeps the Pareto front per OD pair."
+	unit<uint64> Join_LeftT_Right := join_equal_values_uint64(Join_Left_Transf_Pareto/transfers_rel->uq_c_Reboard_rel, Right/uq_c_FromTime_Stop_rel), Descr = "Joins every left chain plus transfer to the right rides that board where the transfer ends; this set holds all possible paths, from which Valid1 keeps the Pareto front per OD pair."
 	{
 		attribute<Left>      Left_rel                   := first_rel -> Left_rel;
 		attribute<Transfers> Transfers_rel              := first_rel -> Transfers_rel;
