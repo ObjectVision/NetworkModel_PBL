@@ -110,7 +110,14 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 20.2800" // 20.28.
 		parameter<string> Report_Settings       := Check_Given + '\n' + Check_AnalysisMoment + '\n' + Check_PartOfDay + '\n' + Check_NS_FareClass + '\n' + Check_Sets + '\n' + Check_Variant + '\n' + Check_MergeCriteria + '\n' + Check_OutputFormat + '\n'
 		, StorageName = "%ConfigDir%/../../batch/log/checks_settings.txt", StorageType = "str"
 		, Descr = "The checks of the settings alone, one per line, which batch/UpdateAll.cmd writes and shows before the sources step; it stops at a line with FAIL.";
-		parameter<string> Report                := Report_Settings + Check_OSM + '\n' + Check_GTFS + '\n' + Check_CarDay + '\n'
+		// #153: the fare tables, for a variant with public transport and once the GTFS feed is right, so that a wrong table stops the run
+		// before its chains instead of a check in the chain step that saw only the DOVA table.
+		parameter<bool>   VariantHasPT          := any(ModelParameters/Impl/VariantComponents/WithPT);
+		parameter<string> Check_PriceCoverage   := = !VariantHasPT ? quote('PASS: no public transport in the variant, so the fare tables are not checked.')
+		                                           : substr(Check_GTFS, 0, 4) != 'PASS' ? quote('FAIL: the fare tables are not checked, because the GTFS feed is not right (see above).')
+		                                           : 'PT_CheckPriceCoverage'
+		, Descr = "With public transport in the variant: are the fare tables filled, with a rule for every combination of mode and agency of the feed (#153)? A missing rule or an unusual price gives WARN, which does not stop the run.";
+		parameter<string> Report                := Report_Settings + Check_OSM + '\n' + Check_GTFS + '\n' + Check_CarDay + '\n' + Check_PriceCoverage + '\n'
 		, StorageName = "%ConfigDir%/../../batch/log/checks.txt", StorageType = "str"
 		, Descr = "The checks of the settings and of the caches of the sources (OSM and GTFS), one per line, which batch/UpdateAll.cmd writes and shows after the sources step; it stops at a line with FAIL.";
 		parameter<string> Components            := asList(ModelParameters/Impl/VariantComponents/name + ';' + (ModelParameters/Impl/VariantComponents/WithPT ? '1' : '0') + ';' + (ModelParameters/Impl/VariantComponents/DirectCar ? '1' : '0'), '\n') + '\n'
