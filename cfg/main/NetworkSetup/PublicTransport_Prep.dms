@@ -460,7 +460,7 @@ container PublicTransport_Prep
 	,	Descr = "Per base set the pre- and post-transport connections: Calc, Write, Read, and Connections, the one the model uses (ModelParameters/Advanced/PrePostTransportDecoupled).";
 	unit<uint8>       BaseSets_ToDo            := ='select_with_attr_by_cond(BaseSets, not(union_data(BaseSets, ' + AsItemList('PrePostTransport/' + BaseSets/name + '/IsWritten') + ')))'
 	,	Descr = "The base sets without a cache with the current signature, which Write_PrePostTransport writes.";
-	parameter<string> Write_PrePostTransport   := 'Ready', ExplicitSuppliers = "=/ModelParameters/Advanced/PrePostTransportDecoupled ? asList('PrePostTransport/' + BaseSets_ToDo/name + '/Write/Data', ';') + (/ModelParameters/Impl/IsOD && #BaseSets_ToDo > 0 ? ';' + asList('PrePostTransport/' + BaseSets_ToDo/name + '/Write_Links/links', ';') : '') : ''"
+	parameter<string> Write_PrePostTransport   := 'Ready', ExplicitSuppliers = "=/ModelParameters/Advanced/PrePostTransportDecoupled ? asList('PrePostTransport/' + BaseSets_ToDo/name + '/WriteDone', ';') + (/ModelParameters/Impl/IsOD && #BaseSets_ToDo > 0 ? ';' + asList('PrePostTransport/' + BaseSets_ToDo/name + '/Write_Links/links', ';') : '') : ''"
 	,	Descr = "Writes the caches of the base sets that have none yet (BaseSets_ToDo; batch/UpdateAll.cmd legs, and output before its portions), in the OD pair mode also their links; writes nothing without ModelParameters/Advanced/PrePostTransportDecoupled.";
 
 	Template PrePostTransport_T : Descr = "Template for one base set of pre- and post-transport connections: Calc calculates them, Write and Read store them with their signature, Connections is the one the model uses, and in the OD pair mode the links of their routes."
@@ -484,7 +484,8 @@ container PublicTransport_Prep
 		parameter<string>             StorageName_Str               := StorageBase_Str + '.parquet';
 		container                     Sig                           := /Templates/Signature_T(StorageName_Str, StorageBase_Str + '.signature.txt', Signature, strlen('.signature.txt') - strlen('.parquet'))
 		,	Descr = "The signature beside the cache, in <name>.signature.txt: Write writes it, Read checks it.";
-		parameter<bool>               IsWritten                     := Sig/IsChecked, Descr = "Is there a cache with the signature of the current settings?";
+		parameter<string>             DoneName_Str                  := StorageBase_Str + '.done';
+		parameter<bool>               IsWritten                     := Sig/IsChecked && ExistingFile('', expand(., DoneName_Str)) != '', Descr = "Is there a complete cache with the signature of the current settings: the signature fits and <name>.done exists, which WriteDone writes after the parquet (#155)?";
 		unit<uint64>                  Src                           := ='TimeInvariantConnections/' + TypeName + '/Create_Routes/ODMatrix';
 		attribute<impl/Places>        Neighbourhood_Place_rel (Src) := = IsPre ? 'Src/From_Place_rel' : 'Src/To_Place_rel';
 		attribute<impl/Places>        Stop_Place_rel          (Src) := = IsPre ? 'Src/To_Place_rel' : 'Src/From_Place_rel';
@@ -500,7 +501,7 @@ container PublicTransport_Prep
 			attribute<m_uint32> TravelDist := rounded_convert(Src/alt_imp[Src_rel], m_uint32), Descr = "Distance of the connection in whole metres.";
 		}
 		container Write : StorageName = "=StorageName_Str", StorageType = "gdalwrite.vect"
-		,	Descr = "Writes Calc as parquet to StorageName_Str, with the signature beside it (Sig); calculate Write/Data to make the cache."
+		,	Descr = "Writes Calc as parquet to StorageName_Str, with the signature beside it (Sig); calculate WriteDone to make the cache."
 		{
 			unit<uint32> Data := Calc, ExplicitSuppliers = "Sig/ForWriting"
 			{
@@ -511,6 +512,10 @@ container PublicTransport_Prep
 				attribute<m_uint32> TravelDist := Calc/TravelDist;
 			}
 		}
+		// The signature is written before the parquet (Sig/ForWriting), so it does not show that the parquet is complete. WriteDone comes after
+		// Write/Data and writes <name>.done; IsWritten requires it, so that a parquet that an interrupted legs step left incomplete is made again.
+		parameter<string> WriteDone := 'Ready', ExplicitSuppliers = "Write/Data", StorageName = "=DoneName_Str", StorageType = "str"
+		,	Descr = "Writes the cache (Write/Data) and then <name>.done, the mark that the parquet is complete (#155).";
 		unit<uint32> Read : StorageName = "=Sig/ForReading", StorageType = "gdal.vect", StorageReadOnly = "true"
 		,	Descr = "Reads the cache of Write; fails when the signature is missing or differs (Sig/CheckGate)."
 		{

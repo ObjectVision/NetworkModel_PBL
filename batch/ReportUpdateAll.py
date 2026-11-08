@@ -89,18 +89,19 @@ def stamp(kind, s):
     return m.group(1) if m else None
 
 def output_dir(comp):
-    # The output folder of a component is Output/<date>_<label>_<component>[_fb] (#118); batch\log\output_dir.txt has the
-    # folder of the component that UpdateAll was at last, and so the date and label of the run.
+    # The output folder of a component is Output/<date>_<label>_<component>[_fb]_<hash> (#118, #145), with the first 8 hex
+    # digits of the hash of its signature; batch\log\output_dir.txt has the folder of the component that UpdateAll was at
+    # last, and so the date and label of the run. Of several folders of a component (other settings), the newest counts (#155).
     od = os.path.join(LOG, "output_dir.txt")
     if not os.path.exists(od):
         return None
     cur = open(od).read().strip()
     for c in sorted(COMPONENTS, key=len, reverse=True):
-        m = re.match(r"(.*)_%s\d*(_fb)?$" % re.escape(c), os.path.basename(cur))
+        m = re.match(r"(.*)_%s\d*(_fb)?(_[0-9a-f]{8})?$" % re.escape(c), os.path.basename(cur))
         if m:
             found = [d for d in glob.glob(os.path.join(os.path.dirname(cur), "%s_%s*" % (m.group(1), comp)))
-                     if re.match(r"_%s\d*(_fb)?$" % re.escape(comp), os.path.basename(d)[len(m.group(1)):])]
-            return found[0] if found else None
+                     if re.match(r"_%s\d*(_fb)?(_[0-9a-f]{8})?$" % re.escape(comp), os.path.basename(d)[len(m.group(1)):])]
+            return max(found, key=os.path.getmtime) if found else None
     return None
 
 def parse(step):
