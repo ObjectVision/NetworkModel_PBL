@@ -105,9 +105,17 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 20.2800" // 20.28.
 		parameter<bool>   VariantHasCar         := any(ModelParameters/Impl/VariantComponents/DirectCar);
 		parameter<string> Check_CarDay          := = !VariantHasCar ? quote('PASS: no direct car trip in the variant.')
 		                                           : substr(Check_AnalysisMoment, 0, 4) != 'PASS' ? quote('FAIL: the day of the car is not checked, because the analysis moment or day is wrong (see above).')
+		                                           : ModelParameters/Impl/CarTimeDependent && !IsDefined(rlookup(lowercase(ModelParameters/CongestionSpeed_DaySelection), /Units/Weekdays/name)) ? quote('FAIL: CongestionSpeed_DaySelection ''' + ModelParameters/CongestionSpeed_DaySelection + ''' is not a day of the week, which the time-dependent car trip needs (Impl/CarTimeDependent); choose one such as tuesday. Weekday, Weekend and Week hold an average speed in TomTom, without a speed profile over the day (#154).')
 		                                           : '/SourceData/Infrastructure/GTFS/LoadFeeds/ServiceDays/WeekdayMatchesCongestionDay ? ' + quote('PASS: the analysis day falls on the TomTom day ' + ModelParameters/CongestionSpeed_DaySelection + ' of the car.') + ' : ' + quote('FAIL: the analysis day does not fall on the TomTom day ' + ModelParameters/CongestionSpeed_DaySelection + ' of the car (CongestionSpeed_DaySelection); choose another AnalysisDay or day selection.')
-		, Descr = "With a direct car trip in the variant: does the analysis day fall on the day of the TomTom speeds?";
-		parameter<string> Report_Settings       := Check_Given + '\n' + Check_AnalysisMoment + '\n' + Check_PartOfDay + '\n' + Check_NS_FareClass + '\n' + Check_Sets + '\n' + Check_Variant + '\n' + Check_MergeCriteria + '\n' + Check_OutputFormat + '\n'
+		, Descr = "With a direct car trip in the variant: does the analysis day fall on the day of the TomTom speeds, and is that a day of the week when the car trip is time-dependent (#154)?";
+		// #154: the output label and the number of transfers, which otherwise stop a run only at its first output step or in the OD pair mode.
+		// Reading OutputLabel applies its IntegrityCheck, so a wrong label stops the first step of the run with that message.
+		parameter<string> Check_OutputLabel     := 'PASS: output label ' + ModelParameters/OutputLabel + '.', Descr = "Is OutputLabel a valid name for the output folders? Reading it applies its IntegrityCheck at the first step of a run instead of at its first output step (#154).";
+		parameter<string> Check_MaxTransfers    := ModelParameters/Impl/IsOD && ModelParameters/Max_transfers > 3w
+		                                           ? 'FAIL: Max_transfers ' + string(ModelParameters/Max_transfers) + ' in the OD pair mode, which follows at most four rides (OD_Chains); set Max_transfers to 3 or less.'
+		                                           : 'PASS: at most ' + string(ModelParameters/Max_transfers) + ' transfers.'
+		, Descr = "Does the OD pair mode get at most four rides, the number that OD_Chains follows (#154)?";
+		parameter<string> Report_Settings       := Check_Given + '\n' + Check_AnalysisMoment + '\n' + Check_PartOfDay + '\n' + Check_NS_FareClass + '\n' + Check_Sets + '\n' + Check_Variant + '\n' + Check_MergeCriteria + '\n' + Check_OutputFormat + '\n' + Check_OutputLabel + '\n' + Check_MaxTransfers + '\n'
 		, StorageName = "%ConfigDir%/../../batch/log/checks_settings.txt", StorageType = "str"
 		, Descr = "The checks of the settings alone, one per line, which batch/UpdateAll.cmd writes and shows before the sources step; it stops at a line with FAIL.";
 		// #153: the fare tables, for a variant with public transport and once the GTFS feed is right, so that a wrong table stops the run
