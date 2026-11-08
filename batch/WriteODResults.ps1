@@ -58,7 +58,7 @@ function WaitForMemory {
 	}
 }
 # The switches of the variant (ModelParameters, group 2): the pre- and post-transport types by their code in a component name.
-$voor = [ordered]@{ 'W' = 'Org2Stops_Walking'; 'C' = 'Org2Stops_Cycling'; 'Crm' = 'Org2RM_Stops_Cycling'; 'Crmt' = 'Org2RMT_Stops_Cycling'; 'Cric' = 'Org2Ric_Stops_Cycling'; 'Cr' = 'Org2R_Stops_Cycling'; 'Cn' = 'Org2N_Stops_Cycling' }
+$voor = [ordered]@{ 'W' = 'Org2Stops_Walking'; 'C' = 'Org2Stops_Cycling'; 'Crm' = 'Org2RM_Stops_Cycling'; 'Crmt' = 'Org2RMT_Stops_Cycling'; 'Cric' = 'Org2Ric_Stops_Cycling'; 'Cr' = 'Org2R_Stops_Cycling'; 'Crml' = 'Org2RML_Stops_Cycling' }
 $na   = [ordered]@{ 'W' = 'Stops2Dest_Walking'; 'C' = 'Stops2Dest_Cycling'; 'rmC' = 'RM_Stops2Dest_Cycling'; 'rmtC' = 'RMT_Stops2Dest_Cycling'; 'ovfC' = 'OVF_Stops2Dest_Cycling' }
 $switches = @($voor.Values) + @($na.Values) + @('DirectWalking', 'DirectCycling', 'DirectCar', 'Merge')
 function GetSwitch($file, $name) {

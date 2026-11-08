@@ -41,7 +41,7 @@ container ModelParameters : using = "units;classifications"
 		parameter<bool> Org2RMT_Stops_Cycling  := FALSE, Descr = "Crmt: cycling to a rail, metro or tram stop.";
 		parameter<bool> Org2Ric_Stops_Cycling  := FALSE, Descr = "Cric: cycling to an intercity station.";
 		parameter<bool> Org2R_Stops_Cycling    := FALSE, Descr = "Cr: cycling to a train station, also one served only by a regional or foreign rail operator; not to a light rail, metro or tram stop (#147).";
-		parameter<bool> Org2N_Stops_Cycling    := FALSE, Descr = "Cn: cycling to a train station where NS trains stop (#147).";
+		parameter<bool> Org2RML_Stops_Cycling  := FALSE, Descr = "Crml: cycling to a train, metro or light rail stop (#152); light rail are the tram lines of Classifications/LightRailLines.";
 	}
 	container PostTransport
 	: Descr = "The post-transport types of the variant, one switch per row of Classifications/PostTransportTypes; only ovfC rents a bike, the other cycling types use an own bike at the last stop."
@@ -66,7 +66,7 @@ container ModelParameters : using = "units;classifications"
 	parameter<string>   MergeCriteria                         := Impl/HasVariant ? Impl/Variant_MergeCriteria : 'Price,Time,Car,Bike', Descr = "Criteria of the merged front, a subset of Price or Price_Augm, Time, Car (needs a car) and Bike (needs a bike), separated by commas; without Car and Bike an option with a car or bike can push out one without. With a merge variant those of its row in MergeVariants.";
 	parameter<uint32>   MergeRunNr                            := Impl/HasVariant ? Impl/Variant_MergeRunNr : 1, Descr = "Number of the merge in the name of its output folder (_Merged<MergeRunNr>_<hash>), with a merge variant that of its row in MergeVariants; the hash of its signature already gives a merge with other criteria or components a folder of its own, so the number only labels it.";
 	unit<uint8> MergeVariants : nrofrows = 8
-	, Descr = "The merge variants that batch/UpdateAll.cmd -variant <name> chooses: per row the name, the components (names from Classifications/Components such as WW, CC, Car, W_PT_W, Crm_PT_W or Cr_PT_W, separated by commas), the criteria as in MergeCriteria, and the number in the name of the output folder, one of its own per row. Rows 6 and 7 are row 2 with cycling to every train station (Cr) or to one where NS trains stop (Cn) in place of Crm (#147); row 8 merges all options agreed with PBL: walking or cycling to every stop, walking, cycling or the OV-fiets from the last stop, and WW, CC and Car. A new merge gets a row here."
+	, Descr = "The merge variants that batch/UpdateAll.cmd -variant <name> chooses: per row the name, the components (names from Classifications/Components such as WW, CC, Car, W_PT_W, Crm_PT_W or Cr_PT_W, separated by commas), the criteria as in MergeCriteria, and the number in the name of the output folder, one of its own per row. Rows 6 and 7 are row 2 with cycling to every train station (Cr, #147) or to a train, metro or light rail stop (Crml, #152) in place of Crm; row 8 merges all options agreed with PBL: walking or cycling to every stop, walking, cycling or the OV-fiets from the last stop, and WW, CC and Car. A new merge gets a row here."
 	, Source = "PBL, the five merges of the request of 6 November 2026 (rows 1 to 5), and the merge with all options agreed with PBL on the same day (row 8)"
 	{
 		unit<uint32> Elements  := Range(uint32, 0, nrAttr*#.)
@@ -80,7 +80,7 @@ container ModelParameters : using = "units;classifications"
 			'OV_lopen_auto',       'WW,W_PT_W,Car',              'Price,Time,Car',      '4',
 			'OV_lopen_fiets_auto', 'WW,CC,W_PT_W,Crm_PT_W,Car',  'Price,Time,Car,Bike', '5',
 			'OV_lopen_fiets_Cr',   'WW,CC,W_PT_W,Cr_PT_W',       'Price,Time,Bike',     '6',
-			'OV_lopen_fiets_Cn',   'WW,CC,W_PT_W,Cn_PT_W',       'Price,Time,Bike',     '7',
+			'OV_lopen_fiets_Crml', 'WW,CC,W_PT_W,Crml_PT_W',     'Price,Time,Bike',     '7',
 			'Alle_opties',         'WW,CC,Car,W_PT_W,W_PT_C,W_PT_ovfC,C_PT_W,C_PT_C,C_PT_ovfC', 'Price,Time,Car,Bike', '8'
 			];
 		}
@@ -129,7 +129,7 @@ container ModelParameters : using = "units;classifications"
 	parameter<min_f>    MaxCyclingTime_Org2RM_Stops           := 15[min_f]               , Descr = "Maximum cycling time from the origin to the first rail or metro stop.";
 	parameter<min_f>    MaxCyclingTime_Org2Ric_Stops          := 15[min_f]               , Descr = "Maximum cycling time from the origin to the first intercity station.";
 	parameter<min_f>    MaxCyclingTime_Org2R_Stops            := 15[min_f]               , Descr = "Maximum cycling time from the origin to the first train station.";
-	parameter<min_f>    MaxCyclingTime_Org2N_Stops            := 15[min_f]               , Descr = "Maximum cycling time from the origin to the first train station served by NS.";
+	parameter<min_f>    MaxCyclingTime_Org2RML_Stops          := 15[min_f]               , Descr = "Maximum cycling time from the origin to the first train, metro or light rail stop.";
 	parameter<min_f>    MaxCyclingTime_Stops2Dest             := 15[min_f]               , Descr = "Maximum cycling time from the last stop to the destination.";
 	parameter<min_f>    MaxCyclingTime_OVF_Stops2Dest         := 15[min_f]               , Descr = "Maximum cycling time from the last stop, at an OV-fiets location, to the destination.";
 	parameter<min_f>    MaxCyclingTime_RMT_Stops2Dest         := 15[min_f]               , Descr = "Maximum cycling time from the last rail, metro or tram stop to the destination.";
@@ -323,12 +323,12 @@ container ModelParameters : using = "units;classifications"
 		// 2. COMPONENTS (#117): the components, their pre- and post-transport types and the direct modes are in Classifications
 		// (Classifications/Components). Every component optimises on MinimiseCriteria; an e-bike is set with the cycling parameters.
 		// The maximum walking times of pre- and post-transport types that no component uses (to or from a rail, metro, tram, intercity, train,
-		// NS or OV-fiets stop); Classifications/TimeInvariantTypes asks for them, so they equal those to and from every stop.
+		// light rail or OV-fiets stop); Classifications/TimeInvariantTypes asks for them, so they equal those to and from every stop.
 		parameter<min_f>    MaxWalkingTime_Org2RMT_Stops            := /ModelParameters/MaxWalkingTime_Org2Stops, Descr = "Maximum walking time from the origin to the first rail, metro or tram stop.";
 		parameter<min_f>    MaxWalkingTime_Org2RM_Stops             := /ModelParameters/MaxWalkingTime_Org2Stops, Descr = "Maximum walking time from the origin to the first rail or metro stop.";
 		parameter<min_f>    MaxWalkingTime_Org2Ric_Stops            := /ModelParameters/MaxWalkingTime_Org2Stops, Descr = "Maximum walking time from the origin to the first intercity station.";
 		parameter<min_f>    MaxWalkingTime_Org2R_Stops              := /ModelParameters/MaxWalkingTime_Org2Stops, Descr = "Maximum walking time from the origin to the first train station.";
-		parameter<min_f>    MaxWalkingTime_Org2N_Stops              := /ModelParameters/MaxWalkingTime_Org2Stops, Descr = "Maximum walking time from the origin to the first train station served by NS.";
+		parameter<min_f>    MaxWalkingTime_Org2RML_Stops            := /ModelParameters/MaxWalkingTime_Org2Stops, Descr = "Maximum walking time from the origin to the first train, metro or light rail stop.";
 		parameter<min_f>    MaxWalkingTime_OVF_Stops2Dest           := /ModelParameters/MaxWalkingTime_Stops2Dest, Descr = "Maximum walking time from the last stop, at an OV-fiets location, to the destination.";
 		parameter<min_f>    MaxWalkingTime_RMT_Stops2Dest           := /ModelParameters/MaxWalkingTime_Stops2Dest, Descr = "Maximum walking time from the last rail, metro or tram stop to the destination.";
 		parameter<min_f>    MaxWalkingTime_RM_Stops2Dest            := /ModelParameters/MaxWalkingTime_Stops2Dest, Descr = "Maximum walking time from the last rail or metro stop to the destination.";
