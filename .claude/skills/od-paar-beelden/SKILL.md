@@ -9,19 +9,20 @@ Een controlerun op één HB-paar laat een wijziging zien op een schaal die je ku
 
 ## 1. Het paar rekenen
 
-`batch\WriteODResults.ps1` maakt een runkopie van een commit en rekent het paar met `UpdateAll.cmd all`: ritten, ketens, de autocache van het vertrekmoment, de uitvoer per component en de samenvoeging.
+`batch\WriteODResults.ps1` maakt een runkopie van een commit (`-Ref`, standaard `HEAD`) en rekent het paar met `UpdateAll.cmd all`: de ketens, het voor- en natransport (de stap `legs`), de autocache van het vertrekmoment, de uitvoer per component en de samenvoeging.
 
 ```
 powershell -ExecutionPolicy Bypass -File batch\WriteODResults.ps1 -Org BU05460200 -Dest BU06290101 -Moment 07:00 -AnalysisMoment Y2025 `
   -Components 'WW,CC,Car,W_PT_W,W_PT_ovfC,C_PT_W,C_PT_ovfC' -Root C:\LocalData\NM_PBL_runs\voorna\na
 ```
 
-- Drie fronten (zonder auto of fiets, met fiets, met auto) vragen componenten uit alle drie groepen, zoals hierboven. Met alleen `W_PT_W` is er één front.
-- Eén vertrekmoment (`-Moment hh:mm`) houdt het kort. Gemeten op 7-11-2026 met GeoDMS 20.28.0 voor Y2025 en de zeven componenten hierboven: ongeveer 6 minuten voor een nieuw paar. Een tweede run van hetzelfde paar duurt 2 tot 3 minuten, omdat de ritten en de autocache dan al bestaan. De ketenstap rekent alle OV-ritten van het land (20 tot 30 GB); geef bij andere runs `-WaitForMemoryGB` mee.
-- Voor en na een wijziging: twee runs, één met `-Ref <commit van ervoor>` en één met de nieuwe commit, elk met een eigen `-Root`. De uitvoermappen `Output_<O>_<D>\<datum>_od_<component>_<hash>` verschillen door de hash van de signatuur, en `OD_PairRoutes` in elke runkopie leest zijn eigen uitvoer.
-- Het pad van de GUI-configuratie is `<Root>\od_<O>_<D>\variant\NetworkModel_PBL\cfg\main.dms`.
+- Drie fronten (zonder auto of fiets, met fiets, met auto) vragen componenten uit alle drie groepen, zoals hierboven. Met alleen `W_PT_W` is er één front. De OV-fiets telt niet als eigen fiets, dus `W_PT_ovfC` hoort bij het front zonder auto of fiets.
+- `-Components` zet schakelaars, geen losse componenten: elk voortransporttype uit de lijst gaat samen met elk natransporttype uit de lijst. `W_PT_W,C_PT_ovfC` geeft dus ook `W_PT_ovfC` en `C_PT_W`.
+- Eén vertrekmoment (`-Moment hh:mm`) houdt het kort. Gemeten op 7-11-2026 met GeoDMS 20.28.0 voor Y2025 en de zeven componenten hierboven: ongeveer 6 minuten voor een nieuw paar. Een tweede run van hetzelfde paar duurt 2 tot 3 minuten, omdat de caches van het voor- en natransport en de autocache dan al bestaan. De ketenstap rekent alle OV-ritten van het land (20 tot 30 GB); geef bij andere runs `-WaitForMemoryGB` mee. Het script wacht dan één keer, voordat UpdateAll begint, tot er zoveel geheugen vrij is.
+- Voor en na een wijziging: twee runs, één met `-Ref <commit van ervoor>` en één met de nieuwe commit, elk met een eigen `-Root`, zodat de tweede run de runkopie van de eerste laat staan. Beide runkopieën krijgen de `config.ini` van de werkkopie en schrijven dus in dezelfde `%LocalDataProjDir%`, de uitvoer in `Output_<O>_<D>\<datum>_od_<component>_<hash>`; voor `WW` en `CC` staat daar de herkomstset met de herkomst van het paar (`b2025-bu05460200`) op de plaats van `od`. De tweede run krijgt alleen een eigen uitvoermap als de wijziging de signatuur van de uitvoer verandert, bijvoorbeeld met een hogere `PT_Chains_Revision`, die bij elke wijziging aan de ketens of hun prijzen omhoog moet. Anders vindt de tweede run de uitvoer van de eerste compleet en slaat hij hem over.
+- De GUI-configuratie is `<Root>\od_<O>_<D>\variant\NetworkModel_PBL\cfg\main.dms`. De `ModelParameters.dms` van die runkopie heeft het paar (groep 6) en de schakelaars van de variant (groep 2), maar niet groep 1: die geeft het script per aanroep met `-set` aan UpdateAll. Zonder dezelfde `AnalysisMoment`, `PartOfDay`, `Orgset`, `Destset` en `OutputLabel` als de aanroep (standaard `Y2026`, `Ochtendspits`, `Buurt2025`, `Buurt2025` en `od`) zoekt `OD_PairRoutes` een andere uitvoermap. Zet ze daarom in die `ModelParameters.dms` (de waarde aan het eind van de regel), of zet ze vóór het script als `$env:GEODMS_Overridable_<naam>`: de scripts starten de GUI met `Start-Process`, dat de omgeving doorgeeft. Na `-Variant` hoort daar ook `GEODMS_Overridable_Variant` bij, met de naam van de samenvoegvariant.
 
-Kies een paar dat opties heeft. `od_tellingen.csv` in de uitvoermap telt ze per vertrekmoment. Een paar zonder opties komt meestal door de maximale OV-reistijd (`MaxPTTime`, 90 minuten), door de extra wachttijd van een flexlijn (30 minuten per instap) of door een veerdienst met weinig afvaarten in het venster. De Westerschelde Ferry en Wagenborg tussen Lauwersoog en Schiermonnikoog ontbreken in 2025 helemaal: hun steigers liggen buiten elk concessiegebied, zodat `OD_R/Result` hun ritten als buitenland weglaat (`IsOD_completely_foreign`, #150).
+Kies een paar dat opties heeft. `od_tellingen.csv` in de uitvoermap telt ze per vertrekmoment. Een paar zonder opties komt meestal door de maximale OV-reistijd (`MaxPTTime`, 90 minuten), door de extra wachttijd van een flexlijn (30 minuten per instap) of door een veerdienst met weinig afvaarten in het venster.
 
 Buurtcodes zoek je op in `%NetworkModel_Dir%\RegioIndelingen\cbsgebiedsindelingen<jaar>.gpkg`, tabel `buurt_labelpoint` (`statcode`, `statnaam`). Open die alleen-lezen, met sqlite3 en `?mode=ro&immutable=1`, zodat er niets op de share wordt geschreven.
 
@@ -36,7 +37,7 @@ Draai de scripts zonder sandbox: de GUI moet kunnen tekenen, vensterberichten kr
 | Front van één component en één vertrekmoment | `capture_view.ps1 -Kind grafiek -Item /Output/OD_PairRoutes/PerComponent/<component>/Chart/<moment>/Points/Prijs` |
 | Fronten van de groepen samen | `capture_fronts.ps1 -Series <Combined/Chart/<moment>_ZonderAutoFiets/Points/Prijs>,<..._MetFiets/...>,<..._MetAuto/...>` |
 
-Een vertrekmoment heet `At_07h00m00s`; de groepen zijn `ZonderAutoFiets`, `MetFiets`, `MetAuto` en `MetAutoFiets`. Elk script krijgt `-Config` (de `main.dms` van de runkopie) en `-Png`. Op deze machine ook `-NetworkModelDir` en `-PrivDir`, omdat de registerweergave van een shell oud kan zijn. Bij een schermschaal van 150% levert een venster van 2000 bij 1450 een beeld van ongeveer 1350 bij 1040 pixels.
+Een vertrekmoment heet `At_07h00m00s`; de groepen zijn `ZonderAutoFiets`, `MetFiets`, `MetAuto` en `MetAutoFiets`. Elk script krijgt `-Config` (de `main.dms` van de runkopie) en `-Png`. Op deze machine ook `-NetworkModelDir` en `-PrivDir`, omdat de registerweergave van een shell oud kan zijn. Alleen die twee mappen zetten de scripts zelf als omgevingsvariabele; groep 1 van de aanroep geef je mee zoals in stap 1 staat. Bij een schermschaal van 150% levert een venster van 2000 bij 1450 een beeld van ongeveer 1350 bij 1040 pixels.
 
 De opties zelf staan in de gpkg's van de uitvoer (`od_opties`, `od_onderdelen`). `od_compare.py <map voor> <map na>` zet ze per vertrekmoment naast elkaar, met de OV-ritten en hun prijs; dat is de tabel bij de beelden.
 
