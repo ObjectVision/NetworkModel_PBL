@@ -74,6 +74,11 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 20.2800" // 20.28.
 		                                           : !IsDefined(strpos(MergeCriteria_List, ',price')) && !IsDefined(strpos(MergeCriteria_List, ',time,')) ? 'FAIL: MergeCriteria ''' + ModelParameters/MergeCriteria + ''' needs Price, Price_Augm or Time.'
 		                                           : 'PASS: merge on ' + ModelParameters/MergeCriteria + '.'
 		, Descr = "Are the criteria of the merge a subset of Price or Price_Augm, Time, Car and Bike, with price or time among them?";
+		// A merge reads the output of its components as parquet (NetworkSetup/ComponentMerge); with OutputFormat 'csv' they write only csv.
+		parameter<string> Check_OutputFormat    := !ModelParameters/Merge && !ModelParameters/Impl/HasVariant ? 'PASS: no merge (Merge is FALSE).'
+		                                           : ModelParameters/OutputFormat != 'parquet' ? 'FAIL: a merge reads the output of its components as parquet, but OutputFormat is ''' + ModelParameters/OutputFormat + '''; set OutputFormat to ''parquet'', or Merge to FALSE.'
+		                                           : 'PASS: the components write parquet, which the merge reads.'
+		, Descr = "With a merge, do the components write parquet, which the merge reads (#157)?";
 		// The GTFS feed: its cache must exist, and it must hold every service day that the analysis window of PartOfDay on the analysis day needs
 		// (LoadFeeds/ServiceDays); only after Check_AnalysisMoment and Check_PartOfDay, because both set the day and the window.
 		parameter<bool>   DayAndWindowKnown     := substr(Check_AnalysisMoment, 0, 4) == 'PASS' && substr(Check_PartOfDay, 0, 4) == 'PASS';
@@ -102,7 +107,7 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 20.2800" // 20.28.
 		                                           : substr(Check_AnalysisMoment, 0, 4) != 'PASS' ? quote('FAIL: the day of the car is not checked, because the analysis moment or day is wrong (see above).')
 		                                           : '/SourceData/Infrastructure/GTFS/LoadFeeds/ServiceDays/WeekdayMatchesCongestionDay ? ' + quote('PASS: the analysis day falls on the TomTom day ' + ModelParameters/CongestionSpeed_DaySelection + ' of the car.') + ' : ' + quote('FAIL: the analysis day does not fall on the TomTom day ' + ModelParameters/CongestionSpeed_DaySelection + ' of the car (CongestionSpeed_DaySelection); choose another AnalysisDay or day selection.')
 		, Descr = "With a direct car trip in the variant: does the analysis day fall on the day of the TomTom speeds?";
-		parameter<string> Report_Settings       := Check_Given + '\n' + Check_AnalysisMoment + '\n' + Check_PartOfDay + '\n' + Check_NS_FareClass + '\n' + Check_Sets + '\n' + Check_Variant + '\n' + Check_MergeCriteria + '\n'
+		parameter<string> Report_Settings       := Check_Given + '\n' + Check_AnalysisMoment + '\n' + Check_PartOfDay + '\n' + Check_NS_FareClass + '\n' + Check_Sets + '\n' + Check_Variant + '\n' + Check_MergeCriteria + '\n' + Check_OutputFormat + '\n'
 		, StorageName = "%ConfigDir%/../../batch/log/checks_settings.txt", StorageType = "str"
 		, Descr = "The checks of the settings alone, one per line, which batch/UpdateAll.cmd writes and shows before the sources step; it stops at a line with FAIL.";
 		parameter<string> Report                := Report_Settings + Check_OSM + '\n' + Check_GTFS + '\n' + Check_CarDay + '\n'
