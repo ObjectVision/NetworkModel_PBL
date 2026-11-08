@@ -140,6 +140,7 @@ unit<uint32> OD_R := =
 	attribute<Ct> Price_T                 := const(0[Ct],.), Descr = "Augmented costs for transfers";
 	attribute<Ct> Price_S                 := IsFixedFareRide ? rounded_convert(impl/FixedPrice, Ct) : 0[Ct], Descr = "The fixed fare of the ride (#55), which the chain joiner adds for every ride, apart from the boarding fare; 0 for other rides.";
 	attribute<s>  TripSurcharge_ExtraTime := const(0[s],.), Descr = "Extra time of the trip surcharge (#3), only in the L network.";
+	attribute<Route_CG> Route_CG_rel      := IsBoardAlightAllowed ? combine_data(Route_CG, Route_rel, impl/Start_Concessiegebied_rel) : value(null_u, Route_CG), Descr = "The line of the ride and the concession area in which it boards, for a ride that may board and alight (Route_CG, #150).";
 	attribute<Ct> Price                   := Price_I + Price_O + Price_S;
 	attribute<Ct> Price_augm              := Price;
 
@@ -173,3 +174,23 @@ unit<uint32> OD_R := =
 		parameter<uint32> ModeFactor := Result/ModeFactor;
 	}
 }
+
+// #150: a concession applies to lines, not to stops; on Leiden Centraal buses of two concessions stop. A line therefore gets one concession
+// area, in which each of its rides finds its fare rule and its DOVA fare: the area where most of its rides in OD_R board, counted over the
+// areas in which the fare table has a rule for its agency and mode, and over all areas when none of its rides boards in such an area. A line
+// whose rides all board outside the concession areas, such as a ferry whose piers lie outside them, has none and finds only the rules
+// without a concession area.
+unit<uint32> Route_CG := combine_unit_uint32(Routes, Concessiegebied), Descr = "The pairs of a line and a concession area (#150)."
+{
+	attribute<Routes>          Route_rel   := first_rel(id(.));
+	attribute<Concessiegebied> CG_rel      := second_rel(id(.));
+	attribute<uint32>          NrBoardings := pcount(OD_R/Route_CG_rel), Descr = "The rides of the line in OD_R that board in the area and may board and alight.";
+	attribute<bool>            HasRule     := =ModelParameters/Impl/PriceMethod_effective == 'DOVA'
+	                                          ? 'const(true, .)'
+	                                          : 'IsDefined(rlookup(Modes/name[Routes/Mode_rel[Route_rel]] + ''_'' + Agencies/name[Routes/Agency_rel[Route_rel]] + ''_'' + Concessiegebied/name[CG_rel], FareTable/Mode_Agency_CG_identifier))'
+	, Descr = "Does the fare table have a rule for the agency and mode of the line in the area? With the DOVA fares every area counts.";
+	attribute<uint32>          Score       := NrBoardings > 0 && HasRule ? NrBoardings + #OD_R : NrBoardings, Descr = "The boardings, raised by the number of rides of OD_R for an area with a rule, so that such an area comes first.";
+}
+attribute<Route_CG>        Route_CG_best             (Routes) := max_index(Route_CG/Score, Route_CG/Route_rel);
+attribute<Concessiegebied> Route_Concessiegebied_rel (Routes) := Route_CG/Score[Route_CG_best] > 0 ? Route_CG/CG_rel[Route_CG_best] : value(null_b, Concessiegebied)
+, Descr = "The concession area of the line (#150): the area where most of its rides board among those with a rule for its agency and mode, else among all areas; none when no ride of the line boards in a concession area.";
