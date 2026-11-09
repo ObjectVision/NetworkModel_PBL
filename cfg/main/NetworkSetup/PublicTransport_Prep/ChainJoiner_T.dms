@@ -9,8 +9,8 @@ Template ChainJoiner_T : Descr = "Joins the chains of type LeftStr through a tra
 	////
 	parameter<bool>   HasLeft_RO                       := IsDefined(strpos(LeftStr , 'R'));
 	parameter<bool>   HasRight_RO                      := IsDefined(strpos(RightStr, 'R'));
-	parameter<bool>   HasLeft_NS                       := IsDefined(strpos(LeftStr , 'L')) || IsDefined(strpos(LeftStr, 'K'));
-	parameter<bool>   HasRight_NS                      := IsDefined(strpos(RightStr, 'L')) || IsDefined(strpos(RightStr, 'K'));
+	parameter<bool>   HasLeft_NS                       := IsDefined(strpos(LeftStr , 'L'));
+	parameter<bool>   HasRight_NS                      := IsDefined(strpos(RightStr, 'L'));
 	parameter<bool>   Has_RO                           := HasLeft_RO || HasRight_RO;
 	parameter<bool>   Has_NS                           := HasLeft_NS || HasRight_NS;
 	parameter<bool>   HasBoth                          := Has_RO && Has_NS;
@@ -93,17 +93,10 @@ Template ChainJoiner_T : Descr = "Joins the chains of type LeftStr through a tra
 		attribute<Modes>     from_Mode_rel              := Left_rel -> Mode_rel;
 		attribute<Modes>     to_Mode_rel                := Right_rel -> Mode_rel;
 		attribute<Modes>     Mode_rel                   := to_Mode_rel, Descr = "Last mode_rel";
-		attribute<uint32>    ModeCode                   := Left_rel -> ModeCode * Right/ModeFactor + Right_rel -> ModeCode;
 		
-		attribute<bool>      NeedsTranferTimePenalty    := Modes/IsStreetLevel[from_Mode_rel] == 1b && Modes/IsStreetLevel[to_Mode_rel] == 1b // from: bus, tram, walk to bus, tram, walk --> no penalty
-		                                                   ? False
-		                                                   : Modes/IsStreetLevel[from_Mode_rel] == 1b && Modes/IsStreetLevel[to_Mode_rel] == 0b // from: bus, tram, walk to metro, rail, ferry --> penalty
-		                                                       ? TRUE
-		                                                       : Modes/IsStreetLevel[from_Mode_rel] == 0b && Modes/IsStreetLevel[to_Mode_rel] == 0b // from: metro, rail, ferry to metro, rail, ferry --> penalty
-		                                                           ? TRUE
-		                                                           : Modes/IsStreetLevel[from_Mode_rel] == 0b && Modes/IsStreetLevel[to_Mode_rel] == 1b // from: metro, rail, ferry to bus, tram, walk --> penalty
-		                                                               ? TRUE
-		                                                               : (0/0)[bool];
+		attribute<bool>      NeedsTranferTimePenalty    := IsDefined(Modes/IsStreetLevel[from_Mode_rel]) && IsDefined(Modes/IsStreetLevel[to_Mode_rel])
+		                                                   && !(Modes/IsStreetLevel[from_Mode_rel] == 1b && Modes/IsStreetLevel[to_Mode_rel] == 1b)
+		, Descr = "Does the transfer get GradeSeparatedTransferPenalty? Yes, unless both rides are boarded at street level (Modes/IsStreetLevel: tram, bus, walking); no penalty when the level of a ride is unknown.";
 		attribute<s>         Traveltime                 := NeedsTranferTimePenalty
 		                                                   ? Traveltime_wo_Penalty + convert(ModelParameters/Advanced/GradeSeparatedTransferPenalty, s)
 		                                                   : Traveltime_wo_Penalty;
@@ -125,19 +118,19 @@ Template ChainJoiner_T : Descr = "Joins the chains of type LeftStr through a tra
 					= RO_transfer_possible ? 'RO_continuation_allowed ? max_elem(Left_rel->price_I, Right_rel->price_I) : Left_rel->price_I + Right_rel->price_I'
 					: HasLeft_RO           ? 'Left_rel->price_I' 
 					: HasRight_RO          ? 'Right_rel->price_I' 
-					: 'const(9999[Ct], .)';
+					: 'const(0[Ct], .)';
 			attribute<Ct>            Price_O                         :=
 					= RO_transfer_possible ? 'Left_rel->Price_O + Right_rel->Price_O'
 					: HasLeft_RO  ? 'Left_rel->Price_O' 
 					: HasRight_RO ? 'Right_rel->Price_O' 
-					: 'const(9999[Ct], .)';
+					: 'const(0[Ct], .)';
 			attribute<Ct>            Price_T                         := Left_rel->Price_T + Transfers_rel->Time_cost + Right_rel->Price_T;
 			attribute<Ct>            Price_S                         := Left_rel->Price_S + Right_rel->Price_S, Descr = "The prices per ride of the chain, apart from the boarding fare and the through NS fare: the trip surcharge of special trains (#3, OD_L/Price_S) and the fixed fares per ride (#55, OD_R/Price_S).";
 			
 			// These intermediate steps are only needed with NS_transfer_possible, to recalculate the train ticket.
 			attribute<c_NS_start_end> c_NS_start_end_rel := =NS_transfer_possible  ? 'combine_data(c_NS_start_end, left_rel ->First_NS_Station, right_rel-> Last_NS_Station)' : 'const(null_u, .)';
 					
-			attribute<Ct>            Price_NS                        := =NS_transfer_possible  ? 'rjoin(c_NS_start_end_rel, TariffUnitsMatrix/c_NS_start_end_rel, TariffUnitsMatrix/Price_ct)' : 'const(9999[Ct], .)' ;
+			attribute<Ct>            Price_NS                        := =NS_transfer_possible  ? 'rjoin(c_NS_start_end_rel, TariffUnitsMatrix/c_NS_start_end_rel, TariffUnitsMatrix/Price_ct)' : 'const(0[Ct], .)' ;
 																			
 			attribute<bool>          NS_transfer_allowed             := =NS_transfer_possible ? 'Left_rel->Last_NS_AlightTime + MaxTransferTimeWithinFareJourney >= Right_rel->BoardingTime_NS' : 'const(false,. )';
 			attribute<bool>          NS_through_fare_cheaper         := =NS_transfer_possible ? NS_through_fare_certain ?'const(true, .)':'NS_transfer_allowed && IsDefined(Price_NS) && Price_NS < Left_rel->Price_L + Right_rel->Price_L' : 'const(false,. )';
@@ -199,7 +192,6 @@ Template ChainJoiner_T : Descr = "Joins the chains of type LeftStr through a tra
 			parameter<uint32>      ModeFactor              := Left/ModeFactor * Right/ModeFactor, Descr = "16 to the power of the number of rides of this chain, the product of left and right (16 for one ride, OD_R/Result and OD_L/Result); a next chain joiner with this chain on the right shifts the ModeCode of the left chain by ModeFactor.";
 			attribute<uint32>      ModeCode                := Left_rel -> ModeCode * Right/ModeFactor + Right_rel -> ModeCode, Descr = "The modes of the rides (Classifications/GTFS_Modes/CodeDigits) as a uint32, the left part shifted by the ModeFactor of the right, composed only for the remaining chains to save calculation time.";
 			attribute<Modes>       Mode_rel                := Right_rel -> Mode_rel;
-			attribute<bool>        NS_through_fare_cheaper := Valid1_rel->NS_through_fare_cheaper;
 
 			attribute<NS_Stations> First_NS_Station        : Descr = "The first NS station of the chain, kept to recalculate the NS fare afterwards.",
 			                                                 = Valid1_rel->First_NS_Station;
