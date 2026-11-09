@@ -1,7 +1,7 @@
 container GTFS : using = "Geography;classifications", Descr = "The public transport timetable from the GTFS feed: the feed as read, the selection for the analysis window, the network with waiting links and the public transport hubs."
 {
 	unit<uint64> c_Time_Stops     := combine_unit_uint64(Time,RelevantSelection/Stops);
-	unit<uint64> c_Trip_Time      := combine_unit_uint64(Trips, Time);
+	unit<uint64> c_StopTime_Time  := combine_unit_uint64(LoadFeeds/RawStopTimes, Time), Descr = "The moments of the stop_times: a stop_time and a time, the key of the moments of which GetWaitingAtStop makes the waiting links.";
 	unit<uint64> c_Time_Places    := combine_unit_uint64(Time,Places);
 	unit<uint32> Places           := RelevantSelection/ScheduledLinks/SL_Places;
 	unit<uint32> c_NS_start_end   := /SourceData/Infrastructure/OVprijzen/NS/NS_TariffUnits_matrix/c_NS_start_end;
@@ -22,7 +22,7 @@ container GTFS : using = "Geography;classifications", Descr = "The public transp
 		///
 		
 		unit<uint32> doubledLinks := union_unit(Network,Network)
-		, Descr = "in order to get a set of all time-place events"
+		, Descr = "The ends of the scheduled links, first their departures and then their arrivals, each a moment of a stop_time."
 		{
 			attribute<Time>          Time_rel           := union_data(., Network/fromTime_rel, Network/ToTime_rel);
 			attribute<Trips>         Trip_rel           := union_data(., Network/Trip_rel, Network/Trip_rel);
@@ -30,27 +30,34 @@ container GTFS : using = "Geography;classifications", Descr = "The public transp
 			// The stop of the link itself, not the first stop with the same point: where stops share a point, a dwell at one of them would otherwise
 			// connect the nodes of the other stop, so that a ride could not continue there and the chains alighted and boarded the same vehicle again.
 			attribute<Stops>         Stop_rel           := union_data(., Network/FromStop_rel, Network/ToStop_rel);
-			attribute<c_Trip_Time>   c_Trip_Time_rel    := combine_data(c_Trip_Time, Trip_rel, Time_rel);
+			// A link departs at its own stop_time and arrives at the next stop_time of its trip. A moment belongs to a stop_time, not only to a trip
+			// and a time: across a link of 0 seconds a trip is at two stops at the same time, and the dwell at one of them would otherwise get the
+			// stop of the other and be lost (#172).
+			attribute<LoadFeeds/RawStopTimes> StopTime_rel := union_data(., Network/StopTime_rel, LoadFeeds/RawStopTimes/NextStopId[Network/StopTime_rel]);
+			attribute<bool>          IsArrival          := union_data(., const(false, Network, bool), const(true, Network, bool));
+			attribute<c_StopTime_Time> c_StopTime_Time_rel := combine_data(c_StopTime_Time, StopTime_rel, Time_rel);
 			// #3: boarding and alighting of the stop_time of this moment (arrival or departure, the same GTFS row).
 			attribute<bool>          PickupAllowed      := union_data(., Network/FromPickupAllowed,  Network/ToPickupAllowed);
 			attribute<bool>          DropOffAllowed     := union_data(., Network/FromDropOffAllowed, Network/ToDropOffAllowed);
 			
-			attribute<WaitingAtStop> uq_c_Trip_Time_rel := rlookup(c_Trip_Time_rel, WaitingAtStop/c_Trip_Time_rel);
+			attribute<WaitingAtStop> uq_c_StopTime_Time_rel := rlookup(c_StopTime_Time_rel, WaitingAtStop/c_StopTime_Time_rel);
 		}
 	
-		// For each c_Time_Stop_rel a waiting link is added up to the next time_rel at that stop.
-		unit<uint32> WaitingAtStop := unique(doubledLinks/c_Trip_Time_rel)
+		// The moments of the stop_times. A stop_time where the vehicle stands still, with its arrival before its departure, gets a waiting link from
+		// its arrival to its departure.
+		unit<uint32> WaitingAtStop := unique(doubledLinks/c_StopTime_Time_rel)
 		{
-			attribute<c_Trip_Time> c_Trip_Time_rel    := values;
-			attribute<Trips>       Trip_rel           := first_rel(c_Trip_Time_rel);
-			attribute<Time>        Time_rel           := second_rel(c_Trip_Time_rel);
-			attribute<Stops>       Stop_rel           := doubledLinks/Stop_rel[invert(doubledLinks/uq_c_Trip_Time_rel)];
-			attribute<Trips>       NextTrip_rel       := Trip_rel[add_or_null(id(.),1)];
-			attribute<Stops>       NextStop_rel       := Stop_rel[add_or_null(id(.),1)];
+			attribute<c_StopTime_Time> c_StopTime_Time_rel := values;
+			attribute<LoadFeeds/RawStopTimes> StopTime_rel := first_rel(c_StopTime_Time_rel);
+			attribute<Time>        Time_rel           := second_rel(c_StopTime_Time_rel);
+			attribute<Trips>       Trip_rel           := doubledLinks/Trip_rel[invert(doubledLinks/uq_c_StopTime_Time_rel)];
+			attribute<Stops>       Stop_rel           := doubledLinks/Stop_rel[invert(doubledLinks/uq_c_StopTime_Time_rel)];
+			attribute<bool>        IsArrival          := doubledLinks/IsArrival[invert(doubledLinks/uq_c_StopTime_Time_rel)];
 			attribute<Routes>      Route_rel          := Trips/Route_rel[Trip_rel];
 			
 			attribute<string>      RouteName          := Trips/Label[Trip_rel];
-			attribute<.>           NextMoment         := Trip_rel == NextTrip_rel && Stop_rel == NextStop_rel
+			// The arrival of a stop_time followed by its departure; the departure on one service day and the arrival on the next are not linked.
+			attribute<.>           NextMoment         := StopTime_rel == StopTime_rel[add_or_null(id(.),1)] && IsArrival && not(IsArrival[add_or_null(id(.),1)])
 			                                             ? add_or_null(id(.),1)
 			                                             : null_u;
 			
@@ -74,8 +81,8 @@ container GTFS : using = "Geography;classifications", Descr = "The public transp
 			attribute<string>      Label              := 'Waiting at stop: ' + Stops/Name[FromStop_rel] + ' from ' + Time/Label[FromTime_rel] + ' to ' + Time/Label[ToTime_rel];
 			// #3: a dwell between arrival and departure at a stop belongs to a GTFS stop_time, and both nodes get its boarding and alighting rule.
 			// This is needed at the edge of the time window, where the incoming scheduled link falls outside the set.
-			attribute<bool>        PickupAllowed      := doubledLinks/PickupAllowed[invert(doubledLinks/uq_c_Trip_Time_rel)];
-			attribute<bool>        DropOffAllowed     := doubledLinks/DropOffAllowed[invert(doubledLinks/uq_c_Trip_Time_rel)];
+			attribute<bool>        PickupAllowed      := doubledLinks/PickupAllowed[invert(doubledLinks/uq_c_StopTime_Time_rel)];
+			attribute<bool>        DropOffAllowed     := doubledLinks/DropOffAllowed[invert(doubledLinks/uq_c_StopTime_Time_rel)];
 			attribute<bool>        FromPickupAllowed  := PickupAllowed;
 			attribute<bool>        FromDropOffAllowed := DropOffAllowed;
 			attribute<bool>        ToPickupAllowed    := PickupAllowed[NextMoment];
