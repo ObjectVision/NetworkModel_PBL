@@ -6,7 +6,7 @@
 // - pre-transport and post-transport: the links of the leg from its base set (PublicTransport_Prep/PrePostTransport/<base set>/Links);
 // - a public transport ride: the stop-to-stop links within the trip, from a search in Set_L or Set_R between the begin and end node of the ride
 //   (OD_Chains/Read_ChainParts), which on the time-expanded network gives the same path as the ride (every path between two nodes takes equally
-//   long, and with ParetoLegs the choice at equal time is the shortest, Length);
+//   long, and with ParetoLegs the choice at equal time is the shortest, Length), each scheduled link along the shape of its trip (ShapeSection_T);
 // - a transfer: the straight walking line between the stops;
 // - the direct walking and cycling trip: the links of the search (PrivateTransport/<mode>/Calc_Traveltimes_maxspeed_<mode>/Links);
 // - the direct car trip of the moment: the links of its route from the car cache of the moment (see CarOptions).
@@ -125,6 +125,48 @@ container OD_Output : Descr = "The options of the OD pair per departure moment w
 	container         N_Walking                 := LegLinks_T('Stops2Dest_Walking', FALSE, TRUE);
 	container         N_Cycling                 := LegLinks_T('Stops2Dest_Cycling', FALSE, FALSE);
 
+	// A scheduled link of a ride follows the shape of its trip (#165): from the stop of departure along the points of shapes.txt whose
+	// shape_dist_traveled lies between that of its stop_time and that of the next one, to the stop of arrival. A link of a trip without
+	// shape_id or without increasing shape_dist_traveled, and a waiting link, keeps its straight line. This changes only the map: the
+	// travel time and the distance of a ride come from the timetable (ChainParts).
+	Template ShapeSection_T
+	{
+		unit<uint32>      Links;
+		attribute</SourceData/Infrastructure/GTFS/LoadFeeds/RawStopTimes> StopTime_rel (Links);
+		attribute<rdc>    Line            (arc, Links);
+		///
+		unit<uint32>      StopTimes              := /SourceData/Infrastructure/GTFS/LoadFeeds/RawStopTimes;
+		unit<uint32>      Shapes                 := /SourceData/Infrastructure/GTFS/LoadFeeds/Shapes;
+		attribute<uint32> ShapeId        (Links) := /SourceData/Infrastructure/GTFS/LoadFeeds/RawTrips/shape_id[StopTimes/RawTrip_rel[StopTime_rel]];
+		attribute<uint32> FromDist       (Links) := StopTimes/shape_dist_traveled[StopTime_rel];
+		attribute<uint32> ToDist         (Links) := StopTimes/next_shape_dist_traveled[StopTime_rel];
+		unit<uint32>      Cut                    := select_with_org_rel(IsDefined(ShapeId) && IsDefined(FromDist) && IsDefined(ToDist) && FromDist < ToDist), Descr = "The links with a section of a shape: their trip has a shape_id, and shape_dist_traveled increases from their departure to their arrival.";
+		unit<uint32>      UsedShapes             := unique(ShapeId[Cut/org_rel]);
+		unit<uint32>      ShapePoints            := select_with_org_rel(IsDefined(rlookup(Shapes/shape_id, UsedShapes/values))), Descr = "The points of the shapes of the links in Cut.";
+		unit<uint32> Pairs := join_equal_values_uint32(ShapeId[Cut/org_rel], Shapes/shape_id[ShapePoints/org_rel])
+		, Descr = "Every link of Cut with every point of its shape, per link in the order of ShapePoints (join_equal_values keeps the order of both arguments within a key)."
+		{
+			attribute<Links>  Link_rel := Cut/org_rel[first_rel];
+			attribute<Shapes> Point_rel := ShapePoints/org_rel[second_rel];
+			attribute<uint32> Dist     := Shapes/shape_dist_traveled[Point_rel];
+		}
+		unit<uint32> Inner := select_with_org_rel(Pairs/Dist > FromDist[Pairs/Link_rel] && Pairs/Dist < ToDist[Pairs/Link_rel])
+		, Descr = "The points of the shape between the two stops of each link, in the order of shapes.txt, which lists the points of a shape by shape_pt_sequence, as Shapes/Uq/geometry also assumes."
+		{
+			attribute<Links>  Link_rel := Pairs/Link_rel[org_rel];
+			attribute<rdc>    Point    := Shapes/geometry[Pairs/Point_rel[org_rel]];
+			attribute<uint32> Ordinal  := cumulate(const(1, ., uint32), Link_rel), Descr = "The position of the point in the line of its link, from 1; 0 is the stop of departure.";
+		}
+		attribute<uint32> NrInner        (Links) := pcount_uint32(Inner/Link_rel);
+		unit<uint32> LinePoints := union_unit(Links, Inner, Links)
+		{
+			attribute<Links>  Link_rel := union_data(., id(Links), Inner/Link_rel, id(Links));
+			attribute<rdc>    Point    := union_data(., first_point(Line), Inner/Point, last_point(Line));
+			attribute<uint32> Ordinal  := union_data(., const(0, Links, uint32), Inner/Ordinal, NrInner + 1);
+		}
+		attribute<rdc>    geometry  (arc, Links) := points2sequence(LinePoints/Point, LinePoints/Link_rel, LinePoints/Ordinal);
+	}
+
 	// A public transport ride: the links within the trip, from a search in its network between the begin and end node of the ride.
 	Template PTLinks_T
 	{
@@ -143,6 +185,7 @@ container OD_Output : Descr = "The options of the OD pair per departure moment w
 		unit<uint64>      OwnRows                := select_with_org_rel(od/OrgZone_rel == od/DstZone_rel), Descr = "The rows of the search from the begin node of each ride to its own end node.";
 		attribute<uint32> LinkSet (arc, OwnRows) := od/LinkSet[OwnRows/org_rel];
 		container         R                      := /Templates/RouteLinks_T(OwnRows, LinkSet, Set, Set/NodeSet, Set/F1, Set/F2, Set/NodeSet/geometry, RideParts/ToNode[od/DstZone_rel[OwnRows/org_rel]]);
+		container         Shape                  := ShapeSection_T(R/Rows, Set/StopTime_rel[R/Rows/Link_rel], Set/geometry[R/Rows/Link_rel]);
 		unit<uint32> Rows := R/Rows
 		{
 			attribute<RideParts> RideParts_rel   := od/DstZone_rel[OwnRows/org_rel[R/Rows/Route_rel]];
@@ -151,7 +194,7 @@ container OD_Output : Descr = "The options of the OD pair per departure moment w
 			attribute<uint32>   Part           := ChainParts/Volgnr[PT_Parts/ChainPart_rel[PT_Part_rel]] + 1;
 			attribute<uint32>   Volgnr         := R/Rows/Volgnr;
 			attribute<Modes>    Mode_rel       := ChainParts/Mode_rel[PT_Parts/ChainPart_rel[PT_Part_rel]];
-			attribute<rdc>      geometry (arc) := Set/geometry[R/Rows/Link_rel];
+			attribute<rdc>      geometry (arc) := Shape/geometry;
 		}
 		// The timetable times of the ride: the departure of its first and the arrival of its last scheduled link. The begin and end node can be the
 		// arrival and departure node of a stop where the trip stands still (boarding at arrival, alighting at departure), so that their times can
