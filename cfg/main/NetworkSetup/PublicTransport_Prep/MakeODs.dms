@@ -125,18 +125,20 @@ unit<uint32> OD_R := =
 	unit<uint32>  ThisSet                 := Set_R/Set;
 	
 	// R specific
-	// #55: a rule of the detailed fare table without a price per kilometre is a fixed fare per ride (island buses, ferries, De Lijn,
-	// KeukenhofBuzz). That fare goes in Price_S, which the chain joiner adds for every ride, and not in Price_I, of which it takes the highest
-	// within an OV-chip journey: a ferry after a bus would otherwise cost the ferry only. Such a ride is no OV-chip ride (Result/Last_RO_AlightTime).
-	attribute<bool> IsFixedFareRide        := =ModelParameters/Impl/PriceMethod_effective == 'DOVA' ? 'const(false, .)' : 'IsDefined(impl/FareTable_rel) && impl/VariablePrice == 0[Euro_km]'
-		, Descr = "Is the rule of the ride a fixed fare, a rule of the detailed fare table without a price per kilometre (#55)? The DOVA fares have no rules per line.";
+	// #55: a rule of the detailed fare table without a price per kilometre and without a surcharge per ride is a fixed fare per ride (island
+	// buses, ferries, De Lijn, KeukenhofBuzz). That fare goes in Price_S, which the chain joiner adds for every ride, and not in Price_I, of
+	// which it takes the highest within an OV-chip journey: a ferry after a bus would otherwise cost the ferry only. Such a ride is no OV-chip
+	// ride (Result/Last_RO_AlightTime). #164: a rule with a surcharge per ride, such as the Parkshuttle Rivium, is an OV-chip ride with its
+	// boarding fare in Price_I, shared within the journey, and its surcharge in Price_S.
+	attribute<bool> IsFixedFareRide        := =ModelParameters/Impl/PriceMethod_effective == 'DOVA' ? 'const(false, .)' : 'IsDefined(impl/FareTable_rel) && impl/VariablePrice == 0[Euro_km] && impl/RideSurcharge == 0[Euro]'
+		, Descr = "Is the rule of the ride a fixed fare, a rule of the detailed fare table without a price per kilometre and without a surcharge per ride (#55, #164)? The DOVA fares have no rules per line.";
 	attribute<Ct> Price_I                 := IsFixedFareRide ? 0[Ct] : rounded_convert(impl/FixedPrice, Ct), IntegrityCheck = "all(impl/Price_IntegrityCheck)", Descr = "The boarding fare of the ride, of which the chain joiner takes the highest within an OV-chip journey; 0 for a fixed fare per ride, which is in Price_S.";
 	attribute<Ct> Price_O                 := ='rounded_convert(impl/VariablePrice * impl/PT_TravelledDistance, Ct)'
 	                                         + (ModelParameters/Advanced/IncludeFlex && ModelParameters/Advanced/FlexCallCosts > 0[Euro] ? ' + (IsFlexRide ? rounded_convert(ModelParameters/Advanced/FlexCallCosts, Ct) : 0[Ct])' : '')
 		, IntegrityCheck = "all(impl/Price_IntegrityCheck)", Descr = "Variable part of the price plus the call costs per boarding on a flex line (ModelParameters/Advanced/FlexCallCosts); the chain joiner adds Price_O at every transfer and takes the maximum of Price_I within a journey, so call costs belong here.";
 	attribute<Ct> Price_F                 := const(0[Ct],.), Descr = "Final costs, not subject to subsequent recalculation";
 	attribute<Ct> Price_T                 := const(0[Ct],.), Descr = "Augmented costs for transfers";
-	attribute<Ct> Price_S                 := IsFixedFareRide ? rounded_convert(impl/FixedPrice, Ct) : 0[Ct], Descr = "The fixed fare of the ride (#55), which the chain joiner adds for every ride, apart from the boarding fare; 0 for other rides.";
+	attribute<Ct> Price_S                 := rounded_convert(IsFixedFareRide ? impl/FixedPrice : impl/RideSurcharge, Ct), Descr = "The fixed fare of the ride (#55) or its surcharge per ride (#164), which the chain joiner adds for every ride, apart from the boarding fare; 0 for other rides.";
 	attribute<s>  TripSurcharge_ExtraTime := const(0[s],.), Descr = "Extra time of the trip surcharge (#3), only in the L network.";
 	attribute<Route_CG> Route_CG_rel      := IsBoardAlightAllowed ? combine_data(Route_CG, Route_rel, impl/Start_Concessiegebied_rel) : value(null_u, Route_CG), Descr = "The line of the ride and the concession area in which it boards, for a ride that may board and alight (Route_CG, #150).";
 	attribute<Ct> Price                   := Price_I + Price_O + Price_S;
