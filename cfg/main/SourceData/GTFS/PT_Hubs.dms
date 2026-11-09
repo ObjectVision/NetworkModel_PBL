@@ -22,11 +22,12 @@ container PT_Hubs : using = "RelevantSelection"
 , Descr = "Public transport hubs derived from the GTFS timetable of Analysis_date: clusters of nearby stops that have a train or pass thresholds on bus, tram and metro lines, departures and directions, with their type and network value, for use as a regional location variable such as the travel time to the nearest hub (Redevelopment repository, issue #18)."
 {
 	//// Mode scores, an approximation of butterfly model 2.1 (HSL 125 points ... feeder bus or tram 25 points; Goudappel 2024 uses 25 points for all buses)
-	parameter<float32>     Score_Train                 := 100f, Descr = "Score per train departure; HSL, IC and sprinter are not distinguished, because route_type in the Dutch GTFS does not tell them apart.";
-	parameter<float32>     Score_Metro                 := 60f;
-	parameter<float32>     Score_Tram                  := 25f;
-	parameter<float32>     Score_Bus                   := 25f;
-	parameter<float32>     Score_Ferry                 := 25f;
+	parameter<float32>     Score_Train                 := 100f, Descr = "Score per train departure; HSL, IC and sprinter are not distinguished, because route_type in the Dutch GTFS does not tell them apart.", Source = "Vlindermodel 2.1 of Vereniging Deltametropool, approximated with one score for all trains";
+	parameter<float32>     Score_Metro                 := 60f, Descr = "Score per metro departure.", Source = "Vlindermodel 2.1 of Vereniging Deltametropool, approximated";
+	parameter<float32>     Score_Tram                  := 25f, Descr = "Score per tram departure.", Source = "Vlindermodel 2.1 of Vereniging Deltametropool, approximated";
+	parameter<float32>     Score_Bus                   := 25f, Descr = "Score per bus departure.", Source = "25 for every bus as in Goudappel 2024; the Vlindermodel 2.1 of Vereniging Deltametropool gives a feeder bus 25";
+	parameter<float32>     Score_Ferry                 := 25f, Descr = "Score per ferry departure.", Source = "Vlindermodel 2.1 of Vereniging Deltametropool, approximated";
+	parameter<float32>     AccessValueFactor           := 0.2f, Descr = "Factor of the access value (Ontsluitingswaarde): the factor x frequency per hour x mode score, summed over the modes.", Source = "Vlindermodel 2.1 of Vereniging Deltametropool: access value = frequency per hour x directions x 0.2 x mode score";
 
 	unit<uint8> HubTypes : nrofrows = 4
 	, Descr = "Type per hub, where train goes before BTM (bus, tram, metro); Trein_IC follows the NS station typology ((hub) intercity or mega station) from the train station shapefile, so that users can weight stations by importance."
@@ -115,14 +116,14 @@ container PT_Hubs : using = "RelevantSelection"
 		                                          + (NrDepartures_Tram  > 0 ? Score_Tram  : 0f)
 		                                          + (NrDepartures_Bus   > 0 ? Score_Bus   : 0f)
 		                                          + (NrDepartures_Ferry > 0 ? Score_Ferry : 0f);
-		attribute<float32>  Ontsluitingswaarde := 0.2f *
+		attribute<float32>  Ontsluitingswaarde := AccessValueFactor *
 		                                          (	  float32(NrDepartures_Train) * Score_Train
 		                                              + float32(NrDepartures_Metro) * Score_Metro
 		                                              + float32(NrDepartures_Tram)  * Score_Tram
 		                                              + float32(NrDepartures_Bus)   * Score_Bus
 		                                              + float32(NrDepartures_Ferry) * Score_Ferry
 		                                          ) / ModelParameters/Advanced/Hub_OperatingHoursPerDay
-												, Descr = "0.2 x frequency per hour x mode score, summed over the modes, where the departures per day in both directions divided by the operating hours approximate frequency x directions.";
+												, Descr = "AccessValueFactor x frequency per hour x mode score, summed over the modes, where the departures per day in both directions divided by the operating hours approximate frequency x directions.";
 		attribute<float32>  Netwerkwaarde      := Verbindingswaarde + Ontsluitingswaarde;
 	}
 

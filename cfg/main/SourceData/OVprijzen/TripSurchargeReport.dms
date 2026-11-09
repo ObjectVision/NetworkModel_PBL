@@ -29,8 +29,8 @@ container TripSurchargeReport
 			attribute<Euro>           Price    := rjoin(c_rel, Matrix/c_NS_start_end_rel, Matrix/Price);
 			attribute<bool>           OK       := not(Checked) || MakeDefined(TE_model == TE_NS, false);
 		}
-		parameter<string> Report         := (all(Sample/OK) ? 'PASS' : 'FAIL') + ' tariefeenheden ' + ModelParameters/Impl/NS_prices_year + ' (tariefnet ' + ModelParameters/Impl/NS_TariffNetwork_year + '): '
-		                                    + asList(Sample/org + '-' + Sample/dest + ' ' + MakeDefined(string(Sample/TE_model), '?') + ' TE (NS ' + string(Sample/TE_NS) + (Sample/Checked ? '' : ', niet getoetst') + ') EUR ' + MakeDefined(string(Sample/Price), '?'), '; ');
+		parameter<string> Report         := (all(Sample/OK) ? 'PASS' : 'FAIL') + ' tariff units ' + ModelParameters/Impl/NS_prices_year + ' (tariff network ' + ModelParameters/Impl/NS_TariffNetwork_year + '): '
+		                                    + asList(Sample/org + '-' + Sample/dest + ' ' + MakeDefined(string(Sample/TE_model), '?') + ' TE (NS ' + string(Sample/TE_NS) + (Sample/Checked ? '' : ', not checked') + ') EUR ' + MakeDefined(string(Sample/Price), '?'), '; ');
 	}
 
 	// Per trip: can you board within the Netherlands and alight again further on? That is the case when the first Dutch stop with boarding
@@ -87,14 +87,14 @@ container TripSurchargeReport
 		attribute<bool>   binnenlands        := IsDomestic[org_rel];
 	}
 
-	parameter<string>      Settings                        := 'NS International in L-net=' + string(ModelParameters/Advanced/IsNSInternationalInLnet) + ', rit-opslag=' + string(ModelParameters/Advanced/IncludeTripSurcharge)
-	                                                          + ', toeslag ' + ModelParameters/Impl/NS_prices_year + '=EUR ' + string(/SourceData/Infrastructure/OVprijzen/NS/TripSurcharge/Surcharge_ICE_ICD)
-	                                                          + ', extra tijd: ' + asList(Trains/name + '=' + string(Trains/ExtraTime) + 'min', ', ');
+	parameter<string>      Settings                        := 'NS International in L-net=' + string(ModelParameters/Advanced/IsNSInternationalInLnet) + ', trip surcharge=' + string(ModelParameters/Advanced/IncludeTripSurcharge)
+	                                                          + ', surcharge ' + ModelParameters/Impl/NS_prices_year + '=EUR ' + string(/SourceData/Infrastructure/OVprijzen/NS/TripSurcharge/Surcharge_ICE_ICD)
+	                                                          + ', extra time: ' + asList(Trains/name + '=' + string(Trains/ExtraTime) + 'min', ', ');
 	parameter<string>      Report                          :=
-		'feed ' + ModelParameters/Impl/GTFS_file_date + ', dag ' + ModelParameters/Impl/Analysis_date + ' | ' + Settings
+		'feed ' + ModelParameters/Impl/GTFS_file_date + ', day ' + ModelParameters/Impl/Analysis_date + ' | ' + Settings
 		+ ' | ' + TE/Report
-		+ ' | L-net-vervoerders: ' + asList(Agencies/IsLnet ? Agencies/label : '', ' ')
-		+ ' | treinroutes (ritten vandaag, waarvan binnenlands bruikbaar): ' + asList(TrainRoutes/agency + ' ' + TrainRoutes/route_short_name + ' ' + TrainRoutes/route_long_name + ' [' + TrainRoutes/RitOpslag + '] ' + string(TrainRoutes/nr_trips_today) + '/' + string(TrainRoutes/nr_trips_binnenlands), '; ')
+		+ ' | L-net agencies: ' + asList(Agencies/IsLnet ? Agencies/label : '', ' ')
+		+ ' | train routes (trips today, of which usable domestically): ' + asList(TrainRoutes/agency + ' ' + TrainRoutes/route_short_name + ' ' + TrainRoutes/route_long_name + ' [' + TrainRoutes/RitOpslag + '] ' + string(TrainRoutes/nr_trips_today) + '/' + string(TrainRoutes/nr_trips_binnenlands), '; ')
 	, StorageName = "=FileStem+'_report.txt'", StorageType = "str"
 	, ExplicitSuppliers = "TrainRoutes;TrainTrips";
 
@@ -109,8 +109,8 @@ container TripSurchargeReport
 		parameter<bool>   RL_OK  := all(RL/Price == RL/Price_O + RL/Price_I + RL/Price_L + RL/Price_S);
 		parameter<bool>   LR_OK  := all(LR/Price == LR/Price_O + LR/Price_I + LR/Price_L + LR/Price_F + LR/Price_S);
 		parameter<bool>   LL_OK  := all(LL/Price == LL/Price_L + LL/Price_F + LL/Price_S);
-		parameter<string> Report := (RL_OK && LR_OK && LL_OK ? 'PASS' : 'FAIL') + ' ketenprijs = onderdelen + opslag in ' + Block
-		                            + ': RL ' + string(#RL) + ' ketens, ' + string(sum(uint32(RL/Price_S > 0[Ct]))) + ' met opslag'
+		parameter<string> Report := (RL_OK && LR_OK && LL_OK ? 'PASS' : 'FAIL') + ' chain price = parts + surcharge in ' + Block
+		                            + ': RL ' + string(#RL) + ' chains, ' + string(sum(uint32(RL/Price_S > 0[Ct]))) + ' with a surcharge'
 		                            + '; LR ' + string(#LR) + ', ' + string(sum(uint32(LR/Price_S > 0[Ct])))
 		                            + '; LL ' + string(#LL) + ', ' + string(sum(uint32(LL/Price_S > 0[Ct])))
 		, StorageName = "=FileStem+'_keten_report.txt'", StorageType = "str";
@@ -185,11 +185,11 @@ container TripSurchargeReport
 		}
 
 		parameter<string> Report                               :=
-			'NS (OD_L): ' + string(L_Rides) + ' ritten, ' + string(L_NoBoardAlight) + ' alleen zonder in- of uitstap weg, ' + string(L_Foreign) + ' niet binnenlands, ' + string(L_Result_Rides) + ' in Result, waarvan ' + string(L_NSInt_Result) + ' NS International'
-			+ ' | L zonder in- of uitstap per vervoerder: ' + asList(L_NoBoardAlight_PerAgency > 0 ? Agencies/label + ' ' + string(L_NoBoardAlight_PerAgency) : '', ' ')
-			+ ' | rit-opslag per product (ritten met opslag / ritten op het product): ' + asList(Trains/name + ' ' + string(L_Surcharge_PerProduct) + '/' + string(L_Product_PerProduct), ', ')
-			+ ' | regionaal (OD_R): ' + string(R_Rides) + ' ritten, ' + string(R_NoBoardAlight) + ' alleen zonder in- of uitstap weg, ' + string(R_Result_Rides) + ' in Result'
-			+ ' | R zonder in- of uitstap per vervoerder: ' + asList(R_NoBoardAlight_PerAgency > 0 ? Agencies/label + ' ' + string(R_NoBoardAlight_PerAgency) : '', ' ')
+			'NS (OD_L): ' + string(L_Rides) + ' rides, ' + string(L_NoBoardAlight) + ' dropped only for lack of boarding or alighting, ' + string(L_Foreign) + ' not domestic, ' + string(L_Result_Rides) + ' in Result, of which ' + string(L_NSInt_Result) + ' NS International'
+			+ ' | L without boarding or alighting, per agency: ' + asList(L_NoBoardAlight_PerAgency > 0 ? Agencies/label + ' ' + string(L_NoBoardAlight_PerAgency) : '', ' ')
+			+ ' | trip surcharge per product (rides with a surcharge / rides on the product): ' + asList(Trains/name + ' ' + string(L_Surcharge_PerProduct) + '/' + string(L_Product_PerProduct), ', ')
+			+ ' | regional (OD_R): ' + string(R_Rides) + ' rides, ' + string(R_NoBoardAlight) + ' dropped only for lack of boarding or alighting, ' + string(R_Result_Rides) + ' in Result'
+			+ ' | R without boarding or alighting, per agency: ' + asList(R_NoBoardAlight_PerAgency > 0 ? Agencies/label + ' ' + string(R_NoBoardAlight_PerAgency) : '', ' ')
 		, StorageName = "=FileStem+'_net_report.txt'", StorageType = "str"
 		, ExplicitSuppliers = "Examples";
 	}
