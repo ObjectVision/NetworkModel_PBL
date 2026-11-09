@@ -26,7 +26,7 @@ param(
 	[Parameter(Mandatory=$true)][string]$Dest,
 	[string]$Moment = '',
 	[string]$AnalysisMoment = 'Y2026',
-	[string]$PartOfDay = 'Ochtendspits',
+	[string]$PartOfDay = 'Morning',
 	[string]$Orgset = 'Buurt2025',
 	[string]$Destset = 'Buurt2025',
 	[string]$Label = 'od',

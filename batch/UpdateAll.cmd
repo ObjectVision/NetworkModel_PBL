@@ -40,7 +40,7 @@ REM                                 (batch\log\components.txt)
 REM   UpdateAll.cmd cars [moment..] the caches of the direct car trip per departure moment, for the component Car
 REM                                 (PublicTransport_Prep/Direct/CarPerMoment/<moment>/Write_Car); without moments the
 REM                                 moments the model reads (MakeUnlinkedData/Step4_DirectCar/Moments: TD07h00m and on with
-REM                                 CarTimeDependent); with moments those, for example MorningRush NoonRush LateEveningRush
+REM                                 CarTimeDependent); with moments those, for example Morning Afternoon Evening
 REM                                 and Freeflow (TomTom) or MaxSpeed (OSM). A time-dependent departure moment takes much
 REM                                 longer than a static moment; the wiki gives the times (How to run the model).
 REM                                 A moment whose cache exists with the current signature is skipped (CarPerMoment/<moment>/
@@ -71,9 +71,9 @@ REM                                 of MergeCriteria and MergeRunNr. Repeated, o
 REM                                 itself once per variant, one after the other, with the same section and options; a component
 REM                                 that an earlier variant calculated is complete and skipped, so the next variants only merge
 REM   ... -set <name> <value>       for this call, the setting <name> of ModelParameters gets <value>: AnalysisMoment, PartOfDay,
-REM                                 Orgset, Destset, OutputLabel or Advanced/NS_TariffChoice, for example -set PartOfDay Middag
-REM                                 -set OutputLabel b2025_middag; repeated for more settings
-REM   Example: UpdateAll.cmd all -variant all -set PartOfDay Avond -set OutputLabel b2025_avond -set NS_TariffChoice Price_40pct_Discount
+REM                                 Orgset, Destset, OutputLabel or Advanced/NS_TariffChoice, for example -set PartOfDay Afternoon
+REM                                 -set OutputLabel b2025_afternoon; repeated for more settings
+REM   Example: UpdateAll.cmd all -variant all -set PartOfDay Evening -set OutputLabel b2025_evening -set NS_TariffChoice Price_40pct_Discount
 REM The section comes first; cars takes moments, any other word or option stops the script before it starts. The variant and the
 REM settings go to every GeoDmsRun step in the environment variables GEODMS_Overridable_Variant and GEODMS_Overridable_<name>
 REM (ConfigSettings/Overridable, ModelParameters/Impl/Given), and the checks show them in their first line. A setting that the call
@@ -358,7 +358,7 @@ echo   legs               the pre- and post-transport caches
 echo   -component ^<name^>  with all, cars, chains or legs: only that component of the variant
 echo   -variant ^<name^>    a merge variant of ModelParameters/MergeVariants; repeated, or all, one after the other
 echo   -set ^<name^> ^<value^> for this call a setting of ModelParameters: %SETNAMES%
-echo Example: UpdateAll.cmd all -variant all -set PartOfDay Middag -set OutputLabel b2025_middag
+echo Example: UpdateAll.cmd all -variant all -set PartOfDay Afternoon -set OutputLabel b2025_afternoon
 echo See the header of batch\UpdateAll.cmd and the wiki page How to run the model.
 exit /b 0
 
