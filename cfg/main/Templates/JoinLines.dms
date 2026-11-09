@@ -1,0 +1,23 @@
+// LINES JOINED INTO ONE LINE PER GROUP (#166). Output/OD_PairRoutes/Export gives each part of an option one line, from the links of its route
+// in the order of the journey: the points of the links in the order Sorted, which lists the links of a group one after the other. A group
+// without links gets an empty line.
+function JoinLines(
+	unit<uint32>      Lines;
+	attribute<rdc>    Line      (Lines, arc);
+	attribute<Lines>  Sorted    (Lines);
+	unit<uint32>      Groups;
+	attribute<Groups> Group_rel (Lines);
+)
+-> attribute<rdc> (Groups, arc) := geometry
+{
+	unit<uint32>      SortedLines                  := range(uint32, 0, #Lines), Descr = "The lines in the order Sorted.";
+	attribute<Lines>  Line_rel       (SortedLines) := union_data(SortedLines, Sorted);
+	attribute<rdc>    SortedLine     (SortedLines, arc) := Line[Line_rel];
+	attribute<Groups> SortedGroup    (SortedLines) := Group_rel[Line_rel];
+	unit<uint32> Points := sequence2points(SortedLine), Descr = "The points of the lines, line after line in the order Sorted, and within a line in its own order."
+	{
+		attribute<Groups> Group_rel := SortedGroup[Points/sequence_rel];
+		attribute<uint32> Ordinal   := cumulate(const(1, Points, uint32), Points/Group_rel) - 1, Descr = "The position of the point in the line of its group, from 0.";
+	}
+	attribute<rdc>    geometry (Groups, arc) := points2sequence(Points/point, Points/Group_rel, Points/Ordinal);
+}

@@ -14,7 +14,8 @@
 # the direct trips and the pre- and post-transport types in the names (every pre-transport type with every post-transport type), and
 # -Variant 'OV_lopen,Auto', or 'all', makes those merge variants of ModelParameters/MergeVariants instead, one after the other, each in a
 # Merged folder of its own (UpdateAll.cmd -variant). A -Ref from before the merge variants and the -set options of UpdateAll gets the
-# settings of group 1 written into its copy instead, and takes no -Variant.
+# settings of group 1 written into its copy instead, and takes no -Variant. -MergeCriteria and -NS_TariffChoice go to UpdateAll as -set
+# when given (batch\ODPairReport.ps1 gives MergeCriteria Price,Time,Car,Bike, #166).
 # The engine must know pareto with LinkSet (ObjectVision/GeoDMS#1325) for the car routes, and the model asks for GeoDMS 20.28.0 or later
 # (cfg/main.dms).
 # Every step skips a cache that exists, so after a change to the output only the output is calculated again. Run long runs as a one-off scheduled task (see the wiki, How to run the model). -WaitForMemoryGB waits until that much
@@ -30,6 +31,8 @@ param(
 	[string]$Orgset = 'Buurt2025',
 	[string]$Destset = 'Buurt2025',
 	[string]$Label = 'od',
+	[string]$MergeCriteria = '',
+	[string]$NS_TariffChoice = '',
 	[string]$Components = '',
 	[string]$Variant = '',
 	[string]$Exe = '',
@@ -121,11 +124,21 @@ foreach ($n in $switches) { SetParam $mp $n $values[$n] }
 # the settings of group 1 in its ModelParameters.dms instead.
 $args2 = 'all'
 $group1 = [ordered]@{ 'AnalysisMoment' = $AnalysisMoment; 'PartOfDay' = $PartOfDay; 'Orgset' = $Orgset; 'Destset' = $Destset; 'OutputLabel' = $Label }
+# MergeCriteria and NS_TariffChoice only when given: then UpdateAll takes them with -set, in quotes because cmd splits at a comma.
+$given = [ordered]@{}
+if ($MergeCriteria)   { $given['MergeCriteria'] = $MergeCriteria }
+if ($NS_TariffChoice) { $given['NS_TariffChoice'] = $NS_TariffChoice }
 if (Select-String -Path (Join-Path $dst 'batch\UpdateAll.cmd') -Pattern '"-set"' -SimpleMatch -Quiet) {
 	foreach ($n in $group1.Keys) { $args2 += " -set $n $($group1[$n])" }
+	$setnames = (Select-String -Path (Join-Path $dst 'batch\UpdateAll.cmd') -Pattern '^set "SETNAMES=([^"]*)"').Matches[0].Groups[1].Value.Split(' ')
+	foreach ($n in $given.Keys) {
+		if ($n -notin $setnames) { throw "UpdateAll.cmd of $Ref takes no -set $n" }
+		$args2 += " -set $n `"$($given[$n])`""
+	}
 	foreach ($v in ($Variant.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })) { $args2 += " -variant $v" }
 } else {
 	if ($Variant) { throw "the copy of $Ref has no merge variants (UpdateAll.cmd -variant)" }
+	if ($given.Count) { throw "the copy of $Ref takes no -MergeCriteria or -NS_TariffChoice" }
 	foreach ($n in $group1.Keys) { SetParam $mp $n "'$($group1[$n])'" }
 }
 

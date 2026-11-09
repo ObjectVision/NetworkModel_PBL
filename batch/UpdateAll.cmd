@@ -71,8 +71,10 @@ REM                                 of MergeCriteria and MergeRunNr. Repeated, o
 REM                                 itself once per variant, one after the other, with the same section and options; a component
 REM                                 that an earlier variant calculated is complete and skipped, so the next variants only merge
 REM   ... -set <name> <value>       for this call, the setting <name> of ModelParameters gets <value>: AnalysisMoment, PartOfDay,
-REM                                 Orgset, Destset, OutputLabel or Advanced/NS_TariffChoice, for example -set PartOfDay Afternoon
-REM                                 -set OutputLabel b2025_afternoon; repeated for more settings
+REM                                 Orgset, Destset, OutputLabel, Advanced/NS_TariffChoice or MergeCriteria, for example -set
+REM                                 PartOfDay Afternoon -set OutputLabel b2025_afternoon; repeated for more settings. A value with
+REM                                 commas goes in double quotes, as -set MergeCriteria "Price,Time,Car,Bike", because cmd splits
+REM                                 arguments at a comma; MergeCriteria given so also applies over the row of a merge variant
 REM   Example: UpdateAll.cmd all -variant all -set PartOfDay Evening -set NS_TariffChoice Price_40pct_Discount
 REM The section comes first; cars takes moments, any other word or option stops the script before it starts. The variant and the
 REM settings go to every GeoDmsRun step in the environment variables GEODMS_Overridable_Variant and GEODMS_Overridable_<name>
@@ -101,7 +103,7 @@ set LOGDIR=%~dp0log
 set "STATUS=%LOGDIR%\UpdateAll_status.txt"
 set PREP=/NetworkSetup/PublicTransport_Prep
 REM The settings of ModelParameters that -set takes (ConfigSettings/Overridable).
-set "SETNAMES=AnalysisMoment PartOfDay Orgset Destset OutputLabel NS_TariffChoice"
+set "SETNAMES=AnalysisMoment PartOfDay Orgset Destset OutputLabel NS_TariffChoice MergeCriteria"
 
 REM The arguments: the section, with cars the moments, and -component <name>. Anything else stops the script before it writes to
 REM the status file, so that a typing error cannot start another run than the one meant.
@@ -129,7 +131,9 @@ REM the registry holds; -variant and -set then give their own.
 for %%N in (Variant %SETNAMES%) do set GEODMS_Overridable_%%N=ModelParameters
 set VARIANTS=
 set NVARIANTS=0
+REM SETARGS passes the settings on to the call per variant, each value in quotes; SETSHOW shows them in the status, without quotes.
 set SETARGS=
+set SETSHOW=
 :args
 shift
 set "ARG=%~1"
@@ -167,7 +171,8 @@ if /I "!ARG!"=="-set" (
     goto usage
   )
   set "GEODMS_Overridable_!SKNOWN!=!SVALUE!"
-  set "SETARGS=!SETARGS! -set !SKNOWN! !SVALUE!"
+  set "SETARGS=!SETARGS! -set !SKNOWN! "!SVALUE!""
+  set "SETSHOW=!SETSHOW! -set !SKNOWN! !SVALUE!"
   shift
   shift
   goto args
@@ -233,7 +238,7 @@ set "PASSARGS=%MOMENTS%"
 if defined ONLY set "PASSARGS=%PASSARGS% -component %ONLY%"
 set "WHAT=UpdateAll %SECTION%%PASSARGS%"
 for %%V in (!VARIANTS!) do set "WHAT=!WHAT! -variant %%V"
-set "WHAT=!WHAT!!SETARGS!"
+set "WHAT=!WHAT!!SETSHOW!"
 call :say "%WHAT% started"
 call :say "engine: %EXE%"
 set COMP=

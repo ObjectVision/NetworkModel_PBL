@@ -22,6 +22,8 @@ container OD_PairRoutes : using = "units;Geography;ModelParameters", Descr = "Th
 	unit<uint64>      MomentOption      := combine_unit_uint64(Moments, OptionNrs);
 	unit<uint32>      SeqNrs            := range(uint32, 0, 100), Descr = "The sequence numbers of the parts of an option, for the order of the journey.";
 	unit<uint64>      MomentOptionSeqNr := combine_unit_uint64(Moments, OptionNrs, SeqNrs);
+	unit<uint32>      LinkNrs           := range(uint32, 0, 1000000), Descr = "The sequence numbers of the links of a part, for the order of its route.";
+	unit<uint64>      MomentOptionSeqNrLinkNr := combine_unit_uint64(Moments, OptionNrs, SeqNrs, LinkNrs);
 
 	// The map: colour and line width per mode. Links/geometry gets them per link (PenColor and PenWidth of the links); Links/Mode_rel
 	// shows them as a theme, with a legend.
@@ -179,6 +181,8 @@ container OD_PairRoutes : using = "units;Geography;ModelParameters", Descr = "Th
 			attribute<float32>   Minuten    := Parts_Src/Minuten[org_rel];
 			attribute<uint32>    Afstand_m  := Parts_Src/Afstand_m[org_rel];
 			attribute<float32>   Prijs      := Parts_Src/Prijs[org_rel];
+			attribute<MomentOptionSeqNr> Key := Parts_Src/SortKey[org_rel];
+			attribute<rdc>       geometry (arc) := /Templates/JoinLines(Links, Links/geometry, Links/Sorted, Parts, Links/Part_rel), Descr = "The route of the part as one line, from its links (Links) in the order of the journey.";
 		}
 		unit<uint32> Links := ='union_unit(' + AsItemList('PerMoment/' + Moments/name + '/gpkg/od_links') + ')'
 		{
@@ -188,6 +192,9 @@ container OD_PairRoutes : using = "units;Geography;ModelParameters", Descr = "Th
 			attribute<uint32>  Volgnr         := ='union_data(., ' + AsItemList('PerMoment/' + Moments/name + '/gpkg/od_links/Volgnr') + ')';
 			attribute<string>  Modaliteit     := ='union_data(., ' + AsItemList('PerMoment/' + Moments/name + '/gpkg/od_links/Modaliteit') + ')';
 			attribute<rdc>     geometry (arc) := ='union_data(., ' + AsItemList('PerMoment/' + Moments/name + '/gpkg/od_links/geometry') + ')';
+			attribute<Parts>   Part_rel       := rlookup(combine_data(MomentOptionSeqNr, Moment_rel, value(Optie, OptionNrs), value(Onderdeel, SeqNrs)), Parts/Key), Descr = "The part of the link: Onderdeel is the Volgnr of the part.";
+			attribute<MomentOptionSeqNrLinkNr> SortKey := combine_data(MomentOptionSeqNrLinkNr, Moment_rel, value(Optie, OptionNrs), value(Onderdeel, SeqNrs), value(Volgnr, LinkNrs));
+			attribute<.>       Sorted         := index(SortKey), Descr = "The links in the order of the journey: per departure moment, option and part, in the order of the route (Volgnr).";
 			attribute<Modes>   Mode_rel       := rlookup(Modaliteit, Modes/name);
 			attribute<uint32>  PenColor       := Modes/PenColor[Mode_rel], DialogType = "PenColor";
 			attribute<int16>   PenWidth       := Modes/PenWidth[Mode_rel], DialogType = "PenWidth";
@@ -416,6 +423,8 @@ container OD_PairRoutes : using = "units;Geography;ModelParameters", Descr = "Th
 			attribute<string>   ModeUsed   := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Options/ModeUsed') + ')';
 			attribute<bool>     NeedsCar   := Comps_Er/NeedsCar[Comp_rel];
 			attribute<bool>     NeedsBike  := Comps_Er/NeedsBike[Comp_rel];
+			attribute<Usage>    Usage_rel  := NeedsCar ? (NeedsBike ? Usage/V/MetAutoFiets : Usage/V/MetAuto) : (NeedsBike ? Usage/V/MetFiets : Usage/V/ZonderAutoFiets);
+			attribute<string>   Key        := Component + '|' + Moments/Short[Moment_rel] + '|' + string(Optie), Descr = "Component, departure moment and option: the key of the option in the layers of Export.";
 			// The criteria of the merge (MergeCriteria), as in NetworkSetup/ComponentMerge: price and time in Ct and s.
 			attribute<Ct>       Price_ct   := rounded_convert(Prijs[Euro], Ct);
 			attribute<s>        Time_s     := rounded_convert(Reistijd[min_f], s);
@@ -440,8 +449,9 @@ container OD_PairRoutes : using = "units;Geography;ModelParameters", Descr = "Th
 			attribute<string>  label      := Component + ' ' + string(Optie) + ' ' + Vertrek + ' ' + ModeUsed;
 			attribute<bool>    NeedsCar   := Candidates/NeedsCar[org_rel];
 			attribute<bool>    NeedsBike  := Candidates/NeedsBike[org_rel];
-			attribute<Usage>   Usage_rel  := NeedsCar ? (NeedsBike ? Usage/V/MetAutoFiets : Usage/V/MetAuto) : (NeedsBike ? Usage/V/MetFiets : Usage/V/ZonderAutoFiets);
+			attribute<Usage>   Usage_rel  := Candidates/Usage_rel[org_rel];
 		}
+		attribute<uint32> NrOptions (MomentGroup) := pcount_uint32(combine_data(MomentGroup, Options/Moment_rel, Options/Usage_rel)), Descr = "The number of options of the merged front per departure moment and group, the points of a series of Chart.";
 		// The links of the chosen options, from the links of their component.
 		unit<uint32> Links := ='union_unit(' + AsItemList('CompLinks/' + Comps_Er/name + '/Sel') + ')'
 		{
@@ -474,5 +484,85 @@ container OD_PairRoutes : using = "units;Geography;ModelParameters", Descr = "Th
 			}
 		}
 		container Chart     := for_each_ne(MomentGroup/name, 'Series_T(Options, ' + string(MomentGroup/Group_rel) + '[Usage], ' + string(MomentGroup/Moment_rel) + '[Moments])');
+	}
+
+	// THE WHOLE PAIR IN ONE GPKG (#166): the options of all components and departure moments, with a column that says whether the option is
+	// on the merged front (Combined, on MergeCriteria), their parts with the route of each part as one line, and the links. Component,
+	// departure moment and option (Sleutel) join the three layers. Export/Write writes them, with the series of the chart of the merged
+	// front and their number of points in fronten.csv, into the folder of the merged output of the pair, which batch/UpdateAll.cmd makes
+	// (ComponentMerge_Def/Dir); batch/ODPairReport.ps1 asks for it after the run.
+	container Export : Descr = "The options, parts and links of all components of the pair in one gpkg, with the merged front marked (#166); Write writes it."
+	{
+		parameter<string> Dir      := /NetworkSetup/ComponentMerge_Def/Dir, Descr = "The folder of the merged output of the pair with the current settings.";
+		parameter<string> FileName := Dir + '/od_paar.gpkg';
+		unit<uint32> Parts := ='union_unit(' + AsItemList('PerComponent/' + Comps_Er/name + '/Parts') + ')'
+		{
+			attribute<string>  Component  := ='union_data(., ' + AsItemList('const(' + quote(Comps_Er/name) + ', PerComponent/' + Comps_Er/name + '/Parts)') + ')';
+			attribute<Moments> Moment_rel := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Parts/Moment_rel') + ')';
+			attribute<uint32>  Optie      := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Parts/Optie') + ')';
+			attribute<string>  Key        := Component + '|' + Moments/Short[Moment_rel] + '|' + string(Optie);
+		}
+		unit<uint32> Links := ='union_unit(' + AsItemList('PerComponent/' + Comps_Er/name + '/Links') + ')'
+		{
+			attribute<string>  Component  := ='union_data(., ' + AsItemList('const(' + quote(Comps_Er/name) + ', PerComponent/' + Comps_Er/name + '/Links)') + ')';
+			attribute<Moments> Moment_rel := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Links/Moment_rel') + ')';
+			attribute<uint32>  Optie      := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Links/Optie') + ')';
+			attribute<string>  Key        := Component + '|' + Moments/Short[Moment_rel] + '|' + string(Optie);
+		}
+		container Write_gpkg : StorageName = "=FileName", StorageType = "gdalwrite.vect"
+		{
+			unit<uint32> od_opties := Combined/Candidates
+			{
+				attribute<string>  Sleutel   := Combined/Candidates/Key;
+				attribute<string>  Component := Combined/Candidates/Component;
+				attribute<string>  Moment    := Moments/Short[Combined/Candidates/Moment_rel];
+				attribute<uint32>  Optie     := Combined/Candidates/Optie;
+				attribute<string>  Vertrek   := Combined/Candidates/Vertrek;
+				attribute<float32> Reistijd  := Combined/Candidates/Reistijd;
+				attribute<float32> Prijs     := Combined/Candidates/Prijs;
+				attribute<string>  ModeUsed  := Combined/Candidates/ModeUsed;
+				attribute<bool>    NeedsCar  := Combined/Candidates/NeedsCar;
+				attribute<bool>    NeedsBike := Combined/Candidates/NeedsBike;
+				attribute<string>  Groep     := Usage/name[Combined/Candidates/Usage_rel];
+				attribute<bool>    OpFront   := Combined/Candidates/keep, Descr = "Is the option on the merged front of its departure moment, on MergeCriteria?";
+			}
+			unit<uint32> od_onderdelen := Parts
+			{
+				attribute<string>  Sleutel        := Parts/Key;
+				attribute<string>  Component      := Parts/Component;
+				attribute<string>  Moment         := Moments/Short[Parts/Moment_rel];
+				attribute<uint32>  Optie          := Parts/Optie;
+				attribute<uint32>  Volgnr         := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Parts/Volgnr') + ')';
+				attribute<string>  Soort          := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Parts/Soort') + ')';
+				attribute<string>  Modaliteit     := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Parts/Modaliteit') + ')';
+				attribute<string>  Lijn           := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Parts/Lijn') + ')';
+				attribute<string>  Vervoerder     := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Parts/Vervoerder') + ')';
+				attribute<string>  Van            := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Parts/Van') + ')';
+				attribute<string>  Naar           := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Parts/Naar') + ')';
+				attribute<string>  Vertrek        := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Parts/Vertrek') + ')';
+				attribute<string>  Aankomst       := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Parts/Aankomst') + ')';
+				attribute<float32> Minuten        := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Parts/Minuten') + ')';
+				attribute<uint32>  Afstand_m      := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Parts/Afstand_m') + ')';
+				attribute<float32> Prijs          := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Parts/Prijs') + ')';
+				attribute<bool>    OpFront        := Combined/Candidates/keep[rlookup(Parts/Key, Combined/Candidates/Key)];
+				attribute<rdc>     geometry (arc) := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Parts/geometry') + ')';
+			}
+			unit<uint32> od_links := Links
+			{
+				attribute<string>  Sleutel        := Links/Key;
+				attribute<string>  Component      := Links/Component;
+				attribute<string>  Moment         := Moments/Short[Links/Moment_rel];
+				attribute<uint32>  Optie          := Links/Optie;
+				attribute<uint32>  Onderdeel      := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Links/Onderdeel') + ')';
+				attribute<uint32>  Volgnr         := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Links/Volgnr') + ')';
+				attribute<string>  Modaliteit     := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Links/Modaliteit') + ')';
+				attribute<bool>    OpFront        := Combined/Candidates/keep[rlookup(Links/Key, Combined/Candidates/Key)];
+				attribute<rdc>     geometry (arc) := ='union_data(., ' + AsItemList('PerComponent/' + Comps_Er/name + '/Links/geometry') + ')';
+			}
+		}
+		// The series of the chart of the merged front with their number of points, for batch/ODPairReport.ps1, which draws the series that have points.
+		attribute<string> FrontLine (MomentGroup) := MomentGroup/name + ';' + Moments/name[MomentGroup/Moment_rel] + ';' + Usage/name[MomentGroup/Group_rel] + ';' + string(Combined/NrOptions);
+		parameter<string> Fronts := 'serie;moment;groep;opties\n' + asList(FrontLine, '\n') + '\n', StorageName = "=Dir + '/fronten.csv'", StorageType = "str";
+		parameter<string> Write  := 'Ready', ExplicitSuppliers = "Write_gpkg/od_opties;Write_gpkg/od_onderdelen;Write_gpkg/od_links;Fronts", Descr = "Writes od_paar.gpkg and fronten.csv into Dir.";
 	}
 }
