@@ -57,14 +57,34 @@ container OVprijzen
 		attribute<Euro_km> VariablePrice          := MakeDefined(MakeDefined(VariablePrice_specific, VariablePrice_BTM), ModeClass/VariablePrice_national[second_rel]);
 	}
 
+	// #168: DB charges on the Dutch section of the RB51 (Enschede - Gronau) the base fare plus its kilometre fare over the NS tariff units of the
+	// station pair (Classifications/Agencies/IsPricedOnTariffUnits). The DOVA overview has that kilometre fare in the row of DB Regio from 2018
+	// on. In the DOVA method the rides of DB get it through their own row of FareTable_DOVA; the detailed fare tables have a rule per year.
+	container DB
+	{
+		parameter<string>  MC_CG_key               := 'Rail_DB', Descr = "The key of the row of DB in FareTable_DOVA, which MC_CG_key_DOVA of OD_extra_attributen gives to the rides of DB.";
+		parameter<string>  FirstYear               := '2018', Descr = "The first year with a kilometre fare of DB Regio in the DOVA overview; an earlier fare year gets the fare of this year, scaled with the DOVA base fare.";
+		unit<uint32>       Row                     := select_with_attr_by_cond(Read_DOVA_DistanceFares, Read_DOVA_DistanceFares/Vervoerder == 'DB Regio'), Descr = "The row of DB Regio (Enschede - Gronau) in the DOVA overview.";
+		parameter<Euro_km> VariablePrice_given     := first(Row/VariablePrice);
+		parameter<Euro_km> VariablePrice_FirstYear := ='first(Row/y'+FirstYear+')[Euro_km]';
+		parameter<Euro>    FixedPrice_FirstYear    := ='first(Read_DOVA_BoardingFares/y'+FirstYear+')[Euro]';
+		parameter<Euro_km> VariablePrice           := value(ModelParameters/Impl/DOVA_year, uint32) < value(FirstYear, uint32)
+		                                              ? VariablePrice_FirstYear * (Read_DOVA_BoardingFares/FixedPrice_param / FixedPrice_FirstYear)
+		                                              : VariablePrice_given
+		, IntegrityCheck = "IsDefined(this) && this > 0[Euro_km]"
+		, Descr = "The kilometre fare of DB in DOVA_year, per NS tariff unit: the DOVA overview, and before FirstYear an estimate, the fare of FirstYear times the ratio of the DOVA base fares, which follow the national tariff index.";
+	}
+	unit<uint8> DB_Row : nrofrows = 1, Descr = "The single row of DB that FareTable_DOVA adds to the concession rows.";
+
 	// Safety net for rides outside all concession polygons (foreign sections of De Lijn/DB/Eurobahn/NIAG and possible edge artefacts): one
 	// row per mode class, key '<class>_Buitenland' (see MC_CG_key_DOVA in OD_extra_attributen). Kilometre fare = national DOVA average of the
 	// class of the chosen year, boarding fare = national base fare. Without this safety net Price_IntegrityCheck fails in DOVA mode on those rides.
-	unit<uint8> FareTable_DOVA := union_unit_uint8(FareTable_DOVA_NL, ModeClass)
+	// The last row is that of DB (#168).
+	unit<uint8> FareTable_DOVA := union_unit_uint8(FareTable_DOVA_NL, ModeClass, DB_Row)
 	{
-		attribute<string>  MC_CG_key                      := union_data(., FareTable_DOVA_NL/MC_CG_key, ModeClass/name + '_Buitenland');
-		attribute<Euro>    FixedPrice                     := union_data(., FareTable_DOVA_NL/FixedPrice, const(Read_DOVA_BoardingFares/FixedPrice_param, ModeClass));
-		attribute<Euro_km> VariablePrice                  := union_data(., FareTable_DOVA_NL/VariablePrice, ModeClass/VariablePrice_national);
+		attribute<string>  MC_CG_key                      := union_data(., FareTable_DOVA_NL/MC_CG_key, ModeClass/name + '_Buitenland', const(DB/MC_CG_key, DB_Row));
+		attribute<Euro>    FixedPrice                     := union_data(., FareTable_DOVA_NL/FixedPrice, const(Read_DOVA_BoardingFares/FixedPrice_param, ModeClass), const(Read_DOVA_BoardingFares/FixedPrice_param, DB_Row));
+		attribute<Euro_km> VariablePrice                  := union_data(., FareTable_DOVA_NL/VariablePrice, ModeClass/VariablePrice_national, const(DB/VariablePrice, DB_Row));
 		attribute<Euro>    RideSurcharge                  := const(0[Euro], .), Descr = "The DOVA fares have no surcharge per ride; the column exists so that the prices of OD_extra_attributen also exist when FareTable is FareTable_DOVA (#164).";
 		// The identifier columns of a detailed fare table, here all MC_CG_key, so that the lookups of OD_extra_attributen (FareTable_rel_Line
 		// and the others) also exist when FareTable is FareTable_DOVA; the price then comes from MC_CG_key_DOVA.
@@ -150,7 +170,7 @@ container OVprijzen
 		parameter<string> Status_skip        := 'PASS: prices are off (no price in MinimiseCriteria and Export_PriceInformation FALSE), so the fare tables are not checked.';
 	}
 
-	unit<uint8> FareTable_2023 : NrOfRows = 144, URL = "https://github.com/ObjectVision/NetworkModel_PBL/issues/2", Descr = "The detailed fare table of 2023: per mode, agency, concession and line a boarding fare (FixedPrice), a price per kilometre (VariablePrice) and a surcharge per ride on top of both (RideSurcharge, #164), with the source of each row in Opmerking. A rule without a price per kilometre and without a surcharge is a fixed fare per ride outside the OV-chip journey (#55)."
+	unit<uint8> FareTable_2023 : NrOfRows = 145, URL = "https://github.com/ObjectVision/NetworkModel_PBL/issues/2", Descr = "The detailed fare table of 2023: per mode, agency, concession and line a boarding fare (FixedPrice), a price per kilometre (VariablePrice) and a surcharge per ride on top of both (RideSurcharge, #164), with the source of each row in Opmerking. A rule without a price per kilometre and without a surcharge is a fixed fare per ride outside the OV-chip journey (#55)."
 	{
 		unit<uint32> Elements := Range(uint32, 0, nrAttr*#.)
 		{
@@ -247,6 +267,7 @@ container OVprijzen
 				'Bus'   ,'Twents_Keolis_'      ,'Overijssel'    ,'Twente'                             ,''                     ,'1.08' ,'0.223' ,'0'      ,'Twents, service van Syntus, wat nu Keolis is',
 				'Bus'   ,'OV_Regio_IJsselmond' ,'Overijssel'    ,''                                   ,''                     ,'1.08' ,'0.211' ,'0'      ,'',
 				'Rail'  ,'Eurobahn'            ,'Overijssel'    ,'Twente'                             ,''                     ,'1.08' ,'0.186' ,'0'      ,'handmatig iets vergelijkbaars met NS maken: eerste 8km 2.60eu, het gaat om NL deel.',
+				'Rail'  ,'DB'                  ,'Overijssel'    ,'Twente'                             ,''                     ,'1.08' ,'0.207' ,'0'      ,'RB51 Enschede-Glanerbrug(-Dortmund), NL-deel; km-tarief over de NS-tariefeenheden van het stationspaar (#168) | bron: DOVA-overzicht km-tarieven 2013-2026, Enschede - Gronau (DB Regio) 2023',
 				'Bus'   ,'Qbuzz'               ,'Utrecht'       ,''                                   ,''                     ,'1.08' ,'0.200' ,'0'      ,'kopie van Zuid_Holland, want prov_rel bij omgekeerde reis?',
 				'Bus'   ,'Syntus_Utrecht'      ,'Utrecht'       ,''                                   ,'295'                  ,'1.08' ,'0.187' ,'0'      ,'Utrecht - Schoonhoven Lopikerplein vv [feed: vh. Keolis]',
 				'Tram'  ,'U_OV'                ,'Utrecht'       ,''                                   ,''                     ,'1.08' ,'0.187' ,'0'      ,'',
@@ -302,7 +323,7 @@ container OVprijzen
 				'Bus'   ,'Connexxion'          ,'Zuid_Holland'  ,''                                   ,'500'                  ,'1.08' ,'0'     ,'0.79'   ,'Parkshuttle Rivium (route_short_name 500): OV-basistarief plus vast bedrag per rit (Flatfare), ook bij een overstap, #164 | bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx',
 				'Bus'   ,'Keolis'              ,'Overijssel'    ,''                                   ,''                     ,'1.08' ,'0.207' ,'0'      ,'TVV-lijnen 822-824 (treinvervangend Zwolle/Kampen/Enschede); tarief = Blauwnet-analogie'
 
-				// agencies that are in the GTFS but not in this list are left out because they operate abroad (De Lijn, DB, Eurobahn, NIAG, NMBS, VIAS)
+				// a ride of an agency without a rule here gets the DOVA fare of the concession area of its line (OD_extra_attributen, #55)
 			];
 		}
 		
@@ -331,7 +352,7 @@ container OVprijzen
 	}
 	
 
-	unit<uint8> FareTable_2024 : NrOfRows = 147, URL = "https://github.com/ObjectVision/NetworkModel_PBL/issues/112", Descr = "The detailed fare table of 2024: per mode, agency, concession and line a boarding fare (FixedPrice), a price per kilometre (VariablePrice) and a surcharge per ride on top of both (RideSurcharge, #164), with the source of each row in Opmerking. A rule without a price per kilometre and without a surcharge is a fixed fare per ride outside the OV-chip journey (#55)."
+	unit<uint8> FareTable_2024 : NrOfRows = 148, URL = "https://github.com/ObjectVision/NetworkModel_PBL/issues/112", Descr = "The detailed fare table of 2024: per mode, agency, concession and line a boarding fare (FixedPrice), a price per kilometre (VariablePrice) and a surcharge per ride on top of both (RideSurcharge, #164), with the source of each row in Opmerking. A rule without a price per kilometre and without a surcharge is a fixed fare per ride outside the OV-chip journey (#55)."
 	{
 		unit<uint32> Elements := Range(uint32, 0, nrAttr*#.)
 		{
@@ -427,6 +448,7 @@ container OVprijzen
 				'Bus'   ,'RRReis'                       ,'Overijssel'    ,'Twente'                             ,''                     ,'1.08'  ,'0.223' ,'0'      ,'Twents, service van Syntus, wat nu Keolis is | bron(deepdive): https://wiki.ovinnederland.nl/wiki/Lijn_53_Hengelo_Centraal_Station_-_Eibergen_Viersprong [feed: vh. Twents_Keolis_]',
 				'Bus'   ,'RRReis'                       ,'Overijssel'    ,''                                   ,''                     ,'1.08'  ,'0.196' ,'0'      ,'bron: https://zoek.officielebekendmakingen.nl/prb-2024-19228.pdf [feed: vh. OV_Regio_IJsselmond]',
 				'Rail'  ,'Eurobahn'                     ,'Overijssel'    ,'Twente'                             ,''                     ,'1.08'  ,'0.223' ,'0'      ,'RB61 Hengelo-Oldenzaal(-Bielefeld); NL-deel | GEEN BRON GEVONDEN (km-tarief = Twente-analogie)',
+				'Rail'  ,'DB'                           ,'Overijssel'    ,'Twente'                             ,''                     ,'1.08'  ,'0.207' ,'0'      ,'RB51 Enschede-Glanerbrug(-Dortmund), NL-deel; km-tarief over de NS-tariefeenheden van het stationspaar (#168) | bron: DOVA-overzicht km-tarieven 2013-2026, Enschede - Gronau (DB Regio) 2024',
 				'Bus'   ,'Qbuzz'                        ,'Utrecht'       ,''                                   ,''                     ,'1.08'  ,'0.188' ,'0'      ,'bron: https://gemeenteraad.groningen.nl/Documenten/OV-bureau-Groningen-Drenthe-bustarieven-2025.pdf',
 				'Bus'   ,'Syntus_Utrecht'               ,'Utrecht'       ,''                                   ,'295'                  ,'1.08'  ,'0.187' ,'0'      ,'Utrecht - Schoonhoven Lopikerplein vv | GEEN BRON GEVONDEN (uitgebreid onderzocht: operator-tarievenlijst + archief + deepdive) [feed: vh. Keolis]',
 				'Tram'  ,'U_OV'                         ,'Utrecht'       ,''                                   ,''                     ,'1.08'  ,'0.187' ,'0'      ,'bron: https://www.stateninformatie.provincie-utrecht.nl/documenten/1-Tarievenplan-2024.pdf',
@@ -512,7 +534,7 @@ container OVprijzen
 		parameter<uint32>   nrAttr                         := 9;
 	}
 
-	unit<uint8> FareTable_2025 : NrOfRows = 144, URL = "https://github.com/ObjectVision/NetworkModel_PBL/issues/112", Descr = "The detailed fare table of 2025: per mode, agency, concession and line a boarding fare (FixedPrice), a price per kilometre (VariablePrice) and a surcharge per ride on top of both (RideSurcharge, #164), with the source of each row in Opmerking. A rule without a price per kilometre and without a surcharge is a fixed fare per ride outside the OV-chip journey (#55)."
+	unit<uint8> FareTable_2025 : NrOfRows = 145, URL = "https://github.com/ObjectVision/NetworkModel_PBL/issues/112", Descr = "The detailed fare table of 2025: per mode, agency, concession and line a boarding fare (FixedPrice), a price per kilometre (VariablePrice) and a surcharge per ride on top of both (RideSurcharge, #164), with the source of each row in Opmerking. A rule without a price per kilometre and without a surcharge is a fixed fare per ride outside the OV-chip journey (#55)."
 	{
 		unit<uint32> Elements := Range(uint32, 0, nrAttr*#.)
 		{
@@ -604,6 +626,7 @@ container OVprijzen
 				'Bus'   ,'RRReis'                       ,'Overijssel'    ,'Twente'                             ,''                     ,'1.12'  ,'0.23'  ,'0'      ,'Twents, service van Syntus, wat nu Keolis is | bron(deepdive): https://wiki.ovinnederland.nl/wiki/Lijn_53_Hengelo_Centraal_Station_-_Eibergen_Viersprong [feed: vh. Twents_Keolis_]',
 				'Bus'   ,'RRReis'                       ,'Overijssel'    ,''                                   ,''                     ,'1.12'  ,'0.203' ,'0'      ,'bron: https://zoek.officielebekendmakingen.nl/prb-2024-19228.pdf [feed: vh. OV_Regio_IJsselmond]',
 				'Rail'  ,'Eurobahn'                     ,'Overijssel'    ,'Twente'                             ,''                     ,'1.12'  ,'0.23'  ,'0'      ,'RB61 Hengelo-Oldenzaal(-Bielefeld); NL-deel | GEEN BRON GEVONDEN (km-tarief = Twente-analogie)',
+				'Rail'  ,'DB'                           ,'Overijssel'    ,'Twente'                             ,''                     ,'1.12'  ,'0.214'  ,'0'      ,'RB51 Enschede-Glanerbrug(-Dortmund), NL-deel; km-tarief over de NS-tariefeenheden van het stationspaar (#168) | bron: DOVA-overzicht km-tarieven 2013-2026, Enschede - Gronau (DB Regio) 2025',
 				'Bus'   ,'Eurobahn'                     ,'Alle'          ,''                                   ,''                     ,'1.12'  ,'0.23'  ,'0'      ,'treinvervangend vervoer (Stopbus ipv trein Bad Bentheim-Hengelo-Rheine, RB61); treintarief Eurobahn-Twente aangehouden [dekkingscheck feed 20251008]',
 				'Bus'   ,'Qbuzz'                        ,'Utrecht'       ,''                                   ,''                     ,'1.12'  ,'0.194' ,'0'      ,'bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx',
 				'Bus'   ,'Syntus_Utrecht'               ,'Utrecht'       ,''                                   ,'295'                  ,'1.12'  ,'0.193' ,'0'      ,'Utrecht - Schoonhoven | bron: Tarievenplan U-OV en Syntus 2025 (stateninformatie prov. Utrecht)',
@@ -690,7 +713,7 @@ container OVprijzen
 		parameter<uint32>   nrAttr                         := 9;
 	}
 
-	unit<uint8> FareTable_2026 : NrOfRows = 145, URL = "https://github.com/ObjectVision/NetworkModel_PBL/issues/112", Descr = "The detailed fare table of 2026: per mode, agency, concession and line a boarding fare (FixedPrice), a price per kilometre (VariablePrice) and a surcharge per ride on top of both (RideSurcharge, #164), with the source of each row in Opmerking. A rule without a price per kilometre and without a surcharge is a fixed fare per ride outside the OV-chip journey (#55)."
+	unit<uint8> FareTable_2026 : NrOfRows = 146, URL = "https://github.com/ObjectVision/NetworkModel_PBL/issues/112", Descr = "The detailed fare table of 2026: per mode, agency, concession and line a boarding fare (FixedPrice), a price per kilometre (VariablePrice) and a surcharge per ride on top of both (RideSurcharge, #164), with the source of each row in Opmerking. A rule without a price per kilometre and without a surcharge is a fixed fare per ride outside the OV-chip journey (#55)."
 	{
 		unit<uint32> Elements := Range(uint32, 0, nrAttr*#.)
 		{
@@ -783,6 +806,7 @@ container OVprijzen
 				'Bus'   ,'RRReis'                       ,'Overijssel'    ,'Twente'                             ,''                     ,'1.16'  ,'0.239' ,'0'      ,'Twents, service van Syntus, wat nu Keolis is | bron(deepdive): https://www.samen14.nl/regiotaxi+twente/kosten/default.aspx [feed: vh. Twents_Keolis_]',
 				'Bus'   ,'RRReis'                       ,'Overijssel'    ,''                                   ,''                     ,'1.16'  ,'0.21'  ,'0'      ,'bron: https://zoek.officielebekendmakingen.nl/prb-2025-20501.pdf [feed: vh. OV_Regio_IJsselmond]',
 				'Rail'  ,'Eurobahn'                     ,'Overijssel'    ,'Twente'                             ,''                     ,'1.16'  ,'0.239' ,'0'      ,'RB61 Hengelo-Oldenzaal(-Bielefeld); NL-deel | GEEN BRON GEVONDEN (km-tarief = Twente-analogie)',
+				'Rail'  ,'DB'                           ,'Overijssel'    ,'Twente'                             ,''                     ,'1.16'  ,'0.224' ,'0'      ,'RB51 Enschede-Glanerbrug(-Dortmund), NL-deel; km-tarief over de NS-tariefeenheden van het stationspaar (#168) | bron: DOVA-overzicht km-tarieven 2013-2026, Enschede - Gronau (DB Regio) 2026, vanaf 1-3-2026; 9292 9-11-2026: Enschede-Glanerbrug 3,18 = 1,16 + 9 TE x 0,224',
 				'Bus'   ,'Qbuzz'                        ,'Utrecht'       ,''                                   ,''                     ,'1.16'  ,'0.202' ,'0'      ,'bron: https://dova.nu/sites/default/files/20260212%20Overzicht%20km-tarieven%202013-2026.xlsx',
 				'Tram'  ,'U_OV'                         ,'Utrecht'       ,''                                   ,''                     ,'1.16'  ,'0.201' ,'0'      ,'bron: https://www.stateninformatie.provincie-utrecht.nl/Documenten/1-Tarievenplan-ov-2026.pdf',
 				'Bus'   ,'U_OV'                         ,'Utrecht'       ,'Tram_en_Bus_Regio_Utrecht'          ,''                     ,'1.16'  ,'0.201' ,'0'      ,'bron: https://www.stateninformatie.provincie-utrecht.nl/Documenten/1-Tarievenplan-ov-2026.pdf',

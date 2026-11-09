@@ -50,7 +50,7 @@ Als het browservenster verborgen is, mislukken klikken en typen ("tab is not on 
 | Hilversum - Rotterdam C | 17,80 alle opties; ICD1800 met toeslagmelding | 74 TE, 17,80 (+3,20 op ICD1800) |
 | Hilversum - Rotterdam C, halte tot halte (`/Output/Validation`, dag 29-9 tegen 13-10): ICD1800 07:23 - 08:18, 07:53 - 08:48; 07:29 - 08:40; 07:48 - 08:55 | tijden gelijk, 17,80 | tijden gelijk; 21,00 = 17,80 + 3,20 op de ICD, anders 17,80 |
 | Arnhem C - Zevenaar | 4,72 (ook VIAS) | DOVA-km; FareTable vast 2,79 (fout) |
-| Enschede - Glanerbrug (DB) | 3,18 | DOVA 2,01 gem.; FareTable vast 2,79 |
+| Enschede - Glanerbrug (DB), 9-11-2026; ook Enschede - Eschmarke 2,50 en Eschmarke - Glanerbrug 1,83 | 3,18 | sinds #168 basistarief + DB-km-tarief x 9 TE; probe feed 20250930 (tarief 2025): 3,05 |
 | Nes Veerhaven - Hollum (Qbuzz 1, Ameland) | 3,00 (2 zones, OV-chip) | DOVA km-tarief (fout, zie #55) |
 | Merwekade - Erasmusbrug (Waterbus 20), 07:00 - 07:58 | 58 min, 5,78 (OV-chip) | 58 min; DOVA 6,38 (0,243 x 21,5 km; per mijl zou 4,41 zijn); FareTable vast 2,25. Juiste bron: de afstandstabel van de Waterbus |
 | Harlingen - Terschelling, Holwerd - Ameland, Vlissingen - Breskens | geen OV-chip, geen prijs | DOVA km-tarief (fout, zie #55) |
