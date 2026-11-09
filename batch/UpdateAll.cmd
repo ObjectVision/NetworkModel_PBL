@@ -73,7 +73,7 @@ REM                                 that an earlier variant calculated is comple
 REM   ... -set <name> <value>       for this call, the setting <name> of ModelParameters gets <value>: AnalysisMoment, PartOfDay,
 REM                                 Orgset, Destset, OutputLabel or Advanced/NS_TariffChoice, for example -set PartOfDay Afternoon
 REM                                 -set OutputLabel b2025_afternoon; repeated for more settings
-REM   Example: UpdateAll.cmd all -variant all -set PartOfDay Evening -set OutputLabel b2025_evening -set NS_TariffChoice Price_40pct_Discount
+REM   Example: UpdateAll.cmd all -variant all -set PartOfDay Evening -set NS_TariffChoice Price_40pct_Discount
 REM The section comes first; cars takes moments, any other word or option stops the script before it starts. The variant and the
 REM settings go to every GeoDmsRun step in the environment variables GEODMS_Overridable_Variant and GEODMS_Overridable_<name>
 REM (ConfigSettings/Overridable, ModelParameters/Impl/Given), and the checks show them in their first line. A setting that the call
@@ -81,7 +81,7 @@ REM does not give gets the value ModelParameters, which means: the value in Mode
 REM count, not those of an earlier call in the same window, nor a value of the same name in the registry.
 REM
 REM The output step of a component, with all after its cache steps: a file per origin block and departure moment in
-REM %LocalDataProjDir%\Output\<Analysis_date>_<OutputLabel>_<component>[_fb]_<hash>\PerBlock (_fb: a component on the cycling
+REM %LocalDataProjDir%\Output\<Analysis_date>_<PartOfDay>_<OutputLabel>_<component>[_fb]_<hash>\PerBlock (_fb: a component on the cycling
 REM network with CyclingNetwork 'Fietsersbond'; <hash>: the hash of the signature of the output, NetworkModel_PBL#145), with
 REM the chain cache of the departure moments of PartOfDay. The step
 REM first empties the output folder of the component (#118), removing only the files of the model: tt_*.csv, tt_*.parquet
@@ -358,7 +358,7 @@ echo   legs               the pre- and post-transport caches
 echo   -component ^<name^>  with all, cars, chains or legs: only that component of the variant
 echo   -variant ^<name^>    a merge variant of ModelParameters/MergeVariants; repeated, or all, one after the other
 echo   -set ^<name^> ^<value^> for this call a setting of ModelParameters: %SETNAMES%
-echo Example: UpdateAll.cmd all -variant all -set PartOfDay Afternoon -set OutputLabel b2025_afternoon
+echo Example: UpdateAll.cmd all -variant all -set PartOfDay Afternoon
 echo See the header of batch\UpdateAll.cmd and the wiki page How to run the model.
 exit /b 0
 
