@@ -1,0 +1,47 @@
+// A LINK OF A RIDE ALONG THE SHAPE OF ITS TRIP (#165; only in the OD pair mode, ModelParameters/Impl/IsOD). OD_Output/PTLinks_T draws
+// each scheduled link of a ride from the stop of departure along the points of its shape (TripShape) whose shape_dist_traveled lies
+// between FromDist and ToDist, the shape_dist_traveled of its stop_time and of the next one, to the stop of arrival. A link without
+// TripShape or without increasing distances, such as a waiting link, keeps its straight line (Line). This changes only the map: the
+// travel time and the distance of a ride come from the timetable. The function stands here and not in OD_Output, because inside a
+// template instance a name in a function body finds an item of the definition scope (OD_Output/Links) before its parameter.
+function ShapeSection(
+	unit<uint32>      Links;
+	attribute<uint32> TripShape (Links);
+	attribute<uint32> FromDist  (Links);
+	attribute<uint32> ToDist    (Links);
+	attribute<rdc>    Line      (Links, arc);
+	unit<uint32>      Shapes
+	{
+		attribute<uint32> shape_id;
+		attribute<uint32> shape_dist_traveled;
+		attribute<rdc>    geometry;
+	}
+)
+-> attribute<rdc> (Links, arc) := geometry
+{
+	unit<uint32>      Cut                    := select_with_org_rel(IsDefined(TripShape) && IsDefined(FromDist) && IsDefined(ToDist) && FromDist < ToDist), Descr = "The links with a section of a shape: they have a shape, and shape_dist_traveled increases from their departure to their arrival.";
+	unit<uint32>      UsedShapes             := unique(TripShape[Cut/org_rel]);
+	unit<uint32>      ShapePoints            := select_with_org_rel(IsDefined(rlookup(Shapes/shape_id, UsedShapes/values))), Descr = "The points of the shapes of the links in Cut.";
+	unit<uint32> Pairs := join_equal_values_uint32(TripShape[Cut/org_rel], Shapes/shape_id[ShapePoints/org_rel])
+	, Descr = "Every link of Cut with every point of its shape, per link in the order of ShapePoints (join_equal_values keeps the order of both arguments within a key)."
+	{
+		attribute<Links>  Link_rel       := Cut/org_rel[Pairs/first_rel];
+		attribute<Shapes> ShapePoint_rel := ShapePoints/org_rel[Pairs/second_rel];
+		attribute<uint32> PointDist      := Shapes/shape_dist_traveled[ShapePoint_rel];
+	}
+	unit<uint32> Inner := select_with_org_rel(Pairs/PointDist > FromDist[Pairs/Link_rel] && Pairs/PointDist < ToDist[Pairs/Link_rel])
+	, Descr = "The points of the shape between the two stops of each link, in the order of Shapes, which lists the points of a shape by shape_pt_sequence as shapes.txt does."
+	{
+		attribute<Links>  Link_rel := Pairs/Link_rel[Inner/org_rel];
+		attribute<rdc>    Point    := Shapes/geometry[Pairs/ShapePoint_rel[Inner/org_rel]];
+		attribute<uint32> Ordinal  := cumulate(const(1, Inner, uint32), Link_rel), Descr = "The position of the point in the line of its link, from 1; 0 is the stop of departure.";
+	}
+	attribute<uint32> NrInner        (Links) := pcount_uint32(Inner/Link_rel);
+	unit<uint32> LinePoints := union_unit(Links, Inner, Links)
+	{
+		attribute<Links>  Link_rel := union_data(LinePoints, id(Links), Inner/Link_rel, id(Links));
+		attribute<rdc>    Point    := union_data(LinePoints, first_point(Line), Inner/Point, last_point(Line));
+		attribute<uint32> Ordinal  := union_data(LinePoints, const(0, Links, uint32), Inner/Ordinal, NrInner + 1);
+	}
+	attribute<rdc>    geometry  (Links, arc) := points2sequence(LinePoints/Point, LinePoints/Link_rel, LinePoints/Ordinal);
+}
