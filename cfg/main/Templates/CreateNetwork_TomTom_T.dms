@@ -283,7 +283,7 @@ Template CreateNetwork_TomTom_T : Descr = "Builds the TomTom car network from Ro
 
 	// Time-dependent link times (ModelParameters/Impl/CarTimeDependent, NetworkModel_PBL#132, GeoDMS#1304). Every link is a road section in one
 	// direction or an OD connection link, without merging, so a link can get its own profile: only when its speed changes within the window
-	// (CarTD_WindowStart, CarTD_NrSlots time slots of 300 s). The factor per time slot is T_ref / T: T is the link time as the snapshot of that
+	// (CarTD_WindowStart, CarTD_NrSlots time slots of CarTD_SlotDuration). The factor per time slot is T_ref / T: T is the link time as the snapshot of that
 	// time slot calculates it, with the same operations as TomTom.dms (Roads_selection/CalcTimes: SP_freeflow x relative speed, MINUTES without
 	// speed, the cap MaxSpeed) and LinkSet/Impedance_per_ImpedanceType above (CarDefaultSpeed_low, the junction corrections); T_ref is the
 	// snapshot of the congestion moment of the PartOfDay (07:30). The search takes T_ref as the fixed link time and divides it per time slot
@@ -297,9 +297,9 @@ Template CreateNetwork_TomTom_T : Descr = "Builds the TomTom car network from Ro
 		parameter<string>        RefMoment             := /ModelParameters/Impl/Car_CongestionMoment_ForDirect;
 		parameter<km_hr>         MaxSpeed              := MakeDefined(rjoin(RefMoment, ModelParameters/Impl/CongestionTimes/name, ModelParameters/Impl/CongestionTimes/MaxSpeed), 0[km_hr]), Descr = "The cap of the congestion moment (100 km/h during the day), for all time slots of the window.";
 		parameter<string>        RefTime               := rjoin(RefMoment, ModelParameters/Impl/CongestionTimes/name, ModelParameters/Impl/CongestionTimes/Time);
-		parameter<uint32>        RefSlot               := (uint32(substr(RefTime, 0, 2)) * 3600 + uint32(substr(RefTime, 2, 2)) * 60 - ModelParameters/Advanced/CarTD_WindowStart) / 300, Descr = "The time slot of the congestion moment in the window (18 for 07:30 with a window from 06:00).";
+		parameter<uint32>        RefSlot               := (uint32(substr(RefTime, 0, 2)) * 3600 + uint32(substr(RefTime, 2, 2)) * 60 - ModelParameters/Advanced/CarTD_WindowStart) / ModelParameters/Impl/CarTD_SlotSeconds, Descr = "The time slot of the congestion moment in the window (18 for 07:30 with a window from 06:00).";
 		parameter<uint32>        NrSlots               := ModelParameters/Advanced/CarTD_NrSlots;
-		parameter<uint32>        FirstDaySlot          := ModelParameters/Advanced/CarTD_WindowStart / 300;
+		parameter<uint32>        FirstDaySlot          := ModelParameters/Advanced/CarTD_WindowStart / ModelParameters/Impl/CarTD_SlotSeconds;
 
 		attribute<RoadDomain>    Road_rel    (LinkSet) := LinkSet/Road_rel;
 		attribute<Speednetworks> Sn_rel      (LinkSet) := LinkSet/IsBackward ? RoadDomain/Speednetworks_bwd_rel[Road_rel] : RoadDomain/Speednetworks_fwd_rel[Road_rel], Descr = "The row of Speednetworks in the direction of the link.";
@@ -327,7 +327,7 @@ Template CreateNetwork_TomTom_T : Descr = "Builds the TomTom car network from Ro
 		{
 			attribute<Profile> P_rel     := value(uint32(id(.)) / NrSlots, Profile);
 			attribute<uint32>  Slot      := uint32(id(.)) % NrSlots;
-			attribute<float32> rel_speed := /SourceData/Infrastructure/TomTom/ProfileDaySlot/rel_speed[value(uint32(Profile/Day_rel[P_rel]) * 288 + FirstDaySlot + Slot, /SourceData/Infrastructure/TomTom/ProfileDaySlot)];
+			attribute<float32> rel_speed := /SourceData/Infrastructure/TomTom/ProfileDaySlot/rel_speed[value(uint32(Profile/Day_rel[P_rel]) * ModelParameters/Impl/CarTD_SlotsPerDay + FirstDaySlot + Slot, /SourceData/Infrastructure/TomTom/ProfileDaySlot)];
 			attribute<km_hr>   Speed     := Profile/SP_ff[P_rel] * rel_speed;
 			attribute<min_f>   Min_u     := MakeDefined(convert(convert(Profile/Meters[P_rel], km) / Speed, min_f), Profile/Minutes0[P_rel]);
 			attribute<min_f>   Minutes   := MaxSpeed > 0[km_hr] ? max_elem(Min_u, Profile/Min_cap[P_rel]) : Min_u;
@@ -342,6 +342,6 @@ Template CreateNetwork_TomTom_T : Descr = "Builds the TomTom car network from Ro
 		parameter<float32>       MinFactor             := min(ProfileSlot/factor);
 		parameter<float32>       MaxFactor             := max(ProfileSlot/factor);
 		parameter<uint32>        NrBadFactor           := sum_uint32(not(IsDefined(ProfileSlot/factor)) || not(ProfileSlot/factor > 0f) || ProfileSlot/factor > 1000f), Descr = "Must be 0.";
-		parameter<string>        Report                := 'links ' + string(#LinkSet) + ', met profiel ' + string(#Profile) + ', tijdvakken ' + string(NrSlots) + ' vanaf ' + string(FirstDaySlot * 300) + ' s (referentie ' + string(RefSlot) + '); factor ' + string(MinFactor) + '..' + string(MaxFactor) + '; afwijkend in het referentievak ' + string(NrRefMismatch) + ', ongeldige factoren ' + string(NrBadFactor);
+		parameter<string>        Report                := 'links ' + string(#LinkSet) + ', with a profile ' + string(#Profile) + ', time slots ' + string(NrSlots) + ' from ' + string(FirstDaySlot * ModelParameters/Impl/CarTD_SlotSeconds) + ' s (reference ' + string(RefSlot) + '); factor ' + string(MinFactor) + '..' + string(MaxFactor) + '; different in the reference slot ' + string(NrRefMismatch) + ', invalid factors ' + string(NrBadFactor);
 	}
 }

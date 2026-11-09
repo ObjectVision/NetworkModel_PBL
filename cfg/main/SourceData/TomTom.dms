@@ -642,7 +642,7 @@ container TomTom : Descr = "The TomTom MultiNet road network with its historical
 		attribute<int32>   minutes                     := (time_slot - (hour * 60i * 60i)) / 60i;
 		attribute<upoint>  unipt                       := point(uint32(profile_id), uint32(time_slot), upoint);
 		attribute<SpeedProfileKeys> Profile_rel := rlookup(SP_profile_ID, SpeedProfileKeys/values);
-		attribute<uint32>  ProfileDaySlot_key          := uint32(Profile_rel) * 288 + uint32(time_slot) / 300, Descr = "The position in ProfileDaySlot: profile after profile, and per profile the time slots of 300 s from 00:00.";
+		attribute<uint32>  ProfileDaySlot_key          := uint32(Profile_rel) * ModelParameters/Impl/CarTD_SlotsPerDay + uint32(time_slot) / ModelParameters/Impl/CarTD_SlotSeconds, Descr = "The position in ProfileDaySlot: profile after profile, and per profile the time slots (ModelParameters/Advanced/CarTD_SlotDuration) from 00:00.";
 	}
 
 	// Time-dependent car trip (ModelParameters/Impl/CarTimeDependent, #132): the relative speed per profile and time slot as a table, and which
@@ -654,8 +654,8 @@ container TomTom : Descr = "The TomTom MultiNet road network with its historical
 		attribute<bool> VariesInWindow := max(WindowSlot/rel_speed, WindowSlot/Profile_rel) > min(WindowSlot/rel_speed, WindowSlot/Profile_rel) || any(not(IsDefined(WindowSlot/rel_speed)), WindowSlot/Profile_rel)
 		, Descr = "True when the relative speed of this profile changes within the window or is missing in a time slot; otherwise the link time is constant there and the link gets no profile of its own.";
 	}
-	unit<uint32> ProfileDaySlot := range(uint32, 0, #SpeedProfileKeys * 288)
-	, Descr = "The 288 time slots of 300 s of a day for each profile, profile after profile."
+	unit<uint32> ProfileDaySlot := range(uint32, 0, #SpeedProfileKeys * ModelParameters/Impl/CarTD_SlotsPerDay)
+	, Descr = "The time slots of a day for each profile (ModelParameters/Impl/CarTD_SlotsPerDay), profile after profile."
 	{
 		attribute<float32> rel_speed := rjoin(uint32(id(.)), Speedprofiles/ProfileDaySlot_key, Speedprofiles/rel_sp) / 100f, Descr = "The speed relative to SP_freeflow (rel_sp is in percent).";
 	}
@@ -663,6 +663,6 @@ container TomTom : Descr = "The TomTom MultiNet road network with its historical
 	, Descr = "The time slots of the window for each profile, profile after profile."
 	{
 		attribute<SpeedProfileKeys> Profile_rel := value(uint32(id(.)) / ModelParameters/Advanced/CarTD_NrSlots, SpeedProfileKeys);
-		attribute<float32> rel_speed := ProfileDaySlot/rel_speed[value(uint32(Profile_rel) * 288 + ModelParameters/Advanced/CarTD_WindowStart / 300 + uint32(id(.)) % ModelParameters/Advanced/CarTD_NrSlots, ProfileDaySlot)];
+		attribute<float32> rel_speed := ProfileDaySlot/rel_speed[value(uint32(Profile_rel) * ModelParameters/Impl/CarTD_SlotsPerDay + ModelParameters/Advanced/CarTD_WindowStart / ModelParameters/Impl/CarTD_SlotSeconds + uint32(id(.)) % ModelParameters/Advanced/CarTD_NrSlots, ProfileDaySlot)];
 	}
 }

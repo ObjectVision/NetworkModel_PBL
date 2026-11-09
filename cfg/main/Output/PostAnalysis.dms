@@ -5,6 +5,8 @@ container PostAnalysis : using = "units;Geography;modelparameters;classification
 	container StopAnalysis_RuimteScanner : Descr = "Travel time and distance from every 100 m cell to the nearest public transport stop per mode and class of trips per day, over the OSM networks for walking, cycling and car, as tifs for the RuimteScanner."
 	{
 		parameter<m>      Distance_StopClustering := 100[m], Descr = "Stops of the same mode within this distance of a stop, in the same province, count in its cluster for the number of trips per day.";
+		parameter<RegioIndelingen/Provincie> Province_Outside := value(#RegioIndelingen/Provincie, RegioIndelingen/Provincie), Descr = "The province number of a stop outside all provinces: one beyond the last province, so that those stops cluster among themselves.";
+		parameter<uint32> MaxClusterTripsPerDay   := 20000, Descr = "Upper bound of the highest class of trips per day of a stop cluster (DepartureMoments_3K); it must be above the busiest cluster.";
 		parameter<min_f>  MaxSearchTime           := 60[min_f], Descr = "Search limit of the travel time from the stops; it also sets the search limit of the distance through the speed of the network.";
 		
 		parameter<string> domain_str              := '100m';
@@ -168,7 +170,7 @@ container PostAnalysis : using = "units;Geography;modelparameters;classification
 			unit<uint32> Per_mode_subset := select_with_org_rel(Stops_total/ModeName == Mode)
 			{
 				attribute<rdc>    geometry              := Stops_total/geometry[org_rel];
-				attribute<RegioIndelingen/Provincie> prov_rel := MakeDefined(point_in_polygon(geometry, RegioIndelingen/Provincie/Geometry),12);
+				attribute<RegioIndelingen/Provincie> prov_rel := MakeDefined(point_in_polygon(geometry, RegioIndelingen/Provincie/Geometry), Province_Outside);
 				attribute<string> Label                 := Stops_total/Label[org_rel];
 				attribute<uint32> NrTripsPerDay         := Stops_total/NrTripsPerDay[org_rel];
 				attribute<uint32> Cluster_NrTripsPerDay := rjoin(geometry, StopMatrix_merged/geometry, StopMatrix_merged/Cluster_NrTripsPerDay);
@@ -249,11 +251,11 @@ container PostAnalysis : using = "units;Geography;modelparameters;classification
 			attribute<uint32> Bus_lower   := Stop_per_mode/Bus/Per_mode_subset/classify_ClusterTrips;
 			attribute<uint32> Ferry_lower := Stop_per_mode/Ferry/Per_mode_subset/classify_ClusterTrips;
 			
-			attribute<uint32> Tram_upper  := MakeDefined(Tram_lower[id(.) + 1],20000);
-			attribute<uint32> Metro_upper := MakeDefined(Metro_lower[id(.) + 1],20000);
-			attribute<uint32> Rail_upper  := MakeDefined(Rail_lower[id(.) + 1],20000);
-			attribute<uint32> Bus_upper   := MakeDefined(Bus_lower[id(.) + 1],20000);
-			attribute<uint32> Ferry_upper := MakeDefined(Ferry_lower[id(.) + 1],20000);
+			attribute<uint32> Tram_upper  := MakeDefined(Tram_lower[id(.) + 1], MaxClusterTripsPerDay);
+			attribute<uint32> Metro_upper := MakeDefined(Metro_lower[id(.) + 1], MaxClusterTripsPerDay);
+			attribute<uint32> Rail_upper  := MakeDefined(Rail_lower[id(.) + 1], MaxClusterTripsPerDay);
+			attribute<uint32> Bus_upper   := MakeDefined(Bus_lower[id(.) + 1], MaxClusterTripsPerDay);
+			attribute<uint32> Ferry_upper := MakeDefined(Ferry_lower[id(.) + 1], MaxClusterTripsPerDay);
 			
 			container         V           := for_each_nedv(Name, string(id(.)), void, .);
 		}

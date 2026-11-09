@@ -8,9 +8,9 @@
 # holds instead the writer of the one cache (ChainGeneration_Single/Write) while that cache is missing.
 #
 # Call (by UpdateAll.cmd chains): WriteChainBlocks.ps1 -Exe <GeoDmsRun.exe> -Cfg <cfg\main.dms> -LogDir <batch\log>
-#   -BatchSize  blocks per GeoDmsRun (default 20). The blocks of a portion share only the start-up of about half a
-#               minute, so the size makes little difference to the calculation time. A few slow blocks need 150 to 200 GB
-#               of live data and page on a machine with 128 GB, whatever the portion size.
+#   -BatchSize  blocks per GeoDmsRun (default 20). The blocks of a portion share only the start-up, so the size makes
+#               little difference to the calculation time; a block that needs more memory than the machine has pages
+#               whatever the portion size (#141).
 #   -MaxBlocks  at most this many blocks in this call (0 = all; for testing)
 #   -Tag        appended to the names of the log and console files (UpdateAll.cmd passes none: the chain cache is shared
 #               by the public transport components, so its step carries no component)

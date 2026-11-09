@@ -139,14 +139,14 @@ container PublicTransport_Prep
 		}
 
 		// #113: without flex (ModelParameters/Advanced/IncludeFlex = FALSE) all links of flex lines leave both networks (Set_L admits waiting
-		// links of flex trips at stations, hence there as well). Empty when flex takes part, so that the select expression of Set_R and Set_L
-		// stays literally the same as before #113. This is exact, because in Set_R/Set the connected Components are per route (NodeSet =
+		// links of flex trips at stations, hence there as well). Empty when flex takes part, so that the select expressions of Set_R and Set_L
+		// then have no flex condition at all. This is exact, because in Set_R/Set the connected Components are per route (NodeSet =
 		// (time, stop, route)): leaving out flex links removes exactly the flex Components and touches no other ride.
 		parameter<string> FlexSelection_str     := ModelParameters/Advanced/IncludeFlex ? '' : ' && not(PTnet_prep/IsFlexLink)';
 
 		container         Set_R                 := Get_Windowed_Agency_Set_T(' && PTnet_prep/IsRegionalLink && '+impl/PT_path_str+'/Duration > 0f' + impl/FlexSelection_str), Descr = "The links of the regional network in the analysis window: the scheduled links and the waiting links of the trips of the regional agencies (PTnet_prep/IsRegionalLink).", using = "impl";
 		// The L network: the agencies with the NS fare (Agencies/IsLnet: NS and, #3, NS International) without the trains on which an NS
-		// ticket never applies (Routes/IsWithoutNSTicket: Eurostar, Nightjet), plus the waiting links at NS stations.
+		// ticket never applies (Routes/IsWithoutNSTicket: the products of OVprijzen/NS/TrainsWithoutNSTicket, such as Eurostar and Nightjet), plus the waiting links at NS stations.
 		container         Set_L                 := Get_Windowed_Agency_Set_T(' && (('+impl/PT_path_str+'/Agency_rel->IsLnet && not('+impl/PT_path_str+'/Route_rel->IsWithoutNSTicket)) || ('+impl/PT_path_str+'/Mode_rel == impl/Modes/V/Waiting && IsDefined('+impl/PT_path_str+'/c_NS_start_end_rel))) && '+impl/PT_path_str+'/Duration > 0f' + impl/FlexSelection_str);
 		
 		unit<uint32> All_Time_Stops := union_unit_uint32(OD_L/Result, OD_R/Result), Descr = "All rides of OD_L and OD_R together, with their boarding and alighting events (time, stop), of which uq_c_FromTime_Stop and uq_c_ToTime_Stop take the unique ones."
@@ -218,8 +218,8 @@ container PublicTransport_Prep
 		// One cache per congestion moment following the MMD rules of GeoDMS (ObjectVision/GeoDMS#1245): Calc_Car is the calculating side,
 		// Write_Car the holder that stores only the four columns, with the travel time rounded to whole seconds (uint16, as in the chain
 		// cache) and the distance to whole metres (uint32), Read_Car the bare reader (it declares nothing; the
-		// dictionary of the mmd supplies the columns) and Car (CarFront_T) the derived values, the summary per OD pair and the thinned front
-		// (Car/Front). The signature (Signature) carries everything that determines the content; the name holds only the road network, the
+		// dictionary of the mmd supplies the columns) and Car (CarFront_T) the derived values, the summary per OD pair and the front
+		// (Car/Front, all rows of the cache). The signature (Signature) carries everything that determines the content; the name holds only the road network, the
 		// moment, the origin and destination sets and a hash of the signature (NetworkModel_PBL#118). Calculate Write_Car first
 		// (batch/UpdateAll.cmd cars does the moments of MakeUnlinkedData/Step4_DirectCar/Moments), then reload.
 		unit<uint8> CarMoments := range(uint8, 0b, uint8(4 + (/ModelParameters/Impl/CarTimeDependent ? #/ModelParameters/Impl/PartOfDay_Moments : 0)))
@@ -242,7 +242,7 @@ container PublicTransport_Prep
 			,	Descr = "The calculating side: the (Pareto) distance matrix of PrivateTransport_Car_T at this moment, or the time-dependent search of this departure moment (Traveltimes/TD); not for direct use, since Write_Car writes it and Car reads it back.";
 			parameter<km_hr>  MaxSpeed        := MakeDefined(rjoin(IsTD ? /ModelParameters/Impl/Car_CongestionMoment_ForDirect : Moment, /ModelParameters/Impl/CongestionTimes/name, /ModelParameters/Impl/CongestionTimes/MaxSpeed), 0[km_hr]), Descr = "The speed cap of this moment (0 = none) for the cache name; for a time-dependent cache that of the congestion moment.";
 			parameter<string> TD_Tag          := IsTD
-			                                     ? '_td-' + /ModelParameters/Impl/Car_CongestionMoment_ForDirect + '-' + string(/ModelParameters/Advanced/CarTD_WindowStart / 60) + 'min-' + string(/ModelParameters/Advanced/CarTD_NrSlots) + 'x300s-st' + string(/ModelParameters/Car_StartTime) + (/ModelParameters/Advanced/CarTD_Search == 'scalar' ? '-scalar' : '')
+			                                     ? '_td-' + /ModelParameters/Impl/Car_CongestionMoment_ForDirect + '-' + string(/ModelParameters/Advanced/CarTD_WindowStart / 60) + 'min-' + string(/ModelParameters/Advanced/CarTD_NrSlots) + 'x' + string(/ModelParameters/Impl/CarTD_SlotSeconds) + 's-st' + string(/ModelParameters/Car_StartTime) + (/ModelParameters/Advanced/CarTD_Search == 'scalar' ? '-scalar' : '')
 			                                     : ''
 			,	Descr = "Part of the signature of a time-dependent cache: the reference congestion moment, the window (start in minutes, number of time slots), Car_StartTime (which shifts the departure time on the network) and the search.";
 			parameter<string> Signature       := 'DirectCar_' + Moment
@@ -307,7 +307,7 @@ container PublicTransport_Prep
 			unit<uint64>      Read_Car        : StorageName = "=Sig/ForReading", StorageReadOnly = "true"
 			,	Descr = "Bare reader of the cache, declaring nothing; it fails when the signature is missing or differs (Sig/CheckGate), so when the cache does not exist, calculate Write_Car first.";
 			container         Car             := CarFront_T(Read_Car, Read_Car/impedance, Read_Car/alt_imp, Read_Car/OrgZone_rel, Read_Car/DstZone_rel)
-			,	Descr = "The direct car trip from the whole cache: per OD pair the fastest route (scalar) or the (travel time, distance) front (ParetoLegs_Car), with price, the summary per OD pair in Summary and the thinned front in Front.";
+			,	Descr = "The direct car trip from the whole cache: per OD pair the fastest route (scalar) or the (travel time, distance) front (ParetoLegs_Car), with price, the summary per OD pair in Summary and the front, all rows of the cache, in Front.";
 		}
 
 		// The direct car trip from (part of) a car cache: Rows with the four columns of the cache, the derived values per route, the
@@ -618,8 +618,8 @@ container PublicTransport_Prep
 	}
 
 
-	// Also the place and the (time, place) of every boarding and alighting event, as PT calculates them per chain: the chains of an
-	// origin block (PublicTransport/PT_InBlock) look them up here, instead of PT calculating them for all chains.
+	// Also the place and the (time, place) of every boarding and alighting event, as PT calculates them per chain: the chains of a part
+	// of an origin block (PublicTransport/PerPart/<part>/PT_InBlock) look them up here, instead of PT calculating them for all chains.
 	unit<uint64> uq_c_FromTime_Stop := unique_uint64(impl/All_Time_Stops/c_FromTime_Stop_rel), using = "impl"
 	{
 		attribute<impl/c_Time_Stops> c_FromTime_Stop_rel  := values;
@@ -711,7 +711,7 @@ container PublicTransport_Prep
 			attribute<s>       PTWaitTime       := ='union_data(., '+AsItemList('Chain_Generation/'+Allowed_ChainsK/name+'/Result/PTWaitTime')+')', Descr = "Waiting at the transfers of the chain and the extra time per boarding of its flex rides and trains with a trip surcharge (ChainJoiner_T, #146).";
 
 			unit<uint64>       StarEvent2Stop   := combine_unit_uint64(uq_c_FromTime_Stop, Stops), Descr = "The key of a pair (boarding event, destination stop): uq_c_FromTime_Stop x Stops.";
-			attribute<StarEvent2Stop> OD_pair_key := combine_data(StarEvent2Stop, uq_c_FromTime_Stop_rel, To_Stop_rel); //fka OD_key
+			attribute<StarEvent2Stop> OD_pair_key := combine_data(StarEvent2Stop, uq_c_FromTime_Stop_rel, To_Stop_rel);
 			unit<uint32>       OD_pair          := unique_uint32(OD_pair_key);
 			attribute<OD_pair> OD_pair_rel      := rlookup(OD_pair_key, OD_pair/values);
 			unit<uint8>        ParetoAttr       := Classifications/FinalParetoAttr;
@@ -723,7 +723,7 @@ container PublicTransport_Prep
 		: Descr = "Workaround for a deadlock (ObjectVision/GeoDMS#965)."
 		, URL = "https://github.com/ObjectVision/GeoDMS/issues/965"
 		{
-			unit<uint64> Result := ='select(Allowed_Chains/pareto_condition' + (ModelParameters/Impl/IsOD ? ' && Allowed_Chains/EndsAtD' : '') + ')' //fka uq_OD_key; for an OD pair only the chains to the stops of the destination (#129)
+			unit<uint64> Result := ='select(Allowed_Chains/pareto_condition' + (ModelParameters/Impl/IsOD ? ' && Allowed_Chains/EndsAtD' : '') + ')' // for an OD pair only the chains to the stops of the destination (#129)
 			{
 				attribute<Allowed_Chains> Allowed_Chains_rel := collect_by_cond(., id(Allowed_Chains)), Descr = "The chain in Allowed_Chains, to trace it back to its rides and transfers (only requested in the OD pair mode, OD_Chains).";
 				attribute<ct>     Price            := =ModelParameters/Impl/PriceExportsAndIntegrityChecksNeeded ? 'collect_by_cond(., Allowed_Chains/Price)' : 'const(null_f, ., ct)';
@@ -952,9 +952,9 @@ container PublicTransport_Prep
 
 	// The chains the output can use: those that board at a stop where a pre-transport leg of the component ends (NetworkSetup/impl/IsVStop),
 	// with only the columns the departure moments read, from the cache per stop block (PT_Chains_Blocks/PerBlock/<block>/VBoarding). Each
-	// origin block picks from these the chains of its own pre-transport (PublicTransport/PT_InBlock), and each departure moment picks
-	// its window from those (PerDepartureMoment_T/Within_VW_Window), so that not all chains with their derived relations are held in
-	// memory. A chain is in the cache of the stop block of its boarding stop, so the parts do not overlap.
+	// part of an origin block picks from these the chains of its own pre-transport (PublicTransport/PerPart/<part>/PT_InBlock), and each
+	// departure moment picks its window from those (PerDepartureMoment_T/Within_VW_Window), so that not all chains with their derived
+	// relations are held in memory. A chain is in the cache of the stop block of its boarding stop, so the stop blocks do not overlap.
 	attribute<bool>   IsVBoarding_PT      (PT) := uq_c_FromTime_Stop/IsVBoarding[PT/uq_c_FromTime_Stop_rel], Descr = "Does the chain board where a pre-transport leg of the component ends? Used only with the one cache (PT_Chains_PerBlock FALSE) to select PT_V.";
 	unit<uint64> PT_V := = ModelParameters/Advanced/PT_Chains_PerBlock ? 'union_unit_uint64(' + AsItemList('PT_Chains_Blocks/PerBlock/' + impl/BlockDomain/name + '/VBoarding') + ')' : 'select(IsVBoarding_PT)'
 	, using = "impl"

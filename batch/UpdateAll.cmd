@@ -41,8 +41,8 @@ REM   UpdateAll.cmd cars [moment..] the caches of the direct car trip per depart
 REM                                 (PublicTransport_Prep/Direct/CarPerMoment/<moment>/Write_Car); without moments the
 REM                                 moments the model reads (MakeUnlinkedData/Step4_DirectCar/Moments: TD07h00m and on with
 REM                                 CarTimeDependent); with moments those, for example MorningRush NoonRush LateEveningRush
-REM                                 and Freeflow (TomTom) or MaxSpeed (OSM). About 40 min per static moment with a scalar
-REM                                 search, longer with ParetoLegs_Car, and about 3 hours per time-dependent departure moment.
+REM                                 and Freeflow (TomTom) or MaxSpeed (OSM). A time-dependent departure moment takes much
+REM                                 longer than a static moment; the wiki gives the times (How to run the model).
 REM                                 A moment whose cache exists with the current signature is skipped (CarPerMoment/<moment>/
 REM                                 IsWritten); remove its folder in IntermediateResults to make it again
 REM   UpdateAll.cmd chains          the public transport chain cache per stop block (WriteChainBlocks.ps1; with
@@ -89,8 +89,8 @@ REM and tt_*.xml, signature.txt/.xml, the counts od_tellingen.csv and unieke_od_
 REM Tellingen\tellingen_*.*. It runs in portions of blocks (WriteOutputBlocks.ps1, a GeoDmsRun per portion, then the
 REM counts of all blocks in one more GeoDmsRun); blocks per portion per component in Classifications/Components/BlocksPerPortion, or set
 REM with OUTPUT_BATCHSIZE; OUTPUT_MAXBLOCKS calculates at most that many blocks, for a test.
-REM Run one UpdateAll at a time, not two at the same time: the output step of a component can need more than 100 GB of
-REM memory, and two at once make the machine page.
+REM Run one UpdateAll at a time, not two at the same time: the output step of a component can need most of the memory
+REM of the machine (ModelParameters/Advanced/OutputPeak_Measured), and two at once make the machine page.
 REM ---------------------------------------------------------------------------------------------
 REM The full path name without "..": GeoDMS derives %LocalDataProjDir% from the name of the folder above cfg, and
 REM with batch\..\cfg\main.dms that name is "..", which puts the caches in C:\LocalData\..\IntermediateResults, that is C:\.

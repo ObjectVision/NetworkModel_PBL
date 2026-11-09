@@ -39,7 +39,8 @@ container LoadFeeds
 		unit<uint32> ReadCSV
 		: StorageName     = "= '%NetworkModel_dir%/Infrastructuur/GTFS/'+ModelParameters/Impl/GTFS_file_date+'/'+File_Structure/Name[inFile]+'.csv'"
 		, StorageType     = "gdal.vect"
-		, StorageReadOnly = "True";
+		, StorageReadOnly = "True"
+		, Source          = "OVapi (gtfs.ovapi.nl), the GTFS feed of the Netherlands, one download per feed date (AnalysisMomentPresets/GTFS_file_date)";
 
 		unit<uint32> CSV_attributes := SubItem_PropValues(ReadCSV,'name');
 	}
@@ -206,10 +207,10 @@ container LoadFeeds
 			attribute<uint32>        MaxTrips_SameWeekday := MakeDefined(CalendarDates/MaxTrips_PerWeekday[Weekday_rel], 0);
 			attribute<float32>       TripShare            := MaxTrips_SameWeekday > 0 ? float32(NrTrips) / float32(MaxTrips_SameWeekday) : 0f;
 			attribute<bool>          IsComplete           := TripShare >= ModelParameters/Advanced/MinServiceDayTripShare;
-			attribute<string>        Report               := label + ' ' + string(yyyymmdd) + ' (' + Weekdays/name[Weekday_rel] + '): ' + string(NrTrips) + ' ritten, '
-			                                                 + string(round(TripShare * 100f)) + '% van de drukste ' + Weekdays/name[Weekday_rel] + ' in de feed'
-			                                                 + (IsNeeded ? (IsComplete ? '' : ', ONVOLLEDIG') : ', niet nodig voor dit venster')
-			                                                 + (IsDSTChange ? ', zomertijdwissel' : '');
+			attribute<string>        Report               := label + ' ' + string(yyyymmdd) + ' (' + Weekdays/name[Weekday_rel] + '): ' + string(NrTrips) + ' trips, '
+			                                                 + string(round(TripShare * 100f)) + '% of the busiest ' + Weekdays/name[Weekday_rel] + ' in the feed'
+			                                                 + (IsNeeded ? (IsComplete ? '' : ', INCOMPLETE') : ', not needed for this window')
+			                                                 + (IsDSTChange ? ', change of daylight saving time' : '');
 		}
 		parameter<uint32> Yesterday_date := Days/yyyymmdd[value(0, Days)];
 		parameter<uint32> Today_date     := Days/yyyymmdd[value(1, Days)];
@@ -240,7 +241,7 @@ container LoadFeeds
 		attribute<string>            stop_name           := Read/Stops/data/stop_name;
 		attribute<dpoint>            point_wgs           := point_xy(float64(stop_lon), float64(stop_lat), wgs84_base);
 		attribute<rdc>               geometry_feed       := LatLongWgs842RD(point_wgs, rdc);
-		// A stop with the coordinates (0, 0) in the feed gets the point of its parent_station; without a parent with a point it keeps the point
+		// A stop with a latitude or longitude of 0 in the feed gets the point of its parent_station; without a parent with a point it keeps the point
 		// from the feed. Otherwise such stops (for example foreign platforms of international trains) would lie together in the Gulf of Guinea,
 		// as one stop cluster with transfers at distance 0.
 		attribute<bool>              IsWithoutPoint        := stop_lat == 0d || stop_lon == 0d;
@@ -322,11 +323,15 @@ container LoadFeeds
 		attribute<RawStopTimes>   First_st      := min_index(RawStopTimes/Stop_Sequence, RawStopTimes/RawTrip_rel)[org_rel];
 		attribute<RawStopTimes>   Last_st       := max_index(RawStopTimes/Stop_Sequence, RawStopTimes/RawTrip_rel)[org_rel];
 		attribute<uint32>         NrStops       := pcount(RawStopTimes/RawTrip_rel)[org_rel];
-		attribute<uint64>         PatternKey    := ((uint64(RelevantSelection/Trips/Route_rel[org_rel]) * uint64(#RawStops) + uint64(RawStopTimes/RawStop_rel[First_st])) * uint64(#RawStops) + uint64(RawStopTimes/RawStop_rel[Last_st])) * uint64(1024) + uint64(min_elem(NrStops, uint32(1023)));
+		unit<uint32>              NrStopsClass  := range(uint32, 0, MakeDefined(max(NrStops), 0) + 1), Descr = "The numbers of stops of the flex trips, as the last factor of a trip pattern.";
+		unit<uint64>              c_Pattern     := combine_unit_uint64(RelevantSelection/Routes, RawStops, RawStops, NrStopsClass), Descr = "The trip patterns: route, first stop, last stop and number of stops.";
+		attribute<c_Pattern>      PatternKey    := combine_data(c_Pattern, RelevantSelection/Trips/Route_rel[org_rel], RawStopTimes/RawStop_rel[First_st], RawStopTimes/RawStop_rel[Last_st], value(NrStops, NrStopsClass));
 		unit<uint32>              Pattern       := unique_uint32(PatternKey);
 		attribute<Pattern>        Pattern_rel   := rlookup(PatternKey, Pattern/values);
 		attribute<uint32>         StartSec      := uint32(RawTrips/StartTime[org_rel]);
-		attribute<uint64>         GroupKey      := uint64(Pattern_rel) * uint64(65536) + uint64(StartSec / ModelParameters/Impl/FlexMinInterval_sec);
+		unit<uint32>              StartSlots    := range(uint32, 0, #Time / ModelParameters/Impl/FlexMinInterval_sec + 1), Descr = "The blocks of FlexMinInterval on the time axis, in which the trips of a pattern start.";
+		unit<uint64>              c_Group       := combine_unit_uint64(Pattern, StartSlots);
+		attribute<c_Group>        GroupKey      := combine_data(c_Group, Pattern_rel, value(StartSec / ModelParameters/Impl/FlexMinInterval_sec, StartSlots));
 		unit<uint32>              Group         := unique_uint32(GroupKey);
 		attribute<Group>          Group_rel     := rlookup(GroupKey, Group/values);
 		attribute<.>              First (Group) := min_index(StartSec, Group_rel), Descr = "The first trip of each block; with equal start times the first in the feed.";
@@ -343,7 +348,7 @@ container LoadFeeds
 		{
 			attribute<rdc>         geometry     (arc) := points2sequence(GenLines/Points, GenLines/Sequence_rel, GenLines/Ordinal);
 			attribute<uint32>      dist_shape         := sub_or_null(RawStopTimes/next_shape_dist_traveled[org_rel], RawStopTimes/shape_dist_traveled[org_rel]);
-			attribute<uint32>      dist_traveled      := dist_shape <= 100 ? null_u : dist_shape;
+			attribute<uint32>      dist_traveled      := dist_shape <= uint32(ModelParameters/Advanced/MinShapeDistTraveled) ? null_u : dist_shape;
 			attribute<m>           dist_euclid        := arc_length(geometry, m_f64)[m];
 			attribute<rdc>         fromPoint          := RawStops/geometry[RawStopTimes/RawStop_rel[org_rel]];
 			attribute<RawStops>    From_RawStop_rel   := RawStopTimes/RawStop_rel[org_rel];

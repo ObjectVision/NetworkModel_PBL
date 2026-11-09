@@ -49,10 +49,10 @@ Template PerDepartureMoment_T : Descr = "Calculates for one departure moment of 
 		attribute<Within_VW_Window> PT_rel := second_rel; //debug
 		attribute<Places>        Place_rel                    := X_rel; //debug
 
-		attribute<Time>          V_From_Time_rel_org          := const(inTime[Time],V)[V_rel], Descr = "Departure time from org, excluding waiting at first stop.";
+		attribute<Time>          V_From_Time_rel_org          := const(inTime[Time],V)[V_rel], Descr = "The departure moment at the origin, before any waiting at home.";
 		attribute<Time>          V_To_Time_rel_org            := V_From_Time_rel_org + V_time[Time];
 		
-		attribute<Time>          V_From_Time_rel              := V_From_Time_rel_org + WaitingTime_rel, Descr = "Departure time from origin, excluding waiting at first stop.";
+		attribute<Time>          V_From_Time_rel              := V_From_Time_rel_org + WaitingTime_rel, Descr = "The departure from the origin after waiting at home: the departure moment plus the wait, so that the pre-transport leg arrives at the stop at the departure of the chain.";
 		attribute<Places>        V_From_Place_rel             := V/From_Place_rel[V_rel];
 		attribute<c_Time_Places> V_c_fromTime_Place_rel       := combine_data(c_Time_Places, V_From_Time_rel, V_From_Place_rel);
 		
@@ -310,13 +310,13 @@ Template PerDepartureMoment_T : Descr = "Calculates for one departure moment of 
 		attribute<dam>           Traveldist_N         := = WithPT ? 'Add_N_to_VPT/Result/Traveldist_N'     : 'const(0w, ., dam)';
 
 		///// ==== Step-wise condensation of result set ==== ////
- 		unit<uint64>          OD_key_set                       := combine_unit_uint64(AllOptions/uq_c_FromTime_Place, Places), Descr = "Step-wise condensation of result set: second condense the results based on time-place to place.";
+ 		unit<uint64>          OD_key_set                       := combine_unit_uint64(AllOptions/uq_c_FromTime_Place, Places), Descr = "The groups of the first condensation: per departure from the origin (time and place) and destination place.";
 		attribute<OD_key_set>    OD_key               := combine_data(OD_key_set, uq_c_FromTime_Place_rel, To_Place_rel);
 		unit<uint64>             uq_OD_key            := unique(OD_key);
 		attribute<uq_OD_key>     uq_OD_key_rel        := rlookup(OD_key, uq_OD_key/values); // the group of each row for the Pareto selection below
 		
 		// pareto_optimal_eps keeps per group the rows that no other row dominates, with a relative epsilon per criterion (Classifications/../EpsilonExpr; 0 = exact).
-		// NeedsCar and NeedsBike (#117) are bool criteria without epsilon (ObjectVision/GeoDMS#1287); an older engine gives 'Cannot find operator'.
+		// NeedsCar and NeedsBike (#117) are bool criteria without epsilon (ObjectVision/GeoDMS#1287).
 		attribute<bool>          pareto_condition     := ='pareto_optimal_eps(uq_OD_key_rel, ' + asList(ParetoAttr/ParetoArgs, ', ') + ')';
 	}
 	
@@ -353,13 +353,13 @@ Template PerDepartureMoment_T : Descr = "Calculates for one departure moment of 
 		attribute<AllOptions> AllOptions_rel   := collect_by_cond(., AllOptions/pareto_condition, id(AllOptions)), Descr = "The row of AllOptions, which is that of Add_N_to_VPT/Result or of the direct trips (Direct) (only requested in the OD pair mode, OD_Output).";
 	
 		///// ==== Step-wise condensation of result set ==== ////
- 		unit<uint64>          OD_key_set                       := combine_unit_uint64(Places, Places), Descr = "Step-wise condensation of result set: third condense the results based on place to place.";
+ 		unit<uint64>          OD_key_set                       := combine_unit_uint64(Places, Places), Descr = "The groups of the second condensation: per origin place and destination place, over the departure times.";
 		attribute<OD_key_set> OD_key           := combine_data(OD_key_set, From_Place_rel, To_Place_rel);
 		unit<uint64>          uq_OD_key        := unique(OD_key);
 		attribute<uq_OD_key>  uq_OD_key_rel    := rlookup(OD_key, uq_OD_key/values); // the group of each row for the Pareto selection below
 		
 		// pareto_optimal_eps keeps per group the rows that no other row dominates, with a relative epsilon per criterion (Classifications/../EpsilonExpr; 0 = exact).
-		// NeedsCar and NeedsBike (#117) are bool criteria without epsilon (ObjectVision/GeoDMS#1287); an older engine gives 'Cannot find operator'.
+		// NeedsCar and NeedsBike (#117) are bool criteria without epsilon (ObjectVision/GeoDMS#1287).
 		attribute<bool>       pareto_condition := ='pareto_optimal_eps(uq_OD_key_rel, ' + asList(ParetoAttr/ParetoArgs, ', ') + ')';
 	}
 	

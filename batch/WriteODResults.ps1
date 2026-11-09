@@ -15,7 +15,8 @@
 # -Variant 'OV_lopen,Auto', or 'all', makes those merge variants of ModelParameters/MergeVariants instead, one after the other, each in a
 # Merged folder of its own (UpdateAll.cmd -variant). A -Ref from before the merge variants and the -set options of UpdateAll gets the
 # settings of group 1 written into its copy instead, and takes no -Variant.
-# The engine must know pareto with LinkSet (ObjectVision/GeoDMS#1325) for the car routes: GeoDMS 20.26.0 or later.
+# The engine must know pareto with LinkSet (ObjectVision/GeoDMS#1325) for the car routes, and the model asks for GeoDMS 20.28.0 or later
+# (cfg/main.dms).
 # Every step skips a cache that exists, so after a change to the output only the output is calculated again. Run long runs as a one-off scheduled task (see the wiki, How to run the model). -WaitForMemoryGB waits until that much
 # memory is available before the run starts, so that the pair does not make other runs page; the chain step calculates all
 # public transport rides of the network (20 to 30 GB). -Ref takes another commit than HEAD, for a comparison before and after a change;
@@ -31,12 +32,25 @@ param(
 	[string]$Label = 'od',
 	[string]$Components = '',
 	[string]$Variant = '',
-	[string]$Exe = 'C:\Program Files\ObjectVision\GeoDms20.28.0.m\GeoDmsRun.exe',
+	[string]$Exe = '',
 	[string]$Root = 'C:\LocalData\NM_PBL_runs',
 	[int]$WaitForMemoryGB = 0,
 	[string]$Ref = 'HEAD'
 )
 $ErrorActionPreference = 'Stop'
+# The engine as batch\UpdateAll.cmd finds it: -Exe, else GEODMS_EXE, else the installed GeoDMS of GEODMS_VERSION in UpdateAll.cmd,
+# flavor m or c, in the folder that the installer writes to the registry or in the default folder.
+if (-not $Exe) { $Exe = $env:GEODMS_EXE }
+if (-not $Exe) {
+	$ver = (Select-String -Path (Join-Path $PSScriptRoot 'UpdateAll.cmd') -Pattern '^set GEODMS_VERSION=(\S+)').Matches[0].Groups[1].Value
+	foreach ($f in 'm', 'c') {
+		if ($Exe) { break }
+		$loc = (Get-ItemProperty -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\GeoDms$ver.$f" -Name InstallLocation -ErrorAction SilentlyContinue).InstallLocation
+		if ($loc -and (Test-Path (Join-Path $loc 'GeoDmsRun.exe'))) { $Exe = Join-Path $loc 'GeoDmsRun.exe' }
+		elseif (Test-Path "$env:ProgramW6432\ObjectVision\GeoDms$ver.$f\GeoDmsRun.exe") { $Exe = "$env:ProgramW6432\ObjectVision\GeoDms$ver.$f\GeoDmsRun.exe" }
+	}
+}
+if (-not $Exe) { throw 'No GeoDmsRun.exe found: install GeoDMS, or give -Exe or set GEODMS_EXE.' }
 $repo = Split-Path -Parent $PSScriptRoot
 $runs = Join-Path $Root "od_$($Org)_$($Dest)"
 $status = Join-Path $runs 'status.txt'
