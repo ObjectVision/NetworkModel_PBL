@@ -133,7 +133,9 @@ WaitForMemory
 $env:GEODMS_EXE = $Exe
 $sw = [Diagnostics.Stopwatch]::StartNew()
 # The output of UpdateAll.cmd, stderr included, goes to a file in the log of the copy, so that a cmd message is not an error of this
-# script; UpdateAll.cmd writes its progress per step to batch\log\UpdateAll_status.txt of the copy.
+# script; UpdateAll.cmd writes its progress per step to batch\log\UpdateAll_status.txt of the copy. The archive holds no batch\log,
+# because git keeps no files there, so the folder is made first.
+New-Item -ItemType Directory -Force (Join-Path $dst 'batch\log') | Out-Null
 & cmd /c "`"$dst\batch\UpdateAll.cmd`" $args2 > `"$dst\batch\log\od_updateall.txt`" 2>&1"
 $rc = $LASTEXITCODE
 Say ("UpdateAll {0}: exit {1}, {2:N0} s" -f $args2, $rc, $sw.Elapsed.TotalSeconds)
