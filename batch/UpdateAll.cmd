@@ -73,7 +73,7 @@ REM                                 that an earlier variant calculated is comple
 REM   ... -set <name> <value>       for this call, the setting <name> of ModelParameters gets <value>: AnalysisMoment, PartOfDay,
 REM                                 Orgset, Destset, OutputLabel or Advanced/NS_TariffChoice, for example -set PartOfDay Middag
 REM                                 -set OutputLabel b2025_middag; repeated for more settings
-REM   Example: UpdateAll.cmd all -variant all -set PartOfDay Avond -set OutputLabel b2025_avond -set NS_TariffChoice Price_FullFare
+REM   Example: UpdateAll.cmd all -variant all -set PartOfDay Avond -set OutputLabel b2025_avond -set NS_TariffChoice Price_40pct_Discount
 REM The section comes first; cars takes moments, any other word or option stops the script before it starts. The variant and the
 REM settings go to every GeoDmsRun step in the environment variables GEODMS_Overridable_Variant and GEODMS_Overridable_<name>
 REM (ConfigSettings/Overridable, ModelParameters/Impl/Given), and the checks show them in their first line. A setting that the call
