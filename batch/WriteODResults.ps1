@@ -10,12 +10,17 @@
 #
 # Call, for example for the trip Laapersweg 1 Hilversum -> De Boelelaan 1085 at 07:30 (the wiki, Routes of an OD pair):
 #   powershell -ExecutionPolicy Bypass -File batch\WriteODResults.ps1 -Org BU04020501 -Dest BU0363KP03 -Moment 07:30
-# The variant is that of cfg\main\ModelParameters.dms of the working copy; -Components 'WW,W_PT_W,C_PT_ovfC' sets it instead, from
-# the direct trips and the pre- and post-transport types in the names (every pre-transport type with every post-transport type), and
+# The variant is that of cfg\main\ModelParameters.dms of the working copy: every pre-transport type that is on with every post-transport
+# type that is on, and the direct trips that are on. -Components 'WW,W_PT_W,C_PT_ovfC' calculates and merges exactly those components
+# instead: the run copy gets a merge variant of its own with them, OD_Components (ModelParameters/MergeVariants), which UpdateAll.cmd
+# -variant runs, so that W_PT_ovfC and C_PT_W, which the switches of these pre- and post-transport types would also give, stay out.
 # -Variant 'OV_lopen,Auto', or 'all', makes those merge variants of ModelParameters/MergeVariants instead, one after the other, each in a
-# Merged folder of its own (UpdateAll.cmd -variant). A -Ref from before the merge variants and the -set options of UpdateAll gets the
-# settings of group 1 written into its copy instead, and takes no -Variant. -MergeCriteria and -NS_TariffChoice go to UpdateAll as -set
-# when given (batch\ODPairReport.ps1 gives MergeCriteria Price,Time,Car,Bike, #166).
+# Merged folder of its own. The copy notes the merge variant of its run in VARIANT.txt, which the export and the pictures of
+# batch\ODPairReport.ps1 read. A -Ref from before the merge variants and the -set options of UpdateAll gets the settings of group 1
+# written into its copy instead, takes no -Variant, and with -Components calculates every combination of the pre- and post-transport
+# types in the names. -MergeCriteria and -NS_TariffChoice go to UpdateAll as -set when given (batch\ODPairReport.ps1 gives MergeCriteria
+# Price,Time,Car,Bike, #166). -Section checks makes the run copy and only lists the components that the run would calculate, in
+# batch\log\components.txt of the copy, without calculating them.
 # The engine must know pareto with LinkSet (ObjectVision/GeoDMS#1325) for the car routes, and the model asks for GeoDMS 20.28.0 or later
 # (cfg/main.dms).
 # Every step skips a cache that exists, so after a change to the output only the output is calculated again. Run long runs as a one-off scheduled task (see the wiki, How to run the model). -WaitForMemoryGB waits until that much
@@ -38,9 +43,11 @@ param(
 	[string]$Exe = '',
 	[string]$Root = 'C:\LocalData\NM_PBL_runs',
 	[int]$WaitForMemoryGB = 0,
-	[string]$Ref = 'HEAD'
+	[string]$Ref = 'HEAD',
+	[ValidateSet('all', 'checks')][string]$Section = 'all'
 )
 $ErrorActionPreference = 'Stop'
+if ($Variant -and $Components) { throw 'give -Components or -Variant, not both' }
 # The engine as batch\UpdateAll.cmd finds it: -Exe, else GEODMS_EXE, else the installed GeoDMS of GEODMS_VERSION in UpdateAll.cmd,
 # flavor m or c, in the folder that the installer writes to the registry or in the default folder.
 if (-not $Exe) { $Exe = $env:GEODMS_EXE }
@@ -65,6 +72,28 @@ function SetParam($file, $name, $value) {
 	if (([regex]::Matches($t, $re)).Count -ne 1) { throw "parameter $name does not occur exactly once in $file" }
 	[IO.File]::WriteAllText($file, [regex]::Replace($t, $re, { param($m) $m.Groups[1].Value + $value }), (New-Object System.Text.UTF8Encoding($true)))
 }
+# The merge variant of -Components in the run copy: one more row of ModelParameters/MergeVariants, with the components, the criteria and
+# the next number as MergeRunNr, behind the last row of the table.
+$OwnVariant = 'OD_Components'
+function AddMergeVariant($file, $name, $components, $criteria) {
+	$t = [IO.File]::ReadAllText($file)
+	$re = [regex]'(unit<uint8>\s+MergeVariants\s*:\s*nrofrows\s*=\s*)(\d+)'
+	$head = $re.Match($t)
+	if (-not $head.Success) { throw "no table MergeVariants in $file" }
+	if ([regex]::IsMatch($t, "'$name'\s*,")) { throw "the merge variant $name is already in $file" }
+	$rows = [int]$head.Groups[2].Value
+	$close = $t.IndexOf('];', $head.Index)
+	if ($close -lt 0) { throw "no end of the table MergeVariants in $file" }
+	$last = $t.Substring(0, $close).TrimEnd().Length
+	$eol = if ($t.Contains("`r`n")) { "`r`n" } else { "`n" }
+	$lineStart = $t.LastIndexOf("`n", $last - 1) + 1
+	$indent = [regex]::Match($t.Substring($lineStart), '^[ \t]*').Value
+	$t = $t.Substring(0, $last) + ",$eol$indent'$name', '$components', '$criteria', '$($rows + 1)'" + $t.Substring($last)
+	# The new row lies behind the header, so the number of rows is still where the match found it.
+	$n = $head.Groups[2]
+	$t = $t.Substring(0, $n.Index) + ($rows + 1) + $t.Substring($n.Index + $n.Length)
+	[IO.File]::WriteAllText($file, $t, (New-Object System.Text.UTF8Encoding($true)))
+}
 function WaitForMemory {
 	if ($WaitForMemoryGB -le 0) { return }
 	while ($true) {
@@ -83,12 +112,14 @@ function GetSwitch($file, $name) {
 	if (-not $m.Success) { throw "switch $name not found in $file" }
 	return $m.Groups[1].Value
 }
-# The value of every switch: from -Components, or else from the working copy.
+# The value of every switch: from -Components, or else from the working copy. With -Components the merge variant OD_Components chooses
+# the components; the switches then only matter for a copy without merge variants.
 $values = @{}
+$compList = @($Components.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 if ($Components) {
 	foreach ($n in $switches) { $values[$n] = 'FALSE' }
 	$values['Merge'] = 'TRUE'
-	foreach ($c in ($Components.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
+	foreach ($c in $compList) {
 		switch ($c) {
 			'WW'    { $values['DirectWalking'] = 'TRUE' }
 			'CC'    { $values['DirectCycling'] = 'TRUE' }
@@ -103,7 +134,7 @@ $archive = Join-Path $runs 'head.tar'
 & git -C $repo archive --format=tar -o $archive $Ref cfg data batch
 if ($LASTEXITCODE -ne 0) { throw "git archive: exit $LASTEXITCODE" }
 $commit = & git -C $repo rev-parse $Ref
-$what = if ($Variant) { "merge variants $Variant" } else { "variant $((@($switches | Where-Object { $values[$_] -eq 'TRUE' })) -join ',')" }
+$what = if ($Variant) { "merge variants $Variant" } elseif ($Components) { "components $($compList -join ',')" } else { "variant $((@($switches | Where-Object { $values[$_] -eq 'TRUE' })) -join ',')" }
 Say "OD pair $Org -> $Dest, moment '$Moment', $AnalysisMoment $PartOfDay, $Orgset/$Destset, $what, commit $commit, engine $Exe"
 
 $dst = Join-Path $runs 'variant\NetworkModel_PBL'
@@ -122,7 +153,8 @@ SetParam $mp 'OD_DepartureTime' "'$Moment'"
 foreach ($n in $switches) { SetParam $mp $n $values[$n] }
 # The settings of group 1 go to UpdateAll.cmd as -set, the merge variants as -variant; the copy of a commit from before these options gets
 # the settings of group 1 in its ModelParameters.dms instead.
-$args2 = 'all'
+$args2 = $Section
+$runVariant = ''
 $group1 = [ordered]@{ 'AnalysisMoment' = $AnalysisMoment; 'PartOfDay' = $PartOfDay; 'Orgset' = $Orgset; 'Destset' = $Destset; 'OutputLabel' = $Label }
 # MergeCriteria and NS_TariffChoice only when given: then UpdateAll takes them with -set, in quotes because cmd splits at a comma.
 $given = [ordered]@{}
@@ -135,14 +167,23 @@ if (Select-String -Path (Join-Path $dst 'batch\UpdateAll.cmd') -Pattern '"-set"'
 		if ($n -notin $setnames) { throw "UpdateAll.cmd of $Ref takes no -set $n" }
 		$args2 += " -set $n `"$($given[$n])`""
 	}
-	foreach ($v in ($Variant.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })) { $args2 += " -variant $v" }
+	if ($Components) {
+		AddMergeVariant $mp $OwnVariant ($compList -join ',') $(if ($MergeCriteria) { $MergeCriteria } else { 'Price,Time' })
+		$args2 += " -variant $OwnVariant"
+		$runVariant = $OwnVariant
+	}
+	$vlist = @($Variant.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+	foreach ($v in $vlist) { $args2 += " -variant $v" }
+	if ($vlist.Count -eq 1 -and $vlist[0] -ne 'all') { $runVariant = $vlist[0] }
 } else {
 	if ($Variant) { throw "the copy of $Ref has no merge variants (UpdateAll.cmd -variant)" }
 	if ($given.Count) { throw "the copy of $Ref takes no -MergeCriteria or -NS_TariffChoice" }
+	if ($Components) { Say "the copy of $Ref has no merge variants: the run calculates every combination of the pre- and post-transport types of -Components" }
 	foreach ($n in $group1.Keys) { SetParam $mp $n "'$($group1[$n])'" }
 }
+Set-Content -Path (Join-Path $dst 'VARIANT.txt') -Value $runVariant
 
-WaitForMemory
+if ($Section -eq 'all') { WaitForMemory }
 $env:GEODMS_EXE = $Exe
 $sw = [Diagnostics.Stopwatch]::StartNew()
 # The output of UpdateAll.cmd, stderr included, goes to a file in the log of the copy, so that a cmd message is not an error of this
@@ -153,4 +194,10 @@ New-Item -ItemType Directory -Force (Join-Path $dst 'batch\log') | Out-Null
 $rc = $LASTEXITCODE
 Say ("UpdateAll {0}: exit {1}, {2:N0} s" -f $args2, $rc, $sw.Elapsed.TotalSeconds)
 if ($rc -ne 0) { throw "UpdateAll $args2 in $dst failed, see $dst\batch\log\UpdateAll_status.txt" }
-Say "done: the output is in Output_$($Org)_$($Dest); open /Output/OD_PairRoutes in GeoDmsGui with the same settings"
+if ($Section -eq 'checks') {
+	Get-Content (Join-Path $dst 'batch\log\components.txt') | ForEach-Object { Say "component: $(($_ -split ';')[0])" }
+	Say "checks done: the components that the run would calculate are in $dst\batch\log\components.txt"
+	return
+}
+$also = if ($runVariant) { " and the merge variant $runVariant (GEODMS_Overridable_Variant)" } else { '' }
+Say "done: the output is in Output_$($Org)_$($Dest); open /Output/OD_PairRoutes in GeoDmsGui on the run copy with the same settings$also"

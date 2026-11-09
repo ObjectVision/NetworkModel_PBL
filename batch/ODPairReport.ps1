@@ -1,7 +1,9 @@
 # ODPairReport.ps1 (#166): the whole route of one OD pair in one call, from the run to the gpkg and the pictures, with every setting as an
 # argument. Three steps, by default all three (-Steps run,export,images):
-#   run     batch\WriteODResults.ps1: a run copy of -Ref with the pair and the variant, and UpdateAll.cmd all with the settings of group 1,
-#           MergeCriteria and NS_TariffChoice (-set) and the merge variant (-variant).
+#   run     batch\WriteODResults.ps1: a run copy of -Ref with the pair, and UpdateAll.cmd all with the settings of group 1, MergeCriteria
+#           and NS_TariffChoice (-set) and a merge variant (-variant), so that UpdateAll calculates and merges only the components that
+#           the report needs: those of -Components, as the merge variant OD_Components of the run copy, or those of the merge variant
+#           -Variant. The step needs one of the two, so that it does not calculate every component of the variant of the working copy.
 #   export  GeoDmsRun of /Output/OD_PairRoutes/Export/Write on the run copy: od_paar.gpkg and fronten.csv in the folder of the merged output
 #           of the pair, with the options of all components and departure moments, the column OpFront for the merged front on
 #           MergeCriteria, the parts with the route of each part as one line, and the links.
@@ -50,6 +52,7 @@ $todo  = @($Steps.Split(',') | ForEach-Object { $_.Trim().ToLower() } | Where-Ob
 foreach ($s in $todo) { if ($s -notin 'run', 'export', 'images') { throw "unknown step $s; use run, export and images" } }
 if ($Variant -and $Variant.Contains(',')) { throw '-Variant takes one merge variant here: the export reads the merged output of one merge' }
 if ($Variant -and $Components) { throw 'give -Components or -Variant, not both' }
+if ('run' -in $todo -and -not $Components -and -not $Variant) { throw 'give -Components (or -Variant) with the step run: the run calculates only those components' }
 New-Item -ItemType Directory -Force $Out | Out-Null
 $status = Join-Path $Out 'status.txt'
 function Say($m) { $l = "{0} {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $m; $l; Add-Content -Path $status -Value $l }
@@ -86,6 +89,12 @@ if ('run' -in $todo) {
 	& (Join-Path $PSScriptRoot 'WriteODResults.ps1') @wr | ForEach-Object { Say "run: $_" }
 }
 if (-not (Test-Path $config)) { throw "no run copy $config; run the step run first" }
+# The merge variant of the run for the export and the pictures: -Variant, or the one that the run copy notes (OD_Components after
+# -Components), so that the steps export and images also find it on their own; without either, the switches in the run copy.
+$noted = Join-Path $runs 'variant\NetworkModel_PBL\VARIANT.txt'
+$runVariant = if ($Variant) { $Variant } elseif (Test-Path $noted) { (Get-Content $noted -Raw).Trim() } else { '' }
+$env:GEODMS_Overridable_Variant = if ($runVariant) { $runVariant } else { 'ModelParameters' }
+if ($runVariant) { Say "merge variant of the run: $runVariant" }
 
 # The folder of the merged output: the %LocalDataProjDir% of the run copy, which has the config.ini of the working copy.
 $ini = Join-Path $runs 'variant\NetworkModel_PBL\cfg\main\config.ini'
