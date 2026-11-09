@@ -467,6 +467,10 @@ container Classifications: Using = "Units"
 		// cache and of the output of a component name, so that the merge computes them as the run of the component does (#145).
 		attribute<bool>   IsInMinimiseCriteria   := IsDefined(strpos(lowercase(ModelParameters/MinimiseCriteria), lowercase(CandidateParetoAttr/FileNameElement))), Descr = "Does MinimiseCriteria name this criterion, regardless of upper or lower case?";
 		attribute<bool>   IsComponentSelection   := IsInMinimiseCriteria && NOT(id(.) == v/Price && IsInMinimiseCriteria[v/Price_augm]), Descr = "IsFinalParetoSelection of a run of a component: the criteria of MinimiseCriteria, and of Price and Price_augm only Price_augm when it names both.";
+		// The same selection from MergeCriteria alone, also outside the merge step: the criteria that the signature of the merged output names
+		// (NetworkSetup/ComponentMerge_Def/Signature), so that a reader outside the merge step finds its folder, as /Output/OD_PairRoutes/Compare (#135).
+		attribute<bool>   IsInMergeCriteria      := IsDefined(strpos(lowercase(ModelParameters/MergeCriteria), lowercase(CandidateParetoAttr/FileNameElement))), Descr = "Does MergeCriteria name this criterion, regardless of upper or lower case?";
+		attribute<bool>   IsMergeSelection       := IsInMergeCriteria && NOT(id(.) == v/Price && IsInMergeCriteria[v/Price_augm]), Descr = "IsFinalParetoSelection of the merge step: the criteria of MergeCriteria, and of Price and Price_augm only Price_augm when it names both.";
 
 		container         V                      := for_each_nedv(name, String(ID(.))+'[..]', void, .);
 	}
@@ -494,8 +498,21 @@ container Classifications: Using = "Units"
 		attribute<bool>   IsRelevant       := union_data(., ModelParameters/Impl/AllowDirectCar, ModelParameters/Impl/IsMerged ? any(Classifications/Components/Selected && Classifications/Components/NeedsBike) : ModelParameters/Impl/AllowDirectCycling || VN_ModeClasses/AnyNeedsBike)
 		,	Descr = "Can an option need a car or a bike: a car only for the direct car trip (there is no P+R pre-transport), a bike for the direct cycling route and for pre- or post-transport with an own bike; a criterion that is equal for all options does not change the front and is left out.";
 		attribute<bool>   IsSelected       := IsCriteriaInList && IsRelevant;
+		attribute<bool>   IsMergeSelection := IsDefined(strpos(lowercase(ModelParameters/MergeCriteria), lowercase(CriteriaName)))
+			&& union_data(., any(Classifications/Components/Selected && Classifications/Components/DirectCar), any(Classifications/Components/Selected && Classifications/Components/NeedsBike))
+		,	Descr = "IsSelected of the merge step, also outside it: MergeCriteria names the criterion, and an option of the variant can need a car or a bike (#135).";
 	}
 	unit<uint8> OwnershipParetoAttr := select_with_attr_by_cond(OwnershipParetoAttr_Candidates, OwnershipParetoAttr_Candidates/IsSelected);
+
+	// The criteria of the merge step, also outside it: the signature of the merged output (NetworkSetup/ComponentMerge_Def/Signature) names
+	// these, so that its folder is the same in the merge step, in GeoDmsGui and in /Output/OD_PairRoutes/Compare (#135). In the merge step
+	// they are OutputParetoAttr.
+	unit<uint8> MergeFinalParetoAttr     := select_with_attr_by_cond(CandidateParetoAttr, CandidateParetoAttr/IsMergeSelection);
+	unit<uint8> MergeOwnershipParetoAttr := select_with_attr_by_cond(OwnershipParetoAttr_Candidates, OwnershipParetoAttr_Candidates/IsMergeSelection);
+	unit<uint8> MergeParetoAttr          := union_unit_uint8(MergeFinalParetoAttr, MergeOwnershipParetoAttr)
+	{
+		attribute<string> FileNameElement := union_data(., MergeFinalParetoAttr/FileNameElement, MergeOwnershipParetoAttr/FileNameElement);
+	}
 
 	unit<uint8> OutputParetoAttr := union_unit_uint8(FinalParetoAttr, OwnershipParetoAttr)
 	, Descr = "The criteria of the final Pareto selection per departure moment: FinalParetoAttr plus the selected ownership criteria."
