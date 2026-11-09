@@ -265,13 +265,17 @@ container LoadFeeds
 		attribute<Trips_x_order_uq>        first_txo       := min_index(Trips_x_order_uq/ord, Trips_x_order_uq/RawTrip_rel);
 		attribute<shapes>                  shape_rel       := rlookup(shape_id, shapes/shape_id);
 		// Flexible transport: a trip of a flex line that departs in the same block of ModelParameters/Advanced/FlexMinInterval as an earlier trip
-		// of the same trip pattern does not join the public transport network (FlexOptions, RawStopTimes/Sel*Net). The public transport hubs count
-		// all trips (StopTimes/SelToday), so that the destinations do not depend on the flex parameters.
+		// of the same trip pattern on the same service day does not join the public transport network of that day (FlexOptions,
+		// RawStopTimes/Sel*Net). The public transport hubs count all trips (StopTimes/SelToday), so that the destinations do not depend on the
+		// flex parameters.
 		attribute<bool>                    IsFlex          := MakeDefined(RelevantSelection/Routes/IsFlex[RelevantSelection/Trips/Route_rel], false);
-		attribute<bool>                    KeepFlexOption  := = ModelParameters/Advanced/IncludeFlex && ModelParameters/Impl/FlexMinInterval_sec > 0
-			? 'not(IsFlex) || MakeDefined(FlexOptions/Keep[invert(FlexOptions/org_rel)], true)'
-			: 'const(true, ., bool)'
-			, Descr = "True when the trip joins the public transport network; only trips of flex lines can drop out, see FlexOptions.";
+		attribute<FlexOptions>             FlexOption_rel  := invert(FlexOptions/org_rel);
+		attribute<bool>                    KeepFlexOptionYesterday := = ModelParameters/Impl/ThinFlexOptions ? 'not(IsFlex) || MakeDefined(FlexOptions/KeepYesterday[FlexOption_rel], true)' : 'const(true, ., bool)'
+			, Descr = "True when the trip joins the public transport network of D-1; only trips of flex lines can drop out, see FlexOptions.";
+		attribute<bool>                    KeepFlexOptionToday     := = ModelParameters/Impl/ThinFlexOptions ? 'not(IsFlex) || MakeDefined(FlexOptions/KeepToday[FlexOption_rel], true)' : 'const(true, ., bool)'
+			, Descr = "True when the trip joins the public transport network of D; only trips of flex lines can drop out, see FlexOptions.";
+		attribute<bool>                    KeepFlexOptionTomorrow  := = ModelParameters/Impl/ThinFlexOptions ? 'not(IsFlex) || MakeDefined(FlexOptions/KeepTomorrow[FlexOption_rel], true)' : 'const(true, ., bool)'
+			, Descr = "True when the trip joins the public transport network of D+1; only trips of flex lines can drop out, see FlexOptions.";
 	}
 	
 	unit<uint32> RawStopTimes := Read/Stop_times/domain //StopTimes
@@ -281,9 +285,9 @@ container LoadFeeds
 		attribute<bool>                    SelToday                 := RawTrips/sel_today[RawTrip_rel];
 		attribute<bool>                    SelYesterday             := RawTrips/sel_yesterday[RawTrip_rel] && (Time/Day[departureTime/TimesVector/Time_rel] > 0);
 		attribute<bool>                    SelTomorrow              := RawTrips/sel_tomorrow_window[RawTrip_rel] && (Time/Day[departureTime/TimesVector/Time_rel] == 0) && (Time/Day[arrivalTime/TimesVector/Time_rel] == 0), Descr = "Whole trips of D+1 that start before the end of the window, with a GTFS time below 24:00, so that plus 24 hours they fall within the time axis of 48 hours.";
-		attribute<bool>                    SelYesterdayNet          := SelYesterday && RawTrips/KeepFlexOption[RawTrip_rel], Descr = "SelYesterday without the thinned flex options (RawTrips/KeepFlexOption): the trips of the public transport network.";
-		attribute<bool>                    SelTodayNet              := SelToday     && RawTrips/KeepFlexOption[RawTrip_rel], Descr = "SelToday without the thinned flex options (RawTrips/KeepFlexOption): the trips of the public transport network.";
-		attribute<bool>                    SelTomorrowNet           := SelTomorrow  && RawTrips/KeepFlexOption[RawTrip_rel], Descr = "SelTomorrow without the thinned flex options (RawTrips/KeepFlexOption): the trips of the public transport network.";
+		attribute<bool>                    SelYesterdayNet          := SelYesterday && RawTrips/KeepFlexOptionYesterday[RawTrip_rel], Descr = "SelYesterday without the thinned flex options of D-1 (RawTrips/KeepFlexOptionYesterday): the trips of the public transport network.";
+		attribute<bool>                    SelTodayNet              := SelToday     && RawTrips/KeepFlexOptionToday[RawTrip_rel],     Descr = "SelToday without the thinned flex options of D (RawTrips/KeepFlexOptionToday): the trips of the public transport network.";
+		attribute<bool>                    SelTomorrowNet           := SelTomorrow  && RawTrips/KeepFlexOptionTomorrow[RawTrip_rel],  Descr = "SelTomorrow without the thinned flex options of D+1 (RawTrips/KeepFlexOptionTomorrow): the trips of the public transport network.";
 		attribute<RawStops>                RawStop_rel            := rlookup(Read/Stop_times/data/stop_id, RawStops/stop_id);
 		attribute<RawStops>                NextRawStop_rel        := RawStop_rel[NextStopId];
 		attribute<uint32>                  Stop_Sequence            := uint32(Read/Stop_times/data/stop_sequence);
@@ -317,7 +321,8 @@ container LoadFeeds
 
 	// Thinning of the flex options (ModelParameters/Advanced/FlexMinInterval). Some feeds schedule on-demand area transport as a trip every
 	// minute, which gives very many public transport rides per departure and very large stop blocks. Per trip pattern (route, first and last
-	// stop, number of stops) only the first trip of each block of FlexMinInterval, counted from 00:00 of the GTFS day, stays.
+	// stop, number of stops) and service day only the first trip of each block of FlexMinInterval, counted from 00:00 of the GTFS day, stays.
+	// Only the trips of that day count: a feed often gives the same trip a trip_id per weekday type or per period of the timetable (#171).
 	unit<uint32> FlexOptions := select_with_org_rel(RawTrips/IsFlex)
 	{
 		attribute<RawStopTimes>   First_st      := min_index(RawStopTimes/Stop_Sequence, RawStopTimes/RawTrip_rel)[org_rel];
@@ -334,8 +339,9 @@ container LoadFeeds
 		attribute<c_Group>        GroupKey      := combine_data(c_Group, Pattern_rel, value(StartSec / ModelParameters/Impl/FlexMinInterval_sec, StartSlots));
 		unit<uint32>              Group         := unique_uint32(GroupKey);
 		attribute<Group>          Group_rel     := rlookup(GroupKey, Group/values);
-		attribute<.>              First (Group) := min_index(StartSec, Group_rel), Descr = "The first trip of each block; with equal start times the first in the feed.";
-		attribute<bool>           Keep          := First[Group_rel] == ID(.);
+		attribute<bool>           KeepYesterday := /Templates/FirstOfBlock(FlexOptions, Group, Group_rel, StartSec, RawTrips/sel_yesterday[org_rel]), Descr = "Is the trip the first of its block among the trips of D-1?";
+		attribute<bool>           KeepToday     := /Templates/FirstOfBlock(FlexOptions, Group, Group_rel, StartSec, RawTrips/sel_today[org_rel]), Descr = "Is the trip the first of its block among the trips of D?";
+		attribute<bool>           KeepTomorrow  := /Templates/FirstOfBlock(FlexOptions, Group, Group_rel, StartSec, RawTrips/sel_tomorrow[org_rel]), Descr = "Is the trip the first of its block among the trips of D+1?";
 	}
 
 	Template DayLinks_T

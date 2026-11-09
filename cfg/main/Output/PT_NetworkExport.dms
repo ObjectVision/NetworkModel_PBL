@@ -124,6 +124,10 @@ container PT_NetworkExport
 			                                            && uint32(RawTrips/StartTime) + AddSec < uint32(WindowEndMoment) + SubSec
 			                                            && uint32(TripEnd) + AddSec > uint32(WindowBeginMoment) + SubSec
 			,	Descr = "Does the trip run on DateNr, and does it then overlap the window?";
+			attribute<bool>   FlexOptionKept (FlexOptions) := /Templates/FirstOfBlock(FlexOptions, FlexOptions/Group, FlexOptions/Group_rel, FlexOptions/StartSec, ServiceRuns[RawTrips/Services_rel[FlexOptions/org_rel]])
+			,	Descr = "Is the flex option the first of its block among the trips that run on DateNr? As LoadFeeds/FlexOptions/KeepToday for Analysis_date.";
+			attribute<bool>   KeepFlexOption (RawTrips) := = ModelParameters/Impl/ThinFlexOptions ? 'not(RawTrips/IsFlex) || MakeDefined(FlexOptionKept[RawTrips/FlexOption_rel], true)' : 'const(true, RawTrips, bool)'
+			,	Descr = "Does the trip join the public transport network of the model on DateNr? Only a thinned flex option does not, as LoadFeeds/RawTrips/KeepFlexOptionToday for Analysis_date.";
 			container         Net                    := DayLinks_T(TripRuns[RawStopTimes/RawTrip_rel] && DepartureDay >= Days/MinDepartureDay[d] && ArrivalDay <= Days/MaxArrivalDay[d], AddSec, SubSec);
 		}
 		container            PerDay                      := for_each_ne(Days/name, 'PartOfDay_T(value(' + string(id(Days)) + ', Days))');
@@ -146,7 +150,7 @@ container PT_NetworkExport
 			attribute<Classes/ModeClasses> Mode_rel := Trips/Mode_rel[RawTrip_rel];
 			attribute<Shapes/Uq>  Shape_rel      := Trips/shapes_uq_rel[RawTrip_rel];
 			attribute<bool>       IsFlex         := RawTrips/IsFlex[RawTrip_rel];
-			attribute<bool>       InPTnet        := RawTrips/KeepFlexOption[RawTrip_rel];
+			attribute<bool>       InPTnet        := ='union_data(., ' + asList('PerDay/' + Days/name + '/KeepFlexOption[' + Days/NetPath + '/RawTrip_rel]', ', ') + ')', Descr = "Does the trip of the link join the public transport network of the model on its day (PartOfDay_T/KeepFlexOption)?";
 			attribute<c_Day_Trip> Day_Trip_rel   := combine_data(c_Day_Trip, Day_rel, RawTrip_rel);
 			attribute<TripInst>   TripInst_rel   := rlookup(Day_Trip_rel, TripInst/values);
 			attribute<Tables/StopNodes> FromNode_rel := StopNode_rel[FromStop_rel];
@@ -163,6 +167,7 @@ container PT_NetworkExport
 			attribute<Time>     DepartureMoment := min(Links/depTime, Links/TripInst_rel);
 			attribute<Time>     ArrivalMoment   := max(Links/arrTime, Links/TripInst_rel);
 			attribute<bool>     InWindow        := DepartureMoment < WindowEndMoment && ArrivalMoment > WindowBeginMoment;
+			attribute<bool>     InPTnet         := any(Links/InPTnet, Links/TripInst_rel), Descr = "Does the trip join the public transport network of the model on its day? The same for all its links.";
 		}
 
 		container PerTrip
@@ -517,7 +522,7 @@ container PT_NetworkExport
 			attribute<string>        aanbieder        := Agencies/label[Agency_rel];
 			attribute<string>        modaliteit       := ModeClasses/name[Mode_rel];
 			attribute<bool>          is_flex          := RawTrips/IsFlex[RawTrip_rel];
-			attribute<bool>          in_ovnet         := RawTrips/KeepFlexOption[RawTrip_rel], Descr = "Is the trip part of the public transport network of the model? Only the thinned flex options are not (LoadFeeds/FlexOptions).";
+			attribute<bool>          in_ovnet         := TripInst/InPTnet[org_rel], Descr = "Is the trip part of the public transport network of the model on its day? Only the thinned flex options are not (LoadFeeds/FlexOptions).";
 			attribute<bool>          heeft_shape      := IsDefined(Shape_rel);
 			attribute<uint32>        nr_haltes        := PerTrip/NrStops[RawTrip_rel];
 			attribute<string>        eerste_halte     := RawStops/stop_name[EersteHalte_rel];
