@@ -8,7 +8,7 @@
 # parts and links; then the merge. Intermediate results go to %LocalDataProjDir%\IntermediateResults_<O>_<D>, output to
 # Output_<O>_<D>; /Output/OD_PairRoutes in the GUI reads them, with the same settings in ModelParameters (groups 1, 2 and 6).
 #
-# Call, for example for the trip Laapersweg 1 Hilversum -> De Boelelaan 1085 at 07:30 (the wiki, Routes of an OD pair):
+# Call, for example for the trip from BU04020501 in Hilversum to BU0363KP03 in Amsterdam at 07:30 (the wiki, Routes of an OD pair):
 #   powershell -ExecutionPolicy Bypass -File batch\WriteODResults.ps1 -Org BU04020501 -Dest BU0363KP03 -Moment 07:30
 # The variant is that of cfg\main\ModelParameters.dms of the working copy: every pre-transport type that is on with every post-transport
 # type that is on, and the direct trips that are on. -Components 'WW,W_PT_W,C_PT_ovfC' calculates and merges exactly those components
@@ -25,7 +25,7 @@
 # (cfg/main.dms).
 # Every step skips a cache that exists, so after a change to the output only the output is calculated again. Run long runs as a one-off scheduled task (see the wiki, How to run the model). -WaitForMemoryGB waits until that much
 # memory is available before the run starts, so that the pair does not make other runs page; the chain step calculates all
-# public transport rides of the network (20 to 30 GB). -Ref takes another commit than HEAD, for a comparison before and after a change;
+# public transport rides of the network (about 40 to 50 GB). -Ref takes another commit than HEAD, for a comparison before and after a change;
 # give each version its own -Root, so that one run copy does not replace the other (skill od-paar-beelden).
 param(
 	[Parameter(Mandatory=$true)][string]$Org,

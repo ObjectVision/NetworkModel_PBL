@@ -15,10 +15,10 @@
 # MergeCriteria is Price,Time,Car,Bike by default: the merged front then also keeps an option that needs no car or own bike next to a
 # faster or cheaper one that does, which the chart shows as one line per group.
 #
-# For example, Laapersweg 1 Hilversum to De Boelelaan 1085 Amsterdam at 07:30 (the wiki, Routes of an OD pair):
+# For example, from BU04020501 in Hilversum to BU0363KP03 in Amsterdam at 07:30 (the wiki, Routes of an OD pair):
 #   powershell -ExecutionPolicy Bypass -File batch\ODPairReport.ps1 -Org BU04020501 -Dest BU0363KP03 -Moment 07:30 `
-#     -Components 'WW,CC,Car,W_PT_W,C_PT_W,C_PT_ovfC' -WaitForMemoryGB 40
-# The run step calculates the chains of all rides of the network (20 to 30 GB); start a long run as a one-off scheduled task with
+#     -Components 'WW,CC,Car,W_PT_W,C_PT_W,C_PT_ovfC' -WaitForMemoryGB 50
+# The run step calculates the chains of all rides of the network (about 40 to 50 GB); start a long run as a one-off scheduled task with
 # -Steps run,export, and make the pictures afterwards with -Steps images.
 param(
 	[Parameter(Mandatory = $true)][string]$Org,
