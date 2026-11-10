@@ -106,6 +106,11 @@ container PT_NetworkExport
 		parameter<string>    DaysReport                  := asList(Days/Report, '; ');
 		parameter<string>    FeedReport                  := 'feed ' + ModelParameters/Impl/GTFS_file_date + ' met datums van ' + string(min(CalendarDates/yyyymmdd)) + ' tot en met ' + string(max(CalendarDates/yyyymmdd));
 
+		// THE ROUTES IN THE NETWORKS OF THE MODEL: the conditions on the ride links of NetworkSetup/PublicTransport_Prep/Set_R and Set_L, per route.
+		attribute<bool>      RouteInPTnet       (Routes) := (Agencies/IsRO[Routes/Agency_rel] || (Agencies/IsLnet[Routes/Agency_rel] && not(Routes/IsWithoutNSTicket)))
+		                                                    && (ModelParameters/Advanced/IncludeFlex || not(Routes/IsFlex))
+		,	Descr = "Do the trips of the route join the regional network (Agencies/IsRO) or the L network (Agencies/IsLnet without Routes/IsWithoutNSTicket), and with IncludeFlex FALSE is it not a flex route? As Set_R and Set_L in PublicTransport_Prep (#174).";
+
 		// THE LINKS OF THE TRIPS ON THE TIME AXIS OF THE EXPORT DAY
 		attribute<Time>      TripEnd          (RawTrips) := max(RawStopTimes/arrivalTime/TimesVector/Time_rel, RawStopTimes/RawTrip_rel), Descr = "The last arrival of the trip, in GTFS time; RawTrips/StartTime is the first departure.";
 		attribute<uint32>    DepartureDay (RawStopTimes) := Time/Day[RawStopTimes/departureTime/TimesVector/Time_rel];
@@ -150,7 +155,7 @@ container PT_NetworkExport
 			attribute<Classes/ModeClasses> Mode_rel := Trips/Mode_rel[RawTrip_rel];
 			attribute<Shapes/Uq>  Shape_rel      := Trips/shapes_uq_rel[RawTrip_rel];
 			attribute<bool>       IsFlex         := RawTrips/IsFlex[RawTrip_rel];
-			attribute<bool>       InPTnet        := ='union_data(., ' + asList('PerDay/' + Days/name + '/KeepFlexOption[' + Days/NetPath + '/RawTrip_rel]', ', ') + ')', Descr = "Does the trip of the link join the public transport network of the model on its day (PartOfDay_T/KeepFlexOption)?";
+			attribute<bool>       InPTnet        := ='MakeDefined(RouteInPTnet[Route_rel], false) && union_data(., ' + asList('PerDay/' + Days/name + '/KeepFlexOption[' + Days/NetPath + '/RawTrip_rel]', ', ') + ')', Descr = "Does the trip of the link join the public transport network of the model on its day: is its route in a network of the model (RouteInPTnet), and is it not a thinned flex option (PartOfDay_T/KeepFlexOption)?";
 			attribute<c_Day_Trip> Day_Trip_rel   := combine_data(c_Day_Trip, Day_rel, RawTrip_rel);
 			attribute<TripInst>   TripInst_rel   := rlookup(Day_Trip_rel, TripInst/values);
 			attribute<Tables/StopNodes> FromNode_rel := StopNode_rel[FromStop_rel];
@@ -522,7 +527,7 @@ container PT_NetworkExport
 			attribute<string>        aanbieder        := Agencies/label[Agency_rel];
 			attribute<string>        modaliteit       := ModeClasses/name[Mode_rel];
 			attribute<bool>          is_flex          := RawTrips/IsFlex[RawTrip_rel];
-			attribute<bool>          in_ovnet         := TripInst/InPTnet[org_rel], Descr = "Is the trip part of the public transport network of the model on its day? Only the thinned flex options are not (LoadFeeds/FlexOptions).";
+			attribute<bool>          in_ovnet         := TripInst/InPTnet[org_rel], Descr = "Is the trip part of the public transport network of the model on its day? Not the trips of a route outside Set_R and Set_L (Impl/RouteInPTnet), nor the thinned flex options (LoadFeeds/FlexOptions).";
 			attribute<bool>          heeft_shape      := IsDefined(Shape_rel);
 			attribute<uint32>        nr_haltes        := PerTrip/NrStops[RawTrip_rel];
 			attribute<string>        eerste_halte     := RawStops/stop_name[EersteHalte_rel];
@@ -769,7 +774,8 @@ container PT_NetworkExport
 		'OV-net in het venster ' + WindowBegin + '-' + WindowEnd + ' op ' + ExportDay + ' (' + Impl/FeedReport + ')'
 		+ '\ndagen: ' + Impl/DaysReport
 		+ '\nritten: ' + string(#Tables/TripsInWindow) + ' (' + asList(Impl/Days/label + ' ' + string(pcount(Tables/TripsInWindow/Day_rel)), ', ') + '), waarvan ' + string(sum_uint32(not(Tables/TripsInWindow/heeft_shape))) + ' zonder shape, ' + string(sum_uint32(Tables/TripsInWindow/is_flex)) + ' flex, '
-			+ string(sum_uint32(not(Tables/TripsInWindow/in_ovnet))) + ' niet in het OV-net van het model (gedunde flexopties)'
+			+ string(sum_uint32(not(Tables/TripsInWindow/in_ovnet))) + ' niet in het OV-net van het model, waarvan '
+			+ string(sum_uint32(not(MakeDefined(Impl/RouteInPTnet[Tables/TripsInWindow/Route_rel], false)))) + ' met een lijn buiten het R- en L-net (vervoerder, trein zonder NS-kaartje, of flex zonder IncludeFlex) en de rest gedunde flexopties'
 		+ '\nlijnvoeringen: ' + string(#Tables/RouteVariants) + ', waarvan ' + string(#Impl/LV_Shape) + ' per shape en ' + string(#Impl/LV_Stops) + ' per haltepatroon'
 		+ '\nknopen: ' + string(#Tables/StopNodes) + ' (clusterafstand ' + string(StopClusterDistance) + ' m); ' + string(sum_uint32(RawStops/IsWithoutPoint)) + ' haltes van de feed met een breedte- of lengtegraad 0 hebben het punt van hun parent_station (LoadFeeds/RawStops)'
 		+ '\nsegmenten: ' + string(#Tables/Segments) + (SegmentsUndirected ? ' ongericht' : ' gericht') + ', ' + string(sum_uint32(Impl/SegGeom/IsCuttable)) + ' langs de shape, '
