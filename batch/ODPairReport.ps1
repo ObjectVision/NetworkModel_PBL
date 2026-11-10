@@ -12,8 +12,8 @@
 #           criteria Car and Bike), and with -ComponentMaps the map of those components. A GUI window shows for a minute or two per
 #           picture, the clipboard is overwritten, and typing in that window disturbs the script; run this step in an interactive session.
 # The gpkg, fronten.csv and the pictures end up in -Out, by default <Root>\od_<O>_<D>\rapport_<Label>.
-# MergeCriteria is Price,Time,Car,Bike by default: the merged front then also keeps an option that needs no car or own bike next to a
-# faster or cheaper one that does, which the chart shows as one line per group.
+# Without -MergeCriteria the pair merges on ModelParameters/OD_MergeCriteria, Price,Time,Car,Bike: the merged front then also keeps an
+# option that needs no car or own bike next to a faster or cheaper one that does, which the chart shows as one line per group.
 #
 # For example, from BU04020501 in Hilversum to BU0363KP03 in Amsterdam at 07:30 (the wiki, Routes of an OD pair):
 #   powershell -ExecutionPolicy Bypass -File batch\ODPairReport.ps1 -Org BU04020501 -Dest BU0363KP03 -Moment 07:30 `
@@ -31,7 +31,7 @@ param(
 	[string]$Label = 'od',
 	[string]$Components = '',
 	[string]$Variant = '',
-	[string]$MergeCriteria = 'Price,Time,Car,Bike',
+	[string]$MergeCriteria = '',
 	[string]$NS_TariffChoice = '',
 	[string]$Ref = 'HEAD',
 	[string]$Root = 'C:\LocalData\NM_PBL_runs',

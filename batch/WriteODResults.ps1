@@ -18,8 +18,8 @@
 # Merged folder of its own. The copy notes the merge variant of its run in VARIANT.txt, which the export and the pictures of
 # batch\ODPairReport.ps1 read. A -Ref from before the merge variants and the -set options of UpdateAll gets the settings of group 1
 # written into its copy instead, takes no -Variant, and with -Components calculates every combination of the pre- and post-transport
-# types in the names. -MergeCriteria and -NS_TariffChoice go to UpdateAll as -set when given (batch\ODPairReport.ps1 gives MergeCriteria
-# Price,Time,Car,Bike, #166). -Section checks makes the run copy and only lists the components that the run would calculate, in
+# types in the names. -MergeCriteria and -NS_TariffChoice go to UpdateAll as -set when given; without -MergeCriteria the pair merges on
+# ModelParameters/OD_MergeCriteria, Price,Time,Car,Bike. -Section checks makes the run copy and only lists the components that the run would calculate, in
 # batch\log\components.txt of the copy, without calculating them.
 # The engine must know pareto with LinkSet (ObjectVision/GeoDMS#1325) for the car routes, and the model asks for GeoDMS 20.28.0 or later
 # (cfg/main.dms).
@@ -168,7 +168,7 @@ if (Select-String -Path (Join-Path $dst 'batch\UpdateAll.cmd') -Pattern '"-set"'
 		$args2 += " -set $n `"$($given[$n])`""
 	}
 	if ($Components) {
-		AddMergeVariant $mp $OwnVariant ($compList -join ',') $(if ($MergeCriteria) { $MergeCriteria } else { 'Price,Time' })
+		AddMergeVariant $mp $OwnVariant ($compList -join ',') $(if ($MergeCriteria) { $MergeCriteria } else { 'Price,Time,Car,Bike' })
 		$args2 += " -variant $OwnVariant"
 		$runVariant = $OwnVariant
 	}
