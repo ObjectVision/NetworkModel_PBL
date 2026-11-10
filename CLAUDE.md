@@ -81,9 +81,11 @@ The SourceData folders that synchronise with the PBL Nextcloud share are shared 
 
 Write no new fss. A large dataset that only GeoDMS reads back becomes an mmd. Something small becomes an open file that QGIS, R, Python or a colleague can read: a tif for a raster (always with its `.tfw`), a gpkg for polygons and points, a parquet for a table. A large csv that every run reads again becomes parquet. Convert an existing fss when you rebuild it anyway. Why and the mmd pitfalls: skill `werkafspraken`.
 
-## Only main, no worktrees
+## Main, and a feature branch for a change that waits for a decision
 
-In this project, work only on `main`, in the working copy of the user: no other branches and no git worktrees, also not to test something or to prepare a merge. This takes precedence over the general advice to take a worktree when another session works in the same copy; follow the rules for a shared working copy below instead (only your own files and hunks, `git status` just before the commit).
+In this project, work on `main`, in the working copy of the user, and take no git worktrees, also not to test something or to prepare a merge. This takes precedence over the general advice to take a worktree when another session works in the same copy; follow the rules for a shared working copy below instead (only your own files and hunks, `git status` just before the commit).
+
+A change whose inclusion still has to be decided, for example by PBL because it invalidates caches or changes results, goes to a feature branch named after its topic and issue (`TomTomKoppeling158`), not to `main`. Commit it there without switching the working copy, because UpdateAll reads `cfg` and `batch` from it at every step: a temporary `GIT_INDEX_FILE`, `git write-tree`, `git commit-tree` with `HEAD` as parent and `git update-ref refs/heads/<branch>`, then restore the files on `main`. Never check out such a branch in the working copy while a run is going.
 
 ## Commits and GitHub
 
