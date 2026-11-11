@@ -289,6 +289,31 @@ container PostAnalysis : using = "units;Geography;modelparameters;classification
 	}
 
 
+	container Network_RuimteScanner : Descr = "The prepared OSM network of the Netherlands as a GeoParquet for the RuimteScanner: per link its road type, car speed and direction and the networks it belongs to, so that the RuimteScanner selects the network it needs; RSopen groups shops along the walking network into shopping centres (BaseData/Afleiding_Winkelcentra)."
+	{
+		unit<uint32> Final_Network := Infrastructure/OSM/Final_Network;
+		unit<uint32> Selection := select_with_org_rel(IsDefined(point_in_polygon(first_point(Final_Network/geometry), RegioIndelingen/NL/Netherlands_10kbuffer)))
+		, Descr = "The links of the final network whose first point lies in the Netherlands or within 10 km of its border; the buffer keeps the links along the coast and in the Belgian enclaves of Baarle-Hertog.";
+
+		unit<uint32>      LayerCreationOptions : NrOfRows = 2;
+		attribute<string> GDAL_LayerCreationOptions (LayerCreationOptions) : ['COMPRESSION=ZSTD', 'WRITE_COVERING_BBOX=NO']
+		, Descr = "Zstd, and no bounding box column per link: GDAL adds one by default, it takes a large part of the file and the RuimteScanner does not use it.";
+		unit<uint32> Network := Selection
+		, StorageName = "='%LocalDataProjDir%/Output/OSM_NL_'+Infrastructure/OSM/file_date+'.parquet'"
+		, StorageType = "gdalwrite.vect"
+		, Descr = "Writes the selected links to the Output folder; the RuimteScanner reads the file from its own share."
+		{
+			attribute<rdc>    geometry               (arc) := Final_Network/geometry[Selection/org_rel];
+			attribute<string> OSM_id                       := Final_Network/OSM_id[Selection/org_rel];
+			attribute<string> roadType_label               := Final_Network/roadType_label[Selection/org_rel];
+			attribute<km_hr>  maxspeed                     := Final_Network/maxspeed[Selection/org_rel], Descr = "The car speed of the link: its tagged maxspeed, or else the quantile of its road type.";
+			attribute<bool>   IsOneDirection               := Final_Network/IsOneDirection[Selection/org_rel];
+			attribute<bool>   InCarNetwork                 := Final_Network/isPartOfCarNetwork[Selection/org_rel];
+			attribute<bool>   InCyclingNetwork             := Final_Network/isPartOfCyclingNetwork[Selection/org_rel];
+			attribute<bool>   InWalkingNetwork             := Final_Network/isPartOfWalkingNetwork[Selection/org_rel];
+		}
+	}
+
 	container FindMedian
 	{
 		// Median travel time per origin and destination: per departure moment the fastest front row, then the median over the departure
