@@ -1,17 +1,19 @@
 // THE CHAINS OF AN OD PAIR WITH THEIR RIDES AND TRANSFERS (#129; only in the OD pair mode, ModelParameters/Impl/IsOD).
-// The chain step then calculates one stop block: the chains that depart from a stop that the origin reaches with a pre-transport type, with
-// as last ride of the longest chains only rides to a stop from which the destination can be reached, and it keeps only the chains to such
-// stops (ChainGeneration_PerBlock_T, BlockResultContainer/Result). For those stops they are the same chains as in the generic cache: the
-// chain joiner groups per (boarding moment, alighting moment, first NS station), the block front per (boarding moment, destination stop),
-// and the right rides, transfers and LastBoardingMoment cover the whole network. One chain cache thus serves all public transport Components
-// of the pair.
+// The chain step then calculates the chains that depart from a stop that the origin reaches with a pre-transport type, in as many stop
+// blocks as those stops need (impl/OD_VStops and impl/NrStopBlocks, #178), with as last ride of the longest chains
+// only rides to a stop from which the destination can be reached, and it keeps only the chains to such stops (ChainGeneration_PerBlock_T,
+// BlockResultContainer/Result). For those stops they are the same chains as in the generic cache: the chain joiner groups per (boarding
+// moment, alighting moment, first NS station), the block front per (boarding moment, destination stop), and the right rides, transfers and
+// LastBoardingMoment cover the whole network. A boarding moment is a time at a stop and every stop is in one block, so the blocks do not
+// change the chains. One chain cache thus serves all public transport Components of the pair.
 //
-// ChainParts: per chain of the cache, in the order of the journey, the public transport rides and the transfers between them, traced back through
+// ChainParts: per chain of the cache of a block, in the order of the journey, the public transport rides and the transfers between them, traced back through
 // the chain joiner: the last ride of a chain of type K is Right_rel (a row of OD_<letter>/Result or Result_ToD), the transfer before it
 // Valid1_rel->Transfers_rel, and the rest is Left_rel, a chain of the type without the last letter (Classifications/Chains/left), down to
 // the first ride in Chain_Generation/L or R. Every public transport ride keeps its begin and end node in Set_<letter>/Set/NodeSet, from which
-// the output step looks up the stop-to-stop links within the trip. Write writes the chains (Write_Block) and ChainParts (Write_ChainParts) in one
-// request, so that the chain joiner calculates once (the chain step, batch/UpdateAll.cmd chains, with PT_Chains_Blocks/ToDo).
+// the output step looks up the stop-to-stop links within the trip. Write of a block writes its chains (ChainGeneration_PerBlock/<block>/Write)
+// and its ChainParts (Write_ChainParts) in one request, so that the chain joiner calculates once (the chain step, batch/UpdateAll.cmd chains,
+// with PT_Chains_Blocks/ToDo, each block of the pair in a GeoDmsRun of its own).
 container OD_Stops
 :	Descr = "The stops of the OD pair, where a pre-transport leg from the origin ends (IsVStop) and where a post-transport leg to the destination starts (IsNStop), for the types of the public transport components of the variant; the types with a stop class (Crm, rmC, ovfC and so on) are a selection from the base types, so those suffice."
 {
@@ -27,13 +29,8 @@ container OD_Stops
 	parameter<uint32> NrNStops              := sum_uint32(IsNStop);
 }
 
-container OD_Chains : using = "impl", Descr = "The chains of the OD pair with their parts, which Write calculates and writes in one request (only in the OD pair mode, #129)."
+container OD_Chains : using = "impl", Descr = "The chains of the OD pair with their parts per stop block (PerBlock), whose Write calculates and writes them in one request, and the parts of all blocks together (Read_ChainParts); only in the OD pair mode (#129, #178)."
 {
-	container         Block                   := ChainGeneration_PerBlock/Block_1of1, Descr = "The one stop block of the OD pair mode (ModelParameters/Advanced/NumberOfStopBlocks).";
-	unit<uint64>      BlockChains             := Block/Fence/Result, Descr = "The chains of the block, in the order of the cache (Write_Block).";
-	attribute<Allowed_ChainsK> K_rel (BlockChains) := BlockChains/Allowed_ChainsK_rel;
-	attribute<uint32> Chain_rel (BlockChains) := Block/Allowed_Chains/Chain_rel[BlockChains/Allowed_Chains_rel], Descr = "The row number of the chain in Block/Chain_Generation/<K_rel>/Result.";
-
 	// Per chain type and position of a ride one piece of ChainParts; from the second position on also the transfer before it.
 	unit<uint8> Positions : nrofrows = 4
 	{
@@ -48,10 +45,75 @@ container OD_Chains : using = "impl", Descr = "The chains of the OD pair with th
 		attribute<string> name  := KName + '_' + string(Pos);
 	}
 	unit<uint32>      TransferPieces          := select_with_attr_by_cond(Pieces, Pieces/Pos >= 2);
-	container         RidePieces               := for_each_ne(Pieces/name, 'PartPiece_T(' + string(Pieces/K_rel) + '[Allowed_ChainsK], ' + quote(Pieces/KName) + ', ' + string(Pieces/Pos) + ', FALSE)');
-	container         TransferPieces_         := for_each_ne(TransferPieces/name, 'PartPiece_T(' + string(TransferPieces/K_rel) + '[Allowed_ChainsK], ' + quote(TransferPieces/KName) + ', ' + string(TransferPieces/Pos) + ', TRUE)');
+	parameter<string> PieceNames              := AsItemList('RidePieces/' + Pieces/name + '/Rows') + ',' + AsItemList('TransferPieces_/' + TransferPieces/name + '/Rows'), Descr = "The pieces of ChainParts in a block (PerBlock/<block>).";
 
-	Template PartPiece_T
+	container         PerBlock                := for_each_ne(BlockDomain/name, 'Block_T(' + string(id(BlockDomain)) + ')'), Descr = "Per stop block of the pair (BlockDomain, #178): its chains with their parts.";
+
+	Template Block_T : Descr = "The chains of one stop block of the OD pair with their parts: ChainParts traces the chains back to their rides and transfers, Write writes the chains of the block and Write_ChainParts in one request, and Read_ChainParts reads the parts back."
+	{
+		parameter<BlockDomain> BlockDomain_id;
+		///
+		parameter<string> ChainBlock_Path         := '/NetworkSetup/PublicTransport_Prep/ChainGeneration_PerBlock/' + BlockDomain/name[BlockDomain_id], Descr = "The chain generation of this block (ChainGeneration_PerBlock_T).";
+		unit<uint64>      BlockChains             := =ChainBlock_Path + '/Fence/Result', Descr = "The chains of the block, in the order of its cache (ChainGeneration_PerBlock/<block>/Parquet).";
+		attribute<Allowed_ChainsK> K_rel (BlockChains) := BlockChains/Allowed_ChainsK_rel;
+		attribute<uint32> Chain_rel (BlockChains) := =ChainBlock_Path + '/Allowed_Chains/Chain_rel[BlockChains/Allowed_Chains_rel]', Descr = "The row number of the chain in ChainGeneration_PerBlock/<block>/Chain_Generation/<K_rel>/Result.";
+		container         RidePieces              := for_each_ne(Pieces/name, 'PartPiece_T(' + string(Pieces/K_rel) + '[Allowed_ChainsK], ' + quote(Pieces/KName) + ', ' + string(Pieces/Pos) + ', FALSE)');
+		container         TransferPieces_         := for_each_ne(TransferPieces/name, 'PartPiece_T(' + string(TransferPieces/K_rel) + '[Allowed_ChainsK], ' + quote(TransferPieces/KName) + ', ' + string(TransferPieces/Pos) + ', TRUE)');
+
+		unit<uint64> ChainParts := ='union_unit_uint64(' + PieceNames + ')'
+		,	Descr = "Per chain of the block the public transport rides and the transfers, unsorted; BlockChain_rel and Volgnr give the order."
+		{
+			attribute<BlockChains> BlockChain_rel := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/BlockChain_rel') + ')';
+			attribute<uint32>      Volgnr         := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Volgnr') + ')';
+			attribute<bool>        IsOverstap     := ='union_data(., ' + AsItemList('const(FALSE, RidePieces/' + Pieces/name + '/Rows)') + ',' + AsItemList('const(TRUE, TransferPieces_/' + TransferPieces/name + '/Rows)') + ')';
+			attribute<bool>        IsL            := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/IsL') + ')';
+			attribute<Stops>       From_Stop_rel  := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/From_Stop_rel') + ')';
+			attribute<Stops>       To_Stop_rel    := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/To_Stop_rel') + ')';
+			attribute<Time>        From_Time_rel  := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/From_Time_rel') + ')';
+			attribute<Time>        To_Time_rel    := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/To_Time_rel') + ')';
+			attribute<Routes>      Route_rel      := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Route_rel') + ')';
+			attribute<Agencies>    Agency_rel     := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Agency_rel') + ')';
+			attribute<Modes>       Mode_rel       := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Mode_rel') + ')';
+			attribute<s>           Duur           := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Duur') + ')';
+			attribute<s>           Wachttijd      := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Wachttijd') + ')';
+			attribute<Ct>          Prijs          := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Prijs') + ')';
+			attribute<dam>         Afstand        := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Afstand') + ')';
+			attribute<uint32>      BeginKnoop     := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/BeginKnoop') + ')';
+			attribute<uint32>      EindKnoop      := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/EindKnoop') + ')';
+		}
+
+		// The cache of the parts of the block, <n>of<N>_onderdelen.mmd next to the cache of its chains (<n>of<N>.parquet in StorageBlockDir_Str),
+		// with the same signature. A block of the pair counts as written only with this cache (PT_Chains_Blocks/PerBlock/<block>/IsWritten).
+		unit<uint64> Write_ChainParts := ChainParts
+		, StorageName = "=/NetworkSetup/PublicTransport_Prep/StorageBlockDir_Str + '/' + BlockDomain/CacheName[BlockDomain_id] + '_onderdelen.mmd'"
+		, ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/PT_Chains_Sig/ForWriting"
+		{
+			attribute<uint64>   Keten         := uint64(ChainParts/BlockChain_rel), Descr = "The row number of the chain in the chain cache of the block (<n>of<N>.parquet).";
+			attribute<uint32>   Volgnr        := ChainParts/Volgnr;
+			attribute<bool>     IsOverstap    := ChainParts/IsOverstap;
+			attribute<bool>     IsL           := ChainParts/IsL;
+			attribute<Stops>    From_Stop_rel := ChainParts/From_Stop_rel;
+			attribute<Stops>    To_Stop_rel   := ChainParts/To_Stop_rel;
+			attribute<Time>     From_Time_rel := ChainParts/From_Time_rel;
+			attribute<Time>     To_Time_rel   := ChainParts/To_Time_rel;
+			attribute<Routes>   Route_rel     := ChainParts/Route_rel;
+			attribute<Agencies> Agency_rel    := ChainParts/Agency_rel;
+			attribute<Modes>    Mode_rel      := ChainParts/Mode_rel;
+			attribute<s>        Duur          := ChainParts/Duur;
+			attribute<s>        Wachttijd     := ChainParts/Wachttijd;
+			attribute<Ct>       Prijs         := ChainParts/Prijs;
+			attribute<dam>      Afstand       := ChainParts/Afstand;
+			attribute<uint32>   BeginKnoop    := ChainParts/BeginKnoop;
+			attribute<uint32>   EindKnoop     := ChainParts/EindKnoop;
+		}
+		unit<uint64>      Read_ChainParts         : StorageName = "=/NetworkSetup/PublicTransport_Prep/PT_Chains_Sig/ForReading + '/' + BlockDomain/CacheName[BlockDomain_id] + '_onderdelen.mmd'", StorageReadOnly = "true"
+		, Descr = "Bare reader of the parts of the chains of the block, without declared attributes.";
+
+		parameter<string> Write                   := 'Ready', ExplicitSuppliers = "=ChainBlock_Path + '/Write;Write_ChainParts'"
+		, Descr = "The chain step of this block of the OD pair: the chains of the block and their parts, in one request (PT_Chains_Blocks/ToDo).";
+	}
+
+	Template PartPiece_T : Descr = "One piece of ChainParts of a block: the rides at one position of the chains of one type, or the transfers before them; it takes K_rel, Chain_rel, BlockChains and ChainBlock_Path of the block in which it is made (Block_T)."
 	{
 		parameter<Allowed_ChainsK> K_id;
 		parameter<string> KName;
@@ -60,9 +122,9 @@ container OD_Chains : using = "impl", Descr = "The chains of the OD pair with th
 		///
 		parameter<uint32> N       := strlen(KName);
 		parameter<string> KPos    := left(KName, Pos);
-		parameter<string> G       := '/NetworkSetup/PublicTransport_Prep/OD_Chains/Block/Chain_Generation/';
+		parameter<string> G       := ChainBlock_Path + '/Chain_Generation/';
 		// The chain of type KPos of which this ride is the last: Left_rel from the chain itself, N - Pos times.
-		parameter<string> E0      := 'value(/NetworkSetup/PublicTransport_Prep/OD_Chains/Chain_rel[BlockChain_rel], ' + G + KName + '/Result)';
+		parameter<string> E0      := 'value(Chain_rel[BlockChain_rel], ' + G + KName + '/Result)';
 		parameter<string> E1      := G + KName + '/Result/Left_rel[' + E0 + ']';
 		parameter<string> E2      := G + left(KName, MakeDefined(sub_or_null(N, 1), 0)) + '/Result/Left_rel[' + E1 + ']';
 		parameter<string> E3      := G + left(KName, MakeDefined(sub_or_null(N, 2), 0)) + '/Result/Left_rel[' + E2 + ']';
@@ -73,9 +135,9 @@ container OD_Chains : using = "impl", Descr = "The chains of the OD pair with th
 		                             ? G + KPos + '/Join_LeftT_Right/Valid1/Transfers_rel[' + G + KPos + '/Result/Valid1_rel[' + RowExpr + ']]'
 		                             : Pos == 1 ? RowExpr : G + KPos + '/Result/Right_rel[' + RowExpr + ']';
 
-		unit<uint64> Rows := select_with_org_rel(/NetworkSetup/PublicTransport_Prep/OD_Chains/K_rel == K_id)
+		unit<uint64> Rows := select_with_org_rel(K_rel == K_id)
 		{
-			attribute</NetworkSetup/PublicTransport_Prep/OD_Chains/BlockChains> BlockChain_rel := org_rel;
+			attribute<BlockChains> BlockChain_rel := org_rel;
 			attribute<uint32>   Volgnr        := const(2 * Pos - 2 - uint32(IsOverstap), .), Descr = "The position in the chain, from 0: the rides at the even positions, the transfers between them.";
 			attribute<bool>     IsL           := const(substr(KName, Pos - 1, 1) == 'L', .), Descr = "A ride in the L network (NS), otherwise in the R network; for a transfer, the ride after it.";
 			attribute<Stops>    From_Stop_rel := =Unit + '/From_Stop_rel[' + Row + ']';
@@ -95,59 +157,34 @@ container OD_Chains : using = "impl", Descr = "The chains of the OD pair with th
 		}
 	}
 
-	parameter<string> PieceNames              := AsItemList('RidePieces/' + Pieces/name + '/Rows') + ',' + AsItemList('TransferPieces_/' + TransferPieces/name + '/Rows');
-	unit<uint64> ChainParts := ='union_unit_uint64(' + PieceNames + ')'
-	,	Descr = "Per chain of the cache the public transport rides and the transfers, unsorted; BlockChain_rel and Volgnr give the order."
+	// The parts of the chains of all blocks, for the output step (PerDepartureMoment_T/OD_Output).
+	parameter<string> ReadNames               := AsItemList('PerBlock/' + BlockDomain/name + '/Read_ChainParts'), Descr = "The readers of the parts of the blocks.";
+	unit<uint64> Read_ChainParts := ='union_unit_uint64(' + ReadNames + ')'
+	,	Descr = "The parts of the chains of all stop blocks of the OD pair: StopBlock is the block of the chain, and Keten the row number of the chain in the cache of that block."
 	{
-		attribute<BlockChains> BlockChain_rel := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/BlockChain_rel') + ')';
-		attribute<uint32>      Volgnr         := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Volgnr') + ')';
-		attribute<bool>        IsOverstap     := ='union_data(., ' + AsItemList('const(FALSE, RidePieces/' + Pieces/name + '/Rows)') + ',' + AsItemList('const(TRUE, TransferPieces_/' + TransferPieces/name + '/Rows)') + ')';
-		attribute<bool>        IsL            := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/IsL') + ')';
-		attribute<Stops>       From_Stop_rel  := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/From_Stop_rel') + ')';
-		attribute<Stops>       To_Stop_rel    := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/To_Stop_rel') + ')';
-		attribute<Time>        From_Time_rel  := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/From_Time_rel') + ')';
-		attribute<Time>        To_Time_rel    := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/To_Time_rel') + ')';
-		attribute<Routes>      Route_rel      := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Route_rel') + ')';
-		attribute<Agencies>    Agency_rel     := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Agency_rel') + ')';
-		attribute<Modes>       Mode_rel       := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Mode_rel') + ')';
-		attribute<s>           Duur           := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Duur') + ')';
-		attribute<s>           Wachttijd      := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Wachttijd') + ')';
-		attribute<Ct>          Prijs          := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Prijs') + ')';
-		attribute<dam>         Afstand        := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/Afstand') + ')';
-		attribute<uint32>      BeginKnoop     := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/BeginKnoop') + ')';
-		attribute<uint32>      EindKnoop      := ='union_data(., ' + replace(PieceNames, '/Rows', '/Rows/EindKnoop') + ')';
+		attribute<uint32>      StopBlock      := ='union_data(., ' + AsItemList('const(' + string(id(BlockDomain)) + ', PerBlock/' + BlockDomain/name + '/Read_ChainParts, uint32)') + ')', Descr = "The number of the stop block of the chain in BlockDomain: a number, so that a run without public transport, with ChainParts_Empty, does not calculate the blocks.";
+		attribute<uint64>      Keten          := ='union_data(., ' + replace(ReadNames, '/Read_ChainParts', '/Read_ChainParts/Keten') + ')';
+		attribute<uint32>      Volgnr         := ='union_data(., ' + replace(ReadNames, '/Read_ChainParts', '/Read_ChainParts/Volgnr') + ')';
+		attribute<bool>        IsOverstap     := ='union_data(., ' + replace(ReadNames, '/Read_ChainParts', '/Read_ChainParts/IsOverstap') + ')';
+		attribute<bool>        IsL            := ='union_data(., ' + replace(ReadNames, '/Read_ChainParts', '/Read_ChainParts/IsL') + ')';
+		attribute<Stops>       From_Stop_rel  := ='union_data(., ' + replace(ReadNames, '/Read_ChainParts', '/Read_ChainParts/From_Stop_rel') + ')';
+		attribute<Stops>       To_Stop_rel    := ='union_data(., ' + replace(ReadNames, '/Read_ChainParts', '/Read_ChainParts/To_Stop_rel') + ')';
+		attribute<Time>        From_Time_rel  := ='union_data(., ' + replace(ReadNames, '/Read_ChainParts', '/Read_ChainParts/From_Time_rel') + ')';
+		attribute<Time>        To_Time_rel    := ='union_data(., ' + replace(ReadNames, '/Read_ChainParts', '/Read_ChainParts/To_Time_rel') + ')';
+		attribute<Routes>      Route_rel      := ='union_data(., ' + replace(ReadNames, '/Read_ChainParts', '/Read_ChainParts/Route_rel') + ')';
+		attribute<Agencies>    Agency_rel     := ='union_data(., ' + replace(ReadNames, '/Read_ChainParts', '/Read_ChainParts/Agency_rel') + ')';
+		attribute<Modes>       Mode_rel       := ='union_data(., ' + replace(ReadNames, '/Read_ChainParts', '/Read_ChainParts/Mode_rel') + ')';
+		attribute<s>           Duur           := ='union_data(., ' + replace(ReadNames, '/Read_ChainParts', '/Read_ChainParts/Duur') + ')';
+		attribute<s>           Wachttijd      := ='union_data(., ' + replace(ReadNames, '/Read_ChainParts', '/Read_ChainParts/Wachttijd') + ')';
+		attribute<Ct>          Prijs          := ='union_data(., ' + replace(ReadNames, '/Read_ChainParts', '/Read_ChainParts/Prijs') + ')';
+		attribute<dam>         Afstand        := ='union_data(., ' + replace(ReadNames, '/Read_ChainParts', '/Read_ChainParts/Afstand') + ')';
+		attribute<uint32>      BeginKnoop     := ='union_data(., ' + replace(ReadNames, '/Read_ChainParts', '/Read_ChainParts/BeginKnoop') + ')';
+		attribute<uint32>      EindKnoop      := ='union_data(., ' + replace(ReadNames, '/Read_ChainParts', '/Read_ChainParts/EindKnoop') + ')';
 	}
-
-	// The cache of the parts, next to the chain cache of the block (StorageBlockDir_Str), with the same signature. The file keeps the name
-	// benen.mmd: a reader finds the cache by its signature, which a new file name does not change, so the existing caches of OD pairs
-	// would no longer be readable.
-	unit<uint64> Write_ChainParts := ChainParts
-	, StorageName = "=/NetworkSetup/PublicTransport_Prep/StorageBlockDir_Str + '/benen.mmd'"
-	, ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/PT_Chains_Sig/ForWriting"
-	{
-		attribute<uint64>   Keten         := uint64(ChainParts/BlockChain_rel), Descr = "The row number of the chain in the chain cache of the block (Write_Block).";
-		attribute<uint32>   Volgnr        := ChainParts/Volgnr;
-		attribute<bool>     IsOverstap    := ChainParts/IsOverstap;
-		attribute<bool>     IsL           := ChainParts/IsL;
-		attribute<Stops>    From_Stop_rel := ChainParts/From_Stop_rel;
-		attribute<Stops>    To_Stop_rel   := ChainParts/To_Stop_rel;
-		attribute<Time>     From_Time_rel := ChainParts/From_Time_rel;
-		attribute<Time>     To_Time_rel   := ChainParts/To_Time_rel;
-		attribute<Routes>   Route_rel     := ChainParts/Route_rel;
-		attribute<Agencies> Agency_rel    := ChainParts/Agency_rel;
-		attribute<Modes>    Mode_rel      := ChainParts/Mode_rel;
-		attribute<s>        Duur          := ChainParts/Duur;
-		attribute<s>        Wachttijd     := ChainParts/Wachttijd;
-		attribute<Ct>       Prijs         := ChainParts/Prijs;
-		attribute<dam>      Afstand       := ChainParts/Afstand;
-		attribute<uint32>   BeginKnoop    := ChainParts/BeginKnoop;
-		attribute<uint32>   EindKnoop     := ChainParts/EindKnoop;
-	}
-	unit<uint64>      Read_ChainParts          : StorageName = "=/NetworkSetup/PublicTransport_Prep/PT_Chains_Sig/ForReading + '/benen.mmd'", StorageReadOnly = "true"
-	, Descr = "Bare reader of the parts of the chains of the OD pair, without declared attributes.";
 	unit<uint64> ChainParts_Empty := range(uint64, 0u64, 0u64)
 	, Descr = "The parts in a run without public transport (WW, CC, Car), with the columns of Read_ChainParts, because there is no chain cache there."
 	{
+		attribute<uint32>   StopBlock     := const(0, ., uint32);
 		attribute<uint64>   Keten         := const(0u64, .);
 		attribute<uint32>   Volgnr        := const(0, ., uint32);
 		attribute<bool>     IsOverstap    := const(FALSE, .);
@@ -166,7 +203,4 @@ container OD_Chains : using = "impl", Descr = "The chains of the OD pair with th
 		attribute<uint32>   BeginKnoop    := const(null_u, .);
 		attribute<uint32>   EindKnoop     := const(null_u, .);
 	}
-
-	parameter<string> Write                   := 'Ready', ExplicitSuppliers = "Block/Write;Write_ChainParts"
-	, Descr = "The chain step of the OD pair: the chains of the block and their parts, in one request (PT_Chains_Blocks/ToDo).";
 }

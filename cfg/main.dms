@@ -141,10 +141,12 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 20.2800" // 20.28.
 		// AbstrStorageManager.cpp, ExportMetaInfoToFileImpl).
 		container ExportSettings { container MetaInfo; }
 
-		parameter<string> PT_CheckBlocks        := uint64(ModelParameters/Advanced/MaxStopBlockSize) * uint64(ModelParameters/Advanced/NumberOfStopBlocks) > uint64(#/NetworkSetup/PublicTransport_Prep/Impl/BlockSelections)
+		parameter<string> PT_CheckBlocks        := = ModelParameters/Impl/IsOD ? quote('PASS: an OD pair spreads the stops that its origin reaches over blocks of at most ' + string(ModelParameters/Advanced/MaxStopBlockSize) + ' stops (#178).') : 'PT_CheckBlocks_All'
+		, Descr = "Do all stops fit in the stop blocks? An OD pair takes as many blocks as the stops of its origin need, so it passes without calculating them.";
+		parameter<string> PT_CheckBlocks_All    := uint64(ModelParameters/Advanced/MaxStopBlockSize) * uint64(ModelParameters/Advanced/NumberOfStopBlocks) > uint64(#/NetworkSetup/PublicTransport_Prep/Impl/BlockSelections)
 		                                           ? 'PASS: block numbers and size are adequate. It needs to be at least '+string(#/NetworkSetup/PublicTransport_Prep/Impl/BlockSelections)+' and now it is '+string(ModelParameters/Advanced/MaxStopBlockSize)+' * '+string(ModelParameters/Advanced/NumberOfStopBlocks)+' = '+string(uint64(ModelParameters/Advanced/MaxStopBlockSize) * uint64(ModelParameters/Advanced/NumberOfStopBlocks))
 		                                           : 'FAIL: you need more or larger blocks to accomodate all stops. It needs to be at least '+string(#/NetworkSetup/PublicTransport_Prep/Impl/BlockSelections)+' and now it is '+string(ModelParameters/Advanced/MaxStopBlockSize)+' * '+string(ModelParameters/Advanced/NumberOfStopBlocks)+' = '+string(uint64(ModelParameters/Advanced/MaxStopBlockSize) * uint64(ModelParameters/Advanced/NumberOfStopBlocks))+''
-																															, Descr = "Do all stops fit in the stop blocks (MaxStopBlockSize x NumberOfStopBlocks)? If not, make the blocks larger or more numerous.";
+																															, Descr = "Do all stops of the whole model fit in the stop blocks (MaxStopBlockSize x NumberOfStopBlocks)? If not, make the blocks larger or more numerous.";
 		parameter<string> PT_CheckPrices        := all(NetworkSetup/PublicTransport_Prep/Impl/OD_R/Impl/Price_IntegrityCheck) && all(/NetworkSetup/PublicTransport_Prep/Impl/OD_L/NS_Station_Price_IntegrityCheck)  ? 'PASS: all links have a valid price (or no prices are needed)' : 'FAIL: you need to check the prices (or turn of prices)', Descr = "Does every public transport ride have a valid price when the settings need prices? It runs after the network is built; the unpriced combinations are in NetworkSetup/PublicTransport_Prep/Impl/OD_R/impl/Unpriced/UniqueCombos.";
 		parameter<string> PT_CheckPriceCoverage := SourceData/Infrastructure/OVprijzen/PriceCoverage/Status_gated
 													, Descr = "Quick check to run before the chain step for every new feed or fare year: does the fare table cover all combinations of mode and agency in the feed, with plausible prices?";
@@ -186,13 +188,13 @@ container NetworkModel : IntegrityCheck = "GeoDMSVersion() >= 20.2800" // 20.28.
 			parameter<String> Generate_ToDo       := 'Ready', ExplicitSuppliers = "=AsList(/NetworkSetup/PublicTransport_Prep/PT_Chains_Blocks/ToDo/Item, ';')"
 			,	Descr = "Calculates and writes the blocks without a cache in one process; batch/UpdateAll.cmd chains does it in portions, each in its own GeoDmsRun, so that memory is freed in between.";
 			container         PerBlock            := for_each_ne(/NetworkSetup/PublicTransport_Prep/impl/BlockDomain/name, 'WriteBlock_T(' + quote(/NetworkSetup/PublicTransport_Prep/impl/BlockDomain/name) + ')')
-			,	Descr = "Per stop block: Write calculates and writes the cache of that block, for example to try one block.";
+			,	Descr = "Per stop block: Write calculates and writes the cache of that block, for example to try one block; for an OD pair with the parts of its chains.";
 
 			Template WriteBlock_T
 			{
 				parameter<string> BlockName;
 				///
-				parameter<String> Write := 'Ready', ExplicitSuppliers = "='/NetworkSetup/PublicTransport_Prep/ChainGeneration_PerBlock/' + BlockName + '/Write'";
+				parameter<String> Write := 'Ready', ExplicitSuppliers = "=(ModelParameters/Impl/IsOD ? '/NetworkSetup/PublicTransport_Prep/OD_Chains/PerBlock/' : '/NetworkSetup/PublicTransport_Prep/ChainGeneration_PerBlock/') + BlockName + '/Write'";
 			}
 		}
 

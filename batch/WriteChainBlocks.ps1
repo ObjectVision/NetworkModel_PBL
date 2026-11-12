@@ -8,9 +8,11 @@
 # holds instead the writer of the one cache (ChainGeneration_Single/Write) while that cache is missing.
 #
 # Call (by UpdateAll.cmd chains): WriteChainBlocks.ps1 -Exe <GeoDmsRun.exe> -Cfg <cfg\main.dms> -LogDir <batch\log>
-#   -BatchSize  blocks per GeoDmsRun (default 20). The blocks of a portion share only the start-up, so the size makes
-#               little difference to the calculation time; a block that needs more memory than the machine has pages
-#               whatever the portion size (#141).
+#   -BatchSize  blocks per GeoDmsRun (default 0: 20 for the whole model, 1 for an OD pair). The blocks of a portion share
+#               only the start-up, so the size makes little difference to the calculation time; a block that needs more
+#               memory than the machine has pages whatever the portion size (#141). An OD pair calculates each block in a
+#               process of its own, because its blocks hold the stops near the origin, often busy ones, so that a block of
+#               a pair can need far more memory than a block of the whole model (#178).
 #   -MaxBlocks  at most this many blocks in this call (0 = all; for testing)
 #   -Tag        appended to the names of the log and console files (UpdateAll.cmd passes none: the chain cache is shared
 #               by the public transport components, so its step carries no component)
@@ -21,7 +23,7 @@ param(
 	[Parameter(Mandatory=$true)][string]$Exe,
 	[Parameter(Mandatory=$true)][string]$Cfg,
 	[Parameter(Mandatory=$true)][string]$LogDir,
-	[int]$BatchSize = 20,
+	[int]$BatchSize = 0,
 	[int]$MaxBlocks = 0,
 	[string]$Tag = '',
 	[string]$Status = ''
@@ -42,9 +44,10 @@ function Get-ToDo {
 	return @(Get-Content $todoFile | Where-Object { $_.Trim() -ne '' })
 }
 
-$todo = @(Get-ToDo)   # @(): otherwise a list with one line (the OD pair mode, #129) becomes a string, and $todo[0..0] its first character
-# The number of stop blocks is in the names of their writers, .../Block_<n>of<N>/Write; the OD pair mode has one writer without it.
+$todo = @(Get-ToDo)   # @(): otherwise a list with one line (an OD pair with one block, #129) becomes a string, and $todo[0..0] its first character
+# The number of stop blocks is in the names of their writers, .../Block_<n>of<N>/Write, for an OD pair OD_Chains/PerBlock/Block_<n>of<N>/Write.
 $nAll = if ($todo.Count -gt 0 -and $todo[0] -match 'of(\d+)/Write$') { [int]$Matches[1] } else { 0 }
+if ($BatchSize -le 0) { $BatchSize = if ($todo.Count -gt 0 -and $todo[0] -match '/OD_Chains/') { 1 } else { 20 } }
 # The signature is that of the whole cache folder, so the cache with the current signature is complete, missing or, after an
 # interrupted run, partly there.
 if ($todo.Count -eq 0) {

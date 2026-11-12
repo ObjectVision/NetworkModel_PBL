@@ -37,7 +37,9 @@ container OD_Output : Descr = "The options of the OD pair per departure moment w
 		attribute<uint64>  V_row        := = WithPT ? 'uint64(Add_V_to_PT/V_rel[value(VPT, Add_V_to_PT)])' : 'const(0u64, .)';
 		attribute<uint64>  W_row        := = WithPT ? 'uint64(Add_V_to_PT/PT_rel[value(VPT, Add_V_to_PT)])' : 'const(0u64, .)';
 		attribute<uint64>  ChainRow     := = WithPT ? '/NetworkSetup/PublicTransport_Prep/PT_V/ChainRow[PT_InBlock/PT_V_rel[Within_VW_Window/PT_InBlock_rel[value(W_row, Within_VW_Window)]]]' : 'const(0u64, .)'
-		,	Descr = "The row number of the chain in the chain cache of the pair, as OD_Chains/Read_ChainParts/Keten.";
+		,	Descr = "The row number of the chain in the cache of its stop block, as OD_Chains/Read_ChainParts/Keten.";
+		attribute<uint32>  StopBlock    := = WithPT ? '/NetworkSetup/PublicTransport_Prep/PT_V/StopBlock[PT_InBlock/PT_V_rel[Within_VW_Window/PT_InBlock_rel[value(W_row, Within_VW_Window)]]]' : 'const(0, ., uint32)'
+		,	Descr = "The number of the stop block of the chain, as OD_Chains/Read_ChainParts/StopBlock (#178).";
 		attribute<Places>  V_Stop_Place := = WithPT ? 'V/To_Place_rel[value(V_row, V)]' : 'const(value(null_u, Places), .)';
 		attribute<Places>  N_Stop_Place := = WithPT ? 'N/From_Place_rel[value(N_row, N)]' : 'const(value(null_u, Places), .)';
 		attribute<Modes>   V_Mode       := = WithPT ? 'V/Mode_rel[value(V_row, V)]' : 'const(value(null_b, Modes), .)';
@@ -53,10 +55,13 @@ container OD_Output : Descr = "The options of the OD pair per departure moment w
 	}
 	// The parts of the chain of every public transport option, from the parts in the chain cache of the pair.
 	unit<uint64>      ChainParts                 := = WithPT ? '/NetworkSetup/PublicTransport_Prep/OD_Chains/Read_ChainParts' : '/NetworkSetup/PublicTransport_Prep/OD_Chains/ChainParts_Empty', Descr = "The parts (rides and transfers) in the chain cache of the pair, or without public transport an empty set, because then there is no chain cache.";
-	unit<uint64> PT_Parts := join_equal_values_uint64(PT/ChainRow, ChainParts/Keten)
+	// ChainRow and Keten are row numbers in the cache of a stop block, so the join on them gives the parts of the chains with that row
+	// number in every block; PT_Parts keeps those of the block of the chain of the option (#178).
+	unit<uint64> PT_Parts_SameRow := join_equal_values_uint64(PT/ChainRow, ChainParts/Keten);
+	unit<uint64> PT_Parts := select_with_org_rel(PT/StopBlock[PT_Parts_SameRow/first_rel] == ChainParts/StopBlock[PT_Parts_SameRow/second_rel])
 	{
-		attribute<PT>        PT_rel       := first_rel;
-		attribute<ChainParts> ChainPart_rel := second_rel;
+		attribute<PT>        PT_rel       := PT_Parts_SameRow/first_rel[org_rel];
+		attribute<ChainParts> ChainPart_rel := PT_Parts_SameRow/second_rel[org_rel];
 	}
 	attribute<uint32> NrParts              (PT) := pcount_uint32(PT_Parts/PT_rel);
 	attribute<bool>   PT_IsWalkingV        (PT) := PT/V_Mode == Modes/V/Walking;
