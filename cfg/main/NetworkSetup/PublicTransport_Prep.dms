@@ -158,17 +158,30 @@ container PublicTransport_Prep
 		{
 			attribute<.>           rnd_rel   := rnd_permutation(0, .);
 			attribute<BlockDomain> Block_rel := =ModelParameters/Impl/IsOD
-			                                    ? '/NetworkSetup/PublicTransport_Prep/OD_Stops/IsVStop[/NetworkSetup/PublicTransport_Prep/impl/Stops/Place_rel] ? value(0, BlockDomain) : value(null_u, BlockDomain)'
+			                                    ? 'OD_VStops/Block_rel[invert(OD_VStops/org_rel)]'
 			                                    : 'value(rnd_rel / ModelParameters/Advanced/MaxStopBlockSize, BlockDomain)'
-			, Descr = "The stop block of the chain step in which a chain boarding at this stop is calculated: a random block of MaxStopBlockSize stops, or for an OD pair (#129) the one block of the stops of the origin (OD_Stops/IsVStop) and no block for other stops.";
-		}	
-		unit<uint32> BlockDomain := range(0, ModelParameters/Advanced/NumberOfStopBlocks), Descr = "The stop blocks of the chain step: NumberOfStopBlocks blocks of at most MaxStopBlockSize stops."
+			, Descr = "The stop block of the chain step in which a chain boarding at this stop is calculated: a random block of MaxStopBlockSize stops, or for an OD pair (#129, #178) the block of the stop in OD_VStops, and no block for a stop that the origin does not reach.";
+		}
+		unit<uint32> OD_VStops := select_with_org_rel(/NetworkSetup/PublicTransport_Prep/OD_Stops/IsVStop[Stops/Place_rel])
+		, Descr = "Only in the OD pair mode: the stops that the origin reaches with a pre-transport type (OD_Stops/IsVStop), dealt in a fixed random order over the stop blocks, so that the blocks differ at most one stop in size (#178)."
+		{
+			attribute<.>           rnd_rel   := rnd_permutation(0, .);
+			attribute<BlockDomain> Block_rel := value(rnd_rel % #BlockDomain, BlockDomain);
+		}
+		// Indirect, so that the whole model does not calculate OD_Stops. The count is here and not in ModelParameters/Advanced/NumberOfStopBlocks,
+		// because that setting goes into the metadata of every file that a run writes: an OD pair run without public transport would then
+		// calculate the stops of its origin as well.
+		parameter<uint32> NrStopBlocks := = ModelParameters/Impl/IsOD
+		                                    ? 'max_elem((/NetworkSetup/PublicTransport_Prep/OD_Stops/NrVStops + ModelParameters/Advanced/MaxStopBlockSize - 1) / ModelParameters/Advanced/MaxStopBlockSize, 1)'
+		                                    : 'ModelParameters/Advanced/NumberOfStopBlocks'
+		, Descr = "The number of stop blocks of the chain step: NumberOfStopBlocks, or for an OD pair as many blocks of at most MaxStopBlockSize stops as the stops that its origin reaches need (OD_Stops/NrVStops, #178), each calculated in a GeoDmsRun of its own (batch/WriteChainBlocks.ps1).";
+		unit<uint32> BlockDomain := range(0, NrStopBlocks), Descr = "The stop blocks of the chain step: NrStopBlocks blocks of at most MaxStopBlockSize stops."
 		{
 			attribute<string> name        := 'Block_'+string(id(.)+1)+'of'+string(max(id(.))+1);
 			attribute<string> CacheName   := string(id(.)+1)+'of'+string(max(id(.))+1), Descr = "Name of the block cache in StorageBlockDir_Str, without 'Block_' to keep the path short.";
 			attribute<uint64> BlockOffset := min_elem(uint64(id(.)) * uint64(ModelParameters/Advanced/MaxStopBlockSize), uint64(#BlockSelections));
 			attribute<uint64> BlockEnd    := min_elem(BlockOffset + uint64(ModelParameters/Advanced/MaxStopBlockSize), uint64(#BlockSelections));
-			attribute<uint32> BlockSize   := uint32(BlockEnd - BlockOffset);
+			attribute<uint32> BlockSize   := =ModelParameters/Impl/IsOD ? 'pcount_uint32(OD_VStops/Block_rel)' : 'uint32(BlockEnd - BlockOffset)', Descr = "The number of stops in the block; for an OD pair those of OD_VStops (#178).";
 		}
 	} 
 
@@ -842,7 +855,8 @@ container PublicTransport_Prep
 	}
 	
 	// The chain cache per block (ModelParameters/Advanced/PT_Chains_PerBlock): a reader per block, the blocks that are still missing
-	// (without <n>of<N>.done, see ChainGeneration_PerBlock_T/Write) and the list of their writers for batch/WriteChainBlocks.ps1.
+	// (without <n>of<N>.done, see ChainGeneration_PerBlock_T/Write, or for an OD pair without the parts of their chains) and the list of
+	// their writers for batch/WriteChainBlocks.ps1.
 	container PT_Chains_Blocks
 	{
 		Template ReadBlock_T
@@ -868,7 +882,9 @@ container PublicTransport_Prep
 				attribute</NetworkSetup/PublicTransport_Prep/uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel;
 				attribute</NetworkSetup/PublicTransport_Prep/uq_c_ToTime_Stop> uq_c_ToTime_Stop_rel;
 			}
-			parameter<bool> IsWritten          := ExistingFile('', /NetworkSetup/PublicTransport_Prep/StorageBlockDir_Str + '/' + CacheName + '.done') != '';
+			parameter<bool> IsWritten          := ExistingFile('', /NetworkSetup/PublicTransport_Prep/StorageBlockDir_Str + '/' + CacheName + '.done') != ''
+			                                      && (!ModelParameters/Impl/IsOD || ExistingFile('', /NetworkSetup/PublicTransport_Prep/StorageBlockDir_Str + '/' + CacheName + '_onderdelen.mmd/0Dictionary.dms') != '')
+			, Descr = "Is the cache of the block complete: <n>of<N>.done, and for an OD pair also the dictionary of the parts of its chains (OD_Chains/PerBlock/<block>/Write_ChainParts), which GeoDMS writes last (#178)?";
 
 			// The chains of this stop block that the output can use (for PT_V): those that board at a stop where a pre-transport leg of the
 			// component ends, with the columns the departure moments read.
@@ -898,7 +914,7 @@ container PublicTransport_Prep
 		parameter<uint32> NrWritten                    := sum(uint32(IsWritten));
 		unit<uint32> ToDo := select_with_attr_by_cond(impl/BlockDomain, NOT(IsWritten))
 		{
-			attribute<string> Item := ModelParameters/Impl/IsOD ? '/NetworkSetup/PublicTransport_Prep/OD_Chains/Write' : '/NetworkSetup/PublicTransport_Prep/ChainGeneration_PerBlock/' + name + '/Write', Descr = "The writer of the block; for an OD pair (#129) OD_Chains/Write, which also writes the parts and links of the chains in the same request.";
+			attribute<string> Item := (ModelParameters/Impl/IsOD ? '/NetworkSetup/PublicTransport_Prep/OD_Chains/PerBlock/' : '/NetworkSetup/PublicTransport_Prep/ChainGeneration_PerBlock/') + name + '/Write', Descr = "The writer of the block; for an OD pair (#129, #178) OD_Chains/PerBlock/<block>/Write, which also writes the parts of the chains of the block in the same request.";
 		}
 		parameter<bool>   Single_IsWritten             := /NetworkSetup/PublicTransport_Prep/PT_Chains_Sig/IsChecked && ExistingFile('', expand(., /NetworkSetup/PublicTransport_Prep/StorageName_Str + '/0Dictionary.dms')) != ''
 		, Descr = "Is the one chain cache (PT_Chains_PerBlock FALSE) there with the current signature? GeoDMS writes the dictionary of the mmd last, so an interrupted cache counts as missing.";
@@ -906,8 +922,8 @@ container PublicTransport_Prep
 		                                                  ? AsList(ToDo/Item, '\n')
 		                                                  : (Single_IsWritten ? '' : '/NetworkSetup/PublicTransport_Prep/ChainGeneration_Single/Write')
 		, StorageName = "%ConfigDir%/../../batch/log/chain_blocks_todo.txt", StorageType = "str"
-		, ExplicitSuppliers = "/NetworkSetup/PublicTransport_Prep/PT_Chains_Sig/ForWriting"
-		, Descr = "The writers of the chain cache that are still missing, one per line, for batch/WriteChainBlocks.ps1: those of the blocks without a cache, or with PT_Chains_PerBlock FALSE that of the one cache; before anything is calculated, it writes or checks the signature (PT_Chains_Sig/ForWriting).";
+		, ExplicitSuppliers = "='/NetworkSetup/PublicTransport_Prep/PT_Chains_Sig/ForWriting' + (ModelParameters/Impl/IsOD ? ';/NetworkSetup/PublicTransport_Prep/Write_PrePostTransport' : '')"
+		, Descr = "The writers of the chain cache that are still missing, one per line, for batch/WriteChainBlocks.ps1: those of the blocks without a cache, or with PT_Chains_PerBlock FALSE that of the one cache; before anything is calculated, it writes or checks the signature (PT_Chains_Sig/ForWriting). For an OD pair it first writes the caches of the pre- and post-transport (Write_PrePostTransport), from which the list and every block take the stops of the origin and the destination, so that they are calculated once (#178).";
 	}
 
 
@@ -970,7 +986,8 @@ container PublicTransport_Prep
 		attribute<s>      PTWaitTime       := =ModelParameters/Advanced/PT_Chains_PerBlock ? 'union_data(., ' + AsItemList('PT_Chains_Blocks/PerBlock/' + impl/BlockDomain/name + '/VBoarding/PTWaitTime') + ')' : 'collect_by_cond(., IsVBoarding_PT, PT/PTWaitTime)';
 		attribute<uq_c_FromTime_Stop> uq_c_FromTime_Stop_rel := =ModelParameters/Advanced/PT_Chains_PerBlock ? 'union_data(., ' + AsItemList('PT_Chains_Blocks/PerBlock/' + impl/BlockDomain/name + '/VBoarding/uq_c_FromTime_Stop_rel') + ')' : 'collect_by_cond(., IsVBoarding_PT, PT/uq_c_FromTime_Stop_rel)';
 		attribute<uq_c_ToTime_Stop> uq_c_ToTime_Stop_rel := =ModelParameters/Advanced/PT_Chains_PerBlock ? 'union_data(., ' + AsItemList('PT_Chains_Blocks/PerBlock/' + impl/BlockDomain/name + '/VBoarding/uq_c_ToTime_Stop_rel') + ')' : 'collect_by_cond(., IsVBoarding_PT, PT/uq_c_ToTime_Stop_rel)';
-		attribute<uint64> ChainRow         := =ModelParameters/Advanced/PT_Chains_PerBlock ? 'union_data(., ' + AsItemList('PT_Chains_Blocks/PerBlock/' + impl/BlockDomain/name + '/VBoarding/ChainRow') + ')' : 'collect_by_cond(., IsVBoarding_PT, id(PT))', Descr = "The row number of the chain in the cache of its block (#129; only requested in the OD pair mode, with one block: OD_Chains/Read_ChainParts/Keten).";
+		attribute<uint64> ChainRow         := =ModelParameters/Advanced/PT_Chains_PerBlock ? 'union_data(., ' + AsItemList('PT_Chains_Blocks/PerBlock/' + impl/BlockDomain/name + '/VBoarding/ChainRow') + ')' : 'collect_by_cond(., IsVBoarding_PT, id(PT))', Descr = "The row number of the chain in the cache of its block (#129; only requested in the OD pair mode, with StopBlock: OD_Chains/Read_ChainParts/Keten).";
+		attribute<uint32> StopBlock        := =ModelParameters/Advanced/PT_Chains_PerBlock ? 'union_data(., ' + AsItemList('const(' + string(id(impl/BlockDomain)) + ', PT_Chains_Blocks/PerBlock/' + impl/BlockDomain/name + '/VBoarding, uint32)') + ')' : 'const(0, ., uint32)', Descr = "The number of the stop block of the chain in impl/BlockDomain (#178; only requested in the OD pair mode, with ChainRow: OD_Chains/Read_ChainParts/StopBlock).";
 	}
 
 	// The signature of the chain cache: all parameters the chains depend on. It stands as a hash in the name (StorageBase_Str,
@@ -1013,7 +1030,7 @@ container PublicTransport_Prep
 	                                                ModelParameters/Advanced/PT_Chains_PerBlock ? StorageBlockDir_Str : StorageName_Str
 	                                              , (ModelParameters/Advanced/PT_Chains_PerBlock ? StorageBlockDir_Str : StorageName_Str) + '/signature.txt'
 	                                              , PT_Chains_Signature
-	                                              , ModelParameters/Advanced/PT_Chains_PerBlock ? max(strlen('/' + impl/BlockDomain/CacheName + '.parquet')) : strlen('/uq_c_FromTime_Stop_rel')
+	                                              , ModelParameters/Advanced/PT_Chains_PerBlock ? max(strlen('/' + impl/BlockDomain/CacheName + (ModelParameters/Impl/IsOD ? '_onderdelen.mmd/0Dictionary.dms' : '.parquet'))) : strlen('/uq_c_FromTime_Stop_rel')
 	                                              )
 	, Descr = "The signature in the folder of the chain cache (signature.txt): ChainGeneration_PerBlock/<block>/Parquet/Chains, ChainGeneration_Single/Write and PT_Chains_Blocks/ToDo_List write it and check the longest path (the parquet of a block, or in the one cache uq_c_FromTime_Stop_rel as the longest attribute name); ChainGeneration_Single/Read and PT_Chains_Blocks/PerBlock/<block>/Read check it.";
 		

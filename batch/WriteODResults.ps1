@@ -24,8 +24,10 @@
 # The engine must know pareto with LinkSet (ObjectVision/GeoDMS#1325) for the car routes, and the model asks for GeoDMS 20.28.0 or later
 # (cfg/main.dms).
 # Every step skips a cache that exists, so after a change to the output only the output is calculated again. Run long runs as a one-off scheduled task (see the wiki, How to run the model). -WaitForMemoryGB waits until that much
-# memory is available before the run starts, so that the pair does not make other runs page; the chain step calculates all
-# public transport rides of the network (about 40 to 50 GB). -Ref takes another commit than HEAD, for a comparison before and after a change;
+# memory is available before the run starts, so that the pair does not make other runs page. The chain step writes the pre- and
+# post-transport of the pair first (about 13 GB) and then calculates its chains in stop blocks, each in a GeoDmsRun of its own (#178):
+# about 2 GB per block from BU04020501 in Hilversum, up to 69 GB from BU0363KP03 at the VU in Amsterdam, which reaches many busy stops.
+# -Ref takes another commit than HEAD, for a comparison before and after a change;
 # give each version its own -Root, so that one run copy does not replace the other (skill od-paar-beelden).
 param(
 	[Parameter(Mandatory=$true)][string]$Org,

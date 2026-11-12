@@ -17,8 +17,9 @@
 #
 # For example, from BU04020501 in Hilversum to BU0363KP03 in Amsterdam at 07:30 (the wiki, Routes of an OD pair):
 #   powershell -ExecutionPolicy Bypass -File batch\ODPairReport.ps1 -Org BU04020501 -Dest BU0363KP03 -Moment 07:30 `
-#     -Components 'WW,CC,Car,W_PT_W,C_PT_W,C_PT_ovfC' -WaitForMemoryGB 50
-# The run step calculates the chains of all rides of the network (about 40 to 50 GB); start a long run as a one-off scheduled task with
+#     -Components 'WW,CC,Car,W_PT_W,C_PT_W,C_PT_ovfC' -WaitForMemoryGB 15
+# The chain step of the run needs about 13 GB to write the pre- and post-transport, and then about 2 GB per stop block for this pair, up to
+# 69 GB for an origin that reaches many busy stops, such as the VU in Amsterdam (#178); start a long run as a one-off scheduled task with
 # -Steps run,export, and make the pictures afterwards with -Steps images.
 param(
 	[Parameter(Mandatory = $true)][string]$Org,
