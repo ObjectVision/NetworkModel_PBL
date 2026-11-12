@@ -77,6 +77,8 @@ Comments explain why, not what used to be there. Remove commented-out code; git 
 
 The SourceData folders that synchronise with the PBL Nextcloud share are shared by everyone using the model, and a file written there often cannot be removed or changed afterwards. Read freely, but write nothing there: no downloads, unpacked archives, copies, derived data or output, also not through a `StorageName` or a script. Downloads and intermediate files go to a working folder outside the share, derived data to `%LocalDataProjDir%`. When data turns out to be needed, tell the user which file, its source and vintage, where in SourceData it belongs and which item reads it; the user places it, or asks in the session for that one file to be placed.
 
+A repair of source data is defined in the project's own files, in a `.dms` or a `.csv` in the repo, and never by changing the file in SourceData, so that the source stays as it was delivered and git keeps the repair. Examples are `Classifications/FareLineTerms`, which gives a route of the feed its fare line from a piece of text in the route name, and `data/Tarieven_NS/NS_tariefnet_2016.csv`, which adjusts 69 edges of the delivered tariff network to the tariff unit map of NS.
+
 ## Storage: mmd and parquet, no fss
 
 Write no new fss. A large dataset that only GeoDMS reads back becomes an mmd. Something small becomes an open file that QGIS, R, Python or a colleague can read: a tif for a raster (always with its `.tfw`), a gpkg for polygons and points, a parquet for a table. A large csv that every run reads again becomes parquet. Convert an existing fss when you rebuild it anyway. Why and the mmd pitfalls: skill `werkafspraken`.
