@@ -154,15 +154,21 @@ Template CreateNetwork_TomTom_T : Descr = "Builds the TomTom car network from Ro
 				attribute<rdc>            geometry         := union_data(., Junctions/geometry[F_JNCT_rel], Junctions/geometry[T_JNCT_rel]);
 				attribute<uint64>         JNCTID           := union_data(., F_JNCTID, T_JNCTID);
 				attribute<uqGeoJunctions> UqGeoJunctionsID := rlookup(geometry, uqGeoJunctions/geometry);
-				attribute<bool>           Connectable      := rjoin(JNCTID, Road_linestrings/F_JNCTID, Road_linestrings/Connectable) || rjoin(JNCTID, Road_linestrings/T_JNCTID, Road_linestrings/Connectable);
-			}  
+				attribute<bool>           Connectable      := union_data(., Road_linestrings/Connectable, Road_linestrings/Connectable), Descr = "May origins and destinations connect here through this road element (#158)?";
+			}
+			unit<uint32> ConnectableJunctions := select(UseableJunctions/Connectable)
+			, Descr = "The begin and end nodes of the road elements that may get origins and destinations."
+			{
+				attribute<uint64>         JNCTID           := collect_by_cond(., UseableJunctions/Connectable, UseableJunctions/JNCTID);
+				attribute<uqGeoJunctions> UqGeoJunctionsID := collect_by_cond(., UseableJunctions/Connectable, UseableJunctions/UqGeoJunctionsID);
+			}
 			//needed for OD-connection lines
 			unit<uint32> uqGeoJunctions := unique(UseableJunctions/geometry)
+			, Descr = "The node locations: the nodes on the same point together, which can lie on different z-levels and then are not linked in the network."
 			{
 				attribute<rdc>     geometry    := values;
-				attribute<uint64>  JNCTID      := first(UseableJunctions/JNCTID, UseableJunctions/UqGeoJunctionsID);
-				attribute<UseableJunctions> Junctions_rel := first(id(UseableJunctions), UseableJunctions/UqGeoJunctionsID);
-				attribute<float64> Connectable := float64(any(UseableJunctions/Connectable, UseableJunctions/UqGeoJunctionsID));
+				attribute<uint64>  JNCTID      := MakeDefined(first(ConnectableJunctions/JNCTID, ConnectableJunctions/UqGeoJunctionsID), first(UseableJunctions/JNCTID, UseableJunctions/UqGeoJunctionsID)), Descr = "The node that origins and destinations connect to: one of a road element that may get them, else the first node of the location (#158).";
+				attribute<float64> Connectable := float64(any(UseableJunctions/Connectable, UseableJunctions/UqGeoJunctionsID)), Descr = "Does at least one road element at this location get origins and destinations, as capacity for capacitated_connect (#158)?";
 			}
 		}
 
