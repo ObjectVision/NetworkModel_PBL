@@ -25,8 +25,9 @@
 # (cfg/main.dms).
 # Every step skips a cache that exists, so after a change to the output only the output is calculated again. Run long runs as a one-off scheduled task (see the wiki, How to run the model). -WaitForMemoryGB waits until that much
 # memory is available before the run starts, so that the pair does not make other runs page. The chain step writes the pre- and
-# post-transport of the pair first (about 13 GB) and then calculates its chains in stop blocks, each in a GeoDmsRun of its own (#178):
-# about 2 GB per block from BU04020501 in Hilversum, up to 69 GB from BU0363KP03 at the VU in Amsterdam, which reaches many busy stops.
+# post-transport of the pair first (13.0 to 16.4 GB) and then calculates its chains in stop blocks, each in a GeoDmsRun of its own (#178).
+# With about as many stops per block, a block needed at most 1.7 GB from BU04020501 in Hilversum to the VU and up to 68.8 GB from BU0363KP03
+# at the VU to PBL in The Hague: the number of stops does not explain the memory (the wiki, Routes of an OD pair, step 5).
 # -Ref takes another commit than HEAD, for a comparison before and after a change;
 # give each version its own -Root, so that one run copy does not replace the other (skill od-paar-beelden).
 param(
